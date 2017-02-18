@@ -125,6 +125,12 @@ namespace {
                         cl::init(false),
 			cl::desc("Allow calls with symbolic arguments to external functions.  This concretizes the symbolic arguments.  (default=off)"));
 
+  cl::opt<bool>
+  AssumeInboundPointers("assume-inbound-pointers",
+                        cl::init(false),
+      cl::desc("Assume pointer dereferences are inbounds. (default=off)"));
+
+
   /// The different query logging solvers that can switched on/off
   enum PrintDebugInstructionsType {
     STDERR_ALL, ///
@@ -3337,9 +3343,20 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
     bool inBounds;
     solver->setTimeout(coreSolverTimeout);
-    bool success = solver->mustBeTrue(state, 
-                                      mo->getBoundsCheckOffset(offset, bytes),
-                                      inBounds);
+
+    // RLR: probably not the best way to do this
+    ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
+    bool success = solver->mustBeTrue(state, mc, inBounds);
+    
+    if (AssumeInboundPointers && success && !inBounds) {
+
+        // not in bounds, so add constraint and try, try, again
+        klee_warning("cannot prove pointer inbounds, adding constraint");
+        ExprPPrinter::printOne(llvm::errs(), "Expr", mc);        
+        addConstraint(state, mc);
+        success = solver->mustBeTrue(state, mc, inBounds);
+    }
+
     solver->setTimeout(0);
     if (!success) {
       state.pc = state.prevPC;
