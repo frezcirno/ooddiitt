@@ -248,7 +248,8 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
       if (buff)
       {
         // FIXME: Maybe load bitcode file lazily? Then if we need to link, materialise the module
-        Result = ParseBitcodeFile(buff.get(), getGlobalContext(), &errorMessage);
+        Result = ParseBitcodeFile(buff.get(), composite->getContext(),
+	    &errorMessage);
 
         if(!Result)
         {
@@ -265,9 +266,9 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
       }
 
     }
-    else if (object::ObjectFile *o = dyn_cast<object::ObjectFile>(child.get()))
+    else if (child.get()->isObject())
     {
-      SS << "Object file " << o->getFileName().data() <<
+      SS << "Object file " << child.get()->getFileName().data() <<
             " in archive is not supported";
       SS.flush();
       return false;
@@ -378,7 +379,7 @@ Module *klee::linkWithLibrary(Module *module,
 
   sys::fs::file_magic magic = sys::fs::identify_magic(Buffer->getBuffer());
 
-  LLVMContext &Context = getGlobalContext();
+  LLVMContext &Context = module->getContext();
   std::string ErrorMessage;
 
   if (magic == sys::fs::file_magic::bitcode) {
@@ -411,10 +412,10 @@ Module *klee::linkWithLibrary(Module *module,
 
   } else if (magic.is_object()) {
     OwningPtr<object::Binary> obj;
-    if (object::ObjectFile *o = dyn_cast<object::ObjectFile>(obj.get())) {
+    if (obj.get()->isObject()) {
       klee_warning("Link with library: Object file %s in archive %s found. "
           "Currently not supported.",
-          o->getFileName().data(), libraryName.c_str());
+          obj.get()->getFileName().data(), libraryName.c_str());
     }
   } else {
     klee_error("Link with library %s failed: Unrecognized file type.",
@@ -436,23 +437,33 @@ Module *klee::linkWithLibrary(Module *module,
 #endif
 }
 
-
-
-Function *klee::getDirectCallTarget(CallSite cs) {
+Function *klee::getDirectCallTarget(CallSite cs, bool moduleIsFullyLinked) {
   Value *v = cs.getCalledValue();
-  if (Function *f = dyn_cast<Function>(v)) {
-    return f;
-  } else if (llvm::ConstantExpr *ce = dyn_cast<llvm::ConstantExpr>(v)) {
-    if (ce->getOpcode()==Instruction::BitCast)
-      if (Function *f = dyn_cast<Function>(ce->getOperand(0)->stripPointerCasts()))
-        return f;
+  bool viaConstantExpr = false;
+  // Walk through aliases and bitcasts to try to find
+  // the function being called.
+  do {
+    if (Function *f = dyn_cast<Function>(v)) {
+      return f;
+    } else if (llvm::GlobalAlias *ga = dyn_cast<GlobalAlias>(v)) {
+      if (moduleIsFullyLinked || !(ga->mayBeOverridden())) {
+        v = ga->getAliasee();
+      } else {
+        v = NULL;
+      }
+    } else if (llvm::ConstantExpr *ce = dyn_cast<llvm::ConstantExpr>(v)) {
+      viaConstantExpr = true;
+      v = ce->getOperand(0)->stripPointerCasts();
+    } else {
+      v = NULL;
+    }
+  } while (v != NULL);
 
-    // NOTE: This assert may fire, it isn't necessarily a problem and
-    // can be disabled, I just wanted to know when and if it happened.
-    assert(0 && "FIXME: Unresolved direct target for a constant expression.");
-  }
-  
-  return 0;
+  // NOTE: This assert may fire, it isn't necessarily a problem and
+  // can be disabled, I just wanted to know when and if it happened.
+  assert((!viaConstantExpr) &&
+         "FIXME: Unresolved direct target for a constant expression");
+  return NULL;
 }
 
 static bool valueIsOnlyCalled(const Value *v) {

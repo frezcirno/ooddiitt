@@ -41,6 +41,7 @@ namespace llvm {
   class Function;
   class GlobalValue;
   class Instruction;
+  class LLVMContext;
 #if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
   class TargetData;
 #else
@@ -434,7 +435,8 @@ private:
   void doDumpStates();
 
 public:
-  Executor(const InterpreterOptions &opts, InterpreterHandler *ie);
+  Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts,
+      InterpreterHandler *ie);
   virtual ~Executor();
 
   const InterpreterHandler& getHandler() {
@@ -485,6 +487,8 @@ public:
     inhibitForking = value;
   }
 
+  void prepareForEarlyExit();
+
   /*** State accessor methods ***/
 
   virtual unsigned getPathStreamID(const ExecutionState &state);
@@ -505,6 +509,7 @@ public:
                                std::map<const std::string*, std::set<unsigned> > &res);
 
   Expr::Width getWidthForLLVMType(LLVM_TYPE_Q llvm::Type *type) const;
+  size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 };
   
 } // End klee namespace

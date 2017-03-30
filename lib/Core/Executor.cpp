@@ -44,6 +44,7 @@
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/FloatEvaluation.h"
+#include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/System/Time.h"
 #include "klee/Internal/System/MemoryUsage.h"
 #include "klee/SolverStats.h"
@@ -296,11 +297,18 @@ namespace {
 		    clEnumValEnd),
 		  cl::ZeroOrMore);
 
+#if LLVM_VERSION_CODE < LLVM_VERSION(3, 0)
   cl::opt<unsigned int>
   StopAfterNInstructions("stop-after-n-instructions",
                          cl::desc("Stop execution after specified number of instructions (default=0 (off))"),
                          cl::init(0));
-
+#else
+  cl::opt<unsigned long long>
+  StopAfterNInstructions("stop-after-n-instructions",
+                         cl::desc("Stop execution after specified number of instructions (default=0 (off))"),
+                         cl::init(0));
+#endif
+  
   cl::opt<unsigned>
   MaxForks("max-forks",
            cl::desc("Only fork this many times (default=-1 (off))"),
@@ -342,9 +350,10 @@ const char *Executor::TerminateReasonNames[] = {
   [ Unhandled ] = "xxx",
 };
 
-Executor::Executor(const InterpreterOptions &opts, InterpreterHandler *ih)
+Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
+    InterpreterHandler *ih)
     : Interpreter(opts), kmodule(0), interpreterHandler(ih), searcher(0),
-      externalDispatcher(new ExternalDispatcher()), statsTracker(0),
+      externalDispatcher(new ExternalDispatcher(ctx)), statsTracker(0),
       pathWriter(0), symPathWriter(0), specialFunctionHandler(0),
       processTree(0), replayKTest(0), replayPath(0), usingSeeds(0),
       atMemoryLimit(false), inhibitForking(false), haltExecution(false),
@@ -536,7 +545,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
   // ensures that we won't conflict. we don't need to allocate a memory object
   // since reading/writing via a function pointer is unsupported anyway.
   for (Module::iterator i = m->begin(), ie = m->end(); i != ie; ++i) {
-    Function *f = i;
+    Function *f = static_cast<Function *>(i);
     ref<ConstantExpr> addr(0);
 
     // If the symbol has external weak linkage then it is implicitly
@@ -590,6 +599,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
   for (Module::const_global_iterator i = m->global_begin(),
          e = m->global_end();
        i != e; ++i) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+    size_t globalObjectAlignment = getAllocationAlignment(v);
     if (i->isDeclaration()) {
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
@@ -621,10 +632,12 @@ void Executor::initializeGlobals(ExecutionState &state) {
 			(int)i->getName().size(), i->getName().data());
       }
 
-      MemoryObject *mo = memory->allocate(size, false, true, i);
+      MemoryObject *mo = memory->allocate(size, /*isLocal=*/false,
+                                          /*isGlobal=*/true, /*allocSite=*/v,
+                                          /*alignment=*/globalObjectAlignment);
       ObjectState *os = bindObjectInState(state, mo, false);
-      globalObjects.insert(std::make_pair(i, mo));
-      globalAddresses.insert(std::make_pair(i, mo->getBaseExpr()));
+      globalObjects.insert(std::make_pair(v, mo));
+      globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
 
       // Program already running = object already initialized.  Read
       // concrete value and write it to our copy.
@@ -645,12 +658,14 @@ void Executor::initializeGlobals(ExecutionState &state) {
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-      MemoryObject *mo = memory->allocate(size, false, true, &*i);
+      MemoryObject *mo = memory->allocate(size, /*isLocal=*/false,
+                                          /*isGlobal=*/true, /*allocSite=*/v,
+                                          /*alignment=*/globalObjectAlignment);
       if (!mo)
         llvm::report_fatal_error("out of memory");
       ObjectState *os = bindObjectInState(state, mo, false);
-      globalObjects.insert(std::make_pair(i, mo));
-      globalAddresses.insert(std::make_pair(i, mo->getBaseExpr()));
+      globalObjects.insert(std::make_pair(v, mo));
+      globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
 
       if (!i->hasInitializer())
           os->initializeToRandom();
@@ -661,8 +676,9 @@ void Executor::initializeGlobals(ExecutionState &state) {
   for (Module::alias_iterator i = m->alias_begin(), ie = m->alias_end();
        i != ie; ++i) {
     // Map the alias to its aliasee's address. This works because we have
-    // addresses for everything, even undefined functions.
-    globalAddresses.insert(std::make_pair(i, evalConstant(i->getAliasee())));
+    // addresses for everything, even undefined functions. 
+    globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i),
+	  evalConstant(i->getAliasee())));
   }
 
   // once all objects are allocated, do the actual initialization
@@ -670,7 +686,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
          e = m->global_end();
        i != e; ++i) {
     if (i->hasInitializer()) {
-      MemoryObject *mo = globalObjects.find(i)->second;
+      const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+      MemoryObject *mo = globalObjects.find(v)->second;
       const ObjectState *os = state.addressSpace.findObject(mo);
       assert(os);
       ObjectState *wos = state.addressSpace.getWriteable(mo, os);
@@ -965,14 +982,18 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
     falseState->ptreeNode = res.first;
     trueState->ptreeNode = res.second;
 
-    if (!isInternal) {
-      if (pathWriter) {
-        falseState->pathOS = pathWriter->open(current.pathOS);
+    if (pathWriter) {
+      // Need to update the pathOS.id field of falseState, otherwise the same id
+      // is used for both falseState and trueState.
+      falseState->pathOS = pathWriter->open(current.pathOS);
+      if (!isInternal) {
         trueState->pathOS << "1";
         falseState->pathOS << "0";
       }
-      if (symPathWriter) {
-        falseState->symPathOS = symPathWriter->open(current.symPathOS);
+    }
+    if (symPathWriter) {
+      falseState->symPathOS = symPathWriter->open(current.symPathOS);
+      if (!isInternal) {
         trueState->symPathOS << "1";
         falseState->symPathOS << "0";
       }
@@ -1224,8 +1245,11 @@ void Executor::printDebugInstructions(ExecutionState &state) {
     stream = &debugLogBuffer;
 
   if (!optionIsSet(DebugPrintInstructions, STDERR_COMPACT) &&
-      !optionIsSet(DebugPrintInstructions, FILE_COMPACT))
-    printFileLine(state, state.pc, *stream);
+      !optionIsSet(DebugPrintInstructions, FILE_COMPACT)) {
+    (*stream) << "     ";
+    state.pc->printFileLine(*stream);
+    (*stream) << ":";
+  }
 
   (*stream) << state.pc->info->id;
 
@@ -1450,15 +1474,6 @@ void Executor::transferToBasicBlock(BasicBlock *dst, BasicBlock *src,
   }
 }
 
-void Executor::printFileLine(ExecutionState &state, KInstruction *ki,
-                             llvm::raw_ostream &debugFile) {
-  const InstructionInfo &ii = *ki->info;
-  if (ii.file != "")
-    debugFile << "     " << ii.file << ":" << ii.line << ":";
-  else
-    debugFile << "     [no debug info]:";
-}
-
 /// Compute the true target of a function call, resolving LLVM and KLEE aliases
 /// and bitcasts.
 Function* Executor::getTargetFunction(Value *calledVal, ExecutionState &state) {
@@ -1551,7 +1566,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
       if (!isVoidReturn) {
         LLVM_TYPE_Q Type *t = caller->getType();
-        if (t != Type::getVoidTy(getGlobalContext())) {
+        if (t != Type::getVoidTy(i->getContext())) {
           // may need to do coercion due to bitcasts
           Expr::Width from = result->getWidth();
           Expr::Width to = getWidthForLLVMType(t);
@@ -3086,8 +3101,13 @@ void Executor::callExternalFunction(ExecutionState &state,
   }
 
   LLVM_TYPE_Q Type *resultType = target->inst->getType();
+<<<<<<< HEAD
   if (resultType != Type::getVoidTy(getGlobalContext())) {
     ref<Expr> e = ConstantExpr::fromMemory((void*) args,
+=======
+  if (resultType != Type::getVoidTy(function->getContext())) {
+    ref<Expr> e = ConstantExpr::fromMemory((void*) args, 
+>>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
                                            getWidthForLLVMType(resultType));
     bindLocal(target, state, e);
   }
@@ -3147,8 +3167,16 @@ void Executor::executeAlloc(ExecutionState &state,
                             const ObjectState *reallocFrom) {
   size = toUnique(state, size);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
+<<<<<<< HEAD
     MemoryObject *mo = memory->allocate(CE->getZExtValue(), isLocal, false,
                                         state.prevPC->inst);
+=======
+    const llvm::Value *allocSite = state.prevPC->inst;
+    size_t allocationAlignment = getAllocationAlignment(allocSite);
+    MemoryObject *mo =
+        memory->allocate(CE->getZExtValue(), isLocal, /*isGlobal=*/false,
+                         allocSite, allocationAlignment);
+>>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
@@ -3545,10 +3573,12 @@ void Executor::runFunctionAsMain(Function *f,
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
     arguments.push_back(ConstantExpr::alloc(argc, Expr::Int32));
-
     if (++ai!=ae) {
-      argvMO = memory->allocate((argc+1+envc+1+1) * NumPtrBytes, false, true,
-                                f->begin()->begin());
+      Instruction *first = static_cast<Instruction *>(f->begin()->begin());
+      argvMO =
+          memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
+                           /*isLocal=*/false, /*isGlobal=*/true,
+                           /*allocSite=*/first, /*alignment=*/8);
 
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -3591,7 +3621,13 @@ void Executor::runFunctionAsMain(Function *f,
         char *s = i<argc ? argv[i] : envp[i-(argc+1)];
         int j, len = strlen(s);
 
+<<<<<<< HEAD
         MemoryObject *arg = memory->allocate(len+1, false, true, state->pc->inst);
+=======
+        MemoryObject *arg =
+            memory->allocate(len + 1, /*isLocal=*/false, /*isGlobal=*/true,
+                             /*allocSite=*/state->pc->inst, /*alignment=*/8);
+>>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
         ObjectState *os = bindObjectInState(*state, arg, false);
@@ -3767,9 +3803,82 @@ Expr::Width Executor::getWidthForLLVMType(LLVM_TYPE_Q llvm::Type *type) const {
   return kmodule->targetData->getTypeSizeInBits(type);
 }
 
+size_t Executor::getAllocationAlignment(const llvm::Value *allocSite) const {
+  // FIXME: 8 was the previous default. We shouldn't hard code this
+  // and should fetch the default from elsewhere.
+  const size_t forcedAlignment = 8;
+  size_t alignment = 0;
+  LLVM_TYPE_Q llvm::Type *type = NULL;
+  std::string allocationSiteName(allocSite->getName().str());
+  if (const GlobalValue *GV = dyn_cast<GlobalValue>(allocSite)) {
+    alignment = GV->getAlignment();
+    if (const GlobalVariable *globalVar = dyn_cast<GlobalVariable>(GV)) {
+      // All GlobalVariables's have pointer type
+      LLVM_TYPE_Q llvm::PointerType *ptrType =
+          dyn_cast<llvm::PointerType>(globalVar->getType());
+      assert(ptrType && "globalVar's type is not a pointer");
+      type = ptrType->getElementType();
+    } else {
+      type = GV->getType();
+    }
+  } else if (const AllocaInst *AI = dyn_cast<AllocaInst>(allocSite)) {
+    alignment = AI->getAlignment();
+    type = AI->getAllocatedType();
+  } else if (isa<InvokeInst>(allocSite) || isa<CallInst>(allocSite)) {
+    // FIXME: Model the semantics of the call to use the right alignment
+    llvm::Value *allocSiteNonConst = const_cast<llvm::Value *>(allocSite);
+    const CallSite cs = (isa<InvokeInst>(allocSiteNonConst)
+                             ? CallSite(cast<InvokeInst>(allocSiteNonConst))
+                             : CallSite(cast<CallInst>(allocSiteNonConst)));
+    llvm::Function *fn =
+        klee::getDirectCallTarget(cs, /*moduleIsFullyLinked=*/true);
+    if (fn)
+      allocationSiteName = fn->getName().str();
+
+    klee_warning_once(fn != NULL ? fn : allocSite,
+                      "Alignment of memory from call \"%s\" is not "
+                      "modelled. Using alignment of %zu.",
+                      allocationSiteName.c_str(), forcedAlignment);
+    alignment = forcedAlignment;
+  } else {
+    llvm_unreachable("Unhandled allocation site");
+  }
+
+  if (alignment == 0) {
+    assert(type != NULL);
+    // No specified alignment. Get the alignment for the type.
+    if (type->isSized()) {
+      alignment = kmodule->targetData->getPrefTypeAlignment(type);
+    } else {
+      klee_warning_once(allocSite, "Cannot determine memory alignment for "
+                                   "\"%s\". Using alignment of %zu.",
+                        allocationSiteName.c_str(), forcedAlignment);
+      alignment = forcedAlignment;
+    }
+  }
+
+  // Currently we require alignment be a power of 2
+  if (!bits64::isPowerOfTwo(alignment)) {
+    klee_warning_once(allocSite, "Alignment of %zu requested for %s but this "
+                                 "not supported. Using alignment of %zu",
+                      alignment, allocSite->getName().str().c_str(),
+                      forcedAlignment);
+    alignment = forcedAlignment;
+  }
+  assert(bits64::isPowerOfTwo(alignment) &&
+         "Returned alignment must be a power of two");
+  return alignment;
+}
+
+void Executor::prepareForEarlyExit() {
+  if (statsTracker) {
+    // Make sure stats get flushed out
+    statsTracker->done();
+  }
+}
 ///
 
-Interpreter *Interpreter::create(const InterpreterOptions &opts,
+Interpreter *Interpreter::create(LLVMContext &ctx, const InterpreterOptions &opts,
                                  InterpreterHandler *ih) {
-  return new Executor(opts, ih);
+  return new Executor(ctx, opts, ih);
 }
