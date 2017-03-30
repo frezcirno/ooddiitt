@@ -3101,13 +3101,8 @@ void Executor::callExternalFunction(ExecutionState &state,
   }
 
   LLVM_TYPE_Q Type *resultType = target->inst->getType();
-<<<<<<< HEAD
-  if (resultType != Type::getVoidTy(getGlobalContext())) {
-    ref<Expr> e = ConstantExpr::fromMemory((void*) args,
-=======
   if (resultType != Type::getVoidTy(function->getContext())) {
     ref<Expr> e = ConstantExpr::fromMemory((void*) args, 
->>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
                                            getWidthForLLVMType(resultType));
     bindLocal(target, state, e);
   }
@@ -3167,16 +3162,11 @@ void Executor::executeAlloc(ExecutionState &state,
                             const ObjectState *reallocFrom) {
   size = toUnique(state, size);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
-<<<<<<< HEAD
-    MemoryObject *mo = memory->allocate(CE->getZExtValue(), isLocal, false,
-                                        state.prevPC->inst);
-=======
     const llvm::Value *allocSite = state.prevPC->inst;
     size_t allocationAlignment = getAllocationAlignment(allocSite);
     MemoryObject *mo =
         memory->allocate(CE->getZExtValue(), isLocal, /*isGlobal=*/false,
                          allocSite, allocationAlignment);
->>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
@@ -3621,13 +3611,9 @@ void Executor::runFunctionAsMain(Function *f,
         char *s = i<argc ? argv[i] : envp[i-(argc+1)];
         int j, len = strlen(s);
 
-<<<<<<< HEAD
-        MemoryObject *arg = memory->allocate(len+1, false, true, state->pc->inst);
-=======
         MemoryObject *arg =
             memory->allocate(len + 1, /*isLocal=*/false, /*isGlobal=*/true,
                              /*allocSite=*/state->pc->inst, /*alignment=*/8);
->>>>>>> c08cb14c6767bfab9d56772771e3538b46b8bd4a
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
         ObjectState *os = bindObjectInState(*state, arg, false);
