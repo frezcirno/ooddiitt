@@ -304,6 +304,20 @@ private:
                               ref<Expr> value /* undef if read */,
                               KInstruction *target /* undef if write */);
 
+  bool executeFastReadMemoryOperation(ExecutionState &state,
+                                      ref<Expr> address,
+                                      KInstruction *target);
+  
+  bool executeFastWriteMemoryOperation(ExecutionState &state,
+                                       ref<Expr> address,
+                                       ref<Expr> value);
+
+  void executeFullMemoryOperation(ExecutionState &state,
+                                  bool isWrite,
+                                  ref<Expr> address,
+                                  ref<Expr> value /* undef if read */,
+                                  KInstruction *target /* undef if write */);
+  
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);
 
@@ -476,6 +490,8 @@ public:
                                  int argc,
                                  char **argv,
                                  char **envp);
+
+  virtual void runFunctionUnconstrained(llvm::Function *f);
 
   /*** Runtime options ***/
   

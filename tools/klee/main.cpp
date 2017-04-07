@@ -1284,6 +1284,16 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
+  // build a list of function in the initially loaded module
+  // klee will add functions later. we will want to ignore those
+  std::set<Function *> userFns;
+  for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
+    llvm::Function &fn = *fnIter;
+    if (!fn.isIntrinsic()) {
+      userFns.insert(&fn);
+    }
+  }
+  
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1501,7 +1511,18 @@ int main(int argc, char **argv, char **envp) {
                    sys::StrError(errno).c_str());
       }
     }
-    interpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+    
+    // RLR TODO: restore
+//    interpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+    
+    // RLR TODO: conditional on command line arg
+    auto notFound = userFns.end();
+    for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
+      Function &fn = *fnIter;
+      if (!(fn.isIntrinsic() || (mainFn == &fn) || (userFns.find(&fn) == notFound))) {
+        
+      }
+    }
 
     while (!seeds.empty()) {
       kTest_free(seeds.back());

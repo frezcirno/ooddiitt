@@ -132,6 +132,8 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
+  virtual void runFunctionUnconstrained(llvm::Function *f) = 0;
+
   /*** Runtime options ***/
 
   virtual void setHaltExecution(bool value) = 0;
