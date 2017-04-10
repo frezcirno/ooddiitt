@@ -22,7 +22,6 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 
-#if LLVM_VERSION_CODE > LLVM_VERSION(3, 2)
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
@@ -30,16 +29,6 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
-#else
-#include "llvm/Constants.h"
-#include "llvm/Module.h"
-#include "llvm/Type.h"
-#include "llvm/InstrTypes.h"
-#include "llvm/Instruction.h"
-#include "llvm/Instructions.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Support/FileSystem.h"
-#endif
 #include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
@@ -47,12 +36,7 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 0)
-#include "llvm/Target/TargetSelect.h"
-#else
 #include "llvm/Support/TargetSelect.h"
-#endif
 #include "llvm/Support/Signals.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
@@ -174,32 +158,6 @@ namespace {
             cl::desc("Directory to write results in (defaults to klee-out-N)"),
             cl::init(""));
 
-  cl::opt<bool>
-  ReplayKeepSymbolic("replay-keep-symbolic",
-                     cl::desc("Replay the test cases only by asserting "
-                              "the bytes, not necessarily making them concrete."));
-
-  cl::list<std::string>
-      ReplayKTestFile("replay-ktest-file",
-                      cl::desc("Specify a ktest file to use for replay"),
-                      cl::value_desc("ktest file"));
-
-  cl::list<std::string>
-      ReplayKTestDir("replay-ktest-dir",
-                   cl::desc("Specify a directory to replay ktest files from"),
-                   cl::value_desc("output directory"));
-
-  cl::opt<std::string>
-  ReplayPathFile("replay-path",
-                 cl::desc("Specify a path file to replay"),
-                 cl::value_desc("path file"));
-
-  cl::list<std::string>
-  SeedOutFile("seed-out");
-
-  cl::list<std::string>
-  SeedOutDir("seed-out-dir");
-
   cl::list<std::string>
   LinkLibraries("link-llvm-lib",
 		cl::desc("Link the given libraries before execution"),
@@ -211,11 +169,6 @@ namespace {
 				"i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
 				"Used for testing."),
                        cl::init(0));
-
-  cl::opt<unsigned>
-  StopAfterNTests("stop-after-n-tests",
-	     cl::desc("Stop execution after generating the given number of tests.  Extra tests corresponding to partially explored paths will also be dumped."),
-	     cl::init(0));
 
   cl::opt<bool>
   Watchdog("watchdog",
@@ -387,10 +340,8 @@ llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename) {
   std::string path = getOutputFilename(filename);
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
   f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
-#elif LLVM_VERSION_CODE >= LLVM_VERSION(3,4)
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_Binary);
 #else
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::raw_fd_ostream::F_Binary);
+  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_Binary);
 #endif
   if (!Error.empty()) {
     klee_warning("error opening file \"%s\".  KLEE may have run out of file "
@@ -534,9 +485,6 @@ void KleeHandler::processTestCase(const ExecutionState &state,
       delete f;
     }
 
-    if (m_testIndex == StopAfterNTests)
-      m_interpreter->setHaltExecution(true);
-
     if (WriteTestInfo) {
       double elapsed_time = util::getWallTime() - start_time;
       llvm::raw_ostream *f = openTestFile("info", id);
@@ -595,11 +543,7 @@ std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // C++ standard)
   void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
   SmallString<128> toolRoot(
-      #if LLVM_VERSION_CODE >= LLVM_VERSION(3,4)
       llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-      #else
-      llvm::sys::Path::GetMainExecutable(argv0, MainExecAddr).str()
-      #endif
       );
 
   // Strip off executable so we have a directory path
@@ -646,12 +590,7 @@ static std::string strip(std::string &in) {
 
 static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-  // This version always reads response files
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
-#else
-  cl::ParseCommandLineOptions(argc, argv, " klee\n", /*ReadResponseFiles=*/ true);
-#endif
 }
 
 static int initEnv(Module *mainModule) {
@@ -702,13 +641,8 @@ static int initEnv(Module *mainModule) {
   std::vector<Value*> args;
   args.push_back(argcPtr);
   args.push_back(argvPtr);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
   Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
 					      "", firstInst);
-#else
-  Instruction* initEnvCall = CallInst::Create(initEnvFn, args.begin(), args.end(),
-					      "", firstInst);
-#endif
   Value *argc = new LoadInst(argcPtr, "newArgc", firstInst);
   Value *argv = new LoadInst(argvPtr, "newArgv", firstInst);
 
@@ -768,10 +702,8 @@ static const char *modelledExternals[] = {
   "klee_warning_once",
   "klee_alias_function",
   "klee_stack_trace",
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
   "llvm.dbg.declare",
   "llvm.dbg.value",
-#endif
   "llvm.va_start",
   "llvm.va_end",
   "malloc",
@@ -789,25 +721,6 @@ static const char *modelledExternals[] = {
 };
 // Symbols we aren't going to warn about
 static const char *dontCareExternals[] = {
-#if 0
-  // stdio
-  "fprintf",
-  "fflush",
-  "fopen",
-  "fclose",
-  "fputs_unlocked",
-  "putchar_unlocked",
-  "vfprintf",
-  "fwrite",
-  "puts",
-  "printf",
-  "stdin",
-  "stdout",
-  "stderr",
-  "_stdio_term",
-  "__errno_location",
-  "fstat",
-#endif
 
   // static information, pretty ok to return
   "getegid",
@@ -949,7 +862,7 @@ void externalsAndGlobalsCheck(const Module *m) {
   }
 }
 
-static Interpreter *theInterpreter = 0;
+static Interpreter *theInterpreter = nullptr;
 
 static bool interrupted = false;
 
@@ -1032,6 +945,7 @@ static void replaceOrRenameFunction(llvm::Module *module,
     }
   }
 }
+      
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
   LLVMContext &ctx = mainModule->getContext();
   // Ensure that klee-uclibc exists
@@ -1147,11 +1061,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   args.push_back(Constant::getNullValue(ft->getParamType(4))); // app_fini
   args.push_back(Constant::getNullValue(ft->getParamType(5))); // rtld_fini
   args.push_back(Constant::getNullValue(ft->getParamType(6))); // stack_end
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
   CallInst::Create(uclibcMainFn, args, "", bb);
-#else
-  CallInst::Create(uclibcMainFn, args.begin(), args.end(), "", bb);
-#endif
 
   new UnreachableInst(ctx, bb);
 
@@ -1284,6 +1194,20 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
+  // build a list of functions in the initially loaded module
+  // klee will link additional functions later. we will want to ignore those
+  std::set<std::string> userFns;
+  for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
+    Function &fn = *fnIter;
+    if (!fn.isIntrinsic()) {
+      std::string fqfnName = fn.getName();
+      fqfnName += "::";
+      fqfnName += fn.getParent()->getModuleIdentifier();
+      errs() << fqfnName << "\n";
+      userFns.insert(fqfnName);
+    }
+  }
+  
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1303,11 +1227,7 @@ int main(int argc, char **argv, char **envp) {
   case KleeLibc: {
     // FIXME: Find a reasonable solution for this.
     SmallString<128> Path(Opts.LibraryDir);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3,3)
     llvm::sys::path::append(Path, "klee-libc.bc");
-#else
-    llvm::sys::path::append(Path, "libklee-libc.bca");
-#endif
     mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
     assert(mainModule && "unable to link with klee-libc");
     break;
@@ -1380,31 +1300,19 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  std::vector<bool> replayPath;
-
-  if (ReplayPathFile != "") {
-    KleeHandler::loadPathFile(ReplayPathFile, replayPath);
-  }
-
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
-  Interpreter *interpreter =
-    theInterpreter = Interpreter::create(ctx, IOpts, handler);
-  handler->setInterpreter(interpreter);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
     handler->getInfoStream() << argv[i] << (i+1<argc ? " ":"\n");
   }
   handler->getInfoStream() << "PID: " << getpid() << "\n";
 
-  const Module *finalModule =
-    interpreter->setModule(mainModule, Opts);
+  const Module *finalModule = theInterpreter->setModule(mainModule, Opts);
   externalsAndGlobalsCheck(finalModule);
-
-  if (ReplayPathFile != "") {
-    interpreter->setReplayPath(&replayPath);
-  }
 
   char buf[256];
   time_t t[2];
@@ -1413,100 +1321,29 @@ int main(int argc, char **argv, char **envp) {
   handler->getInfoStream() << buf;
   handler->getInfoStream().flush();
 
-  if (!ReplayKTestDir.empty() || !ReplayKTestFile.empty()) {
-    assert(SeedOutFile.empty());
-    assert(SeedOutDir.empty());
-
-    std::vector<std::string> kTestFiles = ReplayKTestFile;
-    for (std::vector<std::string>::iterator
-           it = ReplayKTestDir.begin(), ie = ReplayKTestDir.end();
-         it != ie; ++it)
-      KleeHandler::getKTestFilesInDir(*it, kTestFiles);
-    std::vector<KTest*> kTests;
-    for (std::vector<std::string>::iterator
-           it = kTestFiles.begin(), ie = kTestFiles.end();
-         it != ie; ++it) {
-      KTest *out = kTest_fromFile(it->c_str());
-      if (out) {
-        kTests.push_back(out);
-      } else {
-        klee_warning("unable to open: %s\n", (*it).c_str());
-      }
+  if (RunInDir != "") {
+    int res = chdir(RunInDir.c_str());
+    if (res < 0) {
+      klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(),
+                 sys::StrError(errno).c_str());
     }
-
-    if (RunInDir != "") {
-      int res = chdir(RunInDir.c_str());
-      if (res < 0) {
-        klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(),
-                   sys::StrError(errno).c_str());
-      }
-    }
-
-    unsigned i=0;
-    for (std::vector<KTest*>::iterator
-           it = kTests.begin(), ie = kTests.end();
-         it != ie; ++it) {
-      KTest *out = *it;
-      interpreter->setReplayKTest(out);
-      llvm::errs() << "KLEE: replaying: " << *it << " (" << kTest_numBytes(out)
-                   << " bytes)"
-                   << " (" << ++i << "/" << kTestFiles.size() << ")\n";
-      // XXX should put envp in .ktest ?
-      interpreter->runFunctionAsMain(mainFn, out->numArgs, out->args, pEnvp);
-      if (interrupted) break;
-    }
-    interpreter->setReplayKTest(0);
-    while (!kTests.empty()) {
-      kTest_free(kTests.back());
-      kTests.pop_back();
-    }
-  } else {
-    std::vector<KTest *> seeds;
-    for (std::vector<std::string>::iterator
-           it = SeedOutFile.begin(), ie = SeedOutFile.end();
-         it != ie; ++it) {
-      KTest *out = kTest_fromFile(it->c_str());
-      if (!out) {
-        klee_error("unable to open: %s\n", (*it).c_str());
-      }
-      seeds.push_back(out);
-    }
-    for (std::vector<std::string>::iterator
-           it = SeedOutDir.begin(), ie = SeedOutDir.end();
-         it != ie; ++it) {
-      std::vector<std::string> kTestFiles;
-      KleeHandler::getKTestFilesInDir(*it, kTestFiles);
-      for (std::vector<std::string>::iterator
-             it2 = kTestFiles.begin(), ie = kTestFiles.end();
-           it2 != ie; ++it2) {
-        KTest *out = kTest_fromFile(it2->c_str());
-        if (!out) {
-          klee_error("unable to open: %s\n", (*it2).c_str());
-        }
-        seeds.push_back(out);
-      }
-      if (kTestFiles.empty()) {
-        klee_error("seeds directory is empty: %s\n", (*it).c_str());
-      }
-    }
-
-    if (!seeds.empty()) {
-      klee_message("KLEE: using %lu seeds\n", seeds.size());
-      interpreter->useSeeds(&seeds);
-    }
-    if (RunInDir != "") {
-      int res = chdir(RunInDir.c_str());
-      if (res < 0) {
-        klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(),
-                   sys::StrError(errno).c_str());
-      }
-    }
+  }
     
-    interpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
-
-    while (!seeds.empty()) {
-      kTest_free(seeds.back());
-      seeds.pop_back();
+  theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+  
+  // run each function other than main as unconstrained
+  auto notFound = userFns.end();
+  for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
+    Function &fn = *fnIter;
+    if (!(fn.isIntrinsic() || (mainFn == &fn))) {
+      
+      std::string fqfnName = fn.getName();
+      fqfnName += "::";
+      fqfnName += fn.getParent()->getModuleIdentifier();
+      if (userFns.find(fqfnName) != notFound) {
+      
+        theInterpreter->runFunctionUnconstrained(&fn);
+      }
     }
   }
 
@@ -1523,32 +1360,26 @@ int main(int argc, char **argv, char **envp) {
     delete[] pArgv[i];
   delete[] pArgv;
 
-  delete interpreter;
+  delete theInterpreter;
+  theInterpreter = nullptr;
 
-  uint64_t queries =
-    *theStatisticManager->getStatisticByName("Queries");
-  uint64_t queriesValid =
-    *theStatisticManager->getStatisticByName("QueriesValid");
-  uint64_t queriesInvalid =
-    *theStatisticManager->getStatisticByName("QueriesInvalid");
-  uint64_t queryCounterexamples =
-    *theStatisticManager->getStatisticByName("QueriesCEX");
-  uint64_t queryConstructs =
-    *theStatisticManager->getStatisticByName("QueriesConstructs");
-  uint64_t instructions =
-    *theStatisticManager->getStatisticByName("Instructions");
-  uint64_t forks =
-    *theStatisticManager->getStatisticByName("Forks");
+  uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
+  uint64_t queriesValid = *theStatisticManager->getStatisticByName("QueriesValid");
+  uint64_t queriesInvalid = *theStatisticManager->getStatisticByName("QueriesInvalid");
+  uint64_t queryCounterexamples = *theStatisticManager->getStatisticByName("QueriesCEX");
+  uint64_t queryConstructs = *theStatisticManager->getStatisticByName("QueriesConstructs");
+  uint64_t instructions = *theStatisticManager->getStatisticByName("Instructions");
+  uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
 
-  handler->getInfoStream()
-    << "KLEE: done: explored paths = " << 1 + forks << "\n";
+  handler->getInfoStream() << "KLEE: done: explored paths = " << 1 + forks << "\n";
 
   // Write some extra information in the info file which users won't
   // necessarily care about or understand.
-  if (queries)
+  if (queries) {
     handler->getInfoStream()
       << "KLEE: done: avg. constructs per query = "
-                             << queryConstructs / queries << "\n";
+      << queryConstructs / queries << "\n";
+  }
   handler->getInfoStream()
     << "KLEE: done: total queries = " << queries << "\n"
     << "KLEE: done: valid queries = " << queriesValid << "\n"

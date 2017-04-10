@@ -117,7 +117,7 @@ public:
     Unhandled
   };
 
-private:
+protected:
   static const char *TerminateReasonNames[];
 
   class TimerInfo;
@@ -298,25 +298,11 @@ private:
                    
   // do address resolution / object binding / out of bounds checking
   // and perform the operation
-  void executeMemoryOperation(ExecutionState &state,
-                              bool isWrite,
-                              ref<Expr> address,
-                              ref<Expr> value /* undef if read */,
-                              KInstruction *target /* undef if write */);
-
-  bool executeFastReadMemoryOperation(ExecutionState &state,
+  virtual void executeMemoryOperation(ExecutionState &state,
+                                      bool isWrite,
                                       ref<Expr> address,
-                                      KInstruction *target);
-  
-  bool executeFastWriteMemoryOperation(ExecutionState &state,
-                                       ref<Expr> address,
-                                       ref<Expr> value);
-
-  void executeFullMemoryOperation(ExecutionState &state,
-                                  bool isWrite,
-                                  ref<Expr> address,
-                                  ref<Expr> value /* undef if read */,
-                                  KInstruction *target /* undef if write */);
+                                      ref<Expr> value /* undef if read */,
+                                      KInstruction *target /* undef if write */);
   
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);

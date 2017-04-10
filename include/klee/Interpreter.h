@@ -98,6 +98,10 @@ public:
                              const InterpreterOptions &_interpreterOpts,
                              InterpreterHandler *ih);
 
+  static Interpreter *createLocal(llvm::LLVMContext &ctx,
+                                  const InterpreterOptions &_interpreterOpts,
+                                  InterpreterHandler *ih);
+  
   /// Register the module to be executed.  
   ///
   /// \return The final module after it has been optimized, checks

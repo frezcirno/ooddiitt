@@ -601,6 +601,9 @@ void Executor::initializeGlobals(ExecutionState &state) {
        i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     size_t globalObjectAlignment = getAllocationAlignment(v);
+    
+    // RLR TODO: remove name (or use it :)
+    std::string name = v->getName();
     if (i->isDeclaration()) {
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
@@ -3324,100 +3327,12 @@ void Executor::resolveExact(ExecutionState &state,
   }
 }
 
-
 void Executor::executeMemoryOperation(ExecutionState &state,
                                       bool isWrite,
                                       ref<Expr> address,
                                       ref<Expr> value /* undef if read */,
                                       KInstruction *target /* undef if write */) {
-
-  if (isWrite) {
-    if (executeFastWriteMemoryOperation(state, address, value)) return;
-  } else {
-    if (executeFastReadMemoryOperation(state, address, target)) return;
-  }
-  executeFullMemoryOperation(state, isWrite, address, value, target);
-}
   
-bool Executor::executeFastReadMemoryOperation(ExecutionState &state,
-                                             ref<Expr> address,
-                                             KInstruction *target) {
-
-  // fast read requires address to be a const expression
-  if (!isa<ConstantExpr>(address)) return false;
-  ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
-  
-  Expr::Width type = getWidthForLLVMType(target->inst->getType());
-  unsigned bytes = Expr::getMinBytesForWidth(type);
-  
-  // fast path: single in-bounds resolution
-  ObjectPair op;
-  if (!state.addressSpace.resolveOne(caddress, op)) return false;
-  
-  const MemoryObject *mo = op.first;
-  const ObjectState *os = op.second;
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
-  if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
-  if (offset + bytes > mo->size) {
-
-    terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
-                          NULL, getAddressInfo(state, address));
-    return true;
-  }
-
-  ref<Expr> result = os->read(offset, type);
-  
-  if (interpreterOpts.MakeConcreteSymbolic) {
-    result = replaceReadWithSymbolic(state, result);
-  }
-    
-  bindLocal(target, state, result);
-  return true;
-}
-  
-bool Executor::executeFastWriteMemoryOperation(ExecutionState &state,
-                                               ref<Expr> address,
-                                               ref<Expr> value) {
-
-  // fast write requires address to be a const expression
-  if (!isa<ConstantExpr>(address)) return false;
-  ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
-  
-  Expr::Width type = value->getWidth();
-  unsigned bytes = Expr::getMinBytesForWidth(type);
-  
-  // fast path: single in-bounds resolution
-  ObjectPair op;
-  if (!state.addressSpace.resolveOne(caddress, op)) return false;
-  
-  const MemoryObject *mo = op.first;
-  const ObjectState *os = op.second;
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
-  if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
-  if (offset + bytes > mo->size) {
-    
-    terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
-                          NULL, getAddressInfo(state, address));
-    return true;
-  }
-  if (os->readOnly) {
-    terminateStateOnError(state, "memory error: object read only",
-                          ReadOnly);
-  } else {
-    ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-    wos->write(offset, value);
-  }
-  return true;
-}
-  
-  
-void Executor::executeFullMemoryOperation(ExecutionState &state,
-                                          bool isWrite,
-                                          ref<Expr> address,
-                                          ref<Expr> value /* undef if read */,
-                                          KInstruction *target /* undef if write */) {
   Expr::Width type = (isWrite ? value->getWidth() :
                      getWidthForLLVMType(target->inst->getType()));
   unsigned bytes = Expr::getMinBytesForWidth(type);
@@ -3736,50 +3651,7 @@ void Executor::runFunctionAsMain(Function *f,
 }
 
 void Executor::runFunctionUnconstrained(Function *f) {
-
-  std::vector<ref<Expr> > arguments;
-  
-  // force deterministic initialization of memory objects
-  srand(1);
-  srandom(1);
-  
-//  MemoryObject *argvMO = 0;
-  
-//  unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
-  KFunction *kf = kmodule->functionMap[f];
-  
-  assert(kf && "failed to get kfunction handle");
-
-  // create and bind parameters
-  for (auto ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai) {
-    
-  }
-  
-  assert(arguments.size() == f->arg_size() && "wrong number of arguments");
-  
-  ExecutionState *state = new ExecutionState(kmodule->functionMap[f]);
-  
-  if (statsTracker)
-    statsTracker->framePushed(*state, 0);
-  
-  initializeGlobals(*state);
-  
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = 0;
-  
-  // hack to clear memory objects
-  delete memory;
-  memory = new MemoryManager(NULL);
-  
-  globalObjects.clear();
-  globalAddresses.clear();
-  
-  if (statsTracker)
-    statsTracker->done();
- 
+  assert(false && "Executor does not support running functions unconstrained");
 }
 
 unsigned Executor::getPathStreamID(const ExecutionState &state) {

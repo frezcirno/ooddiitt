@@ -17,6 +17,7 @@ klee_add_component(kleeCore
   ExecutorUtil.cpp
   ExternalDispatcher.cpp
   ImpliedValue.cpp
+  LocalExecutor.cpp
   Memory.cpp
   MemoryManager.cpp
   PTree.cpp
