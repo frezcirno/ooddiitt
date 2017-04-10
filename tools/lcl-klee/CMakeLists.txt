@@ -6,7 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(opt-klee
+add_executable(lcl-klee
   main.cpp
 )
 
@@ -18,9 +18,9 @@ set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(opt-klee ${KLEE_LIBS})
+target_link_libraries(lcl-klee ${KLEE_LIBS})
 
-install(TARGETS opt-klee RUNTIME DESTINATION bin)
+install(TARGETS lcl-klee RUNTIME DESTINATION bin)
 
 # The KLEE binary depends on the runtimes
-add_dependencies(opt-klee BuildKLEERuntimes)
+add_dependencies(lcl-klee BuildKLEERuntimes)
