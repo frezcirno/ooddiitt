@@ -51,6 +51,8 @@ protected:
                                        ref<Expr> address,
                                        ref<Expr> value);
 
+  ref<Expr> makeSymbolic(ExecutionState &state,
+                         const MemoryObject *mo);
   
 };
   

@@ -44,8 +44,9 @@ namespace {
 
 StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
   : caller(_caller), kf(_kf), callPathNode(0), 
+    numArgs(kf->numArgs), numRegs(kf->numRegisters),
     minDistToUncoveredOnReturn(0), varargs(0) {
-  locals = new Cell[kf->numRegisters];
+  locals = new Cell[numRegs];
 }
 
 StackFrame::StackFrame(const StackFrame &s) 
@@ -53,6 +54,8 @@ StackFrame::StackFrame(const StackFrame &s)
     kf(s.kf),
     callPathNode(s.callPathNode),
     allocas(s.allocas),
+    numArgs(s.numArgs),
+    numRegs(s.numRegs),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];

@@ -161,6 +161,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   assert(kf && "failed to get module handle");
   
   ExecutionState *state = new ExecutionState(kf);
+  state->stack.back().numArgs = 0;
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -195,13 +196,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     }
     
     MemoryObject *mo = memory->allocate(argSize, false, true, arg, argAlign);
+    mo->setName(argName);
     
     if (mo == nullptr) {
       klee_error("Could not allocate memory for function arguments");
     }
     
-    bindArgument(kf, index, *state, mo->getBaseExpr());
-    executeMakeSymbolic(*state, mo, argName);
+    ref<Expr> e = makeSymbolic(*state, mo);
+    bindArgument(kf, index, *state, e);
     
     errs() << argName;
   }
@@ -221,6 +223,23 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   
   if (statsTracker)
     statsTracker->done();
+}
+  
+ref<Expr> LocalExecutor::makeSymbolic(ExecutionState &state,
+                                      const MemoryObject *mo) {
+  
+  // Create a new object state for the memory object (instead of a copy).
+  // Find a unique name for this array.  First try the original name,
+  // or if that fails try adding a unique identifier.
+  unsigned id = 0;
+  std::string uniqueName = mo->name;
+  while (!state.arrayNames.insert(uniqueName).second) {
+    uniqueName = mo->name + "_" + llvm::utostr(++id);
+  }
+  const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
+  bindObjectInState(state, mo, false, array);
+  state.addSymbolic(mo, array);
+  return Expr::createTempRead(array, mo->size * 8);
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,

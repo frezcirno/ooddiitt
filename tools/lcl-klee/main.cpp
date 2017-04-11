@@ -1194,17 +1194,13 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
-  // build a list of functions in the initially loaded module
+  // build a set of functions in the initially loaded module
   // klee will link additional functions later. we will want to ignore those
-  std::set<std::string> userFns;
+  std::set<Function *> userFns;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     Function &fn = *fnIter;
     if (!fn.isIntrinsic()) {
-      std::string fqfnName = fn.getName();
-      fqfnName += "::";
-      fqfnName += fn.getParent()->getModuleIdentifier();
-      errs() << fqfnName << "\n";
-      userFns.insert(fqfnName);
+      userFns.insert(&fn);
     }
   }
   
@@ -1335,15 +1331,8 @@ int main(int argc, char **argv, char **envp) {
   auto notFound = userFns.end();
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     Function &fn = *fnIter;
-    if (!(fn.isIntrinsic() || (mainFn == &fn))) {
-      
-      std::string fqfnName = fn.getName();
-      fqfnName += "::";
-      fqfnName += fn.getParent()->getModuleIdentifier();
-      if (userFns.find(fqfnName) != notFound) {
-      
-        theInterpreter->runFunctionUnconstrained(&fn);
-      }
+    if (!(fn.isIntrinsic() || (mainFn == &fn) || userFns.find(&fn) == notFound)) {
+      theInterpreter->runFunctionUnconstrained(&fn);
     }
   }
 
