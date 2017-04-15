@@ -602,8 +602,6 @@ void Executor::initializeGlobals(ExecutionState &state) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     size_t globalObjectAlignment = getAllocationAlignment(v);
     
-    // RLR TODO: remove name (or use it :)
-    std::string name = v->getName();
     if (i->isDeclaration()) {
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
@@ -666,6 +664,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
                                           /*alignment=*/globalObjectAlignment);
       if (!mo)
         llvm::report_fatal_error("out of memory");
+      mo->name = v->getName();
       ObjectState *os = bindObjectInState(state, mo, false);
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
@@ -3145,6 +3144,7 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
                                          bool isLocal,
                                          const Array *array) {
   ObjectState *os = array ? new ObjectState(mo, array) : new ObjectState(mo);
+  
   state.addressSpace.bindObject(mo, os);
 
   // Its possible that multiple bindings of the same mo in the state
@@ -3165,15 +3165,18 @@ void Executor::executeAlloc(ExecutionState &state,
                             const ObjectState *reallocFrom) {
   size = toUnique(state, size);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
-    const llvm::Value *allocSite = state.prevPC->inst;
-    size_t allocationAlignment = getAllocationAlignment(allocSite);
+    
+    
+    AllocaInst *ai = cast<AllocaInst>(target->inst);
+    size_t allocationAlignment = ai->getAlignment();
     MemoryObject *mo =
-        memory->allocate(CE->getZExtValue(), isLocal, /*isGlobal=*/false,
-                         allocSite, allocationAlignment);
+        memory->allocate(CE->getZExtValue(), isLocal, false,
+                         ai, allocationAlignment);
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
     } else {
+      
       ObjectState *os = bindObjectInState(state, mo, isLocal);
       if (zeroMemory) {
         os->initializeToZero();

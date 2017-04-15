@@ -117,6 +117,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates = UpdateList(array, 0);
   }
   memset(concreteStore, 0, size);
+  pointsTo = ConstantExpr::alloc(0, Context::get().getPointerWidth());
 }
 
 
@@ -134,6 +135,7 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, size);
+  pointsTo = ConstantExpr::alloc(0, Context::get().getPointerWidth());
 }
 
 ObjectState::ObjectState(const ObjectState &os) 
@@ -146,7 +148,8 @@ ObjectState::ObjectState(const ObjectState &os)
     knownSymbolics(0),
     updates(os.updates),
     size(os.size),
-    readOnly(false) {
+    readOnly(false),
+    pointsTo(os.pointsTo) {
   assert(!os.readOnly && "no need to copy read only object?");
   if (object)
     object->refCount++;

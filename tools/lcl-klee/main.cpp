@@ -1196,11 +1196,11 @@ int main(int argc, char **argv, char **envp) {
 
   // build a set of functions in the initially loaded module
   // klee will link additional functions later. we will want to ignore those
-  std::set<Function *> userFns;
+  std::set<std::string> fnInOrigModule;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     Function &fn = *fnIter;
     if (!fn.isIntrinsic()) {
-      userFns.insert(&fn);
+      fnInOrigModule.insert(fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str());
     }
   }
   
@@ -1253,9 +1253,6 @@ int main(int argc, char **argv, char **envp) {
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
   Function *mainFn = mainModule->getFunction(EntryPoint);
-  if (!mainFn) {
-    klee_error("'%s' function not found in module.", EntryPoint.c_str());
-  }
 
   // FIXME: Change me to std types.
   int pArgc;
@@ -1324,15 +1321,20 @@ int main(int argc, char **argv, char **envp) {
                  sys::StrError(errno).c_str());
     }
   }
-    
-  theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+  
+  if (mainFn != nullptr) {
+    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+  }
   
   // run each function other than main as unconstrained
-  auto notFound = userFns.end();
+  auto notFound = fnInOrigModule.end();
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     Function &fn = *fnIter;
-    if (!(fn.isIntrinsic() || (mainFn == &fn) || userFns.find(&fn) == notFound)) {
-      theInterpreter->runFunctionUnconstrained(&fn);
+    if (!(fn.isIntrinsic() || (mainFn == &fn))) {
+      std::string fqfnName = fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str();
+      if (fnInOrigModule.find(fqfnName) != notFound) {
+        theInterpreter->runFunctionUnconstrained(&fn);
+      }
     }
   }
 

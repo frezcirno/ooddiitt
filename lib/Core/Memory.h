@@ -111,7 +111,7 @@ public:
     this->name = name;
   }
 
-  ref<ConstantExpr> getBaseExpr() const { 
+  ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
   ref<ConstantExpr> getSizeExpr() const { 
@@ -170,8 +170,8 @@ private:
 
 public:
   unsigned size;
-
   bool readOnly;
+  ref<Expr> pointsTo;
 
 public:
   /// Create a new object state for the given memory object with concrete
@@ -207,7 +207,7 @@ public:
   void write16(unsigned offset, uint16_t value);
   void write32(unsigned offset, uint32_t value);
   void write64(unsigned offset, uint64_t value);
-
+  
 private:
   const UpdateList &getUpdates() const;
 

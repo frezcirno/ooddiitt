@@ -8,10 +8,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "LocalExecutor.h"
+#include "Context.h"
+#include "CoreStats.h"
+#include "ExternalDispatcher.h"
+#include "ImpliedValue.h"
 #include "Memory.h"
 #include "MemoryManager.h"
-#include "StatsTracker.h"
 #include "PTree.h"
+#include "Searcher.h"
+#include "SeedInfo.h"
+#include "SpecialFunctionHandler.h"
+#include "StatsTracker.h"
+#include "TimingSolver.h"
+#include "UserSearcher.h"
+#include "ExecutorTimerInfo.h"
+//#include "Callsite.h"
 
 #include "klee/ExecutionState.h"
 #include "klee/Expr.h"
@@ -50,9 +61,23 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
 
+#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
+#include "llvm/Support/CallSite.h"
+#else
+#include "llvm/IR/CallSite.h"
+#endif
+
 using namespace llvm;
 
 namespace klee {
+  
+// static utility functions
+  
+static std::string getFQFnName(const Function *f) {
+
+  std::string result = f->getParent()->getModuleIdentifier() + "::" + f->getName().str();
+  return result;
+}
   
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
@@ -66,20 +91,6 @@ LocalExecutor::~LocalExecutor() {
     
 }
 
-void LocalExecutor::executeMemoryOperation(ExecutionState &state,
-                                        bool isWrite,
-                                        ref<Expr> address,
-                                        ref<Expr> value /* undef if read */,
-                                        KInstruction *target /* undef if write */) {
-    
-  if (isWrite) {
-    if (executeFastWriteMemoryOperation(state, address, value)) return;
-  } else {
-    if (executeFastReadMemoryOperation(state, address, target)) return;
-  }
-  Executor::executeMemoryOperation(state, isWrite, address, value, target);
-}
-  
 bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
                                                   ref<Expr> address,
                                                   KInstruction *target) {
@@ -88,15 +99,16 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
   if (!isa<ConstantExpr>(address)) return false;
   ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
   
-  Expr::Width type = getWidthForLLVMType(target->inst->getType());
-  unsigned bytes = Expr::getMinBytesForWidth(type);
+  Expr::Width width = getWidthForLLVMType(target->inst->getType());
+  unsigned bytes = Expr::getMinBytesForWidth(width);
     
   // fast path: single in-bounds resolution
   ObjectPair op;
   if (!state.addressSpace.resolveOne(caddress, op)) return false;
-    
+
   const MemoryObject *mo = op.first;
   const ObjectState *os = op.second;
+
   ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
   if (!isa<ConstantExpr>(offsetExpr)) return false;
   const unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
@@ -106,13 +118,15 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
                           NULL, getAddressInfo(state, address));
     return true;
   }
+
+  // RLR TODO: move writtenAddres to object state.
+  if (!state.isSymbolic(mo) && state.writtenAddrs.find(address) == state.writtenAddrs.end()) {
     
-  ref<Expr> result = os->read(offset, type);
-    
-  if (interpreterOpts.MakeConcreteSymbolic) {
-    result = replaceReadWithSymbolic(state, result);
+    makeSymbolic(state, mo);
+    os = state.addressSpace.findObject(mo);
   }
-    
+  
+  ref<Expr> result = os->read(offset, width);
   bindLocal(target, state, result);
   return true;
 }
@@ -149,6 +163,7 @@ bool LocalExecutor::executeFastWriteMemoryOperation(ExecutionState &state,
   } else {
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
     wos->write(offset, value);
+    state.writtenAddrs.insert(address);
   }
   return true;
 }
@@ -184,17 +199,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     
     // get an alignment for this argument
     size_t argAlign = arg->getParamAlignment();
-    if ((argAlign == 0) && argType->isSized()) {
-      
-      // no align for this arg, get a preference for the type
+    if (argAlign == 0) {
       argAlign = kmodule->targetData->getPrefTypeAlignment(argType);
     }
-    
-    // if all else fails, 8 is one of our favorite numbers
-    if (argAlign == 0) {
-      argAlign = 8;
-    }
-    
     MemoryObject *mo = memory->allocate(argSize, false, true, arg, argAlign);
     mo->setName(argName);
     
@@ -202,10 +209,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
       klee_error("Could not allocate memory for function arguments");
     }
     
-    ref<Expr> e = makeSymbolic(*state, mo);
+    makeSymbolic(*state, mo);
+    const ObjectState *os = state->addressSpace.findObject(mo);
+    Expr::Width width = getWidthForLLVMType(argType);
+    ref<Expr> e = os->read(0, width);
     bindArgument(kf, index, *state, e);
-    
-    errs() << argName;
+    index++;
   }
   
   processTree = new PTree(state);
@@ -225,8 +234,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->done();
 }
   
-ref<Expr> LocalExecutor::makeSymbolic(ExecutionState &state,
-                                      const MemoryObject *mo) {
+void LocalExecutor::makeSymbolic(ExecutionState &state,
+                                 const MemoryObject *mo) {
   
   // Create a new object state for the memory object (instead of a copy).
   // Find a unique name for this array.  First try the original name,
@@ -239,7 +248,6 @@ ref<Expr> LocalExecutor::makeSymbolic(ExecutionState &state,
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
   bindObjectInState(state, mo, false, array);
   state.addSymbolic(mo, array);
-  return Expr::createTempRead(array, mo->size * 8);
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -353,12 +361,256 @@ void LocalExecutor::runFunctionAsMain(Function *f,
 #endif
 }
   
+void LocalExecutor::run(ExecutionState &initialState) {
   
+  bindModuleConstants();
+  
+  // Delay init till now so that ticks don't accrue during
+  // optimization and such.
+  initTimers();
+  
+  states.insert(&initialState);
+  
+  searcher = constructUserSearcher(*this);
+  
+  std::vector<ExecutionState *> newStates(states.begin(), states.end());
+  searcher->update(0, newStates, std::vector<ExecutionState *>());
+  
+  while (!states.empty() && !haltExecution) {
+    ExecutionState &state = searcher->selectState();
+    KInstruction *ki = state.pc;
+    stepInstruction(state);
+    
+    executeInstruction(state, ki);
+    processTimers(&state, 0);
+    
+    checkMemoryUsage();
+    
+    updateStates(&state);
+  }
+  
+  delete searcher;
+  searcher = 0;
+  
+  doDumpStates();
+}
+
+void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
+  Instruction *i = ki->inst;
+  switch (i->getOpcode()) {
+      // Control flow
+
+#ifdef NOTYET
+    case Instruction::Ret: {
+      ReturnInst *ri = cast<ReturnInst>(i);
+      KInstIterator kcaller = state.stack.back().caller;
+      Instruction *caller = kcaller ? kcaller->inst : 0;
+      bool isVoidReturn = (ri->getNumOperands() == 0);
+      ref<Expr> result = ConstantExpr::alloc(0, Expr::Bool);
+      
+      if (!isVoidReturn) {
+        result = eval(ki, 0, state).value;
+      }
+      
+      if (state.stack.size() <= 1) {
+        assert(!caller && "caller set on initial stack frame");
+        terminateStateOnExit(state);
+      } else {
+        state.popFrame();
+        
+        if (statsTracker)
+          statsTracker->framePopped(state);
+        
+        if (InvokeInst *ii = dyn_cast<InvokeInst>(caller)) {
+          transferToBasicBlock(ii->getNormalDest(), caller->getParent(), state);
+        } else {
+          state.pc = kcaller;
+          ++state.pc;
+        }
+        
+        if (!isVoidReturn) {
+          LLVM_TYPE_Q Type *t = caller->getType();
+          if (t != Type::getVoidTy(i->getContext())) {
+            // may need to do coercion due to bitcasts
+            Expr::Width from = result->getWidth();
+            Expr::Width to = getWidthForLLVMType(t);
+            
+            if (from != to) {
+              CallSite cs = (isa<InvokeInst>(caller) ? CallSite(cast<InvokeInst>(caller)) :
+                             CallSite(cast<CallInst>(caller)));
+              
+              // XXX need to check other param attrs ?
+              bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
+              if (isSExt) {
+                result = SExtExpr::create(result, to);
+              } else {
+                result = ZExtExpr::create(result, to);
+              }
+            }
+            
+            bindLocal(kcaller, state, result);
+          }
+        } else {
+          // We check that the return value has no users instead of
+          // checking the type, since C defaults to returning int for
+          // undeclared functions.
+          if (!caller->use_empty()) {
+            terminateStateOnExecError(state, "return void when caller expected a result");
+          }
+        }
+      }
+      break;
+    }
+#endif
+      
+#ifdef NOTYET
+    case Instruction::Br: {
+      BranchInst *bi = cast<BranchInst>(i);
+      if (bi->isUnconditional()) {
+        transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
+      } else {
+        // FIXME: Find a way that we don't have this hidden dependency.
+        assert(bi->getCondition() == bi->getOperand(0) &&
+               "Wrong operand index!");
+        ref<Expr> cond = eval(ki, 0, state).value;
+        Executor::StatePair branches = fork(state, cond, false);
+        
+        // NOTE: There is a hidden dependency here, markBranchVisited
+        // requires that we still be in the context of the branch
+        // instruction (it reuses its statistic id). Should be cleaned
+        // up with convenient instruction specific data.
+        if (statsTracker && state.stack.back().kf->trackCoverage)
+          statsTracker->markBranchVisited(branches.first, branches.second);
+        
+        if (branches.first)
+          transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
+        if (branches.second)
+          transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
+      }
+      break;
+    }
+#endif
+      
+#ifdef NOTYET
+    case Instruction::Invoke:
+    case Instruction::Call: {
+      
+      CallSite cs(i);
+      
+      Value *fp = cs.getCalledValue();
+      Function *f = getTargetFunction(fp, state);
+      KFunction *kf = kmodule->functionMap[f];
+      assert(kf && "failed to get module handle");
+      
+      Type *ty = f->getReturnType();
+      if (!ty->isVoidTy()) {
+        
+        uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
+        
+        // get an alignment for this value
+        size_t align = 8;
+        if (ty->isSized()) {
+          align = kmodule->targetData->getPrefTypeAlignment(ty);
+        }
+        
+        std::string name = getFQFnName(f);
+        unsigned counter = state.callCounter[name]++;
+        MemoryObject *mo = memory->allocate(size, false, true, i, align);
+        mo->setName(name + "::" + std::to_string(counter) + "::return");
+        
+        if (mo == nullptr) {
+          klee_error("Could not allocate memory for function arguments");
+        }
+        
+        ref<Expr> e = makeSymbolic(state, mo);
+        bindLocal(ki, state, e);
+        
+      }
+      break;
+    }
+#endif
+    case Instruction::PHI: {
+      ref<Expr> result = eval(ki, state.incomingBBIndex, state).value;
+      bindLocal(ki, state, result);
+      break;
+    }
+      
+      // Memory instructions...
+      
+    case Instruction::Alloca: {
+      AllocaInst *ai = cast<AllocaInst>(i);
+      unsigned elementSize =
+      kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
+      ref<Expr> size = Expr::createPointer(elementSize);
+      if (ai->isArrayAllocation()) {
+        ref<Expr> count = eval(ki, 0, state).value;
+        count = Expr::createZExtToPointerWidth(count);
+        size = MulExpr::create(size, count);
+      }
+      executeAlloc(state, size, true, ki);
+      break;
+    }
+      
+#ifdef NOTYET
+      
+    case Instruction::GetElementPtr: {
+      KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
+      ref<Expr> base = eval(ki, 0, state).value;
+      
+      for (std::vector< std::pair<unsigned, uint64_t> >::iterator
+           it = kgepi->indices.begin(), ie = kgepi->indices.end();
+           it != ie; ++it) {
+        uint64_t elementSize = it->second;
+        ref<Expr> index = eval(ki, it->first, state).value;
+        base = AddExpr::create(base,
+                               MulExpr::create(Expr::createSExtToPointerWidth(index),
+                                               Expr::createPointer(elementSize)));
+      }
+      if (kgepi->offset)
+        base = AddExpr::create(base,
+                               Expr::createPointer(kgepi->offset));
+      bindLocal(ki, state, base);
+      break;
+    }
+      
+#endif
+      
+    case Instruction::Load: {
+      bool isPtr = false;
+      LoadInst *li = cast<LoadInst>(i);
+      const Value *v = li->getPointerOperand();
+      const Type *type = v->getType();
+      if (type->isPointerTy()) {
+        isPtr = true;
+      }
+      
+      ref<Expr> base = eval(ki, 0, state).value;
+      if (!executeFastReadMemoryOperation(state, base, ki))
+        executeMemoryOperation(state, false, base, 0, ki);
+      break;
+    }
+    case Instruction::Store: {
+      ref<Expr> base = eval(ki, 1, state).value;
+      ref<Expr> value = eval(ki, 0, state).value;
+      if (!executeFastWriteMemoryOperation(state, base, value))
+        executeMemoryOperation(state, true, base, value, 0);
+      break;
+    }
+      
+    default:
+      Executor::executeInstruction(state, ki);
+      break;
+    }
+  }
+  
+
   
 Interpreter *Interpreter::createLocal(LLVMContext &ctx, const InterpreterOptions &opts,
                                       InterpreterHandler *ih) {
   return new LocalExecutor(ctx, opts, ih);
 }
+  
+  
   
 }
 

@@ -123,7 +123,9 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     coveredLines(state.coveredLines),
     ptreeNode(state.ptreeNode),
     symbolics(state.symbolics),
-    arrayNames(state.arrayNames)
+    arrayNames(state.arrayNames),
+    callCounter(state.callCounter),
+    writtenAddrs(state.writtenAddrs)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
@@ -158,6 +160,14 @@ void ExecutionState::addSymbolic(const MemoryObject *mo, const Array *array) {
   mo->refCount++;
   symbolics.push_back(std::make_pair(mo, array));
 }
+
+bool ExecutionState::isSymbolic(const MemoryObject *mo) {
+  for (auto iter = symbolics.begin(), end = symbolics.end(); iter != end; ++iter) {
+    if (iter->first == mo) return true;
+  }
+  return false;
+}
+
 ///
 
 std::string ExecutionState::getFnAlias(std::string fn) {

@@ -142,6 +142,9 @@ public:
 
   /// @brief Set of used array names for this state.  Used to avoid collisions.
   std::set<std::string> arrayNames;
+  
+  std::map<std::string, unsigned> callCounter;
+  std::set< ref<Expr> > writtenAddrs;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
@@ -167,6 +170,7 @@ public:
   void popFrame();
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
+  bool isSymbolic(const MemoryObject *mo);
   void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);

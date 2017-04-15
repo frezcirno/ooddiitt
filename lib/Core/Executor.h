@@ -214,12 +214,12 @@ protected:
   llvm::Function* getTargetFunction(llvm::Value *calledVal,
                                     ExecutionState &state);
   
-  void executeInstruction(ExecutionState &state, KInstruction *ki);
-
   void printFileLine(ExecutionState &state, KInstruction *ki,
                      llvm::raw_ostream &file);
 
-  void run(ExecutionState &initialState);
+  virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
+  
+  virtual void run(ExecutionState &initialState);
 
   // Given a concrete object in our [klee's] address space, add it to 
   // objects checked code can reference.
@@ -298,11 +298,11 @@ protected:
                    
   // do address resolution / object binding / out of bounds checking
   // and perform the operation
-  virtual void executeMemoryOperation(ExecutionState &state,
-                                      bool isWrite,
-                                      ref<Expr> address,
-                                      ref<Expr> value /* undef if read */,
-                                      KInstruction *target /* undef if write */);
+  void executeMemoryOperation(ExecutionState &state,
+                              bool isWrite,
+                              ref<Expr> address,
+                              ref<Expr> value /* undef if read */,
+                              KInstruction *target /* undef if write */);
   
   void executeMakeSymbolic(ExecutionState &state, const MemoryObject *mo,
                            const std::string &name);

@@ -30,6 +30,7 @@ public:
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie);
   virtual ~LocalExecutor();
+  
   virtual void runFunctionAsMain(llvm::Function *f,
                                  int argc,
                                  char **argv,
@@ -37,12 +38,10 @@ public:
   virtual void runFunctionUnconstrained(llvm::Function *f);
 
 protected:
-  virtual void executeMemoryOperation(ExecutionState &state,
-                                      bool isWrite,
-                                      ref<Expr> address,
-                                      ref<Expr> value /* undef if read */,
-                                      KInstruction *target /* undef if write */);
-
+  virtual void run(ExecutionState &initialState);
+  
+  virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
+  
   bool executeFastReadMemoryOperation(ExecutionState &state,
                                       ref<Expr> address,
                                       KInstruction *target);
@@ -51,8 +50,8 @@ protected:
                                        ref<Expr> address,
                                        ref<Expr> value);
 
-  ref<Expr> makeSymbolic(ExecutionState &state,
-                         const MemoryObject *mo);
+  void makeSymbolic(ExecutionState &state,
+                    const MemoryObject *mo);
   
 };
   
