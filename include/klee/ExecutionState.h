@@ -40,7 +40,6 @@ struct StackFrame {
   CallPathNode *callPathNode;
 
   std::vector<const MemoryObject *> allocas;
-  size_t numArgs;
   size_t numRegs;
   Cell *locals;
 
@@ -143,8 +142,7 @@ public:
   /// @brief Set of used array names for this state.  Used to avoid collisions.
   std::set<std::string> arrayNames;
   
-  std::map<std::string, unsigned> callCounter;
-  std::set< ref<Expr> > writtenAddrs;
+  std::map<std::string, unsigned> callTargetCounter;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

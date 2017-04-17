@@ -44,14 +44,16 @@ protected:
   
   bool executeFastReadMemoryOperation(ExecutionState &state,
                                       ref<Expr> address,
+                                      const llvm::Type *type,
                                       KInstruction *target);
   
   bool executeFastWriteMemoryOperation(ExecutionState &state,
                                        ref<Expr> address,
                                        ref<Expr> value);
 
-  void makeSymbolic(ExecutionState &state,
-                    const MemoryObject *mo);
+  ObjectState *makeSymbolic(ExecutionState &state, const MemoryObject *mo);
+  
+  unsigned countLoadIndirection(const llvm::Type* type) const;
   
 };
   

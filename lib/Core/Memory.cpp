@@ -107,8 +107,10 @@ ObjectState::ObjectState(const MemoryObject *mo)
     flushMask(0),
     knownSymbolics(0),
     updates(0, 0),
+    writtenMask(nullptr),
     size(mo->size),
-    readOnly(false) {
+    readOnly(false),
+    pointsTo(nullptr) {
   mo->refCount++;
   if (!UseConstantArrays) {
     static unsigned id = 0;
@@ -117,7 +119,6 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates = UpdateList(array, 0);
   }
   memset(concreteStore, 0, size);
-  pointsTo = ConstantExpr::alloc(0, Context::get().getPointerWidth());
 }
 
 
@@ -130,12 +131,13 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     flushMask(0),
     knownSymbolics(0),
     updates(array, 0),
+    writtenMask(nullptr),
     size(mo->size),
-    readOnly(false) {
+    readOnly(false),
+    pointsTo(nullptr) {
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, size);
-  pointsTo = ConstantExpr::alloc(0, Context::get().getPointerWidth());
 }
 
 ObjectState::ObjectState(const ObjectState &os) 
@@ -147,6 +149,7 @@ ObjectState::ObjectState(const ObjectState &os)
     flushMask(os.flushMask ? new BitArray(*os.flushMask, os.size) : 0),
     knownSymbolics(0),
     updates(os.updates),
+    writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.size) : nullptr),
     size(os.size),
     readOnly(false),
     pointsTo(os.pointsTo) {
@@ -167,6 +170,7 @@ ObjectState::~ObjectState() {
   if (concreteMask) delete concreteMask;
   if (flushMask) delete flushMask;
   if (knownSymbolics) delete[] knownSymbolics;
+  if (writtenMask) delete writtenMask;
   delete[] concreteStore;
 
   if (object)
@@ -349,6 +353,22 @@ bool ObjectState::isByteKnownSymbolic(unsigned offset) const {
   return knownSymbolics && knownSymbolics[offset].get();
 }
 
+bool ObjectState::isByteWritten(unsigned offset) const {
+  return writtenMask && !writtenMask->get(offset);
+}
+
+bool ObjectState::allBytesWritten(unsigned offset, unsigned length) const {
+
+  bool result = false;
+  if (writtenMask != nullptr) {
+    result = true;
+    for (unsigned end = offset + length; offset < end && result; ++offset) {
+      result = writtenMask->get(offset);
+    }
+  }
+  return result;
+}
+
 void ObjectState::markByteConcrete(unsigned offset) {
   if (concreteMask)
     concreteMask->set(offset);
@@ -370,6 +390,19 @@ void ObjectState::markByteFlushed(unsigned offset) {
     flushMask = new BitArray(size, false);
   } else {
     flushMask->unset(offset);
+  }
+}
+
+void ObjectState::markByteWritten(unsigned offset) {
+  if (writtenMask == nullptr) {
+    writtenMask = new BitArray(size, false);
+  }
+  writtenMask->set(offset);
+}
+
+void ObjectState::markRangeWritten(unsigned offset, unsigned length) {
+  for (unsigned end = offset + length; offset < end; ++offset) {
+    markByteWritten(offset);
   }
 }
 

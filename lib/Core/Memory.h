@@ -167,11 +167,13 @@ private:
 
   // mutable because we may need flush during read of const
   mutable UpdateList updates;
+  
+  BitArray *writtenMask;
 
 public:
   unsigned size;
   bool readOnly;
-  ref<Expr> pointsTo;
+  MemoryObject *pointsTo;
 
 public:
   /// Create a new object state for the given memory object with concrete
@@ -207,6 +209,12 @@ public:
   void write16(unsigned offset, uint16_t value);
   void write32(unsigned offset, uint32_t value);
   void write64(unsigned offset, uint64_t value);
+
+  bool isByteWritten(unsigned offset) const;
+  bool allBytesWritten(unsigned offset, unsigned length) const;
+  bool isObjWritten() const { return writtenMask != nullptr; }
+  void markByteWritten(unsigned offset);
+  void markRangeWritten(unsigned offset, unsigned length);
   
 private:
   const UpdateList &getUpdates() const;

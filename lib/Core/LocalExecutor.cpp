@@ -93,6 +93,7 @@ LocalExecutor::~LocalExecutor() {
 
 bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
                                                   ref<Expr> address,
+                                                  const Type *type,
                                                   KInstruction *target) {
     
   // fast read requires address to be a const expression
@@ -119,11 +120,34 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
     return true;
   }
 
-  // RLR TODO: move writtenAddres to object state.
-  if (!state.isSymbolic(mo) && state.writtenAddrs.find(address) == state.writtenAddrs.end()) {
-    
-    makeSymbolic(state, mo);
-    os = state.addressSpace.findObject(mo);
+  if (!state.isSymbolic(mo)) {
+    if (!os->isObjWritten()) {
+      ObjectState *newOS = makeSymbolic(state, mo);
+      if (countLoadIndirection(type) > 1) {
+        // this is a ptr-ptr. allocate something behind the pointer
+        Type *subtype = type->getPointerElementType();
+        uint64_t size = kmodule->targetData->getTypeStoreSize(subtype);
+        size_t align = kmodule->targetData->getPrefTypeAlignment(subtype);
+        MemoryObject *newMO = memory->allocate(size, false, true, target->inst, align);
+        newMO->setName(mo->name + "*");
+        newOS->pointsTo = newMO;
+        
+        // and constrain this pointer to point at it.
+        ref<Expr> exprNewMO = Expr::createPointer((unsigned long) newMO);
+        ref<Expr> exprPtr = newOS->read(offsetExpr, width);
+        ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(exprPtr, exprNewMO));
+        state.addConstraint(eq);
+        
+      }
+    } if (!os->allBytesWritten(offset, bytes)) {
+      // some of the bytes to be read were not previously written.
+      // they should be made symbolic, but cannot do that without
+      // losing prior writes. some form of convert to symbolic
+      // while retaining prior writes as constraints
+      // if the bytes were previously written, then safe to let the
+      // client read its own written data
+      klee_error("mixed read/write from single memory object");
+    }
   }
   
   ref<Expr> result = os->read(offset, width);
@@ -163,12 +187,10 @@ bool LocalExecutor::executeFastWriteMemoryOperation(ExecutionState &state,
   } else {
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
     wos->write(offset, value);
-    state.writtenAddrs.insert(address);
+    wos->markRangeWritten(offset, bytes);
   }
   return true;
 }
-  
-
   
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
@@ -176,7 +198,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   assert(kf && "failed to get module handle");
   
   ExecutionState *state = new ExecutionState(kf);
-  state->stack.back().numArgs = 0;
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -202,6 +223,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     if (argAlign == 0) {
       argAlign = kmodule->targetData->getPrefTypeAlignment(argType);
     }
+    Expr::Width width = getWidthForLLVMType(argType);
     MemoryObject *mo = memory->allocate(argSize, false, true, arg, argAlign);
     mo->setName(argName);
     
@@ -209,9 +231,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
       klee_error("Could not allocate memory for function arguments");
     }
     
-    makeSymbolic(*state, mo);
-    const ObjectState *os = state->addressSpace.findObject(mo);
-    Expr::Width width = getWidthForLLVMType(argType);
+    ObjectState *os = makeSymbolic(*state, mo);
     ref<Expr> e = os->read(0, width);
     bindArgument(kf, index, *state, e);
     index++;
@@ -234,8 +254,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->done();
 }
   
-void LocalExecutor::makeSymbolic(ExecutionState &state,
-                                 const MemoryObject *mo) {
+ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
+                                         const MemoryObject *mo) {
   
   // Create a new object state for the memory object (instead of a copy).
   // Find a unique name for this array.  First try the original name,
@@ -246,8 +266,9 @@ void LocalExecutor::makeSymbolic(ExecutionState &state,
     uniqueName = mo->name + "_" + llvm::utostr(++id);
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
-  bindObjectInState(state, mo, false, array);
+  ObjectState *os = bindObjectInState(state, mo, mo->isLocal, array);
   state.addSymbolic(mo, array);
+  return os;
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -491,7 +512,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 #endif
       
-#ifdef NOTYET
     case Instruction::Invoke:
     case Instruction::Call: {
       
@@ -506,6 +526,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (!ty->isVoidTy()) {
         
         uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
+        Expr::Width width = getWidthForLLVMType(ty);
         
         // get an alignment for this value
         size_t align = 8;
@@ -514,7 +535,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
         
         std::string name = getFQFnName(f);
-        unsigned counter = state.callCounter[name]++;
+        unsigned counter = state.callTargetCounter[name]++;
         MemoryObject *mo = memory->allocate(size, false, true, i, align);
         mo->setName(name + "::" + std::to_string(counter) + "::return");
         
@@ -522,13 +543,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           klee_error("Could not allocate memory for function arguments");
         }
         
-        ref<Expr> e = makeSymbolic(state, mo);
+        ObjectState *os = makeSymbolic(state, mo);
+        ref<Expr> e = os->read(0, width);
         bindLocal(ki, state, e);
         
       }
       break;
     }
-#endif
+
     case Instruction::PHI: {
       ref<Expr> result = eval(ki, state.incomingBBIndex, state).value;
       bindLocal(ki, state, result);
@@ -576,16 +598,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 #endif
       
     case Instruction::Load: {
-      bool isPtr = false;
       LoadInst *li = cast<LoadInst>(i);
       const Value *v = li->getPointerOperand();
-      const Type *type = v->getType();
-      if (type->isPointerTy()) {
-        isPtr = true;
-      }
       
       ref<Expr> base = eval(ki, 0, state).value;
-      if (!executeFastReadMemoryOperation(state, base, ki))
+      if (!executeFastReadMemoryOperation(state, base, v->getType(), ki))
         executeMemoryOperation(state, false, base, 0, ki);
       break;
     }
@@ -603,7 +620,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
   }
   
+unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
+  
+  unsigned counter = 0;
 
+  while (type->isPointerTy()) {
+    counter++;
+    type = type->getPointerElementType();
+  }
+  return counter;
+}
   
 Interpreter *Interpreter::createLocal(LLVMContext &ctx, const InterpreterOptions &opts,
                                       InterpreterHandler *ih) {

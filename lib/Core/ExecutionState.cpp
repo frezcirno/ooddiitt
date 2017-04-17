@@ -44,7 +44,7 @@ namespace {
 
 StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
   : caller(_caller), kf(_kf), callPathNode(0), 
-    numArgs(kf->numArgs), numRegs(kf->numRegisters),
+    numRegs(kf->numRegisters),
     minDistToUncoveredOnReturn(0), varargs(0) {
   locals = new Cell[numRegs];
 }
@@ -54,7 +54,6 @@ StackFrame::StackFrame(const StackFrame &s)
     kf(s.kf),
     callPathNode(s.callPathNode),
     allocas(s.allocas),
-    numArgs(s.numArgs),
     numRegs(s.numRegs),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
@@ -124,8 +123,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     ptreeNode(state.ptreeNode),
     symbolics(state.symbolics),
     arrayNames(state.arrayNames),
-    callCounter(state.callCounter),
-    writtenAddrs(state.writtenAddrs)
+    callTargetCounter(state.callTargetCounter)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
