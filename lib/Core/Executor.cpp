@@ -111,10 +111,6 @@
 using namespace llvm;
 using namespace klee;
 
-
-
-
-
 namespace {
   cl::opt<bool>
   DumpStatesOnHalt("dump-states-on-halt",
@@ -125,11 +121,6 @@ namespace {
   AllowExternalSymCalls("allow-external-sym-calls",
                         cl::init(false),
 			cl::desc("Allow calls with symbolic arguments to external functions.  This concretizes the symbolic arguments.  (default=off)"));
-
-  cl::opt<bool>
-  AssumeInboundPointers("assume-inbound-pointers",
-                        cl::init(false),
-      cl::desc("Assume pointer dereferences are inbounds. (default=off)"));
 
 
   /// The different query logging solvers that can switched on/off
@@ -3374,6 +3365,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
     bool success = solver->mustBeTrue(state, mc, inBounds);
 
+#ifdef NEVER
     if (AssumeInboundPointers && success && !inBounds) {
 
         // not in bounds, so add constraint and try, try, again
@@ -3382,7 +3374,8 @@ void Executor::executeMemoryOperation(ExecutionState &state,
         addConstraint(state, mc);
         success = solver->mustBeTrue(state, mc, inBounds);
     }
-
+#endif
+    
     solver->setTimeout(0);
     if (!success) {
       state.pc = state.prevPC;

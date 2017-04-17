@@ -49,12 +49,27 @@ protected:
   
   bool executeFastWriteMemoryOperation(ExecutionState &state,
                                        ref<Expr> address,
-                                       ref<Expr> value);
+                                       ref<Expr> value,
+                                       const std::string name);
 
+  void executeReadMemoryOperation(ExecutionState &state,
+                                  ref<Expr> address,
+                                  const llvm::Type *type,
+                                  KInstruction *target);
+
+  void executeWriteMemoryOperation(ExecutionState &state,
+                                   ref<Expr> address,
+                                   ref<Expr> value,
+                                   const std::string name);
+  
   ObjectState *makeSymbolic(ExecutionState &state, const MemoryObject *mo);
   
   unsigned countLoadIndirection(const llvm::Type* type) const;
   
+  bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
+  
+  
+  unsigned lazyAllocationCount;
 };
   
 } // End klee namespace
