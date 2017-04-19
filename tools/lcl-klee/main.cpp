@@ -389,6 +389,7 @@ void KleeHandler::processTestCase(const ExecutionState &state,
 
     if (success) {
       KTest b;
+      b.entryFn = strdup(state.fqfnName.c_str());
       b.numArgs = m_argc;
       b.args = m_argv;
       b.symArgvs = 0;
@@ -412,6 +413,7 @@ void KleeHandler::processTestCase(const ExecutionState &state,
       for (unsigned i=0; i<b.numObjects; i++)
         delete[] b.objects[i].bytes;
       delete[] b.objects;
+      free(b.entryFn);
     }
 
     if (errorMessage) {
@@ -1333,7 +1335,10 @@ int main(int argc, char **argv, char **envp) {
     if (!(fn.isIntrinsic() || (mainFn == &fn))) {
       std::string fqfnName = fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str();
       if (fnInOrigModule.find(fqfnName) != notFound) {
+        
+        handler->getInfoStream() << "executing: " << fqfnName << " ... ";
         theInterpreter->runFunctionUnconstrained(&fn);
+        handler->getInfoStream() << "done\n";
       }
     }
   }

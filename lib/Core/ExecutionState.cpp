@@ -68,7 +68,7 @@ StackFrame::~StackFrame() {
 
 /***/
 
-ExecutionState::ExecutionState(KFunction *kf) :
+ExecutionState::ExecutionState(KFunction *kf, const std::string *name) :
     pc(kf->instructions),
     prevPC(pc),
 
@@ -81,6 +81,7 @@ ExecutionState::ExecutionState(KFunction *kf) :
     forkDisabled(false),
     ptreeNode(0) {
   pushFrame(0, kf);
+  if (name != nullptr) fqfnName = *name;
 }
 
 ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
@@ -123,7 +124,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     ptreeNode(state.ptreeNode),
     symbolics(state.symbolics),
     arrayNames(state.arrayNames),
-    callTargetCounter(state.callTargetCounter)
+    callTargetCounter(state.callTargetCounter),
+    fqfnName(state.fqfnName)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;

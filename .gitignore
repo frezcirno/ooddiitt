@@ -30,5 +30,5 @@ autoconf/autom4te.cache/
 autom4te.cache/
 
 # coati files
-*.coatidb
-*.coatiproject
+*.srctrldb
+*.srctrlprj

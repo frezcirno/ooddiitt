@@ -174,8 +174,13 @@ ObjectState::~ObjectState() {
   if (writtenMask) delete writtenMask;
   delete[] concreteStore;
 
-  if (object)
-  {
+  concreteMask = nullptr;
+  flushMask = nullptr;
+  knownSymbolics = nullptr;
+  writtenMask = nullptr;
+  concreteStore = nullptr;
+  
+  if (object != nullptr)  {
     assert(object->refCount > 0);
     object->refCount--;
     if (object->refCount == 0)
@@ -246,10 +251,12 @@ const UpdateList &ObjectState::getUpdates() const {
 void ObjectState::makeConcrete() {
   if (concreteMask) delete concreteMask;
   if (flushMask) delete flushMask;
+  if (writtenMask) delete writtenMask;
   if (knownSymbolics) delete[] knownSymbolics;
-  concreteMask = 0;
-  flushMask = 0;
-  knownSymbolics = 0;
+  concreteMask = nullptr;
+  flushMask = nullptr;
+  writtenMask = nullptr;
+  knownSymbolics = nullptr;
 }
 
 void ObjectState::makeSymbolic() {
@@ -355,19 +362,13 @@ bool ObjectState::isByteKnownSymbolic(unsigned offset) const {
 }
 
 bool ObjectState::isByteWritten(unsigned offset) const {
-  return writtenMask && !writtenMask->get(offset);
+  return writtenMask && writtenMask->get(offset);
 }
 
-bool ObjectState::allBytesWritten(unsigned offset, unsigned length) const {
-
-  bool result = false;
-  if (writtenMask != nullptr) {
-    result = true;
-    for (unsigned end = offset + length; offset < end && result; ++offset) {
-      result = writtenMask->get(offset);
-    }
-  }
-  return result;
+void ObjectState::resetBytesWritten() {
+  
+  delete writtenMask;
+  writtenMask = nullptr;
 }
 
 void ObjectState::markByteConcrete(unsigned offset) {
@@ -401,13 +402,7 @@ void ObjectState::markByteWritten(unsigned offset) {
   writtenMask->set(offset);
 }
 
-void ObjectState::markRangeWritten(unsigned offset, unsigned length) {
-  for (unsigned end = offset + length; offset < end; ++offset) {
-    markByteWritten(offset);
-  }
-}
-
-void ObjectState::setKnownSymbolic(unsigned offset, 
+void ObjectState::setKnownSymbolic(unsigned offset,
                                    Expr *value /* can be null */) {
   if (knownSymbolics) {
     knownSymbolics[offset] = value;
@@ -417,6 +412,22 @@ void ObjectState::setKnownSymbolic(unsigned offset,
       knownSymbolics[offset] = value;
     }
   }
+}
+
+bool ObjectState::cloneWritten(const ObjectState *src) {
+
+  // RLR TODO: validate == attributes
+  if (src->size >= size) {
+    if (src->isWritten()) {
+      for (unsigned index = 0; index < size; index++) {
+        if (src->isByteWritten(index)) {
+          write8(index, src->read8(index));
+        }
+      }
+    }
+    return true;
+  }
+  return false;
 }
 
 /***/
@@ -458,6 +469,7 @@ void ObjectState::write8(unsigned offset, uint8_t value) {
 
   markByteConcrete(offset);
   markByteUnflushed(offset);
+  markByteWritten(offset);
 }
 
 void ObjectState::write8(unsigned offset, ref<Expr> value) {
@@ -469,6 +481,7 @@ void ObjectState::write8(unsigned offset, ref<Expr> value) {
       
     markByteSymbolic(offset);
     markByteUnflushed(offset);
+    markByteWritten(offset);
   }
 }
 
@@ -485,7 +498,8 @@ void ObjectState::write8(ref<Expr> offset, ref<Expr> value) {
                       size,
                       allocInfo.c_str());
   }
-  
+
+  // RLR TODO: how do I mark this as written?
   updates.extend(ZExtExpr::create(offset, Expr::Int32), value);
 }
 

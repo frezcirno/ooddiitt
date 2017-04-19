@@ -148,17 +148,7 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
   }
 
   if (!state.isSymbolic(mo)) {
-    if (!os->isObjWritten()) {
-      os = makeSymbolic(state, mo);
-    } else if (!os->allBytesWritten(offset, bytes)) {
-      // some of the bytes to be read were not previously written.
-      // they should be made symbolic, but cannot do that without
-      // losing prior writes. some form of convert to symbolic
-      // while retaining prior writes as constraints
-      // if the bytes were previously written, then safe to let the
-      // client read its own written data
-      klee_error("mixed read/write from single memory object");
-    }
+    os = makeSymbolic(state, mo, os);
   }
   
   ref<Expr> result = os->read(offset, width);
@@ -231,7 +221,6 @@ bool LocalExecutor::executeFastWriteMemoryOperation(ExecutionState &state,
   } else {
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
     wos->write(offset, value);
-    wos->markRangeWritten(offset, bytes);
   }
   return true;
 }
@@ -287,17 +276,7 @@ void LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       
       const ObjectState *os = op.second;
       if (!state.isSymbolic(mo)) {
-        if (!os->isObjWritten()) {
-          os = makeSymbolic(state, mo);
-        } else  /*if (!os->allBytesWritten(offset, bytes)) */ {
-          // some of the bytes to be read were not previously written.
-          // they should be made symbolic, but cannot do that without
-          // losing prior writes. some form of convert to symbolic
-          // while retaining prior writes as constraints
-          // if the bytes were previously written, then safe to let the
-          // client read its own written data
-          klee_error("mixed read/write from single memory object");
-        }
+        os = makeSymbolic(state, mo, os);
       }
       
       ref<Expr> result = os->read(offset, width);
@@ -395,7 +374,6 @@ void LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       } else {
         ObjectState *wos = state.addressSpace.getWriteable(mo, os);
         wos->write(offset, value);
-        wos->markRangeWritten(0, wos->size - 1);
       }
       return;
     }
@@ -408,13 +386,51 @@ void LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   return;
 }
 
+ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
+                                         const MemoryObject *mo,
+                                         const ObjectState *os) {
   
+  const ObjectState *clone = nullptr;
+  
+  if (os == nullptr) {
+    os = state.addressSpace.findObject(mo);
+  }
+  if (os != nullptr) {
+    if (state.isSymbolic(mo)) {
+      return state.addressSpace.getWriteable(mo, os);
+    }
+    clone = new ObjectState(*os);
+  }
+  
+  // Create a new object state for the memory object (instead of a copy).
+  // Find a unique name for this array.  First try the original name,
+  // or if that fails try adding a unique identifier.
+  unsigned id = 0;
+  std::string uniqueName = mo->name;
+  while (!state.arrayNames.insert(uniqueName).second) {
+    uniqueName = mo->name + "_" + llvm::utostr(++id);
+  }
+  const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
+  
+  ObjectState *wos = bindObjectInState(state, mo, mo->isLocal, array);
+  state.addSymbolic(mo, array);
+  if (clone != nullptr) {
+    wos->cloneWritten(clone);
+    delete clone;
+  }
+  return wos;
+}
+
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   KFunction *kf = kmodule->functionMap[f];
-  assert(kf && "failed to get module handle");
+  if (kf == nullptr) {
+    // not in this compilation unit
+    return;
+  }
   
-  ExecutionState *state = new ExecutionState(kf);
+  std::string name = getFQFnName(f);
+  ExecutionState *state = new ExecutionState(kf, &name);
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -469,23 +485,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   
   if (statsTracker)
     statsTracker->done();
-}
-  
-ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
-                                         const MemoryObject *mo) {
-  
-  // Create a new object state for the memory object (instead of a copy).
-  // Find a unique name for this array.  First try the original name,
-  // or if that fails try adding a unique identifier.
-  unsigned id = 0;
-  std::string uniqueName = mo->name;
-  while (!state.arrayNames.insert(uniqueName).second) {
-    uniqueName = mo->name + "_" + llvm::utostr(++id);
-  }
-  const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
-  ObjectState *os = bindObjectInState(state, mo, mo->isLocal, array);
-  state.addSymbolic(mo, array);
-  return os;
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -734,11 +733,68 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       
       CallSite cs(i);
       
-      // RLR TODO: this skips klee_ internal functions. see executor.cpp
+      // have to setup for a function call in case this is a call
+      // to a klee internal handler
+      unsigned numArgs = cs.arg_size();
       Value *fp = cs.getCalledValue();
       Function *f = getTargetFunction(fp, state);
-      KFunction *kf = kmodule->functionMap[f];
-      assert(kf && "failed to get module handle");
+      
+      if (isa<InlineAsm>(fp)) {
+        terminateStateOnExecError(state, "inline assembly is unsupported");
+        break;
+      }
+      
+      // evaluate arguments
+      std::vector< ref<Expr> > arguments;
+      arguments.reserve(numArgs);
+      
+      for (unsigned j=0; j<numArgs; ++j)
+        arguments.push_back(eval(ki, j+1, state).value);
+      
+      if (f != nullptr) {
+        const FunctionType *fType =
+        dyn_cast<FunctionType>(cast<PointerType>(f->getType())->getElementType());
+        const FunctionType *fpType =
+        dyn_cast<FunctionType>(cast<PointerType>(fp->getType())->getElementType());
+        
+        // special case the call with a bitcast case
+        if (fType != fpType) {
+          assert(fType && fpType && "unable to get function type");
+          
+          // XXX check result coercion
+          
+          // XXX this really needs thought and validation
+          unsigned i=0;
+          for (std::vector< ref<Expr> >::iterator
+               ai = arguments.begin(), ie = arguments.end();
+               ai != ie; ++ai) {
+            Expr::Width to, from = (*ai)->getWidth();
+            
+            if (i<fType->getNumParams()) {
+              to = getWidthForLLVMType(fType->getParamType(i));
+              
+              if (from != to) {
+                // XXX need to check other param attrs ?
+                bool isSExt = cs.paramHasAttr(i+1, llvm::Attribute::SExt);
+                if (isSExt) {
+                  arguments[i] = SExtExpr::create(arguments[i], to);
+                } else {
+                  arguments[i] = ZExtExpr::create(arguments[i], to);
+                }
+              }
+            }
+            
+            i++;
+          }
+        }
+        if (f->isDeclaration() && (f->getIntrinsicID() == Intrinsic::not_intrinsic)) {
+          if (specialFunctionHandler->handle(state, f, ki, arguments)) {
+            
+            // this was an handled by the specialFunctionHandler, so we can return
+            return;
+          }
+        }
+      }
       
       Type *ty = f->getReturnType();
       if (!ty->isVoidTy()) {
@@ -790,6 +846,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       executeAlloc(state, size, true, ki);
       break;
     }
+
       
 #ifdef NOTYET
       

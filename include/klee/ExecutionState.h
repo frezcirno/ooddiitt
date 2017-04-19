@@ -143,6 +143,8 @@ public:
   std::set<std::string> arrayNames;
   
   std::map<std::string, unsigned> callTargetCounter;
+  
+  std::string fqfnName;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
@@ -152,7 +154,7 @@ private:
   ExecutionState() : ptreeNode(0) {}
 
 public:
-  ExecutionState(KFunction *kf);
+  ExecutionState(KFunction *kf, const std::string *name = nullptr);
 
   // XXX total hack, just used to make a state so solver can
   // use on structure

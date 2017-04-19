@@ -25,7 +25,9 @@ extern "C" {
   typedef struct KTest KTest;
   struct KTest {
     /* file format version */
-    unsigned version; 
+    unsigned version;
+    
+    char *entryFn;
     
     unsigned numArgs;
     char **args;

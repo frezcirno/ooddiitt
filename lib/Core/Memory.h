@@ -113,7 +113,7 @@ public:
   void setName(std::string name) const {
     this->name = name;
   }
-
+  
   ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
@@ -200,6 +200,10 @@ public:
   // make contents all concrete and random
   void initializeToRandom();
 
+  bool cloneWritten(const ObjectState *src);
+  void resetBytesWritten();
+  bool isWritten() const { return writtenMask != nullptr; }
+  
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;
   ref<Expr> read8(unsigned offset) const;
@@ -213,12 +217,6 @@ public:
   void write32(unsigned offset, uint32_t value);
   void write64(unsigned offset, uint64_t value);
 
-  bool isByteWritten(unsigned offset) const;
-  bool allBytesWritten(unsigned offset, unsigned length) const;
-  bool isObjWritten() const { return writtenMask != nullptr; }
-  void markByteWritten(unsigned offset);
-  void markRangeWritten(unsigned offset, unsigned length);
-  
 private:
   const UpdateList &getUpdates() const;
 
@@ -247,6 +245,9 @@ private:
 
   void print();
   ArrayCache *getArrayCache() const;
+  
+  bool isByteWritten(unsigned offset) const;
+  void markByteWritten(unsigned offset);
 };
   
 } // End klee namespace

@@ -62,7 +62,9 @@ protected:
                                    ref<Expr> value,
                                    const std::string name);
   
-  ObjectState *makeSymbolic(ExecutionState &state, const MemoryObject *mo);
+  ObjectState *makeSymbolic(ExecutionState &state,
+                            const MemoryObject *mo,
+                            const ObjectState *os = nullptr);
   
   unsigned countLoadIndirection(const llvm::Type* type) const;
   

@@ -504,6 +504,7 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os,
 
     os->write(offset, C);
   }
+  os->resetBytesWritten();
 }
 
 MemoryObject * Executor::addExternalObject(ExecutionState &state,
