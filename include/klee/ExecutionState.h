@@ -145,6 +145,8 @@ public:
   std::map<std::string, unsigned> callTargetCounter;
   
   std::string fqfnName;
+  std::map<const KInstruction *, unsigned> iterationCounter;
+  std::set<const MemoryObject *> locallyAllocated;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
@@ -169,6 +171,11 @@ public:
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
 
+  void addLocallyAllocated(const MemoryObject *mo)
+                        { locallyAllocated.insert(mo); }
+  bool isLocallyAllocated(const MemoryObject *mo) const
+                        { return locallyAllocated.find(mo) != locallyAllocated.end();  }
+  
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
   void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }

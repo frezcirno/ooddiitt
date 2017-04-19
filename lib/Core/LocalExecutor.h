@@ -72,6 +72,7 @@ protected:
   
   
   unsigned lazyAllocationCount;
+  unsigned iterationBound;
 };
   
 } // End klee namespace

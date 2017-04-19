@@ -3176,6 +3176,7 @@ void Executor::executeAlloc(ExecutionState &state,
         os->initializeToRandom();
       }
       bindLocal(target, state, mo->getBaseExpr());
+      state.addLocallyAllocated(mo);
 
       if (reallocFrom) {
         unsigned count = std::min(reallocFrom->size, os->size);

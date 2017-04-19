@@ -1336,9 +1336,7 @@ int main(int argc, char **argv, char **envp) {
       std::string fqfnName = fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str();
       if (fnInOrigModule.find(fqfnName) != notFound) {
         
-        handler->getInfoStream() << "executing: " << fqfnName << " ... ";
         theInterpreter->runFunctionUnconstrained(&fn);
-        handler->getInfoStream() << "done\n";
       }
     }
   }

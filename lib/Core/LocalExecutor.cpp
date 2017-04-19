@@ -67,6 +67,8 @@
 #include "llvm/IR/CallSite.h"
 #endif
 
+#include <iostream>
+
 using namespace llvm;
 
 namespace klee {
@@ -89,7 +91,9 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
 Executor(ctx, opts, ih),
-lazyAllocationCount(8) {
+lazyAllocationCount(8),
+iterationBound(1)
+{
     
 }
 
@@ -147,7 +151,7 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
     return true;
   }
 
-  if (!state.isSymbolic(mo)) {
+  if (!state.isSymbolic(mo) && !state.isLocallyAllocated(mo)) {
     os = makeSymbolic(state, mo, os);
   }
   
@@ -430,6 +434,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
   
   std::string name = getFQFnName(f);
+  outs() << "locally executing " << name << " ... ";
   ExecutionState *state = new ExecutionState(kf, &name);
   
   if (pathWriter)
@@ -485,6 +490,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   
   if (statsTracker)
     statsTracker->done();
+  
+  outs() << "done\n";
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -637,96 +644,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
   switch (i->getOpcode()) {
       // Control flow
 
-#ifdef NOTYET
-    case Instruction::Ret: {
-      ReturnInst *ri = cast<ReturnInst>(i);
-      KInstIterator kcaller = state.stack.back().caller;
-      Instruction *caller = kcaller ? kcaller->inst : 0;
-      bool isVoidReturn = (ri->getNumOperands() == 0);
-      ref<Expr> result = ConstantExpr::alloc(0, Expr::Bool);
-      
-      if (!isVoidReturn) {
-        result = eval(ki, 0, state).value;
-      }
-      
-      if (state.stack.size() <= 1) {
-        assert(!caller && "caller set on initial stack frame");
-        terminateStateOnExit(state);
-      } else {
-        state.popFrame();
-        
-        if (statsTracker)
-          statsTracker->framePopped(state);
-        
-        if (InvokeInst *ii = dyn_cast<InvokeInst>(caller)) {
-          transferToBasicBlock(ii->getNormalDest(), caller->getParent(), state);
-        } else {
-          state.pc = kcaller;
-          ++state.pc;
-        }
-        
-        if (!isVoidReturn) {
-          LLVM_TYPE_Q Type *t = caller->getType();
-          if (t != Type::getVoidTy(i->getContext())) {
-            // may need to do coercion due to bitcasts
-            Expr::Width from = result->getWidth();
-            Expr::Width to = getWidthForLLVMType(t);
-            
-            if (from != to) {
-              CallSite cs = (isa<InvokeInst>(caller) ? CallSite(cast<InvokeInst>(caller)) :
-                             CallSite(cast<CallInst>(caller)));
-              
-              // XXX need to check other param attrs ?
-              bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
-              if (isSExt) {
-                result = SExtExpr::create(result, to);
-              } else {
-                result = ZExtExpr::create(result, to);
-              }
-            }
-            
-            bindLocal(kcaller, state, result);
-          }
-        } else {
-          // We check that the return value has no users instead of
-          // checking the type, since C defaults to returning int for
-          // undeclared functions.
-          if (!caller->use_empty()) {
-            terminateStateOnExecError(state, "return void when caller expected a result");
-          }
-        }
-      }
-      break;
-    }
-#endif
-      
-#ifdef NOTYET
     case Instruction::Br: {
-      BranchInst *bi = cast<BranchInst>(i);
-      if (bi->isUnconditional()) {
-        transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
-      } else {
-        // FIXME: Find a way that we don't have this hidden dependency.
-        assert(bi->getCondition() == bi->getOperand(0) &&
-               "Wrong operand index!");
-        ref<Expr> cond = eval(ki, 0, state).value;
-        Executor::StatePair branches = fork(state, cond, false);
-        
-        // NOTE: There is a hidden dependency here, markBranchVisited
-        // requires that we still be in the context of the branch
-        // instruction (it reuses its statistic id). Should be cleaned
-        // up with convenient instruction specific data.
-        if (statsTracker && state.stack.back().kf->trackCoverage)
-          statsTracker->markBranchVisited(branches.first, branches.second);
-        
-        if (branches.first)
-          transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
-        if (branches.second)
-          transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
+      unsigned counterValue = state.iterationCounter[ki];
+      if (counterValue > iterationBound) {
+        // kill state
+        terminateState(state);
+        return;
       }
+      state.iterationCounter[ki] = counterValue + 1;
+      Executor::executeInstruction(state, ki);
       break;
     }
-#endif
       
     case Instruction::Invoke:
     case Instruction::Call: {
@@ -820,17 +748,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         ObjectState *os = makeSymbolic(state, mo);
         ref<Expr> e = os->read(0, width);
         bindLocal(ki, state, e);
+      }
+      
+      // now for the arguments
+      for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr) {
+        const Argument *arg = static_cast<const Argument *>(itr);
+        const Type *type = arg->getType();
+        const std::string name = arg->getName();
+        unsigned count = countLoadIndirection(type);
+        unsigned dummy = count;
         
       }
       break;
     }
 
-    case Instruction::PHI: {
-      ref<Expr> result = eval(ki, state.incomingBBIndex, state).value;
-      bindLocal(ki, state, result);
-      break;
-    }
-      
       // Memory instructions...
       
     case Instruction::Alloca: {
@@ -847,31 +778,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
-      
-#ifdef NOTYET
-      
-    case Instruction::GetElementPtr: {
-      KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
-      ref<Expr> base = eval(ki, 0, state).value;
-      
-      for (std::vector< std::pair<unsigned, uint64_t> >::iterator
-           it = kgepi->indices.begin(), ie = kgepi->indices.end();
-           it != ie; ++it) {
-        uint64_t elementSize = it->second;
-        ref<Expr> index = eval(ki, it->first, state).value;
-        base = AddExpr::create(base,
-                               MulExpr::create(Expr::createSExtToPointerWidth(index),
-                                               Expr::createPointer(elementSize)));
-      }
-      if (kgepi->offset)
-        base = AddExpr::create(base,
-                               Expr::createPointer(kgepi->offset));
-      bindLocal(ki, state, base);
-      break;
-    }
-      
-#endif
-      
     case Instruction::Load: {
       LoadInst *li = cast<LoadInst>(i);
       const Value *v = li->getPointerOperand();
