@@ -3149,6 +3149,7 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
   return os;
 }
 
+// RLR TODO: check if target allways points to AllocaInst
 void Executor::executeAlloc(ExecutionState &state,
                             ref<Expr> size,
                             bool isLocal,

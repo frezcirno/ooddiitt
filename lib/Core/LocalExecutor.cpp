@@ -22,7 +22,6 @@
 #include "TimingSolver.h"
 #include "UserSearcher.h"
 #include "ExecutorTimerInfo.h"
-//#include "Callsite.h"
 
 #include "klee/ExecutionState.h"
 #include "klee/Expr.h"
@@ -89,8 +88,10 @@ static std::string getFQFnName(const Function *f) {
   
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih) :
+                             InterpreterHandler *ih,
+                             const std::set<Function *> &fns) :
 Executor(ctx, opts, ih),
+fnInModule(fns),
 lazyAllocationCount(8),
 iterationBound(1)
 {
@@ -143,7 +144,7 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
 
   ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
   if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
+  const unsigned offset = (unsigned) cast<ConstantExpr>(offsetExpr)->getZExtValue();
   if (offset + bytes > mo->size) {
       
     terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
@@ -161,18 +162,10 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
   if ((countLoadIndirection(type) > 1) &&
       (isUnconstrainedPtr(state, result))) {
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
-    
+
     Type *subtype = type->getPointerElementType()->getPointerElementType();
-    uint64_t size = kmodule->targetData->getTypeStoreSize(subtype);
-    size *= lazyAllocationCount;
-    
-    size_t align = kmodule->targetData->getPrefTypeAlignment(subtype);
-    MemoryObject *newMO = memory->allocate(size,
-                                           mo->isLocal,
-                                           mo->isGlobal,
-                                           target->inst,
-                                           align);
-    newMO->setName(mo->name + "*");
+    MemoryObject *newMO = allocMemory(state, lazyAllocationCount, subtype, 0,
+                                      target->inst, mo->isGlobal, '*' + mo->name);
 //    newOS->pointsTo = newMO;
     bindObjectInState(state, newMO, mo->isLocal);
     
@@ -212,7 +205,7 @@ bool LocalExecutor::executeFastWriteMemoryOperation(ExecutionState &state,
   
   ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
   if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
+  const unsigned offset = (unsigned) cast<ConstantExpr>(offsetExpr)->getZExtValue();
   if (offset + bytes > mo->size) {
       
     terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
@@ -258,7 +251,7 @@ void LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     // RLR: probably not the best way to do this
     // RLR TODO: why always do this. most of the time offset should be a const expression of 0.
     ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
-    bool success = solver->mustBeTrue(state, mc, inBounds);
+    success = solver->mustBeTrue(state, mc, inBounds);
     
     if (AssumeInboundPointers && success && !inBounds) {
       
@@ -291,15 +284,9 @@ void LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         // this is an unconstrained ptr-ptr. allocate something behind the pointer
         
         Type *subtype = type->getPointerElementType()->getPointerElementType();
-        uint64_t size = kmodule->targetData->getTypeStoreSize(subtype);
-        size *= lazyAllocationCount;
-        
-        size_t align = kmodule->targetData->getPrefTypeAlignment(subtype);
-        MemoryObject *newMO = memory->allocate(size,
-                                               mo->isLocal,
-                                               mo->isGlobal,
-                                               target->inst,
-                                               align);
+        MemoryObject *newMO = allocMemory(state, lazyAllocationCount, subtype, 0,
+                                          target->inst, mo->isGlobal, '*' + mo->name);
+
         newMO->setName("*" + mo->name);
         //    newOS->pointsTo = newMO;
         bindObjectInState(state, newMO, mo->isLocal);
@@ -352,7 +339,7 @@ void LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     // RLR: probably not the best way to do this
     // RLR TODO: why always do this. most of the time offset should be a const expression of 0.
     ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
-    bool success = solver->mustBeTrue(state, mc, inBounds);
+    success = solver->mustBeTrue(state, mc, inBounds);
     
     if (AssumeInboundPointers && success && !inBounds) {
       
@@ -425,7 +412,49 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
   return wos;
 }
 
+MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
+                                         unsigned count,
+                                         llvm::Type *type,
+                                         size_t align,
+                                         const llvm::Value *allocSite,
+                                         bool isGlobal,
+                                         std::string name) {
+
+  if (align == 0) {
+    align = kmodule->targetData->getPrefTypeAlignment(type);
+  }
+  uint64_t size = kmodule->targetData->getTypeStoreSize(type);
+  size *= count;
+  MemoryObject *mo = memory->allocate(size, !isGlobal, isGlobal, allocSite, align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic allocation");
+  }
+  else {
+    mo->setName(name);
+  }
+  return mo;
+}
+
+ref<Expr> LocalExecutor::allocSymbolic(ExecutionState &state,
+                                       unsigned count,
+                                       Type *type,
+                                       size_t align,
+                                       const llvm::Value *allocSite,
+                                       bool isGlobal,
+                                       std::string name ) {
+
+  MemoryObject *mo = allocMemory(state, count, type, align, allocSite, isGlobal, name);
+  if (mo != nullptr) {
+    ObjectState *os = makeSymbolic(state, mo);
+    Expr::Width width = getWidthForLLVMType(type);
+    return os->read(0, width);
+  }
+  return nullptr;
+}
+
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
+
+  assert((fnInModule.find(f) != fnInModule.end()) && "unconstrained function not in module");
 
   KFunction *kf = kmodule->functionMap[f];
   if (kf == nullptr) {
@@ -451,26 +480,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   unsigned index = 0;
   for (Function::const_arg_iterator ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai) {
     
-    const Argument *arg = static_cast<const Argument *>(ai);
-    std::string argName = arg->getName();
-    Type *argType = arg->getType();
-    uint64_t argSize = kmodule->targetData->getTypeStoreSize(argType);
-    
-    // get an alignment for this argument
-    size_t argAlign = arg->getParamAlignment();
-    if (argAlign == 0) {
-      argAlign = kmodule->targetData->getPrefTypeAlignment(argType);
-    }
-    Expr::Width width = getWidthForLLVMType(argType);
-    MemoryObject *mo = memory->allocate(argSize, false, true, arg, argAlign);
-    mo->setName(argName);
-    
-    if (mo == nullptr) {
-      klee_error("Could not allocate memory for function arguments");
-    }
-    
-    ObjectState *os = makeSymbolic(*state, mo);
-    ref<Expr> e = os->read(0, width);
+    const Argument &arg = *ai;
+    std::string argName = arg.getName();
+    Type *argType = arg.getType();
+    size_t argAlign = arg.getParamAlignment();
+
+    ref<Expr> e = allocSymbolic(*state, 1, argType, argAlign, &arg, false, argName);
     bindArgument(kf, index, *state, e);
     index++;
   }
@@ -658,106 +673,60 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       
     case Instruction::Invoke:
     case Instruction::Call: {
-      
-      CallSite cs(i);
-      
-      // have to setup for a function call in case this is a call
-      // to a klee internal handler
-      unsigned numArgs = cs.arg_size();
-      Value *fp = cs.getCalledValue();
-      Function *f = getTargetFunction(fp, state);
-      
-      if (isa<InlineAsm>(fp)) {
-        terminateStateOnExecError(state, "inline assembly is unsupported");
-        break;
+      const CallInst *ci = cast<CallInst>(i);
+      Function *f = ci->getCalledFunction();
+
+      // if this is not a function in module, let
+      // the standard executor handle it.
+      if (fnInModule.find(f) == fnInModule.end()) {
+        return Executor::executeInstruction(state, ki);
       }
-      
-      // evaluate arguments
-      std::vector< ref<Expr> > arguments;
-      arguments.reserve(numArgs);
-      
-      for (unsigned j=0; j<numArgs; ++j)
-        arguments.push_back(eval(ki, j+1, state).value);
-      
-      if (f != nullptr) {
-        const FunctionType *fType =
-        dyn_cast<FunctionType>(cast<PointerType>(f->getType())->getElementType());
-        const FunctionType *fpType =
-        dyn_cast<FunctionType>(cast<PointerType>(fp->getType())->getElementType());
-        
-        // special case the call with a bitcast case
-        if (fType != fpType) {
-          assert(fType && fpType && "unable to get function type");
-          
-          // XXX check result coercion
-          
-          // XXX this really needs thought and validation
-          unsigned i=0;
-          for (std::vector< ref<Expr> >::iterator
-               ai = arguments.begin(), ie = arguments.end();
-               ai != ie; ++ai) {
-            Expr::Width to, from = (*ai)->getWidth();
-            
-            if (i<fType->getNumParams()) {
-              to = getWidthForLLVMType(fType->getParamType(i));
-              
-              if (from != to) {
-                // XXX need to check other param attrs ?
-                bool isSExt = cs.paramHasAttr(i+1, llvm::Attribute::SExt);
-                if (isSExt) {
-                  arguments[i] = SExtExpr::create(arguments[i], to);
-                } else {
-                  arguments[i] = ZExtExpr::create(arguments[i], to);
-                }
-              }
-            }
-            
-            i++;
-          }
-        }
-        if (f->isDeclaration() && (f->getIntrinsicID() == Intrinsic::not_intrinsic)) {
-          if (specialFunctionHandler->handle(state, f, ki, arguments)) {
-            
-            // this was an handled by the specialFunctionHandler, so we can return
-            return;
-          }
-        }
-      }
-      
+
+      // hence, this is a function in this module
       Type *ty = f->getReturnType();
+      std::string name = getFQFnName(f);
+      unsigned counter = state.callTargetCounter[name]++;
       if (!ty->isVoidTy()) {
-        
-        uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-        Expr::Width width = getWidthForLLVMType(ty);
-        
-        // get an alignment for this value
-        size_t align = 8;
-        if (ty->isSized()) {
-          align = kmodule->targetData->getPrefTypeAlignment(ty);
+
+        if (ty->isPointerTy()) {
+          // RLR TODO: handle pointer return types
+          klee_error("what to do with pointer types");
+        } else {
+          ref<Expr> e = allocSymbolic(state, ty, i, name, counter, "return");
+          bindLocal(ki, state, e);
         }
-        
-        std::string name = getFQFnName(f);
-        unsigned counter = state.callTargetCounter[name]++;
-        MemoryObject *mo = memory->allocate(size, false, true, i, align);
-        mo->setName(name + "::" + std::to_string(counter) + "::return");
-        
-        if (mo == nullptr) {
-          klee_error("Could not allocate memory for function arguments");
-        }
-        
-        ObjectState *os = makeSymbolic(state, mo);
-        ref<Expr> e = os->read(0, width);
-        bindLocal(ki, state, e);
       }
       
       // now for the arguments
-      for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr) {
-        const Argument *arg = static_cast<const Argument *>(itr);
-        const Type *type = arg->getType();
-        const std::string name = arg->getName();
-        unsigned count = countLoadIndirection(type);
-        unsigned dummy = count;
-        
+      unsigned index = 0;
+      for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr, ++index) {
+        const Argument &arg = *itr;
+        Type *type = arg.getType();
+        const unsigned align = arg.getParamAlignment();
+        const std::string argname = arg.getName();
+        const unsigned count = countLoadIndirection(type);
+
+        // RLR TODO: check for const
+
+        // check the level of indirection
+        if (count == 1) {
+          // allocate unconstrained data and copy to target
+          const Value *v = ci->getArgOperand(index);
+
+        } else if (count > 1) {
+          // target is a ptr-...-ptr. just mark it as unconstrained
+          // and let lazy init take care of the rest
+//          const Value *v = ci->getArgOperand(index);
+          ref<Expr> address = eval(ki, index, state).value;
+          unsigned width = address.get()->getWidth();
+
+          assert(width == Context::get().getPointerWidth());
+
+          ref<Expr> value = allocSymbolic(state, 1, type, align, &arg, false, name, counter, argname);
+          if (!executeFastWriteMemoryOperation(state, address, value, "")) {
+            executeWriteMemoryOperation(state, address, value, "");
+          }
+        }
       }
       break;
     }
@@ -821,9 +790,11 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   return counter;
 }
   
-Interpreter *Interpreter::createLocal(LLVMContext &ctx, const InterpreterOptions &opts,
-                                      InterpreterHandler *ih) {
-  return new LocalExecutor(ctx, opts, ih);
+Interpreter *Interpreter::createLocal(LLVMContext &ctx,
+                                      const InterpreterOptions &opts,
+                                      InterpreterHandler *ih,
+                                      const std::set<Function *> &fnInModule) {
+  return new LocalExecutor(ctx, opts, ih, fnInModule);
 }
   
   

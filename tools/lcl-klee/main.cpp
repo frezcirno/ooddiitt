@@ -1198,11 +1198,10 @@ int main(int argc, char **argv, char **envp) {
 
   // build a set of functions in the initially loaded module
   // klee will link additional functions later. we will want to ignore those
-  std::set<std::string> fnInOrigModule;
+  std::set<Function *> fnInModule;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
-    Function &fn = *fnIter;
-    if (!fn.isIntrinsic()) {
-      fnInOrigModule.insert(fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str());
+    if (!fnIter->isIntrinsic()) {
+      fnInModule.insert(&(*fnIter));
     }
   }
   
@@ -1298,7 +1297,7 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, fnInModule);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
@@ -1329,15 +1328,9 @@ int main(int argc, char **argv, char **envp) {
   }
   
   // run each function other than main as unconstrained
-  auto notFound = fnInOrigModule.end();
-  for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
-    Function &fn = *fnIter;
-    if (!(fn.isIntrinsic() || (mainFn == &fn))) {
-      std::string fqfnName = fn.getParent()->getModuleIdentifier() + "::" + fn.getName().str();
-      if (fnInOrigModule.find(fqfnName) != notFound) {
-        
-        theInterpreter->runFunctionUnconstrained(&fn);
-      }
+  for (auto fnIter = fnInModule.begin(), fnEnd = fnInModule.end(); fnIter != fnEnd; ++fnIter) {
+    if (*fnIter != mainFn) {
+     theInterpreter->runFunctionUnconstrained(*fnIter);
     }
   }
 
