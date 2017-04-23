@@ -125,7 +125,9 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     symbolics(state.symbolics),
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
-    fqfnName(state.fqfnName)
+    fqfnName(state.fqfnName),
+    iterationCounter(state.iterationCounter),
+    locallyAllocated(state.locallyAllocated)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;

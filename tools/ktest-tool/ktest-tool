@@ -13,7 +13,7 @@ import os
 import struct
 import sys
 
-version_no=3
+version_no=4
 
 class KTestError(Exception):
     pass
@@ -32,6 +32,12 @@ class KTest:
         version, = struct.unpack('>i', f.read(4))
         if version > version_no:
             raise KTestError('unrecognized version')
+
+        functionEntry = ''
+        if version >= 4:
+            size, = struct.unpack('>i', f.read(4))
+            functionEntry = str(f.read(size).decode(encoding='ascii'))
+
         numArgs, = struct.unpack('>i', f.read(4))
         args = []
         for i in range(numArgs):
@@ -58,6 +64,7 @@ class KTest:
         b = KTest(version, args, symArgvs, symArgvLen, objects)
         # Augment with extra filename field
         b.filename = path
+        b.functionEntry = functionEntry
         return b
     
     def __init__(self, version, args, symArgvs, symArgvLen, objects):
@@ -66,6 +73,7 @@ class KTest:
         self.symArgvLen = symArgvLen
         self.args = args
         self.objects = objects
+        self.functionEntry = ''
 
         # add a field that represents the name of the program used to
         # generate this .ktest file:
@@ -101,6 +109,7 @@ def main(args):
         pos = 0
         print('ktest file : %r' % file)
         print('args       : %r' % b.args)
+        print('entry      : %r' % b.functionEntry)
         print('num objects: %r' % len(b.objects))
         for i,(name,data) in enumerate(b.objects):
             if opts.trimZeros:

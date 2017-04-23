@@ -1,2 +1,3 @@
 *.bc
-klee-*y
+klee-last
+klee-out-*/
