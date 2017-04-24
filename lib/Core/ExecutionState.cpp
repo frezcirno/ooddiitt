@@ -68,7 +68,7 @@ StackFrame::~StackFrame() {
 
 /***/
 
-ExecutionState::ExecutionState(KFunction *kf, const std::string *name) :
+ExecutionState::ExecutionState(KFunction *kf, std::string name) :
     pc(kf->instructions),
     prevPC(pc),
 
@@ -79,9 +79,9 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string *name) :
     instsSinceCovNew(0),
     coveredNew(false),
     forkDisabled(false),
-    ptreeNode(0) {
+    ptreeNode(0),
+    fqfnName(name) {
   pushFrame(0, kf);
-  if (name != nullptr) fqfnName = *name;
 }
 
 ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)

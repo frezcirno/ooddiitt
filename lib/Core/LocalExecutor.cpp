@@ -91,9 +91,9 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              InterpreterHandler *ih,
                              const std::set<Function *> &fns) :
 Executor(ctx, opts, ih),
-fnInModule(fns),
 lazyAllocationCount(8),
-iterationBound(1)
+iterationBound(1),
+fnInModule(fns)
 {
     
 }
@@ -102,6 +102,33 @@ LocalExecutor::~LocalExecutor() {
     
     
 }
+
+bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
+
+  bool result = false;
+
+  address = state.constraints.simplifyExpr(address);
+  assert(address.get()->getWidth() == Context::get().getPointerWidth());
+
+  if (isa<ConstantExpr>(address)) {
+    ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
+
+    // fast path: single in-bounds resolution
+    result = state.addressSpace.resolveOne(caddress, op);
+  }
+  if (!result) {
+
+    // not a const address, so we have to ask the solver
+    solver->setTimeout(coreSolverTimeout);
+    if (!state.addressSpace.resolveOne(state, solver, address, op, result)) {
+      address = toConstant(state, address, "resolveOne failure");
+      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
+    }
+    solver->setTimeout(0);
+  }
+  return result;
+}
+
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
@@ -123,44 +150,65 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
   return result;
 }
   
-bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
-                                                  ref<Expr> address,
-                                                  const Type *type,
-                                                  KInstruction *target) {
-    
-  // fast read requires address to be a const expression
-  if (!isa<ConstantExpr>(address)) return false;
-  ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
-  
-  Expr::Width width = getWidthForLLVMType(target->inst->getType());
-  unsigned bytes = Expr::getMinBytesForWidth(width);
-    
-  // fast path: single in-bounds resolution
+bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
+                                               ref<Expr> address,
+                                               const Type *type,
+                                               KInstruction *target) {
+
   ObjectPair op;
-  if (!state.addressSpace.resolveOne(caddress, op)) return false;
+  if (!resolveMO(state, address, op)) {
+    return false;
+  }
 
   const MemoryObject *mo = op.first;
   const ObjectState *os = op.second;
 
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
-  if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = (unsigned) cast<ConstantExpr>(offsetExpr)->getZExtValue();
-  if (offset + bytes > mo->size) {
-      
-    terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
-                          NULL, getAddressInfo(state, address));
-    return true;
+  Expr::Width width = getWidthForLLVMType(target->inst->getType());
+  unsigned bytes = Expr::getMinBytesForWidth(width);
+
+  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(address));
+  if (isa<ConstantExpr>(offsetExpr)) {
+    ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
+    const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
+    if (offset + bytes > mo->size) {
+      terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
+                            NULL, getAddressInfo(state, address));
+      return false;
+    }
+  } else {
+
+    bool inBounds;
+    bool success;
+    solver->setTimeout(coreSolverTimeout);
+
+    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
+    success = solver->mustBeTrue(state, mc, inBounds);
+
+    if (success && !inBounds && AssumeInboundPointers) {
+
+      // not in bounds, so add constraint and try, try, again
+      klee_warning("cannot prove pointer inbounds, adding constraint");
+      addConstraint(state, mc);
+      success = solver->mustBeTrue(state, mc, inBounds);
+    }
+
+    solver->setTimeout(0);
+    if (!success || !inBounds) {
+      state.pc = state.prevPC;
+      terminateStateEarly(state, "Failed to resolve read memory offset.");
+      return false;
+    }
   }
 
   if (!state.isSymbolic(mo) && !state.isLocallyAllocated(mo)) {
     os = makeSymbolic(state, mo, os);
   }
   
-  ref<Expr> result = os->read(offset, width);
-  bindLocal(target, state, result);
+  ref<Expr> e = os->read(offsetExpr, width);
+  bindLocal(target, state, e);
   
   if ((countLoadIndirection(type) > 1) &&
-      (isUnconstrainedPtr(state, result))) {
+      (isUnconstrainedPtr(state, e))) {
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
 
     Type *subtype = type->getPointerElementType()->getPointerElementType();
@@ -171,210 +219,73 @@ bool LocalExecutor::executeFastReadMemoryOperation(ExecutionState &state,
     
     // and constrain this pointer to point at it.
     ref<ConstantExpr> ptr = newMO->getBaseExpr();
-    ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(result, ptr));
+    ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
     state.addConstraint(eq);
   }
-  
   return true;
 }
   
-bool LocalExecutor::executeFastWriteMemoryOperation(ExecutionState &state,
-                                                 ref<Expr> address,
-                                                 ref<Expr> value,
-                                                 const std::string name) {
-    
-  // fast write requires address to be a const expression
-  if (!isa<ConstantExpr>(address)) return false;
-  ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
-    
-  Expr::Width width = value->getWidth();
-  unsigned bytes = Expr::getMinBytesForWidth(width);
-    
-  // fast path: single in-bounds resolution
-  ObjectPair op;
-  if (!state.addressSpace.resolveOne(caddress, op)) return false;
-    
-  const MemoryObject *mo = op.first;
-  const ObjectState *os = op.second;
-  
-  // override address name, if unset
-  if ((mo->name == MemoryObject::unnamed) &&
-      (!name.empty())) {
-    mo->name = name;
-  }
-  
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(caddress));
-  if (!isa<ConstantExpr>(offsetExpr)) return false;
-  const unsigned offset = (unsigned) cast<ConstantExpr>(offsetExpr)->getZExtValue();
-  if (offset + bytes > mo->size) {
-      
-    terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
-                          NULL, getAddressInfo(state, address));
-    return true;
-  }
-  if (os->readOnly) {
-    terminateStateOnError(state, "memory error: object read only",
-                          ReadOnly);
-  } else {
-    ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-    wos->write(offset, value);
-  }
-  return true;
-}
-
-void LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
-                                               ref<Expr> address,
-                                               const llvm::Type *type,
-                                               KInstruction *target) {
-  
-  Expr::Width width =  getWidthForLLVMType(target->inst->getType());
-  unsigned bytes = Expr::getMinBytesForWidth(width);
-  address = state.constraints.simplifyExpr(address);
-  
-  // fast path: single in-bounds resolution
-  ObjectPair op;
-  bool success;
-  solver->setTimeout(coreSolverTimeout);
-  if (!state.addressSpace.resolveOne(state, solver, address, op, success)) {
-    address = toConstant(state, address, "resolveOne failure");
-    success = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
-  }
-  solver->setTimeout(0);
-  
-  if (success) {
-    const MemoryObject *mo = op.first;
-    ref<Expr> offset = mo->getOffsetExpr(address);
-    
-    bool inBounds;
-    solver->setTimeout(coreSolverTimeout);
-    
-    // RLR: probably not the best way to do this
-    // RLR TODO: why always do this. most of the time offset should be a const expression of 0.
-    ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
-    success = solver->mustBeTrue(state, mc, inBounds);
-    
-    if (AssumeInboundPointers && success && !inBounds) {
-      
-      // not in bounds, so add constraint and try, try, again
-      klee_warning("cannot prove pointer inbounds, adding constraint");
-      ExprPPrinter::printOne(llvm::errs(), "Expr", mc);
-      addConstraint(state, mc);
-      success = solver->mustBeTrue(state, mc, inBounds);
-    }
-    
-    solver->setTimeout(0);
-    if (!success) {
-      state.pc = state.prevPC;
-      terminateStateEarly(state, "Query timed out (bounds check).");
-      return;
-    }
-    
-    if (inBounds) {
-      
-      const ObjectState *os = op.second;
-      if (!state.isSymbolic(mo)) {
-        os = makeSymbolic(state, mo, os);
-      }
-      
-      ref<Expr> result = os->read(offset, width);
-      bindLocal(target, state, result);
-      
-      if ((countLoadIndirection(type) > 1) &&
-          (isUnconstrainedPtr(state, result))) {
-        // this is an unconstrained ptr-ptr. allocate something behind the pointer
-        
-        Type *subtype = type->getPointerElementType()->getPointerElementType();
-        MemoryObject *newMO = allocMemory(state, lazyAllocationCount, subtype, 0,
-                                          target->inst, mo->isGlobal, '*' + mo->name);
-
-        newMO->setName("*" + mo->name);
-        //    newOS->pointsTo = newMO;
-        bindObjectInState(state, newMO, mo->isLocal);
-        
-        // and constrain this pointer to point at it.
-        ref<ConstantExpr> ptr = newMO->getBaseExpr();
-        ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(result, ptr));
-        state.addConstraint(eq);
-      }
-      
-      return;
-    }
-  }
-  
-  // we are on an error path (no resolution, multiple resolution, one
-  // resolution with out of bounds)
-  state.pc = state.prevPC;
-  terminateStateEarly(state, "Failed to resolve memory load.");
-  return;
-}
-  
-void LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
+bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
                                                 ref<Expr> address,
                                                 ref<Expr> value,
                                                 const std::string name) {
-  
+
+  ObjectPair op;
+  if (!resolveMO(state, address, op)) {
+    return false;
+  }
+
+  const MemoryObject *mo = op.first;
+  const ObjectState *os = op.second;
+
+  if (os->readOnly) {
+    terminateStateOnError(state, "memory error: object read only", ReadOnly);
+  }
+
   Expr::Width width = value->getWidth();
   unsigned bytes = Expr::getMinBytesForWidth(width);
-  address = state.constraints.simplifyExpr(address);
-  value = state.constraints.simplifyExpr(value);
-  
-  // fast path: single in-bounds resolution
-  ObjectPair op;
-  bool success;
-  solver->setTimeout(coreSolverTimeout);
-  if (!state.addressSpace.resolveOne(state, solver, address, op, success)) {
-    address = toConstant(state, address, "resolveOne failure");
-    success = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
+
+  // propagate address name, if unset
+  if ((mo->name == MemoryObject::unnamed) && (!name.empty())) {
+    mo->name = name;
   }
-  solver->setTimeout(0);
-  
-  if (success) {
-    const MemoryObject *mo = op.first;
-    
-    ref<Expr> offset = mo->getOffsetExpr(address);
-    
+
+  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(address));
+  if (isa<ConstantExpr>(offsetExpr)) {
+    ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
+    const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
+    if (offset + bytes > mo->size) {
+
+      terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
+                            NULL, getAddressInfo(state, address));
+      return false;
+    }
+  } else {
     bool inBounds;
+    bool success;
     solver->setTimeout(coreSolverTimeout);
-    
-    // RLR: probably not the best way to do this
-    // RLR TODO: why always do this. most of the time offset should be a const expression of 0.
-    ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
+
+    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
     success = solver->mustBeTrue(state, mc, inBounds);
-    
-    if (AssumeInboundPointers && success && !inBounds) {
-      
+
+    if (success && !inBounds && AssumeInboundPointers) {
+
       // not in bounds, so add constraint and try, try, again
       klee_warning("cannot prove pointer inbounds, adding constraint");
-      ExprPPrinter::printOne(llvm::errs(), "Expr", mc);
       addConstraint(state, mc);
       success = solver->mustBeTrue(state, mc, inBounds);
     }
-    
+
     solver->setTimeout(0);
-    if (!success) {
+    if (!success || !inBounds) {
       state.pc = state.prevPC;
-      terminateStateEarly(state, "Query timed out (bounds check).");
-      return;
-    }
-    
-    if (inBounds) {
-      const ObjectState *os = op.second;
-      if (os->readOnly) {
-        terminateStateOnError(state, "memory error: object read only",
-                              ReadOnly);
-      } else {
-        ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-        wos->write(offset, value);
-      }
-      return;
+      terminateStateEarly(state, "Failed to resolve write memory offset.");
+      return false;
     }
   }
-  
-  // we are on an error path (no resolution, multiple resolution, one
-  // resolution with out of bounds)
-  state.pc = state.prevPC;
-  terminateStateEarly(state, "Failed to resolve memory store operation.");
-  return;
+  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+  wos->write(offsetExpr, value);
+  return true;
 }
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
@@ -425,6 +336,16 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type);
   size *= count;
+  return allocMemory(state, size, align, allocSite, isGlobal, name);
+}
+
+MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
+                                         size_t size,
+                                         size_t align,
+                                         const llvm::Value *allocSite,
+                                         bool isGlobal,
+                                         std::string name) {
+
   MemoryObject *mo = memory->allocate(size, !isGlobal, isGlobal, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
@@ -449,7 +370,28 @@ ref<Expr> LocalExecutor::allocSymbolic(ExecutionState &state,
     Expr::Width width = getWidthForLLVMType(type);
     return os->read(0, width);
   }
-  return nullptr;
+  return Expr::createPointer(0);
+}
+
+
+ref<Expr> LocalExecutor::allocSymbolic(ExecutionState &state,
+                                       size_t size,
+                                       size_t align,
+                                       const llvm::Value *allocSite,
+                                       bool isGlobal,
+                                       std::string name,
+                                       ObjectPair &op) {
+
+  op.first = nullptr;
+  op.second = nullptr;
+  MemoryObject *mo = allocMemory(state, size, align, allocSite, isGlobal, name);
+  if (mo != nullptr) {
+    ObjectState *os = makeSymbolic(state, mo);
+    op.first = mo;
+    op.second = os;
+    return Expr::createPointer(mo->address);
+  }
+  return Expr::createPointer(0);
 }
 
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
@@ -464,7 +406,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   
   std::string name = getFQFnName(f);
   outs() << "locally executing " << name << " ... ";
-  ExecutionState *state = new ExecutionState(kf, &name);
+  ExecutionState *state = new ExecutionState(kf, name);
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -507,6 +449,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->done();
   
   outs() << "done\n";
+  outs().flush();
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -514,15 +457,19 @@ void LocalExecutor::runFunctionAsMain(Function *f,
                                       char **argv,
                                       char **envp) {
   
-#ifdef NEVER
   std::vector<ref<Expr> > arguments;
   
   // force deterministic initialization of memory objects
-  srand(1);
-  srandom(1);
+//  srand(1);
+//  srandom(1);
   
-  MemoryObject *argvMO = 0;
-  
+  MemoryObject *argvMO = nullptr;
+  KFunction *kf = kmodule->functionMap[f];
+  assert(kf && "main not found in this compilation unit");
+
+  std::string name = getFQFnName(f);
+  outs() << "locally executing " << name << " ... ";
+
   // In order to make uclibc happy and be closer to what the system is
   // doing we lay out the environments at the end of the argv array
   // (both are terminated by a null). There is also a final terminating
@@ -532,8 +479,6 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   for (envc=0; envp[envc]; ++envc) ;
   
   unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
-  KFunction *kf = kmodule->functionMap[f];
-  assert(kf);
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
     arguments.push_back(ConstantExpr::alloc(argc, Expr::Int32));
@@ -559,14 +504,13 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     }
   }
   
-  ExecutionState *state = new ExecutionState(kmodule->functionMap[f]);
+  ExecutionState *state = new ExecutionState(kf, name);
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
   if (symPathWriter)
     state->symPathOS = symPathWriter->open();
-  
-  
+
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
   
@@ -617,7 +561,9 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   if (statsTracker)
     statsTracker->done();
-#endif
+
+  outs() << "done\n";
+  outs().flush();
 }
   
 void LocalExecutor::run(ExecutionState &initialState) {
@@ -692,38 +638,48 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // RLR TODO: handle pointer return types
           klee_error("what to do with pointer types");
         } else {
-          ref<Expr> e = allocSymbolic(state, ty, i, name, counter, "return");
+          ref<Expr> e = allocSymbolic(state, 1, ty, 0, i, false, fullName(name, counter, "return"));
           bindLocal(ki, state, e);
         }
       }
       
       // now for the arguments
-      unsigned index = 0;
+      unsigned index = 1;
       for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr, ++index) {
         const Argument &arg = *itr;
         Type *type = arg.getType();
         const unsigned align = arg.getParamAlignment();
-        const std::string argname = arg.getName();
+
+        // check the level of ptr indirection (if any)
         const unsigned count = countLoadIndirection(type);
 
-        // RLR TODO: check for const
+        if (count > 0) {
 
-        // check the level of indirection
-        if (count == 1) {
-          // allocate unconstrained data and copy to target
-          const Value *v = ci->getArgOperand(index);
-
-        } else if (count > 1) {
-          // target is a ptr-...-ptr. just mark it as unconstrained
-          // and let lazy init take care of the rest
-//          const Value *v = ci->getArgOperand(index);
+          // RLR TODO: check for const (not available to LLVM IR)
           ref<Expr> address = eval(ki, index, state).value;
           unsigned width = address.get()->getWidth();
-
           assert(width == Context::get().getPointerWidth());
 
-          ref<Expr> value = allocSymbolic(state, 1, type, align, &arg, false, name, counter, argname);
-          if (!executeFastWriteMemoryOperation(state, address, value, "")) {
+          if (count == 1) {
+            ObjectPair op;
+            if (resolveMO(state, address, op)) {
+              const MemoryObject *orgMO = op.first;
+              const ObjectState *orgOS = op.second;
+              unsigned size = orgMO->size;
+              allocSymbolic(state, size, orgMO->align, &arg, false, fullName(name, counter, arg.getName()), op);
+              const MemoryObject *newMO = op.first;
+              const ObjectState *newOS = op.second;
+
+              ObjectState *wos = state.addressSpace.getWriteable(newMO, newOS);
+              for (unsigned offset = 0; offset < size; ++offset) {
+                wos->write(offset, orgOS->read8(offset));
+              }
+            }
+
+          } else {
+            // target is a ptr-...-ptr. just mark it as unconstrained
+            // and let lazy init take care of the rest
+            ref<Expr> value = allocSymbolic(state, 1, type, align, &arg, false, fullName(name, counter, arg.getName()));
             executeWriteMemoryOperation(state, address, value, "");
           }
         }
@@ -735,7 +691,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
-      unsigned elementSize =
+      unsigned elementSize = (unsigned)
       kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
       ref<Expr> size = Expr::createPointer(elementSize);
       if (ai->isArrayAllocation()) {
@@ -753,8 +709,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Type *type = v->getType();
       
       ref<Expr> base = eval(ki, 0, state).value;
-      if (!executeFastReadMemoryOperation(state, base, type, ki))
-        executeReadMemoryOperation(state, base, type, ki);
+      executeReadMemoryOperation(state, base, type, ki);
       break;
     }
       
@@ -768,8 +723,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       
       ref<Expr> base = eval(ki, 1, state).value;
       ref<Expr> value = eval(ki, 0, state).value;
-      if (!executeFastWriteMemoryOperation(state, base, value, name))
-        executeWriteMemoryOperation(state, base, value, name);
+      executeWriteMemoryOperation(state, base, value, name);
       break;
     }
       

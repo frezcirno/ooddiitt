@@ -156,7 +156,7 @@ private:
   ExecutionState() : ptreeNode(0) {}
 
 public:
-  ExecutionState(KFunction *kf, const std::string *name = nullptr);
+  ExecutionState(KFunction *kf, std::string name);
 
   // XXX total hack, just used to make a state so solver can
   // use on structure

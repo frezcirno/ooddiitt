@@ -1,3 +1,4 @@
 *.bc
 klee-last
 klee-out-*/
+ktest-*

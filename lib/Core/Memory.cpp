@@ -67,7 +67,7 @@ ObjectHolder &ObjectHolder::operator=(const ObjectHolder &b) {
 
 /***/
 
-int MemoryObject::counter = 0;
+unsigned MemoryObject::counter = 0;
 const std::string MemoryObject::unnamed = "#unnamed";
 
 MemoryObject::~MemoryObject() {
@@ -110,8 +110,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates(0, 0),
     writtenMask(nullptr),
     size(mo->size),
-    readOnly(false),
-    pointsTo(nullptr) {
+    readOnly(false) {
   mo->refCount++;
   if (!UseConstantArrays) {
     static unsigned id = 0;
@@ -134,8 +133,7 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     updates(array, 0),
     writtenMask(nullptr),
     size(mo->size),
-    readOnly(false),
-    pointsTo(nullptr) {
+    readOnly(false) {
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, size);
@@ -152,8 +150,7 @@ ObjectState::ObjectState(const ObjectState &os)
     updates(os.updates),
     writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.size) : nullptr),
     size(os.size),
-    readOnly(false),
-    pointsTo(os.pointsTo) {
+    readOnly(false) {
   assert(!os.readOnly && "no need to copy read only object?");
   if (object)
     object->refCount++;

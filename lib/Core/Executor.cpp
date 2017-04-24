@@ -3149,7 +3149,6 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
   return os;
 }
 
-// RLR TODO: check if target allways points to AllocaInst
 void Executor::executeAlloc(ExecutionState &state,
                             ref<Expr> size,
                             bool isLocal,
@@ -3158,13 +3157,11 @@ void Executor::executeAlloc(ExecutionState &state,
                             const ObjectState *reallocFrom) {
   size = toUnique(state, size);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
-    
-    
-    AllocaInst *ai = cast<AllocaInst>(target->inst);
-    size_t allocationAlignment = ai->getAlignment();
+
+    size_t allocationAlignment = getAllocationAlignment(target->inst);
     MemoryObject *mo =
         memory->allocate(CE->getZExtValue(), isLocal, false,
-                         ai, allocationAlignment);
+                         target->inst, allocationAlignment);
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
@@ -3589,7 +3586,7 @@ void Executor::runFunctionAsMain(Function *f,
     }
   }
 
-  ExecutionState *state = new ExecutionState(kmodule->functionMap[f]);
+  ExecutionState *state = new ExecutionState(kmodule->functionMap[f], f->getName());
 
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -3820,19 +3817,19 @@ size_t Executor::getAllocationAlignment(const llvm::Value *allocSite) const {
     type = AI->getAllocatedType();
   } else if (isa<InvokeInst>(allocSite) || isa<CallInst>(allocSite)) {
     // FIXME: Model the semantics of the call to use the right alignment
-    llvm::Value *allocSiteNonConst = const_cast<llvm::Value *>(allocSite);
-    const CallSite cs = (isa<InvokeInst>(allocSiteNonConst)
-                             ? CallSite(cast<InvokeInst>(allocSiteNonConst))
-                             : CallSite(cast<CallInst>(allocSiteNonConst)));
-    llvm::Function *fn =
-        klee::getDirectCallTarget(cs, /*moduleIsFullyLinked=*/true);
-    if (fn)
-      allocationSiteName = fn->getName().str();
+    // llvm::Value *allocSiteNonConst = const_cast<llvm::Value *>(allocSite);
+    // const CallSite cs = (isa<InvokeInst>(allocSiteNonConst)
+    //                         ? CallSite(cast<InvokeInst>(allocSiteNonConst))
+    //                         : CallSite(cast<CallInst>(allocSiteNonConst)));
+//    llvm::Function *fn =
+//        klee::getDirectCallTarget(cs, /*moduleIsFullyLinked=*/true);
+//    if (fn)
+//      allocationSiteName = fn->getName().str();
 
-    klee_warning_once(fn != NULL ? fn : allocSite,
-                      "Alignment of memory from call \"%s\" is not "
-                      "modelled. Using alignment of %zu.",
-                      allocationSiteName.c_str(), forcedAlignment);
+//    klee_warning_once(fn != NULL ? fn : allocSite,
+//                      "Alignment of memory from call \"%s\" is not "
+//                      "modelled. Using alignment of %zu.",
+//                      allocationSiteName.c_str(), forcedAlignment);
     alignment = forcedAlignment;
   } else {
     llvm_unreachable("Unhandled allocation site");

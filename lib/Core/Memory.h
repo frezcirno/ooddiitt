@@ -35,7 +35,7 @@ class MemoryObject {
   friend class ExecutionState;
 
 private:
-  static int counter;
+  static unsigned counter;
   mutable unsigned refCount;
 
 public:
@@ -46,6 +46,7 @@ public:
 
   /// size in bytes
   unsigned size;
+  size_t align;
   mutable std::string name;
 
   bool isLocal;
@@ -87,7 +88,7 @@ public:
       allocSite(0) {
   }
 
-  MemoryObject(uint64_t _address, unsigned _size, 
+  MemoryObject(uint64_t _address, unsigned _size, size_t _align,
                bool _isLocal, bool _isGlobal, bool _isFixed,
                const llvm::Value *_allocSite,
                MemoryManager *_parent)
@@ -95,6 +96,7 @@ public:
       id(counter++),
       address(_address),
       size(_size),
+      align(_align),
       name(unnamed),
       isLocal(_isLocal),
       isGlobal(_isGlobal),
@@ -176,7 +178,6 @@ private:
 public:
   unsigned size;
   bool readOnly;
-  MemoryObject *pointsTo;
 
 public:
   /// Create a new object state for the given memory object with concrete

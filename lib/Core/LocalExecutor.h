@@ -43,25 +43,21 @@ public:
 
 protected:
   virtual void run(ExecutionState &initialState);
-  
-  virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
-  
-  bool executeFastReadMemoryOperation(ExecutionState &state,
-                                      ref<Expr> address,
-                                      const llvm::Type *type,
-                                      KInstruction *target);
-  
-  bool executeFastWriteMemoryOperation(ExecutionState &state,
-                                       ref<Expr> address,
-                                       ref<Expr> value,
-                                       const std::string name);
 
-  void executeReadMemoryOperation(ExecutionState &state,
+  std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
+    return (fnName + "::" + std::to_string(counter) + "::" + varName);
+  }
+
+  virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
+
+  bool resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
+  
+  bool executeReadMemoryOperation(ExecutionState &state,
                                   ref<Expr> address,
                                   const llvm::Type *type,
                                   KInstruction *target);
 
-  void executeWriteMemoryOperation(ExecutionState &state,
+  bool executeWriteMemoryOperation(ExecutionState &state,
                                    ref<Expr> address,
                                    ref<Expr> value,
                                    const std::string name);
@@ -78,6 +74,21 @@ protected:
                             bool isGlobal,
                             std::string name);
 
+  MemoryObject *allocMemory(ExecutionState &state,
+                            size_t size,
+                            size_t align,
+                            const llvm::Value *allocSite,
+                            bool isGlobal,
+                            std::string name);
+
+  ref<Expr> allocSymbolic(ExecutionState &state,
+                          size_t size,
+                          size_t align,
+                          const llvm::Value *allocSite,
+                          bool isGlobal,
+                          std::string name,
+                          ObjectPair &op);
+
   ref<Expr> allocSymbolic(ExecutionState &state,
                           unsigned count,
                           llvm::Type *type,
@@ -85,31 +96,6 @@ protected:
                           const llvm::Value *allocSite,
                           bool isGlobal,
                           std::string name);
-
-  ref<Expr> allocSymbolic(ExecutionState &state,
-                          unsigned count,
-                          llvm::Type *type,
-                          size_t align,
-                          const llvm::Value *allocSite,
-                          bool isGlobal,
-                          std::string fnName,
-                          unsigned counter,
-                          std::string varName) {
-
-    varName = fnName + "::" + std::to_string(counter) + "::" + varName;
-    return allocSymbolic(state, count, type, align, allocSite, isGlobal, varName);
-  }
-
-  ref<Expr> allocSymbolic(ExecutionState &state,
-                          llvm::Type *type,
-                          const llvm::Value *allocSite,
-                          std::string fnName,
-                          unsigned counter,
-                          std::string varName) {
-
-    varName = fnName + "::" + std::to_string(counter) + "::" + varName;
-    return allocSymbolic(state, 1, type, 0, allocSite, false, varName);
-  }
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   

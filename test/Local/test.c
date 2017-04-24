@@ -1,3 +1,4 @@
+#include <stdlib.h>
 
 int fighter = 0;
 
@@ -39,3 +40,25 @@ void foo_me_quadice(char *bar) {
     *bar = '\0';
   }
 }
+
+void foo_me_quinice() {
+
+  char buffer[64];
+  foo_me_quadice(buffer);
+}
+
+void foo_me_sextice() {
+
+  char *buffer = malloc(64);
+  foo_me_quadice(buffer);
+  free(buffer);
+}
+
+/* sext, sept, oct, non, dec, */
+
+int main(int argc, char *argv[]) {
+
+  return 0;
+}
+
+

@@ -1200,7 +1200,7 @@ int main(int argc, char **argv, char **envp) {
   // klee will link additional functions later. we will want to ignore those
   std::set<Function *> fnInModule;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
-    if (!fnIter->isIntrinsic()) {
+    if (!(fnIter->isIntrinsic() || fnIter->isDeclaration())) {
       fnInModule.insert(&(*fnIter));
     }
   }
