@@ -41,6 +41,7 @@
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/system_error.h"
+#include "json/json.h"
 #endif
 
 #include <dirent.h>
@@ -388,32 +389,67 @@ void KleeHandler::processTestCase(const ExecutionState &state,
     unsigned id = ++m_testIndex;
 
     if (success) {
-      KTest b;
-      b.entryFn = strdup(state.fqfnName.c_str());
-      b.numArgs = m_argc;
-      b.args = m_argv;
-      b.symArgvs = 0;
-      b.symArgvLen = 0;
-      b.numObjects = out.size();
-      b.objects = new KTestObject[b.numObjects];
-      assert(b.objects);
-      for (unsigned i=0; i<b.numObjects; i++) {
-        KTestObject *o = &b.objects[i];
-        o->name = const_cast<char*>(out[i].first.c_str());
-        o->numBytes = out[i].second.size();
-        o->bytes = new unsigned char[o->numBytes];
-        assert(o->bytes);
-        std::copy(out[i].second.begin(), out[i].second.end(), o->bytes);
-      }
 
-      if (!kTest_toFile(&b, getOutputFilename(getTestFilename("ktest", id)).c_str())) {
-        klee_warning("unable to write output test case, losing it");
-      }
+      // open an output stream to serialize the json object
+      std::string outFilename = getOutputFilename(getTestFilename("json", id));
+      std::ofstream kout;
+      kout.open(outFilename);
+      if (kout.is_open()) {
 
-      for (unsigned i=0; i<b.numObjects; i++)
-        delete[] b.objects[i].bytes;
-      delete[] b.objects;
-      free(b.entryFn);
+        // construct the json object representing the test case
+        Json::Value root = Json::objectValue;
+        root["entryFn"] = state.fqfnName;
+        root["testID"] = id;
+        root["argC"] = m_argc;
+
+        std::stringstream args;
+        for (int index = 0; index < m_argc; ++index) {
+          if (index > 0) args << ' ';
+          args << '\'' << m_argv[index] << '\'';
+        }
+        root["argV"] = args.str();
+
+        Json::Value &path = root["markerPath"] = Json::arrayValue;
+        for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
+          path.append(*itr);
+        }
+
+        Json::Value &objects = root["objects"] = Json::arrayValue;
+        for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
+
+          auto test = *itrObj;
+          std::string name = test.first;
+          std::vector<unsigned char> &data = test.second;
+
+          Json::Value obj = Json::objectValue;
+          obj["name"] = name;
+
+          std::stringstream bytes;
+          for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+
+            unsigned char byte = *itrData;
+            unsigned char hi = (unsigned char) (byte >> 4);
+            unsigned char low = (unsigned char) (byte & 0x0F);
+            hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+            low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+            bytes << hi << low;
+          }
+          obj["data"] = bytes.str();
+
+          objects.append(obj);
+        }
+
+        // write the constructed json object to file
+        Json::StreamWriterBuilder builder;
+        builder["commentStyle"] = "None";
+        builder["indentation"] = "  ";
+        std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+
+        writer->write(root, &kout);
+        kout << std::endl;
+      } else {
+        klee_warning("unable to write output test case to %s, losing it", outFilename.c_str());
+      }
     }
 
     if (errorMessage) {

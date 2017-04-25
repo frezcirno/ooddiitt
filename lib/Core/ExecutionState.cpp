@@ -127,7 +127,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     fqfnName(state.fqfnName),
     iterationCounter(state.iterationCounter),
-    locallyAllocated(state.locallyAllocated)
+    locallyAllocated(state.locallyAllocated),
+    markers(state.markers)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
@@ -185,6 +186,13 @@ void ExecutionState::addFnAlias(std::string old_fn, std::string new_fn) {
 
 void ExecutionState::removeFnAlias(std::string fn) {
   fnAliases.erase(fn);
+}
+
+
+void ExecutionState::addMarker(unsigned fnID, unsigned bbID) {
+
+  unsigned value = (fnID * 1000) + (bbID % 1000);
+  markers.push_back(value);
 }
 
 /**/

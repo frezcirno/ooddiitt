@@ -147,6 +147,7 @@ public:
   std::string fqfnName;
   std::map<const KInstruction *, unsigned> iterationCounter;
   std::set<const MemoryObject *> locallyAllocated;
+  std::vector<unsigned> markers;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
@@ -178,6 +179,8 @@ public:
   
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
+  void addMarker(unsigned fnID, unsigned bbID);
+
   void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);

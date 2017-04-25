@@ -7,7 +7,7 @@
 #
 #===------------------------------------------------------------------------===#
 add_executable(lcl-klee
-  main.cpp
+  main.cpp jsoncpp.cpp
 )
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")

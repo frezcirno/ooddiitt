@@ -389,7 +389,7 @@ ref<Expr> LocalExecutor::allocSymbolic(ExecutionState &state,
     ObjectState *os = makeSymbolic(state, mo);
     op.first = mo;
     op.second = os;
-    return Expr::createPointer(mo->address);
+    return mo->getBaseExpr();
   }
   return Expr::createPointer(0);
 }
@@ -622,10 +622,26 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       const CallInst *ci = cast<CallInst>(i);
       Function *f = ci->getCalledFunction();
 
-      // if this is not a function in module, let
+      // if this is not a function in this module, let
       // the standard executor handle it.
       if (fnInModule.find(f) == fnInModule.end()) {
-        return Executor::executeInstruction(state, ki);
+
+        // if this is a call to mark(), then log the marker to state
+        if ((f->getName().upper() == "MARK") &&
+            (f->arg_size() == 2) &&
+            (f->getReturnType()->isVoidTy())) {
+
+          const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
+          const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+          if ((arg0 != nullptr) && (arg1 != nullptr)) {
+            unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+            unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+            state.addMarker(fnID, bbID);
+          }
+        } else {
+          Executor::executeInstruction(state, ki);
+        }
+        return;
       }
 
       // hence, this is a function in this module
@@ -635,8 +651,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (!ty->isVoidTy()) {
 
         if (ty->isPointerTy()) {
-          // RLR TODO: handle pointer return types
-          klee_error("what to do with pointer types");
+
+          Type *subtype = ty->getPointerElementType();
+          size_t align = kmodule->targetData->getPrefTypeAlignment(subtype);
+          uint64_t size = kmodule->targetData->getTypeStoreSize(subtype);
+          size *= lazyAllocationCount;
+          ObjectPair op;
+
+          ref<Expr> e = allocSymbolic(state, size, align, i, false, fullName(name, counter, "return"), op);
+          bindLocal(ki, state, e);
         } else {
           ref<Expr> e = allocSymbolic(state, 1, ty, 0, i, false, fullName(name, counter, "return"));
           bindLocal(ki, state, e);
