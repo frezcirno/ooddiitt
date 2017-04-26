@@ -144,7 +144,7 @@ public:
   
   std::map<std::string, unsigned> callTargetCounter;
   
-  std::string fqfnName;
+  std::string name;
   std::map<const KInstruction *, unsigned> iterationCounter;
   std::set<const MemoryObject *> locallyAllocated;
   std::vector<unsigned> markers;
@@ -157,7 +157,7 @@ private:
   ExecutionState() : ptreeNode(0) {}
 
 public:
-  ExecutionState(KFunction *kf, std::string name);
+  ExecutionState(KFunction *kf, const std::string &name);
 
   // XXX total hack, just used to make a state so solver can
   // use on structure

@@ -68,7 +68,6 @@ ObjectHolder &ObjectHolder::operator=(const ObjectHolder &b) {
 /***/
 
 unsigned MemoryObject::counter = 0;
-const std::string MemoryObject::unnamed = "#unnamed";
 
 MemoryObject::~MemoryObject() {
   if (parent)

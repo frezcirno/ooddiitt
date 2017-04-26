@@ -101,7 +101,7 @@ public:
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
                                   InterpreterHandler *ih,
-                                  const std::set<llvm::Function *> &fns);
+                                  const std::set<std::string> &fns);
   
   /// Register the module to be executed.  
   ///

@@ -36,42 +36,53 @@ typedef char bool;
 typedef char character;
 typedef char string[MAXSTR];
 
-char *fgets(char *str, int count, FILE *stream) {
-  return str;
-}
+char *fgets(char *str, int count, FILE *stream);
+//{
+//  return str;
+//}
 
-void abort(void) {
-  while (1);
-}
+void abort(void);
+// {
+//   while (1);
+// }
 
-void exit(int exitlevel) {
-  while (1);
-}
+void exit(int exitlevel);
+// {
+//   while (1);
+// }
 
-int zop_fprintf1(FILE *stream, const char *format) {
-  return 0;
-}
+int zop_fprintf1(FILE *stream, const char *format);
+// {
+//   return 0;
+// }
 
-int zop_fprintf2(FILE *stream, const char *format, int n) {
-  return 0;
-}
+int zop_fprintf2(FILE *stream, const char *format, int n);
+// {
+//   return 0;
+// }
 
-int fputc(int character, FILE *stream) {
-  return 0;  
-}
+int fputc(int character, FILE *stream);
+// {
+//   return 0;  
+// }
 
-int isalnum(int c) {
-  return 0;
-}
+int isalnum(int c);
+// {
+//   return 0;
+// }
 
 bool my_getline(char *s, int maxsize) {
+//bool my_getline() {
   MARK(1, 1);
-  char *result;
-  result = fgets(s, maxsize, stdin);
-  bool result_dff36ebb57 = (result != NULL);
+//  char *result;
+//  char *s;
+//  int maxsize = 64;
+//  result = fgets(s, maxsize, stdin);
+  bool result_dff36ebb57 = (s != NULL);
   return (MARK(1, 13), (result_dff36ebb57));
 }
 
+#ifdef NEVER
 int addstr(char c, char *outset, int *j, int maxset) {
   MARK(2, 4);
   bool result;
@@ -534,3 +545,4 @@ void Caseerror(int n) {
   (MARK(21, 13), exit(4));
 }
 
+#endif

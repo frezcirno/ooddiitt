@@ -692,7 +692,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
   // FIXME: For backwards compatibility, we should eventually enforce the
   // correct arguments.
   if (arguments.size() == 2) {
-    name = "unnamed";
+    name = "#unnamed";
   } else {
     // FIXME: Should be a user.err, not an assert.
     assert(arguments.size()==3 &&

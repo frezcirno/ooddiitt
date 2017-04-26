@@ -68,7 +68,7 @@ StackFrame::~StackFrame() {
 
 /***/
 
-ExecutionState::ExecutionState(KFunction *kf, std::string name) :
+ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     pc(kf->instructions),
     prevPC(pc),
 
@@ -80,7 +80,7 @@ ExecutionState::ExecutionState(KFunction *kf, std::string name) :
     coveredNew(false),
     forkDisabled(false),
     ptreeNode(0),
-    fqfnName(name) {
+    name(name) {
   pushFrame(0, kf);
 }
 
@@ -125,7 +125,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     symbolics(state.symbolics),
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
-    fqfnName(state.fqfnName),
+    name(state.name),
     iterationCounter(state.iterationCounter),
     locallyAllocated(state.locallyAllocated),
     markers(state.markers)

@@ -19,19 +19,21 @@
 
 namespace klee {
 
+typedef struct std::pair<MemoryObject *, ObjectState *> WObjectPair;
+
 class LocalExecutor : public Executor {
 
 public:
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
-                             const std::set<llvm::Function *> fns)
+                             const std::set<std::string> fns)
     { return new klee::LocalExecutor(ctx, opts, ih, fns); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie,
-                const std::set<llvm::Function *> &fns);
+                const std::set<std::string> &fns);
 
   virtual ~LocalExecutor();
   
@@ -67,35 +69,36 @@ protected:
                             const ObjectState *os = nullptr);
 
   MemoryObject *allocMemory(ExecutionState &state,
-                            unsigned count,
-                            llvm::Type *type,
-                            size_t align,
+                            size_t size,
                             const llvm::Value *allocSite,
                             bool isGlobal,
-                            std::string name);
+                            std::string name,
+                            size_t align = 0);
 
   MemoryObject *allocMemory(ExecutionState &state,
-                            size_t size,
-                            size_t align,
+                            llvm::Type *type,
                             const llvm::Value *allocSite,
                             bool isGlobal,
-                            std::string name);
+                            std::string name,
+                            size_t align = 0,
+                            unsigned count = 1);
 
-  ref<Expr> allocSymbolic(ExecutionState &state,
-                          size_t size,
-                          size_t align,
-                          const llvm::Value *allocSite,
-                          bool isGlobal,
-                          std::string name,
-                          ObjectPair &op);
+  bool allocSymbolic(ExecutionState &state,
+                     size_t size,
+                     const llvm::Value *allocSite,
+                     bool isGlobal,
+                     std::string name,
+                     WObjectPair &wop,
+                     size_t align = 0);
 
-  ref<Expr> allocSymbolic(ExecutionState &state,
-                          unsigned count,
-                          llvm::Type *type,
-                          size_t align,
-                          const llvm::Value *allocSite,
-                          bool isGlobal,
-                          std::string name);
+  bool allocSymbolic(ExecutionState &state,
+                     llvm::Type *type,
+                     const llvm::Value *allocSite,
+                     bool isGlobal,
+                     std::string name,
+                     WObjectPair &wop,
+                     size_t align = 0,
+                     unsigned count = 1);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   
@@ -103,7 +106,7 @@ protected:
 
   unsigned lazyAllocationCount;
   unsigned iterationBound;
-  const std::set<llvm::Function *> &fnInModule;
+  const std::set<std::string> &fnInModule;
 };
   
 } // End klee namespace

@@ -398,7 +398,7 @@ void KleeHandler::processTestCase(const ExecutionState &state,
 
         // construct the json object representing the test case
         Json::Value root = Json::objectValue;
-        root["entryFn"] = state.fqfnName;
+        root["entryFn"] = state.name;
         root["testID"] = id;
         root["argC"] = m_argc;
 
@@ -427,9 +427,8 @@ void KleeHandler::processTestCase(const ExecutionState &state,
           std::stringstream bytes;
           for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
 
-            unsigned char byte = *itrData;
-            unsigned char hi = (unsigned char) (byte >> 4);
-            unsigned char low = (unsigned char) (byte & 0x0F);
+            unsigned char hi = (unsigned char) (*itrData >> 4);
+            unsigned char low = (unsigned char) (*itrData & 0x0F);
             hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
             low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
             bytes << hi << low;
@@ -1234,10 +1233,10 @@ int main(int argc, char **argv, char **envp) {
 
   // build a set of functions in the initially loaded module
   // klee will link additional functions later. we will want to ignore those
-  std::set<Function *> fnInModule;
+  std::set<std::string> fnInModule;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     if (!(fnIter->isIntrinsic() || fnIter->isDeclaration())) {
-      fnInModule.insert(&(*fnIter));
+      fnInModule.insert(fnIter->getName().str());
     }
   }
   
@@ -1364,9 +1363,10 @@ int main(int argc, char **argv, char **envp) {
   }
   
   // run each function other than main as unconstrained
-  for (auto fnIter = fnInModule.begin(), fnEnd = fnInModule.end(); fnIter != fnEnd; ++fnIter) {
-    if (*fnIter != mainFn) {
-     theInterpreter->runFunctionUnconstrained(*fnIter);
+  for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
+    Function *fn = mainModule->getFunction(*itr);
+    if ((fn != nullptr) && (fn != mainFn)) {
+      theInterpreter->runFunctionUnconstrained(fn);
     }
   }
 

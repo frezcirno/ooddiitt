@@ -39,8 +39,6 @@ private:
   mutable unsigned refCount;
 
 public:
-  static const std::string unnamed;
-  
   unsigned id;
   uint64_t address;
 
@@ -82,7 +80,7 @@ public:
       id(counter++), 
       address(_address),
       size(0),
-      name(unnamed),
+      name("temp"),
       isFixed(true),
       parent(NULL),
       allocSite(0) {
@@ -97,7 +95,7 @@ public:
       address(_address),
       size(_size),
       align(_align),
-      name(unnamed),
+      name(""),
       isLocal(_isLocal),
       isGlobal(_isGlobal),
       isFixed(_isFixed),
