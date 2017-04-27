@@ -778,6 +778,8 @@ static const char *dontCareExternals[] = {
   "getwd",
   "gettimeofday",
   "uname",
+  "mark",
+  "MARK",
 
   // fp stuff we just don't worry about yet
   "frexp",
@@ -1236,7 +1238,8 @@ int main(int argc, char **argv, char **envp) {
   std::set<std::string> fnInModule;
   for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
     if (!(fnIter->isIntrinsic() || fnIter->isDeclaration())) {
-      fnInModule.insert(fnIter->getName().str());
+      std::string name = fnIter->getName();
+      fnInModule.insert(fnIter->getName());
     }
   }
   

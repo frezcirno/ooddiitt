@@ -82,7 +82,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              InterpreterHandler *ih,
                              const std::set<std::string> &fns) :
 Executor(ctx, opts, ih),
-lazyAllocationCount(8),
+lazyAllocationCount(16),
 iterationBound(1),
 fnInModule(fns)
 {
