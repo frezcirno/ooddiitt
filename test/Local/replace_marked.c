@@ -2,6 +2,8 @@
 /*  -*- Last-Edit:  Mon Dec  7 10:31:51 1992 by Tarak S. Goradia; -*- */
 
 void Caseerror();
+void change();
+void subline();
 
 typedef char bool;
 #define false 0
@@ -36,53 +38,42 @@ typedef char bool;
 typedef char character;
 typedef char string[MAXSTR];
 
-char *fgets(char *str, int count, FILE *stream);
-//{
-//  return str;
-//}
+char *fgets(char *str, int count, FILE *stream) {
+  return str;
+}
 
-void abort(void);
-// {
-//   while (1);
-// }
+void abort(void) {
+  while (1);
+}
 
-void exit(int exitlevel);
-// {
-//   while (1);
-// }
+void exit(int exitlevel) {
+  while (1);
+}
 
-int zop_fprintf1(FILE *stream, const char *format);
-// {
-//   return 0;
-// }
+int zop_fprintf1(FILE *stream, const char *format) {
+  return 0;
+}
 
-int zop_fprintf2(FILE *stream, const char *format, int n);
-// {
-//   return 0;
-// }
+int zop_fprintf2(FILE *stream, const char *format, int n) {
+  return 0;
+ }
 
-int fputc(int character, FILE *stream);
-// {
-//   return 0;  
-// }
+int fputc(int character, FILE *stream) {
+  return 0;  
+}
 
-int isalnum(int c);
-// {
-//   return 0;
-// }
+int isalnum(int c) {
+  return 0;
+}
 
 bool my_getline(char *s, int maxsize) {
-//bool my_getline() {
   MARK(1, 1);
-//  char *result;
-//  char *s;
-//  int maxsize = 64;
-//  result = fgets(s, maxsize, stdin);
+  char *result;
+  result = fgets(s, maxsize, stdin);
   bool result_dff36ebb57 = (s != NULL);
   return (MARK(1, 13), (result_dff36ebb57));
 }
 
-#ifdef NEVER
 int addstr(char c, char *outset, int *j, int maxset) {
   MARK(2, 4);
   bool result;
@@ -95,6 +86,7 @@ int addstr(char c, char *outset, int *j, int maxset) {
   }
   return (MARK(2, 1), result);
 }
+
 
 char esc(char *s, int *i) {
   MARK(3, 10);
@@ -116,10 +108,11 @@ char esc(char *s, int *i) {
   return (MARK(3, 1), result);
 }
 
-void change();
+
 
 void dodash(char delim, char *src, int *i, char *dest, int *j, int maxset) {
   MARK(4, 22);
+#ifdef NEVER
   int k;
   bool junk;
   char escjunk;
@@ -146,9 +139,11 @@ void dodash(char delim, char *src, int *i, char *dest, int *j, int maxset) {
     }
     (mark(4, 3), (*i) = (*i) + 1);
   }
+#endif
   MARK(4, 1);
   return;
 }
+
 
 bool getccl(char *arg, int *i, char *pat, int *j) {
   MARK(5, 4);
@@ -201,9 +196,13 @@ bool in_pat_set(char c) {
   return (MARK(8, 1), (result_3b3a0d7955));
 }
 
+
 int makepat(char *arg, int start, char delim, char *pat) {
   MARK(9, 30);
   int result;
+
+#ifdef NEVER
+
   int i, j, lastj, lj;
   bool done, junk;
   bool getres;
@@ -252,8 +251,11 @@ int makepat(char *arg, int start, char delim, char *pat) {
   } else {
     (mark(9, 2), result = i);
   }
+#endif
+  
   return (MARK(9, 1), result);
 }
+
 
 int getpat(char *arg, char *pat) {
   MARK(10, 1);
@@ -264,9 +266,11 @@ int getpat(char *arg, char *pat) {
   return (MARK(10, 13), (result_bc06c07c15));
 }
 
+
 int makesub(char *arg, int from, character delim, char *sub) {
   MARK(11, 14);
   int result;
+#ifdef NEVER
   int i, j;
   bool junk;
   character escjunk;
@@ -293,8 +297,10 @@ int makesub(char *arg, int from, character delim, char *sub) {
       (mark(11, 2), result = i);
     }
   }
+#endif
   return (MARK(11, 1), result);
 }
+
 
 bool getsub(char *arg, char *sub) {
   MARK(12, 1);
@@ -304,8 +310,6 @@ bool getsub(char *arg, char *sub) {
   bool result_61a37a6fe9 = (makeres > 0);
   return (MARK(12, 13), (result_61a37a6fe9));
 }
-
-void subline();
 
 bool locate(character c, char *pat, int offset) {
   MARK(13, 7);
@@ -414,8 +418,10 @@ int patsize(char *pat, int n) {
   return (MARK(15, 1), size);
 }
 
+
 int amatch(char *lin, int offset, char *pat, int j) {
   MARK(16, 23);
+#ifdef NEVER
   int i, k;
   bool result, done;
 
@@ -450,8 +456,10 @@ int amatch(char *lin, int offset, char *pat, int j) {
         j = j + (mark(16, 3), patsize(pat, j));
       }
     }
+#endif
   return (MARK(16, 1), offset);
 }
+
 
 void putsub(char *lin, int s1, int s2, char *sub) {
   MARK(17, 11);
@@ -510,6 +518,8 @@ void change(char *pat, char *sub) {
   return;
 }
 
+#ifdef NEVER
+
 int main(int argc, char *argv[]) {
   MARK(20, 9);
   string pat, sub;
@@ -540,9 +550,10 @@ int main(int argc, char *argv[]) {
   return (MARK(20, 1), 0);
 }
 
+#endif
+
 void Caseerror(int n) {
   (void)(MARK(21, 1), zop_fprintf2(stdout, "Missing case limb: line %d\n", n));
   (MARK(21, 13), exit(4));
 }
 
-#endif

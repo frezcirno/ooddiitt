@@ -577,8 +577,15 @@ void LocalExecutor::run(ExecutionState &initialState) {
     ExecutionState &state = searcher->selectState();
     KInstruction *ki = state.pc;
     stepInstruction(state);
-    
-    executeInstruction(state, ki);
+
+    unsigned line = ki->info->assemblyLine;
+    if (line == 646 || line == 748) {
+      executeInstruction(state, ki);
+    }
+    else {
+      executeInstruction(state, ki);
+    }
+
     processTimers(&state, 0);
     
     checkMemoryUsage();
@@ -646,10 +653,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (ty->isPointerTy()) {
 
           Type *subtype = ty->getPointerElementType();
-          uint64_t size = kmodule->targetData->getTypeStoreSize(subtype);
-          size *= lazyAllocationCount;
-
-          allocSymbolic(state, size, i, false, fullName(name, counter, "return"), wop);
+          allocSymbolic(state, subtype, i, false, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
           bindLocal(ki, state, wop.first->getBaseExpr());
         } else {
 
@@ -668,9 +672,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr, ++index) {
         const Argument &arg = *itr;
         Type *type = arg.getType();
-
-        bool test = arg.onlyReadsMemory();
-
 
         // check the level of ptr indirection (if any)
         const unsigned count = countLoadIndirection(type);
