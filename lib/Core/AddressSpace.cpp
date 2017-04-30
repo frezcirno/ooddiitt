@@ -14,6 +14,7 @@
 
 #include "klee/Expr.h"
 #include "klee/TimerStatIncrementer.h"
+#include "klee/Internal/Support/ErrorHandling.h"
 
 using namespace klee;
 
@@ -73,6 +74,7 @@ bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr,
 bool AddressSpace::resolveOne(ExecutionState &state,
                               TimingSolver *solver,
                               ref<Expr> address,
+                              bool optimistic,
                               ObjectPair &result,
                               bool &success) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(address)) {
@@ -98,6 +100,8 @@ bool AddressSpace::resolveOne(ExecutionState &state,
         return true;
       }
     }
+
+    if (optimistic) klee_error("optimistic memory resolution failed");
 
     // didn't work, now we have to search
        

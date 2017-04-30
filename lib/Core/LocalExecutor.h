@@ -16,6 +16,7 @@
 #define KLEE_LOCAL_EXECUTOR_H
 
 #include "Executor.h"
+#include "Memory.h"
 
 namespace klee {
 
@@ -36,7 +37,11 @@ public:
                 const std::set<std::string> &fns);
 
   virtual ~LocalExecutor();
-  
+
+  virtual const llvm::Module *
+  setModule(llvm::Module *module, const ModuleOptions &opts);
+  virtual void bindModuleConstants();
+
   virtual void runFunctionAsMain(llvm::Function *f,
                                  int argc,
                                  char **argv,
@@ -71,6 +76,7 @@ protected:
   MemoryObject *allocMemory(ExecutionState &state,
                             size_t size,
                             const llvm::Value *allocSite,
+                            MemKind kind,
                             bool isGlobal,
                             std::string name,
                             size_t align = 0);
@@ -78,6 +84,7 @@ protected:
   MemoryObject *allocMemory(ExecutionState &state,
                             llvm::Type *type,
                             const llvm::Value *allocSite,
+                            MemKind kind,
                             bool isGlobal,
                             std::string name,
                             size_t align = 0,
@@ -86,6 +93,7 @@ protected:
   bool allocSymbolic(ExecutionState &state,
                      size_t size,
                      const llvm::Value *allocSite,
+                     MemKind kind,
                      bool isGlobal,
                      std::string name,
                      WObjectPair &wop,
@@ -94,6 +102,7 @@ protected:
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,
                      const llvm::Value *allocSite,
+                     MemKind kind,
                      bool isGlobal,
                      std::string name,
                      WObjectPair &wop,

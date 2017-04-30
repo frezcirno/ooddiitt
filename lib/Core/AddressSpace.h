@@ -73,6 +73,7 @@ namespace klee {
     bool resolveOne(ExecutionState &state, 
                     TimingSolver *solver,
                     ref<Expr> address,
+                    bool optimistic,
                     ObjectPair &result,
                     bool &success);
 

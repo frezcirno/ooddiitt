@@ -70,6 +70,7 @@ ObjectHolder &ObjectHolder::operator=(const ObjectHolder &b) {
 unsigned MemoryObject::counter = 0;
 
 MemoryObject::~MemoryObject() {
+  kind = MemKind::invalid;
   if (parent)
     parent->markFreed(this);
 }
@@ -164,23 +165,18 @@ ObjectState::ObjectState(const ObjectState &os)
 }
 
 ObjectState::~ObjectState() {
-  if (concreteMask) delete concreteMask;
-  if (flushMask) delete flushMask;
-  if (knownSymbolics) delete[] knownSymbolics;
-  if (writtenMask) delete writtenMask;
-  delete[] concreteStore;
+  if (concreteMask) { delete concreteMask; concreteMask = nullptr; }
+  if (flushMask) { delete flushMask; flushMask = nullptr; }
+  if (knownSymbolics) { delete[] knownSymbolics; knownSymbolics = nullptr; }
+  if (writtenMask) { delete writtenMask; writtenMask = nullptr; }
 
-  concreteMask = nullptr;
-  flushMask = nullptr;
-  knownSymbolics = nullptr;
-  writtenMask = nullptr;
+  delete[] concreteStore;
   concreteStore = nullptr;
-  
+
   if (object != nullptr)  {
     assert(object->refCount > 0);
     object->refCount--;
-    if (object->refCount == 0)
-    {
+    if (object->refCount == 0) {
       delete object;
     }
   }
@@ -245,14 +241,10 @@ const UpdateList &ObjectState::getUpdates() const {
 }
 
 void ObjectState::makeConcrete() {
-  if (concreteMask) delete concreteMask;
-  if (flushMask) delete flushMask;
-  if (writtenMask) delete writtenMask;
-  if (knownSymbolics) delete[] knownSymbolics;
-  concreteMask = nullptr;
-  flushMask = nullptr;
-  writtenMask = nullptr;
-  knownSymbolics = nullptr;
+  if (concreteMask) { delete concreteMask; concreteMask = nullptr; }
+  if (flushMask) { delete flushMask; flushMask = nullptr; }
+  if (writtenMask) { delete writtenMask; writtenMask = nullptr; }
+  if (knownSymbolics) { delete[] knownSymbolics; knownSymbolics = nullptr; }
 }
 
 void ObjectState::makeSymbolic() {

@@ -625,7 +625,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
 			(int)i->getName().size(), i->getName().data());
       }
 
-      MemoryObject *mo = memory->allocate(size, /*isLocal=*/false,
+      MemoryObject *mo = memory->allocate(size, MemKind::global,
+                                          /*isLocal=*/false,
                                           /*isGlobal=*/true, /*allocSite=*/v,
                                           /*alignment=*/globalObjectAlignment);
       ObjectState *os = bindObjectInState(state, mo, false);
@@ -651,7 +652,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-      MemoryObject *mo = memory->allocate(size, /*isLocal=*/false,
+      MemoryObject *mo = memory->allocate(size, MemKind::global,
+                                          /*isLocal=*/false,
                                           /*isGlobal=*/true, /*allocSite=*/v,
                                           /*alignment=*/globalObjectAlignment);
       if (!mo)
@@ -1328,7 +1330,7 @@ void Executor::executeCall(ExecutionState &state,
       // va_end is a noop for the interpreter.
       //
       // FIXME: We should validate that the target didn't do something bad
-      // with vaeend, however (like call it twice).
+      // with vaend, however (like call it twice).
       break;
 
     case Intrinsic::vacopy:
@@ -1401,7 +1403,7 @@ void Executor::executeCall(ExecutionState &state,
       }
 
       MemoryObject *mo = sf.varargs =
-          memory->allocate(size, true, false, state.prevPC->inst,
+          memory->allocate(size, MemKind::func, true, false, state.prevPC->inst,
                            (requires16ByteAlignment ? 16 : 8));
       if (!mo && size) {
         terminateStateOnExecError(state, "out of memory (varargs)");
@@ -2118,7 +2120,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       count = Expr::createZExtToPointerWidth(count);
       size = MulExpr::create(size, count);
     }
-    executeAlloc(state, size, true, ki);
+    executeAlloc(state, size, MemKind::alloca, true, ki);
     break;
   }
 
@@ -3151,6 +3153,7 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
 
 void Executor::executeAlloc(ExecutionState &state,
                             ref<Expr> size,
+                            MemKind kind,
                             bool isLocal,
                             KInstruction *target,
                             bool zeroMemory,
@@ -3160,7 +3163,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
     size_t allocationAlignment = getAllocationAlignment(target->inst);
     MemoryObject *mo =
-        memory->allocate(CE->getZExtValue(), isLocal, false,
+        memory->allocate(CE->getZExtValue(), kind, isLocal, false,
                          target->inst, allocationAlignment);
     if (!mo) {
       bindLocal(target, state,
@@ -3228,7 +3231,7 @@ void Executor::executeAlloc(ExecutionState &state,
       assert(success && "FIXME: Unhandled solver failure");
       (void) success;
       if (res) {
-        executeAlloc(*fixedSize.second, tmp, isLocal,
+        executeAlloc(*fixedSize.second, tmp, kind, isLocal,
                      target, zeroMemory, reallocFrom);
       } else {
         // See if a *really* big value is possible. If so assume
@@ -3257,7 +3260,7 @@ void Executor::executeAlloc(ExecutionState &state,
     }
 
     if (fixedSize.first) // can be zero when fork fails
-      executeAlloc(*fixedSize.first, example, isLocal,
+      executeAlloc(*fixedSize.first, example, kind, isLocal,
                    target, zeroMemory, reallocFrom);
   }
 }
@@ -3342,7 +3345,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   ObjectPair op;
   bool success;
   solver->setTimeout(coreSolverTimeout);
-  if (!state.addressSpace.resolveOne(state, solver, address, op, success)) {
+  if (!state.addressSpace.resolveOne(state, solver, address, false, op, success)) {
     address = toConstant(state, address, "resolveOne failure");
     success = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
   }
@@ -3568,6 +3571,7 @@ void Executor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
           memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
+                           MemKind::param,
                            /*isLocal=*/false, /*isGlobal=*/true,
                            /*allocSite=*/first, /*alignment=*/8);
 
@@ -3613,7 +3617,8 @@ void Executor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
 
         MemoryObject *arg =
-            memory->allocate(len + 1, /*isLocal=*/false, /*isGlobal=*/true,
+            memory->allocate(len + 1, MemKind::param,
+                             /*isLocal=*/false, /*isGlobal=*/true,
                              /*allocSite=*/state->pc->inst, /*alignment=*/8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");

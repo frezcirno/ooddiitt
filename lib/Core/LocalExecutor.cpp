@@ -12,7 +12,6 @@
 #include "CoreStats.h"
 #include "ExternalDispatcher.h"
 #include "ImpliedValue.h"
-#include "Memory.h"
 #include "MemoryManager.h"
 #include "PTree.h"
 #include "Searcher.h"
@@ -111,7 +110,7 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
 
     // not a const address, so we have to ask the solver
     solver->setTimeout(coreSolverTimeout);
-    if (!state.addressSpace.resolveOne(state, solver, address, op, result)) {
+    if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
       address = toConstant(state, address, "resolveOne failure");
       result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
     }
@@ -203,7 +202,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
 
     Type *subtype = type->getPointerElementType()->getPointerElementType();
-    MemoryObject *newMO = allocMemory(state, subtype, target->inst, mo->isGlobal,
+    MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy, mo->isGlobal,
                                       '*' + mo->name, 0, lazyAllocationCount);
     bindObjectInState(state, newMO, mo->isLocal);
     
@@ -316,11 +315,12 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
 MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          size_t size,
                                          const llvm::Value *allocSite,
+                                         MemKind kind,
                                          bool isGlobal,
                                          std::string name,
                                          size_t align) {
 
-  MemoryObject *mo = memory->allocate(size, !isGlobal, isGlobal, allocSite, align);
+  MemoryObject *mo = memory->allocate(size, kind, !isGlobal, isGlobal, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
   }
@@ -333,6 +333,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
 MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          llvm::Type *type,
                                          const llvm::Value *allocSite,
+                                         MemKind kind,
                                          bool isGlobal,
                                          std::string name,
                                          size_t align,
@@ -342,18 +343,19 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  return allocMemory(state, size, allocSite, isGlobal, name, align);
+  return allocMemory(state, size, allocSite, kind, isGlobal, name, align);
 }
 
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   size_t size,
                                   const llvm::Value *allocSite,
+                                  MemKind kind,
                                   bool isGlobal,
                                   std::string name,
                                   WObjectPair &wop,
                                   size_t align) {
 
-  MemoryObject *mo = allocMemory(state, size, allocSite, isGlobal, name, align);
+  MemoryObject *mo = allocMemory(state, size, allocSite, kind, isGlobal, name, align);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     wop.first = mo;
@@ -366,13 +368,14 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
                                   const llvm::Value *allocSite,
+                                  MemKind kind,
                                   bool isGlobal,
                                   std::string name,
                                   WObjectPair &wop,
                                   size_t align,
                                   unsigned count) {
 
-  MemoryObject *mo = allocMemory(state, type, allocSite, isGlobal, name, align, count);
+  MemoryObject *mo = allocMemory(state, type, allocSite, kind, isGlobal, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     wop.first = mo;
@@ -380,6 +383,27 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
     return true;
   }
   return false;
+}
+
+const Module *LocalExecutor::setModule(llvm::Module *module,
+                                       const ModuleOptions &opts) {
+  const Module *result = Executor::setModule(module, opts);
+
+  for (std::vector<KFunction*>::iterator it = kmodule->functions.begin(),
+           ie = kmodule->functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+    for (unsigned i=0; i<kf->numInstructions; ++i)
+      bindInstructionConstants(kf->instructions[i]);
+  }
+  return result;
+}
+
+void LocalExecutor::bindModuleConstants() {
+  kmodule->constantTable = new Cell[kmodule->constants.size()];
+  for (unsigned i=0; i<kmodule->constants.size(); ++i) {
+    Cell &c = kmodule->constantTable[i];
+    c.value = evalConstant(kmodule->constants[i]);
+  }
 }
 
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
@@ -415,7 +439,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
     // RLR TODO: affirm that this is a fundamental type?
     WObjectPair wop;
-    if (!allocSymbolic(*state, argType, &arg, false, argName, wop, argAlign)) {
+    if (!allocSymbolic(*state, argType, &arg, MemKind::param, false, argName, wop, argAlign)) {
       klee_error("failed to allocate function parameter");
     }
 
@@ -433,7 +457,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   // hack to clear memory objects
   delete memory;
   memory = new MemoryManager(NULL);
-  
+
+  // clean up global objects
+  // RLR TODO: no real need to destroy the globals
+  // and set them up again on next function. just need to
+  // re-initialize
+  legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
   
@@ -478,6 +507,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
       memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
+                       MemKind::param,
                        /*isLocal=*/false, /*isGlobal=*/true,
                        /*allocSite=*/first, /*alignment=*/8);
       
@@ -522,7 +552,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
         
         MemoryObject *arg =
-        memory->allocate(len + 1, /*isLocal=*/false, /*isGlobal=*/true,
+        memory->allocate(len + 1, MemKind::param, /*isLocal=*/false, /*isGlobal=*/true,
                          /*allocSite=*/state->pc->inst, /*alignment=*/8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
@@ -547,7 +577,12 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   // hack to clear memory objects
   delete memory;
   memory = new MemoryManager(NULL);
-  
+
+  // clean up global objects
+  // RLR TODO: no real need to destroy the globals
+  // and set them up again on next function. just need to
+  // re-initialize
+  legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
   
@@ -559,9 +594,9 @@ void LocalExecutor::runFunctionAsMain(Function *f,
 }
   
 void LocalExecutor::run(ExecutionState &initialState) {
-  
+
   bindModuleConstants();
-  
+
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
@@ -578,18 +613,10 @@ void LocalExecutor::run(ExecutionState &initialState) {
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
-    unsigned line = ki->info->assemblyLine;
-    if (line == 646 || line == 748) {
-      executeInstruction(state, ki);
-    }
-    else {
-      executeInstruction(state, ki);
-    }
+    executeInstruction(state, ki);
 
     processTimers(&state, 0);
-    
     checkMemoryUsage();
-    
     updateStates(&state);
   }
   
@@ -653,12 +680,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (ty->isPointerTy()) {
 
           Type *subtype = ty->getPointerElementType();
-          allocSymbolic(state, subtype, i, false, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
+          allocSymbolic(state, subtype, i, MemKind::func, false, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
           bindLocal(ki, state, wop.first->getBaseExpr());
         } else {
 
           // RLR TODO: must this then be a fundamental type?
-          if (!allocSymbolic(state, ty, i, false, fullName(name, counter, "return"), wop)) {
+          if (!allocSymbolic(state, ty, i, MemKind::func, false, fullName(name, counter, "return"), wop)) {
             klee_error("failed to allocate called function parameter");
           }
           Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
@@ -691,7 +718,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
 
             WObjectPair wop;
-            if (!allocSymbolic(state, size, &arg, false, fullName(name, counter, arg.getName()), wop, orgMO->align)) {
+            if (!allocSymbolic(state, size, &arg, MemKind::func, false, fullName(name, counter, arg.getName()), wop, orgMO->align)) {
               klee_error("failed to allocate ptr argument");
             }
             ObjectState *newOS = wop.second;
@@ -716,7 +743,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         count = Expr::createZExtToPointerWidth(count);
         size = MulExpr::create(size, count);
       }
-      executeAlloc(state, size, true, ki);
+      executeAlloc(state, size, MemKind::alloca, true, ki);
       break;
     }
 

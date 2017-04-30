@@ -29,6 +29,8 @@ class MemoryManager;
 class Solver;
 class ArrayCache;
 
+enum MemKind { invalid, fixed, global, param, alloca, heap, func, lazy };
+
 class MemoryObject {
   friend class STPBuilder;
   friend class ObjectState;
@@ -39,6 +41,7 @@ private:
   mutable unsigned refCount;
 
 public:
+
   unsigned id;
   uint64_t address;
 
@@ -47,6 +50,7 @@ public:
   size_t align;
   mutable std::string name;
 
+  MemKind kind;
   bool isLocal;
   mutable bool isGlobal;
   bool isFixed;
@@ -80,13 +84,15 @@ public:
       id(counter++), 
       address(_address),
       size(0),
-      name("temp"),
+      name("hack"),
+      kind(MemKind::fixed),
       isFixed(true),
       parent(NULL),
       allocSite(0) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
+               MemKind _kind,
                bool _isLocal, bool _isGlobal, bool _isFixed,
                const llvm::Value *_allocSite,
                MemoryManager *_parent)
@@ -96,6 +102,7 @@ public:
       size(_size),
       align(_align),
       name(""),
+      kind(_kind),
       isLocal(_isLocal),
       isGlobal(_isGlobal),
       isFixed(_isFixed),

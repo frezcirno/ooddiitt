@@ -25,6 +25,8 @@
 
 #include "llvm/ADT/Twine.h"
 
+#include "Memory.h"
+
 #include <vector>
 #include <string>
 #include <map>
@@ -277,6 +279,7 @@ protected:
   /// bytes initialized as specified by zeroMemory.
   void executeAlloc(ExecutionState &state,
                     ref<Expr> size,
+                    MemKind kind,
                     bool isLocal,
                     KInstruction *target,
                     bool zeroMemory=false,
@@ -404,7 +407,7 @@ protected:
   }
 
   /// bindModuleConstants - Initialize the module constant table.
-  void bindModuleConstants();
+  virtual void bindModuleConstants();
 
   template <typename TypeIt>
   void computeOffsets(KGEPInstruction *kgepi, TypeIt ib, TypeIt ie);

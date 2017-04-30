@@ -778,6 +778,8 @@ static const char *dontCareExternals[] = {
   "getwd",
   "gettimeofday",
   "uname",
+
+  // ignore marker instrumentation
   "mark",
   "MARK",
 
@@ -1360,7 +1362,7 @@ int main(int argc, char **argv, char **envp) {
                  sys::StrError(errno).c_str());
     }
   }
-  
+
   if (mainFn != nullptr) {
     theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   }

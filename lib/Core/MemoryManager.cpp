@@ -91,7 +91,7 @@ MemoryManager::~MemoryManager() {
     munmap(deterministicSpace, spaceSize);
 }
 
-MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
+MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, bool isLocal,
                                       bool isGlobal,
                                       const llvm::Value *allocSite,
                                       size_t alignment) {
@@ -143,7 +143,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
     return 0;
 
   ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, alignment, isLocal, isGlobal, false,
+  MemoryObject *res = new MemoryObject(address, size, alignment, kind, isLocal, isGlobal, false,
                                        allocSite, this);
   objects.insert(res);
   return res;
@@ -162,7 +162,7 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
 
   ++stats::allocations;
   MemoryObject *res =
-      new MemoryObject(address, size, 1, false, true, true, allocSite, this);
+      new MemoryObject(address, size, 1, MemKind::fixed, false, true, true, allocSite, this);
   objects.insert(res);
   return res;
 }
