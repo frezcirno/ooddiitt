@@ -190,7 +190,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     }
   }
 
-  if (!state.isSymbolic(mo) && !state.isLocallyAllocated(mo)) {
+  if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
     os = makeSymbolic(state, mo, os);
   }
   
@@ -202,9 +202,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
 
     Type *subtype = type->getPointerElementType()->getPointerElementType();
-    MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy, mo->isGlobal,
+    MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy,
                                       '*' + mo->name, 0, lazyAllocationCount);
-    bindObjectInState(state, newMO, mo->isLocal);
+    bindObjectInState(state, newMO);
     
     // and constrain this pointer to point at it.
     ref<ConstantExpr> ptr = newMO->getBaseExpr();
@@ -303,7 +303,7 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
   
-  ObjectState *wos = bindObjectInState(state, mo, mo->isLocal, array);
+  ObjectState *wos = bindObjectInState(state, mo, array);
   state.addSymbolic(mo, array);
   if (clone != nullptr) {
     wos->cloneWritten(clone);
@@ -316,16 +316,15 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          size_t size,
                                          const llvm::Value *allocSite,
                                          MemKind kind,
-                                         bool isGlobal,
                                          std::string name,
                                          size_t align) {
 
-  MemoryObject *mo = memory->allocate(size, kind, !isGlobal, isGlobal, allocSite, align);
+  MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
   }
   else {
-    mo->setName(name);
+    mo->name = name;
   }
   return mo;
 }
@@ -334,7 +333,6 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          llvm::Type *type,
                                          const llvm::Value *allocSite,
                                          MemKind kind,
-                                         bool isGlobal,
                                          std::string name,
                                          size_t align,
                                          unsigned count) {
@@ -343,19 +341,18 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  return allocMemory(state, size, allocSite, kind, isGlobal, name, align);
+  return allocMemory(state, size, allocSite, kind, name, align);
 }
 
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   size_t size,
                                   const llvm::Value *allocSite,
                                   MemKind kind,
-                                  bool isGlobal,
                                   std::string name,
                                   WObjectPair &wop,
                                   size_t align) {
 
-  MemoryObject *mo = allocMemory(state, size, allocSite, kind, isGlobal, name, align);
+  MemoryObject *mo = allocMemory(state, size, allocSite, kind, name, align);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     wop.first = mo;
@@ -369,13 +366,12 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
                                   const llvm::Value *allocSite,
                                   MemKind kind,
-                                  bool isGlobal,
                                   std::string name,
                                   WObjectPair &wop,
                                   size_t align,
                                   unsigned count) {
 
-  MemoryObject *mo = allocMemory(state, type, allocSite, kind, isGlobal, name, align, count);
+  MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     wop.first = mo;
@@ -384,6 +380,13 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
   }
   return false;
 }
+
+bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const {
+
+  const auto &allocas = state.stack.back().allocas;
+  return allocas.find(mo) != allocas.end();
+}
+
 
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
@@ -439,7 +442,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
     // RLR TODO: affirm that this is a fundamental type?
     WObjectPair wop;
-    if (!allocSymbolic(*state, argType, &arg, MemKind::param, false, argName, wop, argAlign)) {
+    if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
       klee_error("failed to allocate function parameter");
     }
 
@@ -507,9 +510,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
       memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                       MemKind::param,
-                       /*isLocal=*/false, /*isGlobal=*/true,
-                       /*allocSite=*/first, /*alignment=*/8);
+                       MemKind::param, first, 8);
       
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -541,7 +542,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     bindArgument(kf, i, *state, arguments[i]);
   
   if (argvMO) {
-    ObjectState *argvOS = bindObjectInState(*state, argvMO, false);
+    ObjectState *argvOS = bindObjectInState(*state, argvMO);
     
     for (int i=0; i<argc+1+envc+1+1; i++) {
       if (i==argc || i>=argc+1+envc) {
@@ -552,11 +553,10 @@ void LocalExecutor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
         
         MemoryObject *arg =
-        memory->allocate(len + 1, MemKind::param, /*isLocal=*/false, /*isGlobal=*/true,
-                         /*allocSite=*/state->pc->inst, /*alignment=*/8);
+        memory->allocate(len + 1, MemKind::param, state->pc->inst, 8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
-        ObjectState *os = bindObjectInState(*state, arg, false);
+        ObjectState *os = bindObjectInState(*state, arg);
         for (j=0; j<len+1; j++)
           os->write8(j, s[j]);
         
@@ -650,7 +650,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if this is not a function in this module, let
       // the standard executor handle it.
-      if (fnInModule.find(f->getName()) == fnInModule.end()) {
+      std::string fnName = f->getName();
+
+      if (fnInModule.find(fnName) == fnInModule.end()) {
 
         // if this is a call to mark(), then log the marker to state
         if ((f->getName().upper() == "MARK") &&
@@ -664,6 +666,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
             state.addMarker(fnID, bbID);
           }
+        } else if (fnName == "abort" || fnName == "exit") {
+          terminateStateOnExit(state);
         } else {
           Executor::executeInstruction(state, ki);
         }
@@ -680,12 +684,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (ty->isPointerTy()) {
 
           Type *subtype = ty->getPointerElementType();
-          allocSymbolic(state, subtype, i, MemKind::func, false, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
+          allocSymbolic(state, subtype, i, MemKind::output, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
           bindLocal(ki, state, wop.first->getBaseExpr());
         } else {
 
           // RLR TODO: must this then be a fundamental type?
-          if (!allocSymbolic(state, ty, i, MemKind::func, false, fullName(name, counter, "return"), wop)) {
+          if (!allocSymbolic(state, ty, i, MemKind::output, fullName(name, counter, "return"), wop)) {
             klee_error("failed to allocate called function parameter");
           }
           Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
@@ -718,7 +722,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
 
             WObjectPair wop;
-            if (!allocSymbolic(state, size, &arg, MemKind::func, false, fullName(name, counter, arg.getName()), wop, orgMO->align)) {
+            if (!allocSymbolic(state, size, &arg, MemKind::output, fullName(name, counter, arg.getName()), wop, orgMO->align)) {
               klee_error("failed to allocate ptr argument");
             }
             ObjectState *newOS = wop.second;
@@ -743,7 +747,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         count = Expr::createZExtToPointerWidth(count);
         size = MulExpr::create(size, count);
       }
-      executeAlloc(state, size, MemKind::alloca, true, ki);
+      executeAlloc(state, size, MemKind::alloca, ki);
       break;
     }
 

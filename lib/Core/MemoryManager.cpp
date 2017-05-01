@@ -81,7 +81,7 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache)
 MemoryManager::~MemoryManager() {
   while (!objects.empty()) {
     MemoryObject *mo = *objects.begin();
-    if (!mo->isFixed && !DeterministicAllocation)
+    if (!mo->isFixed() && !DeterministicAllocation)
       free((void *)mo->address);
     objects.erase(mo);
     delete mo;
@@ -91,10 +91,7 @@ MemoryManager::~MemoryManager() {
     munmap(deterministicSpace, spaceSize);
 }
 
-MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, bool isLocal,
-                                      bool isGlobal,
-                                      const llvm::Value *allocSite,
-                                      size_t alignment) {
+MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
   if (size > 10 * 1024 * 1024)
     klee_warning_once(0, "Large alloc: %" PRIu64
                          " bytes.  KLEE may run out of memory.",
@@ -143,8 +140,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, bool isLocal,
     return 0;
 
   ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, alignment, kind, isLocal, isGlobal, false,
-                                       allocSite, this);
+  MemoryObject *res = new MemoryObject(address, size, alignment, kind, allocSite, this);
   objects.insert(res);
   return res;
 }
@@ -161,17 +157,14 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
 #endif
 
   ++stats::allocations;
-  MemoryObject *res =
-      new MemoryObject(address, size, 1, MemKind::fixed, false, true, true, allocSite, this);
+  MemoryObject *res = new MemoryObject(address, size, 1, MemKind::fixed, allocSite, this);
   objects.insert(res);
   return res;
 }
 
-void MemoryManager::deallocate(const MemoryObject *mo) { assert(0); }
-
 void MemoryManager::markFreed(MemoryObject *mo) {
   if (objects.find(mo) != objects.end()) {
-    if (!mo->isFixed && !DeterministicAllocation)
+    if (!mo->isFixed() && !DeterministicAllocation)
       free((void *)mo->address);
     objects.erase(mo);
   }

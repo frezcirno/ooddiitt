@@ -245,7 +245,7 @@ protected:
                             std::vector< ref<Expr> > &arguments);
 
   ObjectState *bindObjectInState(ExecutionState &state, const MemoryObject *mo,
-                                 bool isLocal, const Array *array = 0);
+                                 const Array *array = 0);
 
   /// Resolve a pointer to the memory objects it could point to the
   /// start of, forking execution when necessary and generating errors
@@ -280,7 +280,6 @@ protected:
   void executeAlloc(ExecutionState &state,
                     ref<Expr> size,
                     MemKind kind,
-                    bool isLocal,
                     KInstruction *target,
                     bool zeroMemory=false,
                     const ObjectState *reallocFrom=0);

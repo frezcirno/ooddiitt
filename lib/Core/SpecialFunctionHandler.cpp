@@ -354,7 +354,7 @@ void SpecialFunctionHandler::handleNew(ExecutionState &state,
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new");
 
-  executor.executeAlloc(state, arguments[0], MemKind::heap, false, target);
+  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDelete(ExecutionState &state,
@@ -373,7 +373,7 @@ void SpecialFunctionHandler::handleNewArray(ExecutionState &state,
                               std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new[]");
-  executor.executeAlloc(state, arguments[0], MemKind::heap, false, target);
+  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDeleteArray(ExecutionState &state,
@@ -389,7 +389,7 @@ void SpecialFunctionHandler::handleMalloc(ExecutionState &state,
                                   std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to malloc");
-  executor.executeAlloc(state, arguments[0], MemKind::heap, false, target);
+  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleAssume(ExecutionState &state,
@@ -574,7 +574,7 @@ void SpecialFunctionHandler::handleCalloc(ExecutionState &state,
 
   ref<Expr> size = MulExpr::create(arguments[0],
                                    arguments[1]);
-  executor.executeAlloc(state, size, MemKind::heap, false, target, true);
+  executor.executeAlloc(state, size, MemKind::heap, target, true);
 }
 
 void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
@@ -599,7 +599,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
                                                     true);
     
     if (zeroPointer.first) { // address == 0
-      executor.executeAlloc(*zeroPointer.first, size, MemKind::heap, false, target);
+      executor.executeAlloc(*zeroPointer.first, size, MemKind::heap, target);
     } 
     if (zeroPointer.second) { // address != 0
       Executor::ExactResolutionList rl;
@@ -607,7 +607,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
       
       for (Executor::ExactResolutionList::iterator it = rl.begin(), 
              ie = rl.end(); it != ie; ++it) {
-        executor.executeAlloc(*it->second, size, MemKind::heap, false, target, false,
+        executor.executeAlloc(*it->second, size, MemKind::heap, target, false,
                               it->first.second);
       }
     }
@@ -680,7 +680,7 @@ void SpecialFunctionHandler::handleDefineFixedObject(ExecutionState &state,
   uint64_t address = cast<ConstantExpr>(arguments[0])->getZExtValue();
   uint64_t size = cast<ConstantExpr>(arguments[1])->getZExtValue();
   MemoryObject *mo = executor.memory->allocateFixed(address, size, state.prevPC->inst);
-  executor.bindObjectInState(state, mo, false);
+  executor.bindObjectInState(state, mo);
   mo->isUserSpecified = true; // XXX hack;
 }
 
@@ -706,7 +706,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
   for (Executor::ExactResolutionList::iterator it = rl.begin(), 
          ie = rl.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first.first;
-    mo->setName(name);
+    mo->name = name;
     
     const ObjectState *old = it->first.second;
     ExecutionState *s = it->second;
@@ -741,8 +741,10 @@ void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_mark_global");  
+         "invalid number of arguments to klee_mark_global");
 
+  // RLR TODO: remove this
+#ifdef NEVER
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "mark_global");
   
@@ -752,6 +754,7 @@ void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
     assert(!mo->isLocal);
     mo->isGlobal = true;
   }
+#endif
 }
 
 void SpecialFunctionHandler::handleAddOverflow(ExecutionState &state,

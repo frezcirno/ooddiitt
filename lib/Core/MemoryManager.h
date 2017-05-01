@@ -41,11 +41,8 @@ public:
    * Returns memory object which contains a handle to real virtual process
    * memory.
    */
-  MemoryObject *allocate(uint64_t size, MemKind kind, bool isLocal, bool isGlobal,
-                         const llvm::Value *allocSite, size_t alignment);
-  MemoryObject *allocateFixed(uint64_t address, uint64_t size,
-                              const llvm::Value *allocSite);
-  void deallocate(const MemoryObject *mo);
+  MemoryObject *allocate(uint64_t size, MemKind kind, const llvm::Value *allocSite, size_t alignment);
+  MemoryObject *allocateFixed(uint64_t address, uint64_t size, const llvm::Value *allocSite);
   void markFreed(MemoryObject *mo);
   ArrayCache *getArrayCache() const { return arrayCache; }
 

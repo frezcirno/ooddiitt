@@ -70,9 +70,8 @@ ObjectHolder &ObjectHolder::operator=(const ObjectHolder &b) {
 unsigned MemoryObject::counter = 0;
 
 MemoryObject::~MemoryObject() {
+  if (parent) parent->markFreed(this);
   kind = MemKind::invalid;
-  if (parent)
-    parent->markFreed(this);
 }
 
 void MemoryObject::getAllocInfo(std::string &result) const {

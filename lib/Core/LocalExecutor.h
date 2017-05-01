@@ -77,7 +77,6 @@ protected:
                             size_t size,
                             const llvm::Value *allocSite,
                             MemKind kind,
-                            bool isGlobal,
                             std::string name,
                             size_t align = 0);
 
@@ -85,7 +84,6 @@ protected:
                             llvm::Type *type,
                             const llvm::Value *allocSite,
                             MemKind kind,
-                            bool isGlobal,
                             std::string name,
                             size_t align = 0,
                             unsigned count = 1);
@@ -94,7 +92,6 @@ protected:
                      size_t size,
                      const llvm::Value *allocSite,
                      MemKind kind,
-                     bool isGlobal,
                      std::string name,
                      WObjectPair &wop,
                      size_t align = 0);
@@ -103,7 +100,6 @@ protected:
                      llvm::Type *type,
                      const llvm::Value *allocSite,
                      MemKind kind,
-                     bool isGlobal,
                      std::string name,
                      WObjectPair &wop,
                      size_t align = 0,
@@ -112,6 +108,8 @@ protected:
   unsigned countLoadIndirection(const llvm::Type* type) const;
   
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
+
+  bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
 
   unsigned lazyAllocationCount;
   unsigned iterationBound;

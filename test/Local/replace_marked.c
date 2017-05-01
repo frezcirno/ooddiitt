@@ -38,16 +38,13 @@ typedef char bool;
 typedef char character;
 typedef char string[MAXSTR];
 
+void abort(void);
+void exit(int exitlevel);
+
+#ifdef NEVER
+
 char *fgets(char *str, int count, FILE *stream) {
   return str;
-}
-
-void abort(void) {
-  while (1);
-}
-
-void exit(int exitlevel) {
-  while (1);
 }
 
 int zop_fprintf1(FILE *stream, const char *format) {
@@ -74,6 +71,8 @@ bool my_getline(char *s, int maxsize) {
   return (MARK(1, 13), (result_dff36ebb57));
 }
 
+#endif
+
 int addstr(char c, char *outset, int *j, int maxset) {
   MARK(2, 4);
   bool result;
@@ -87,6 +86,7 @@ int addstr(char c, char *outset, int *j, int maxset) {
   return (MARK(2, 1), result);
 }
 
+#ifdef NEVER
 
 char esc(char *s, int *i) {
   MARK(3, 10);
@@ -108,7 +108,7 @@ char esc(char *s, int *i) {
   return (MARK(3, 1), result);
 }
 
-
+#endif
 
 void dodash(char delim, char *src, int *i, char *dest, int *j, int maxset) {
   MARK(4, 22);
@@ -144,6 +144,7 @@ void dodash(char delim, char *src, int *i, char *dest, int *j, int maxset) {
   return;
 }
 
+#ifdef NEVER
 
 bool getccl(char *arg, int *i, char *pat, int *j) {
   MARK(5, 4);
@@ -165,6 +166,8 @@ bool getccl(char *arg, int *i, char *pat, int *j) {
   return (MARK(5, 1), (result_082fd44040));
 }
 
+#endif
+
 void stclose(char *pat, int *j, int lastj) {
   MARK(6, 5);
   int jt;
@@ -181,6 +184,8 @@ void stclose(char *pat, int *j, int lastj) {
   return;
 }
 
+#ifdef NEVER
+
 bool in_set_2(char c) {
   bool result_a0b4887c98 = ((MARK(7, 4), c == BOL) || (mark(7, 3), c == EOL) ||
                             (mark(7, 2), c == CLOSURE));
@@ -196,6 +201,7 @@ bool in_pat_set(char c) {
   return (MARK(8, 1), (result_3b3a0d7955));
 }
 
+#endif
 
 int makepat(char *arg, int start, char delim, char *pat) {
   MARK(9, 30);
@@ -256,6 +262,7 @@ int makepat(char *arg, int start, char delim, char *pat) {
   return (MARK(9, 1), result);
 }
 
+#ifdef NEVER
 
 int getpat(char *arg, char *pat) {
   MARK(10, 1);
@@ -266,6 +273,7 @@ int getpat(char *arg, char *pat) {
   return (MARK(10, 13), (result_bc06c07c15));
 }
 
+#endif
 
 int makesub(char *arg, int from, character delim, char *sub) {
   MARK(11, 14);
@@ -301,6 +309,7 @@ int makesub(char *arg, int from, character delim, char *sub) {
   return (MARK(11, 1), result);
 }
 
+#ifdef NEVER
 
 bool getsub(char *arg, char *sub) {
   MARK(12, 1);
@@ -418,6 +427,7 @@ int patsize(char *pat, int n) {
   return (MARK(15, 1), size);
 }
 
+#endif
 
 int amatch(char *lin, int offset, char *pat, int j) {
   MARK(16, 23);
@@ -460,6 +470,7 @@ int amatch(char *lin, int offset, char *pat, int j) {
   return (MARK(16, 1), offset);
 }
 
+#ifdef NEVER
 
 void putsub(char *lin, int s1, int s2, char *sub) {
   MARK(17, 11);
@@ -518,6 +529,8 @@ void change(char *pat, char *sub) {
   return;
 }
 
+#endif
+
 #ifdef NEVER
 
 int main(int argc, char *argv[]) {
@@ -552,8 +565,11 @@ int main(int argc, char *argv[]) {
 
 #endif
 
+#ifdef NEVER
+
 void Caseerror(int n) {
   (void)(MARK(21, 1), zop_fprintf2(stdout, "Missing case limb: line %d\n", n));
   (MARK(21, 13), exit(4));
 }
 
+#endif

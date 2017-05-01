@@ -39,7 +39,7 @@ struct StackFrame {
   KFunction *kf;
   CallPathNode *callPathNode;
 
-  std::vector<const MemoryObject *> allocas;
+  std::set<const MemoryObject *> allocas;
   size_t numRegs;
   Cell *locals;
 
@@ -146,7 +146,6 @@ public:
   
   std::string name;
   std::map<const KInstruction *, unsigned> iterationCounter;
-  std::set<const MemoryObject *> locallyAllocated;
   std::vector<unsigned> markers;
 
   std::string getFnAlias(std::string fn);
@@ -172,11 +171,6 @@ public:
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
 
-  void addLocallyAllocated(const MemoryObject *mo)
-                        { locallyAllocated.insert(mo); }
-  bool isLocallyAllocated(const MemoryObject *mo) const
-                        { return locallyAllocated.find(mo) != locallyAllocated.end();  }
-  
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
   void addMarker(unsigned fnID, unsigned bbID);

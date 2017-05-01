@@ -512,7 +512,7 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
                                            bool isReadOnly) {
   MemoryObject *mo = memory->allocateFixed((uint64_t) (unsigned long) addr,
                                            size, 0);
-  ObjectState *os = bindObjectInState(state, mo, false);
+  ObjectState *os = bindObjectInState(state, mo);
   for(unsigned i = 0; i < size; i++)
     os->write8(i, ((uint8_t*)addr)[i]);
   if(isReadOnly)
@@ -625,11 +625,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
 			(int)i->getName().size(), i->getName().data());
       }
 
-      MemoryObject *mo = memory->allocate(size, MemKind::global,
-                                          /*isLocal=*/false,
-                                          /*isGlobal=*/true, /*allocSite=*/v,
-                                          /*alignment=*/globalObjectAlignment);
-      ObjectState *os = bindObjectInState(state, mo, false);
+      MemoryObject *mo = memory->allocate(size, MemKind::global, v, globalObjectAlignment);
+      ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
 
@@ -652,14 +649,11 @@ void Executor::initializeGlobals(ExecutionState &state) {
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-      MemoryObject *mo = memory->allocate(size, MemKind::global,
-                                          /*isLocal=*/false,
-                                          /*isGlobal=*/true, /*allocSite=*/v,
-                                          /*alignment=*/globalObjectAlignment);
+      MemoryObject *mo = memory->allocate(size, MemKind::global, v, globalObjectAlignment);
       if (!mo)
         llvm::report_fatal_error("out of memory");
       mo->name = v->getName();
-      ObjectState *os = bindObjectInState(state, mo, false);
+      ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
 
@@ -1403,7 +1397,7 @@ void Executor::executeCall(ExecutionState &state,
       }
 
       MemoryObject *mo = sf.varargs =
-          memory->allocate(size, MemKind::func, true, false, state.prevPC->inst,
+          memory->allocate(size, MemKind::output, state.prevPC->inst,
                            (requires16ByteAlignment ? 16 : 8));
       if (!mo && size) {
         terminateStateOnExecError(state, "out of memory (varargs)");
@@ -1418,7 +1412,7 @@ void Executor::executeCall(ExecutionState &state,
               0, "While allocating varargs: malloc did not align to 16 bytes.");
         }
 
-        ObjectState *os = bindObjectInState(state, mo, true);
+        ObjectState *os = bindObjectInState(state, mo);
         unsigned offset = 0;
         for (unsigned i = funcArgs; i < callingArgs; i++) {
           // FIXME: This is really specific to the architecture, not the pointer
@@ -2120,7 +2114,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       count = Expr::createZExtToPointerWidth(count);
       size = MulExpr::create(size, count);
     }
-    executeAlloc(state, size, MemKind::alloca, true, ki);
+    executeAlloc(state, size, MemKind::alloca, ki);
     break;
   }
 
@@ -3135,7 +3129,6 @@ ref<Expr> Executor::replaceReadWithSymbolic(ExecutionState &state,
 
 ObjectState *Executor::bindObjectInState(ExecutionState &state,
                                          const MemoryObject *mo,
-                                         bool isLocal,
                                          const Array *array) {
   ObjectState *os = array ? new ObjectState(mo, array) : new ObjectState(mo);
   
@@ -3145,8 +3138,8 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
   // will put multiple copies on this list, but it doesn't really
   // matter because all we use this list for is to unbind the object
   // on function return.
-  if (isLocal)
-    state.stack.back().allocas.push_back(mo);
+  if (mo->isLocal())
+    state.stack.back().allocas.insert(mo);
 
   return os;
 }
@@ -3154,7 +3147,6 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
 void Executor::executeAlloc(ExecutionState &state,
                             ref<Expr> size,
                             MemKind kind,
-                            bool isLocal,
                             KInstruction *target,
                             bool zeroMemory,
                             const ObjectState *reallocFrom) {
@@ -3163,21 +3155,19 @@ void Executor::executeAlloc(ExecutionState &state,
 
     size_t allocationAlignment = getAllocationAlignment(target->inst);
     MemoryObject *mo =
-        memory->allocate(CE->getZExtValue(), kind, isLocal, false,
-                         target->inst, allocationAlignment);
+        memory->allocate(CE->getZExtValue(), kind, target->inst, allocationAlignment);
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
     } else {
       
-      ObjectState *os = bindObjectInState(state, mo, isLocal);
+      ObjectState *os = bindObjectInState(state, mo);
       if (zeroMemory) {
         os->initializeToZero();
       } else {
         os->initializeToRandom();
       }
       bindLocal(target, state, mo->getBaseExpr());
-      state.addLocallyAllocated(mo);
 
       if (reallocFrom) {
         unsigned count = std::min(reallocFrom->size, os->size);
@@ -3231,7 +3221,7 @@ void Executor::executeAlloc(ExecutionState &state,
       assert(success && "FIXME: Unhandled solver failure");
       (void) success;
       if (res) {
-        executeAlloc(*fixedSize.second, tmp, kind, isLocal,
+        executeAlloc(*fixedSize.second, tmp, kind,
                      target, zeroMemory, reallocFrom);
       } else {
         // See if a *really* big value is possible. If so assume
@@ -3260,7 +3250,7 @@ void Executor::executeAlloc(ExecutionState &state,
     }
 
     if (fixedSize.first) // can be zero when fork fails
-      executeAlloc(*fixedSize.first, example, kind, isLocal,
+      executeAlloc(*fixedSize.first, example, kind,
                    target, zeroMemory, reallocFrom);
   }
 }
@@ -3280,11 +3270,8 @@ void Executor::executeFree(ExecutionState &state,
     for (Executor::ExactResolutionList::iterator it = rl.begin(),
            ie = rl.end(); it != ie; ++it) {
       const MemoryObject *mo = it->first.first;
-      if (mo->isLocal) {
-        terminateStateOnError(*it->second, "free of alloca", Free, NULL,
-                              getAddressInfo(*it->second, address));
-      } else if (mo->isGlobal) {
-        terminateStateOnError(*it->second, "free of global", Free, NULL,
+      if (!mo->isHeap()) {
+        terminateStateOnError(*it->second, "invalid free of memory object", Free, NULL,
                               getAddressInfo(*it->second, address));
       } else {
         it->second->addressSpace.unbindObject(mo);
@@ -3477,7 +3464,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
       uniqueName = name + "_" + llvm::utostr(++id);
     }
     const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
-    bindObjectInState(state, mo, false, array);
+    bindObjectInState(state, mo, array);
     state.addSymbolic(mo, array);
 
     std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
@@ -3524,7 +3511,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
       }
     }
   } else {
-    ObjectState *os = bindObjectInState(state, mo, false);
+    ObjectState *os = bindObjectInState(state, mo);
     if (replayPosition >= replayKTest->numObjects) {
       terminateStateOnError(state, "replay count mismatch", User);
     } else {
@@ -3571,9 +3558,7 @@ void Executor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
           memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                           MemKind::param,
-                           /*isLocal=*/false, /*isGlobal=*/true,
-                           /*allocSite=*/first, /*alignment=*/8);
+                           MemKind::param, first, 8);
 
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -3606,7 +3591,7 @@ void Executor::runFunctionAsMain(Function *f,
     bindArgument(kf, i, *state, arguments[i]);
 
   if (argvMO) {
-    ObjectState *argvOS = bindObjectInState(*state, argvMO, false);
+    ObjectState *argvOS = bindObjectInState(*state, argvMO);
 
     for (int i=0; i<argc+1+envc+1+1; i++) {
       if (i==argc || i>=argc+1+envc) {
@@ -3617,12 +3602,10 @@ void Executor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
 
         MemoryObject *arg =
-            memory->allocate(len + 1, MemKind::param,
-                             /*isLocal=*/false, /*isGlobal=*/true,
-                             /*allocSite=*/state->pc->inst, /*alignment=*/8);
+            memory->allocate(len + 1, MemKind::param, state->pc->inst, 8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
-        ObjectState *os = bindObjectInState(*state, arg, false);
+        ObjectState *os = bindObjectInState(*state, arg);
         for (j=0; j<len+1; j++)
           os->write8(j, s[j]);
 

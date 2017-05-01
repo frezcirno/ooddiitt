@@ -127,7 +127,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     iterationCounter(state.iterationCounter),
-    locallyAllocated(state.locallyAllocated),
     markers(state.markers)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
@@ -153,8 +152,7 @@ void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
 
 void ExecutionState::popFrame() {
   StackFrame &sf = stack.back();
-  for (std::vector<const MemoryObject*>::iterator it = sf.allocas.begin(), 
-         ie = sf.allocas.end(); it != ie; ++it)
+  for (auto it = sf.allocas.begin(), ie = sf.allocas.end(); it != ie; ++it)
     addressSpace.unbindObject(*it);
   stack.pop_back();
 }

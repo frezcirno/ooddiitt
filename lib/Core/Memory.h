@@ -29,7 +29,7 @@ class MemoryManager;
 class Solver;
 class ArrayCache;
 
-enum MemKind { invalid, fixed, global, param, alloca, heap, func, lazy };
+enum MemKind { invalid, fixed, global, param, alloca, heap, output, lazy };
 
 class MemoryObject {
   friend class STPBuilder;
@@ -50,10 +50,8 @@ public:
   size_t align;
   mutable std::string name;
 
+
   MemKind kind;
-  bool isLocal;
-  mutable bool isGlobal;
-  bool isFixed;
 
   /// true if created by us.
   bool fake_object;
@@ -86,15 +84,12 @@ public:
       size(0),
       name("hack"),
       kind(MemKind::fixed),
-      isFixed(true),
       parent(NULL),
       allocSite(0) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
-               MemKind _kind,
-               bool _isLocal, bool _isGlobal, bool _isFixed,
-               const llvm::Value *_allocSite,
+               MemKind _kind, const llvm::Value *_allocSite,
                MemoryManager *_parent)
     : refCount(0), 
       id(counter++),
@@ -103,24 +98,27 @@ public:
       align(_align),
       name(""),
       kind(_kind),
-      isLocal(_isLocal),
-      isGlobal(_isGlobal),
-      isFixed(_isFixed),
       fake_object(false),
       isUserSpecified(false),
       parent(_parent), 
       allocSite(_allocSite) {
   }
 
+  bool isValid() const  { return kind != MemKind::invalid; }
+  bool isFixed() const  { return kind == MemKind::fixed; }
+  bool isGlobal() const { return kind == MemKind::global; }
+  bool isParam() const  { return kind == MemKind::param; }
+  bool isAlloca() const { return kind == MemKind::alloca; }
+  bool isHeap() const   { return kind == MemKind::heap; }
+  bool isOutput() const { return kind == MemKind::output; }
+  bool isLazy() const   { return kind == MemKind::lazy; }
+  bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca); }
+
   ~MemoryObject();
 
   /// Get an identifying string for this allocation.
   void getAllocInfo(std::string &result) const;
 
-  void setName(std::string name) const {
-    this->name = name;
-  }
-  
   ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
