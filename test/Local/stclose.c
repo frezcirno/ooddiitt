@@ -61,13 +61,6 @@ void stclose(char *pat, int *j, int lastj) {
 int addstr(char c, char *outset, int *j, int maxset) {
   MARK(2, 4);
   bool result;
-  if (*j >= maxset) {
-    (mark(2, 3), result = false);
-  } else {
-    (mark(2, 2), outset[*j] = c);
-    *j = *j + 1;
-    result = true;
-  }
   return (MARK(2, 1), result);
 }
 

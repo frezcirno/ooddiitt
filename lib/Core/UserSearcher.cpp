@@ -95,8 +95,11 @@ Searcher *klee::constructUserSearcher(Executor &executor) {
 
   // default values
   if (CoreSearch.size() == 0) {
-    CoreSearch.push_back(Searcher::RandomPath);
-    CoreSearch.push_back(Searcher::NURS_CovNew);
+    // RLR TODO: finalize default searcher
+    CoreSearch.push_back(Searcher::DFS);
+
+//    CoreSearch.push_back(Searcher::RandomPath);
+//    CoreSearch.push_back(Searcher::NURS_CovNew);
   }
 
   Searcher *searcher = getNewSearcher(CoreSearch[0], executor);

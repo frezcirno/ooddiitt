@@ -195,10 +195,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   }
   
   ref<Expr> e = os->read(offsetExpr, width);
-  bindLocal(target, state, e);
-  
-  if ((countLoadIndirection(type) > 1) &&
-      (isUnconstrainedPtr(state, e))) {
+  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
 
     Type *subtype = type->getPointerElementType()->getPointerElementType();
@@ -211,6 +208,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
     state.addConstraint(eq);
   }
+  bindLocal(target, state, e);
   return true;
 }
   
