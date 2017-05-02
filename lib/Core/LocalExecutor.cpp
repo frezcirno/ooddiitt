@@ -93,11 +93,46 @@ LocalExecutor::~LocalExecutor() {
     
 }
 
+#ifdef NEVER
+uint64_t LocalExecutor::getAddr(ExecutionState& state, ref<Expr> addr) const {
+
+  uint64_t result = 0;
+
+  if (isa<ConstantExpr>(addr)) {
+    ref<ConstantExpr> caddr = cast<ConstantExpr>(addr);
+    result = caddr->getZExtValue();
+  } else {
+
+    ref<ConstantExpr> cex;
+    if (solver->getValue(state, addr, cex)) {
+      result = cex->getZExtValue();
+    }
+  }
+  return result;
+}
+
+int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
+
+  int64_t result = 0;
+
+  if (isa<ConstantExpr>(value)) {
+    ref<ConstantExpr> cvalue = cast<ConstantExpr>(value);
+    result = cvalue->getAPValue().getSExtValue();
+  } else {
+
+    ref<ConstantExpr> cex;
+    if (solver->getValue(state, value, cex)) {
+      result = cex->getAPValue().getSExtValue();
+    }
+  }
+  return result;
+}
+#endif
+
 bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
 
   bool result = false;
 
-  address = state.constraints.simplifyExpr(address);
   assert(address.get()->getWidth() == Context::get().getPointerWidth());
 
   if (isa<ConstantExpr>(address)) {
@@ -156,7 +191,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   Expr::Width width = getWidthForLLVMType(target->inst->getType());
   unsigned bytes = Expr::getMinBytesForWidth(width);
 
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(address));
+  ref<Expr> offsetExpr = mo->getOffsetExpr(address);
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
@@ -167,27 +202,22 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     }
   } else {
 
-    bool inBounds;
-    bool success;
     solver->setTimeout(coreSolverTimeout);
-
     ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
-    success = solver->mustBeTrue(state, mc, inBounds);
 
-    if (success && !inBounds && AssumeInboundPointers) {
-
-      // not in bounds, so add constraint and try, try, again
-      klee_warning("cannot prove pointer inbounds, adding constraint");
+    if (AssumeInboundPointers) {
+      bool inBounds;
+      if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
+        solver->setTimeout(0);
+        state.pc = state.prevPC;
+        terminateStateEarly(state, "Failed to resolve read memory offset.");
+      }
       addConstraint(state, mc);
-      success = solver->mustBeTrue(state, mc, inBounds);
-    }
 
-    solver->setTimeout(0);
-    if (!success || !inBounds) {
-      state.pc = state.prevPC;
-      terminateStateEarly(state, "Failed to resolve read memory offset.");
-      return false;
+    } else {
+      klee_error("non-optimistic not supported at this time");
     }
+    solver->setTimeout(0);
   }
 
   if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
@@ -237,7 +267,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     mo->name = name;
   }
 
-  ref<Expr> offsetExpr = state.constraints.simplifyExpr(mo->getOffsetExpr(address));
+  ref<Expr> offsetExpr = mo->getOffsetExpr(address);
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
@@ -248,27 +278,23 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       return false;
     }
   } else {
-    bool inBounds;
-    bool success;
+
     solver->setTimeout(coreSolverTimeout);
-
     ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
-    success = solver->mustBeTrue(state, mc, inBounds);
 
-    if (success && !inBounds && AssumeInboundPointers) {
-
-      // not in bounds, so add constraint and try, try, again
-      klee_warning("cannot prove pointer inbounds, adding constraint");
+    if (AssumeInboundPointers) {
+      bool inBounds;
+      if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
+        solver->setTimeout(0);
+        state.pc = state.prevPC;
+        terminateStateEarly(state, "Failed to resolve write memory offset.");
+      }
       addConstraint(state, mc);
-      success = solver->mustBeTrue(state, mc, inBounds);
-    }
 
-    solver->setTimeout(0);
-    if (!success || !inBounds) {
-      state.pc = state.prevPC;
-      terminateStateEarly(state, "Failed to resolve write memory offset.");
-      return false;
+    } else {
+      klee_error("non-optimistic not supported at this time");
     }
+    solver->setTimeout(0);
   }
   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
   wos->write(offsetExpr, value);
@@ -630,14 +656,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // Control flow
 
     case Instruction::Br: {
-      unsigned counterValue = state.iterationCounter[ki];
-      if (counterValue > iterationBound) {
-        // kill state
-        terminateState(state);
-        return;
+      auto &branches = state.branches;
+      if (branches.find(ki) == branches.end()) {
+
+        // not a back-edge
+        branches.insert(ki);
+        Executor::executeInstruction(state, ki);
+      } else {
+        // this state has been here before. just terminate early.
+        terminateStateOnExit(state);
       }
-      state.iterationCounter[ki] = counterValue + 1;
-      Executor::executeInstruction(state, ki);
       break;
     }
       
@@ -749,12 +777,58 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
+    case Instruction::GetElementPtr: {
+      KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
+      ref<Expr> base = eval(ki, 0, state).value;
+
+      ObjectPair op;
+      if (resolveMO(state, base, op)) {
+        const MemoryObject *mo = op.first;
+
+        assert(i->getType()->isPtrOrPtrVectorTy());
+        Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
+        unsigned bytes = Expr::getMinBytesForWidth(width);
+
+        for (std::vector<std::pair<unsigned, uint64_t> >::iterator
+                 it = kgepi->indices.begin(), ie = kgepi->indices.end();
+             it != ie; ++it) {
+          uint64_t elementSize = it->second;
+          ref<Expr> index = eval(ki, it->first, state).value;
+
+          base = AddExpr::create(base,
+                                 MulExpr::create(Expr::createSExtToPointerWidth(index),
+                                                 Expr::createPointer(elementSize)));
+        }
+        if (kgepi->offset)
+          base = AddExpr::create(base,
+                                 Expr::createPointer(kgepi->offset));
+
+        solver->setTimeout(coreSolverTimeout);
+        ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
+
+        if (AssumeInboundPointers) {
+          bool inBounds;
+          if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
+            solver->setTimeout(0);
+            state.pc = state.prevPC;
+            terminateStateEarly(state, "gep optimistic offset failure.");
+          }
+          addConstraint(state, mc);
+        } else {
+          klee_error("non-optimistic not supported at this time");
+        }
+        solver->setTimeout(0);
+      }
+      bindLocal(ki, state, base);
+      break;
+    }
+
     case Instruction::Load: {
       LoadInst *li = cast<LoadInst>(i);
       const Value *v = li->getPointerOperand();
       Type *type = v->getType();
-      
       ref<Expr> base = eval(ki, 0, state).value;
+
       executeReadMemoryOperation(state, base, type, ki);
       break;
     }

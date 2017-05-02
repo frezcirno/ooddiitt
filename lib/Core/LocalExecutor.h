@@ -111,6 +111,12 @@ protected:
 
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
 
+#ifdef NEVER
+  // RLR TODO: remove this after debugging is complete (i.e., never)
+  uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
+  int64_t getValue(ExecutionState& state, ref<Expr> value) const;
+#endif
+
   unsigned lazyAllocationCount;
   unsigned iterationBound;
   const std::set<std::string> &fnInModule;

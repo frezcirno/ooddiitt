@@ -126,8 +126,9 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
     name(state.name),
-    iterationCounter(state.iterationCounter),
-    markers(state.markers)
+    markers(state.markers),
+    branches(state.branches)
+
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
@@ -185,7 +186,6 @@ void ExecutionState::addFnAlias(std::string old_fn, std::string new_fn) {
 void ExecutionState::removeFnAlias(std::string fn) {
   fnAliases.erase(fn);
 }
-
 
 void ExecutionState::addMarker(unsigned fnID, unsigned bbID) {
 

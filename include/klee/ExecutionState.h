@@ -145,8 +145,8 @@ public:
   std::map<std::string, unsigned> callTargetCounter;
   
   std::string name;
-  std::map<const KInstruction *, unsigned> iterationCounter;
   std::vector<unsigned> markers;
+  std::set<const KInstruction *> branches;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
