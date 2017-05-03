@@ -91,15 +91,28 @@ Searcher *getNewSearcher(Searcher::CoreSearchType type, Executor &executor) {
   return searcher;
 }
 
+Searcher *klee::constructUserSearcher(Executor &executor, Searcher::CoreSearchType type) {
+
+  CoreSearch.clear();
+  CoreSearch.push_back(type);
+  return constructUserSearcher(executor);
+}
+
+Searcher *klee::constructUserSearcher(Executor &executor, const std::vector<Searcher::CoreSearchType> &lst) {
+
+  CoreSearch.clear();
+  for (auto itr = lst.begin(), end = lst.end(); itr != end; ++itr) {
+    CoreSearch.push_back(*itr);
+  }
+  return constructUserSearcher(executor);
+}
+
 Searcher *klee::constructUserSearcher(Executor &executor) {
 
   // default values
   if (CoreSearch.size() == 0) {
-    // RLR TODO: finalize default searcher
-    CoreSearch.push_back(Searcher::DFS);
-
-//    CoreSearch.push_back(Searcher::RandomPath);
-//    CoreSearch.push_back(Searcher::NURS_CovNew);
+    CoreSearch.push_back(Searcher::RandomPath);
+    CoreSearch.push_back(Searcher::NURS_CovNew);
   }
 
   Searcher *searcher = getNewSearcher(CoreSearch[0], executor);

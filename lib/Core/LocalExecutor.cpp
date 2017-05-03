@@ -626,7 +626,7 @@ void LocalExecutor::run(ExecutionState &initialState) {
   
   states.insert(&initialState);
   
-  searcher = constructUserSearcher(*this);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
   
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(0, newStates, std::vector<ExecutionState *>());
