@@ -46,6 +46,8 @@ public:
   void markFreed(MemoryObject *mo);
   ArrayCache *getArrayCache() const { return arrayCache; }
 
+  void dump() const;
+
   /*
    * Returns the size used by deterministic allocation in bytes
    */

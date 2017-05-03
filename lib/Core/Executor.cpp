@@ -3351,7 +3351,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     solver->setTimeout(coreSolverTimeout);
 
     // RLR: probably not the best way to do this
-    // RLR TODO: why always do this. most of the time offset should be a const expression of 0. 
+    // RLR TODO: reset to original alg
     ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
     bool success = solver->mustBeTrue(state, mc, inBounds);
 

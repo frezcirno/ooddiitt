@@ -152,12 +152,6 @@ public:
       return ConstantExpr::alloc(0, Expr::Bool);
     }
   }
-
-  ref<Expr> getBoundsCheck(ref<Expr> pointer) const {
-
-    // RLR TODO: fin
-    return Expr::createPointer(0);
-  }
 };
 
 class ObjectState {

@@ -82,7 +82,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const std::set<std::string> &fns) :
 Executor(ctx, opts, ih),
 lazyAllocationCount(16),
-iterationBound(1),
 fnInModule(fns)
 {
     
@@ -480,7 +479,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   run(*state);
   delete processTree;
   processTree = nullptr;
-  
+
   // hack to clear memory objects
   delete memory;
   memory = new MemoryManager(NULL);

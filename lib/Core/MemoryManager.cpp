@@ -173,3 +173,14 @@ void MemoryManager::markFreed(MemoryObject *mo) {
 size_t MemoryManager::getUsedDeterministicSize() {
   return nextFreeSlot - deterministicSpace;
 }
+
+
+void MemoryManager::dump() const {
+
+  llvm::outs() << objects.size() << "\n";
+
+  for (auto itr = objects.begin(), end = objects.end(); itr != end; ++itr ) {
+    auto obj = *itr;
+    llvm::outs() << obj->name << " " << obj->kind << "\n";
+  }
+}

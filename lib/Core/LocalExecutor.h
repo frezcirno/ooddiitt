@@ -118,7 +118,6 @@ protected:
 #endif
 
   unsigned lazyAllocationCount;
-  unsigned iterationBound;
   const std::set<std::string> &fnInModule;
 };
   
