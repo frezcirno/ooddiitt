@@ -100,9 +100,8 @@ public:
 
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
-                                  InterpreterHandler *ih,
-                                  const std::set<std::string> &fns);
-  
+                                  InterpreterHandler *ih);
+
   /// Register the module to be executed.  
   ///
   /// \return The final module after it has been optimized, checks

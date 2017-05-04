@@ -1,10 +1,6 @@
 #include "mark.h"
 /*  -*- Last-Edit:  Mon Dec  7 10:31:51 1992 by Tarak S. Goradia; -*- */
 
-void Caseerror();
-void change();
-void subline();
-
 typedef char bool;
 #define false 0
 #define true 1
@@ -40,26 +36,13 @@ typedef char string[MAXSTR];
 
 void abort(void);
 void exit(int exitlevel);
+char *fgets(char *str, int count, FILE *stream);
+int zop_fprintf1(FILE *stream, const char *format);
+int zop_fprintf2(FILE *stream, const char *format, int n);
+int fputc(int character, FILE *stream);
+int isalnum(int c);
 
-char *fgets(char *str, int count, FILE *stream) {
-  return str;
-}
-
-int zop_fprintf1(FILE *stream, const char *format) {
-  return 0;
-}
-
-int zop_fprintf2(FILE *stream, const char *format, int n) {
-  return 0;
- }
-
-int fputc(int character, FILE *stream) {
-  return 0;  
-}
-
-int isalnum(int c) {
-  return 0;
-}
+void Caseerror(int n);
 
 bool my_getline(char *s, int maxsize) {
   MARK(1, 1);

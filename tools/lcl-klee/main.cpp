@@ -886,9 +886,11 @@ void externalsAndGlobalsCheck(const Module *m) {
       if (unsafe.count(ext)) {
         foundUnsafe.insert(*it);
       } else {
-        klee_warning("undefined reference to %s: %s",
-                     it->second ? "variable" : "function",
-                     ext.c_str());
+
+// RLR TODO: one way to make the noise go away...
+//        klee_warning("undefined reference to %s: %s",
+//                     it->second ? "variable" : "function",
+//                     ext.c_str());
       }
     }
   }
@@ -1237,14 +1239,14 @@ int main(int argc, char **argv, char **envp) {
 
   // build a set of functions in the initially loaded module
   // klee will link additional functions later. we will want to ignore those
-  std::set<std::string> fnInModule;
-  for (auto fnIter = mainModule->begin(), fnEnd = mainModule->end(); fnIter != fnEnd; ++fnIter) {
-    if (!(fnIter->isIntrinsic() || fnIter->isDeclaration())) {
-      std::string name = fnIter->getName();
-      fnInModule.insert(fnIter->getName());
+  std::set<Function *> fnInModule;
+  for (auto itr = mainModule->begin(), end = mainModule->end(); itr != end; ++itr) {
+    Function *fn = itr;
+    if (!(fn->isIntrinsic() || fn->isDeclaration())) {
+      fnInModule.insert(fn);
     }
   }
-  
+
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1337,7 +1339,8 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, fnInModule);
+
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
@@ -1369,8 +1372,8 @@ int main(int argc, char **argv, char **envp) {
   
   // run each function other than main as unconstrained
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
-    Function *fn = mainModule->getFunction(*itr);
-    if ((fn != nullptr) && (fn != mainFn)) {
+    Function *fn = *itr;
+    if (fn != mainFn) {
       theInterpreter->runFunctionUnconstrained(fn);
     }
   }

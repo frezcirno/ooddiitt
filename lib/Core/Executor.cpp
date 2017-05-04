@@ -3349,23 +3349,9 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
     bool inBounds;
     solver->setTimeout(coreSolverTimeout);
-
-    // RLR: probably not the best way to do this
-    // RLR TODO: reset to original alg
-    ref<Expr> mc = mo->getBoundsCheckOffset(offset, bytes);
-    bool success = solver->mustBeTrue(state, mc, inBounds);
-
-#ifdef NEVER
-    if (AssumeInboundPointers && success && !inBounds) {
-
-        // not in bounds, so add constraint and try, try, again
-        klee_warning("cannot prove pointer inbounds, adding constraint");
-        ExprPPrinter::printOne(llvm::errs(), "Expr", mc);
-        addConstraint(state, mc);
-        success = solver->mustBeTrue(state, mc, inBounds);
-    }
-#endif
-    
+    bool success = solver->mustBeTrue(state,
+                                      mo->getBoundsCheckOffset(offset, bytes),
+                                      inBounds);
     solver->setTimeout(0);
     if (!success) {
       state.pc = state.prevPC;
@@ -3393,9 +3379,6 @@ void Executor::executeMemoryOperation(ExecutionState &state,
       }
 
       return;
-    }
-    else {
-      klee_warning("memory error: object access should be in bounds");
     }
   }
 

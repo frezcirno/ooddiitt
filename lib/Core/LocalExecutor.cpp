@@ -78,11 +78,9 @@ AssumeInboundPointers("assume-inbound-pointers",
   
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih,
-                             const std::set<std::string> &fns) :
+                             InterpreterHandler *ih) :
 Executor(ctx, opts, ih),
-lazyAllocationCount(16),
-fnInModule(fns)
+lazyAllocationCount(16)
 {
     
 }
@@ -671,50 +669,55 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Invoke:
     case Instruction::Call: {
       const CallInst *ci = cast<CallInst>(i);
-      Function *f = ci->getCalledFunction();
+      Function *fn = ci->getCalledFunction();
 
-      // if this is not a function in this module, let
-      // the standard executor handle it.
-      std::string fnName = f->getName();
-
-      if (fnInModule.find(fnName) == fnInModule.end()) {
-
-        // if this is a call to mark(), then log the marker to state
-        if ((f->getName().upper() == "MARK") &&
-            (f->arg_size() == 2) &&
-            (f->getReturnType()->isVoidTy())) {
-
-          const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-          const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
-          if ((arg0 != nullptr) && (arg1 != nullptr)) {
-            unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-            unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-            state.addMarker(fnID, bbID);
-          }
-        } else if (fnName == "abort" || fnName == "exit") {
-          terminateStateOnExit(state);
-        } else {
-          Executor::executeInstruction(state, ki);
-        }
+      // if this is a special function, let
+      // the standard executor handle it
+      if (specialFunctionHandler->isSpecial(fn)) {
+        Executor::executeInstruction(state, ki);
         return;
       }
 
+      std::string fnName = fn->getName();
+
+      // if this is a call to mark(), then log the marker to state
+      if (((fnName == "MARK") || (fnName == "mark")) &&
+          (fn->arg_size() == 2) &&
+          (fn->getReturnType()->isVoidTy())) {
+
+        const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
+        const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+        if ((arg0 != nullptr) && (arg1 != nullptr)) {
+          unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+          unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+          state.addMarker(fnID, bbID);
+          return;
+        }
+      }
+
+      // RLR TODO: remove this
+#ifdef NEVER
+      if (fnName == "abort" || fnName == "exit") {
+        terminateStateOnExit(state);
+        return;
+      }
+#endif
+
       // hence, this is a function in this module
-      Type *ty = f->getReturnType();
-      std::string name = f->getName();
-      unsigned counter = state.callTargetCounter[name]++;
+      Type *ty = fn->getReturnType();
+      unsigned counter = state.callTargetCounter[fnName]++;
       if (!ty->isVoidTy()) {
 
         WObjectPair wop;
         if (ty->isPointerTy()) {
 
           Type *subtype = ty->getPointerElementType();
-          allocSymbolic(state, subtype, i, MemKind::output, fullName(name, counter, "return"), wop, 0, lazyAllocationCount);
+          allocSymbolic(state, subtype, i, MemKind::output, fullName(fnName, counter, "return"), wop, 0, lazyAllocationCount);
           bindLocal(ki, state, wop.first->getBaseExpr());
         } else {
 
           // RLR TODO: must this then be a fundamental type?
-          if (!allocSymbolic(state, ty, i, MemKind::output, fullName(name, counter, "return"), wop)) {
+          if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "return"), wop)) {
             klee_error("failed to allocate called function parameter");
           }
           Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
@@ -722,17 +725,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           bindLocal(ki, state, e);
         }
       }
-      
-      // now for the arguments
-      unsigned index = 1;
-      for (auto itr = f->arg_begin(), end=f->arg_end(); itr != end; ++itr, ++index) {
-        const Argument &arg = *itr;
-        Type *type = arg.getType();
 
-        // check the level of ptr indirection (if any)
-        const unsigned count = countLoadIndirection(type);
+      // consider the arguments pushed for the call, rather than
+      // args expected by the target
+      unsigned numArgs = ci->getNumOperands();
+      for (unsigned index = 1; index < numArgs; ++index) {
+        const Value *v = ci->getArgOperand(index);
+        Type *type = v->getType();
 
-        if (count > 0) {
+        const unsigned indirection = countLoadIndirection(type);
+        if (indirection > 1) {
 
           // RLR TODO: check for const (not available to LLVM IR)
           ref<Expr> address = eval(ki, index, state).value;
@@ -747,7 +749,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
 
             WObjectPair wop;
-            if (!allocSymbolic(state, size, &arg, MemKind::output, fullName(name, counter, arg.getName()), wop, orgMO->align)) {
+            if (!allocSymbolic(state, size, v, MemKind::output, fullName(fnName, counter, std::to_string(index - 1)), wop, orgMO->align)) {
               klee_error("failed to allocate ptr argument");
             }
             ObjectState *newOS = wop.second;
@@ -865,9 +867,8 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
-                                      InterpreterHandler *ih,
-                                      const std::set<std::string> &fnInModule) {
-  return new LocalExecutor(ctx, opts, ih, fnInModule);
+                                      InterpreterHandler *ih) {
+  return new LocalExecutor(ctx, opts, ih);
 }
   
   

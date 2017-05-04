@@ -88,6 +88,8 @@ namespace klee {
                 KInstruction *target,
                 std::vector< ref<Expr> > &arguments);
 
+    bool isSpecial(llvm::Function *f);
+
     /* Convenience routines */
 
     std::string readStringAtAddress(ExecutionState &state, ref<Expr> address);

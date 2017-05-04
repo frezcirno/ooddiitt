@@ -237,6 +237,12 @@ bool SpecialFunctionHandler::handle(ExecutionState &state,
   }
 }
 
+bool SpecialFunctionHandler::isSpecial(llvm::Function *f) {
+
+  handlers_ty::iterator it = handlers.find(f);
+  return (it != handlers.end());
+}
+
 /****/
 
 // reads a concrete string from memory
@@ -281,7 +287,7 @@ void SpecialFunctionHandler::handleAbort(ExecutionState &state,
                            KInstruction *target,
                            std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==0 && "invalid number of arguments to abort");
-  executor.terminateStateOnError(state, "abort failure", Executor::Abort);
+  executor.terminateStateOnExit(state);
 }
 
 void SpecialFunctionHandler::handleExit(ExecutionState &state,

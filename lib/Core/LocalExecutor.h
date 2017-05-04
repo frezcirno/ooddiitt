@@ -27,14 +27,12 @@ class LocalExecutor : public Executor {
 public:
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih,
-                             const std::set<std::string> fns)
-    { return new klee::LocalExecutor(ctx, opts, ih, fns); }
+                             InterpreterHandler *ih)
+    { return new klee::LocalExecutor(ctx, opts, ih); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
-                InterpreterHandler *ie,
-                const std::set<std::string> &fns);
+                InterpreterHandler *ie);
 
   virtual ~LocalExecutor();
 
@@ -112,13 +110,12 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
 
 #ifdef NEVER
-  // RLR TODO: remove this after debugging is complete (i.e., never)
+  // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
   int64_t getValue(ExecutionState& state, ref<Expr> value) const;
 #endif
 
   unsigned lazyAllocationCount;
-  const std::set<std::string> &fnInModule;
 };
   
 } // End klee namespace
