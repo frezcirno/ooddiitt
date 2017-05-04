@@ -68,8 +68,7 @@ protected:
                                    const std::string name);
   
   ObjectState *makeSymbolic(ExecutionState &state,
-                            const MemoryObject *mo,
-                            const ObjectState *os = nullptr);
+                            const MemoryObject *mo);
 
   MemoryObject *allocMemory(ExecutionState &state,
                             size_t size,

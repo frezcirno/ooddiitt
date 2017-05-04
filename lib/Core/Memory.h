@@ -179,6 +179,7 @@ private:
   BitArray *writtenMask;
 
 public:
+  bool symboliclyWritten;
   unsigned size;
   bool readOnly;
 

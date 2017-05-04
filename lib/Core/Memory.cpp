@@ -108,6 +108,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     knownSymbolics(0),
     updates(0, 0),
     writtenMask(nullptr),
+    symboliclyWritten(false),
     size(mo->size),
     readOnly(false) {
   mo->refCount++;
@@ -131,6 +132,7 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     knownSymbolics(0),
     updates(array, 0),
     writtenMask(nullptr),
+    symboliclyWritten(false),
     size(mo->size),
     readOnly(false) {
   mo->refCount++;
@@ -148,8 +150,9 @@ ObjectState::ObjectState(const ObjectState &os)
     knownSymbolics(0),
     updates(os.updates),
     writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.size) : nullptr),
+    symboliclyWritten(os.symboliclyWritten),
     size(os.size),
-    readOnly(false) {
+    readOnly(os.readOnly) {
   assert(!os.readOnly && "no need to copy read only object?");
   if (object)
     object->refCount++;
@@ -404,7 +407,12 @@ void ObjectState::setKnownSymbolic(unsigned offset,
 bool ObjectState::cloneWritten(const ObjectState *src) {
 
   // RLR TODO: validate == attributes
-  if (src->size >= size) {
+  if (src->size == size) {
+
+    if (src->symboliclyWritten) {
+      klee_warning("cloning a symbolicly written object");
+    }
+
     if (src->isWritten()) {
       for (unsigned index = 0; index < size; index++) {
         if (src->isByteWritten(index)) {
@@ -487,6 +495,7 @@ void ObjectState::write8(ref<Expr> offset, ref<Expr> value) {
   }
 
   // RLR TODO: how do I mark this as written?
+  symboliclyWritten = true;
   updates.extend(ZExtExpr::create(offset, Expr::Int32), value);
 }
 

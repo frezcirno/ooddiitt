@@ -218,7 +218,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   }
 
   if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
-    os = makeSymbolic(state, mo, os);
+    os = makeSymbolic(state, mo);
   }
   
   ref<Expr> e = os->read(offsetExpr, width);
@@ -298,22 +298,20 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   return true;
 }
 
-ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
-                                         const MemoryObject *mo,
-                                         const ObjectState *os) {
-  
-  const ObjectState *clone = nullptr;
-  
-  if (os == nullptr) {
-    os = state.addressSpace.findObject(mo);
-  }
+ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
+
+  ObjectState *wos = nullptr;
+  const ObjectState *os = state.addressSpace.findObject(mo);
   if (os != nullptr) {
+    wos = state.addressSpace.getWriteable(mo, os);
     if (state.isSymbolic(mo)) {
-      return state.addressSpace.getWriteable(mo, os);
+      return wos;
     }
-    clone = new ObjectState(*os);
   }
-  
+
+  // hold the old object state in memory
+  ObjectHolder oh(wos);
+
   // Create a new object state for the memory object (instead of a copy).
   // Find a unique name for this array.  First try the original name,
   // or if that fails try adding a unique identifier.
@@ -324,11 +322,10 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state,
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
   
-  ObjectState *wos = bindObjectInState(state, mo, array);
+  wos = bindObjectInState(state, mo, array);
   state.addSymbolic(mo, array);
-  if (clone != nullptr) {
-    wos->cloneWritten(clone);
-    delete clone;
+  if (!oh.isNull()) {
+    wos->cloneWritten(oh.getOS());
   }
   return wos;
 }
