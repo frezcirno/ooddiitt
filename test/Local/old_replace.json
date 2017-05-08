@@ -1,0 +1,4739 @@
+{
+  "extCallees": [
+    "MARK",
+    "mark",
+    "abort",
+    "zop_fprintf1",
+    "isalnum",
+    "fgets",
+    "fputc",
+    "exit",
+    "zop_fprintf2"
+  ],
+  "functions": {
+    "Caseerror": {
+      "extCallees": [
+        "MARK",
+        "exit",
+        "zop_fprintf2"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 523,
+        "lineEnd": 527
+      },
+      "m2m_paths": [
+        [
+          21001,
+          21002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "n",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    },
+    "addstr": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 59,
+        "lineEnd": 71
+      },
+      "m2m_paths": [
+        [
+          2001,
+          2002,
+          2004
+        ],
+        [
+          2001,
+          2003,
+          2004
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "c",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "outset",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "j",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "maxset",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "5",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "5",
+          "4",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "amatch": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 392,
+        "lineEnd": 431
+      },
+      "m2m_paths": [
+        [
+          16001,
+          16002
+        ],
+        [
+          16002,
+          16003,
+          16020
+        ],
+        [
+          16002,
+          16020
+        ],
+        [
+          16002,
+          16003,
+          16004,
+          16005
+        ],
+        [
+          16005,
+          16006
+        ],
+        [
+          16006,
+          16007,
+          16010,
+          16011
+        ],
+        [
+          16011,
+          16012,
+          16016,
+          16002
+        ],
+        [
+          16011,
+          16016,
+          16002
+        ],
+        [
+          16006,
+          16010,
+          16011
+        ],
+        [
+          16002,
+          16003,
+          16004,
+          16017
+        ],
+        [
+          16017,
+          16018,
+          16002
+        ],
+        [
+          16017,
+          16019
+        ],
+        [
+          16019,
+          16002
+        ],
+        [
+          16011,
+          16012,
+          16013
+        ],
+        [
+          16013,
+          16014,
+          16011
+        ],
+        [
+          16013,
+          16015,
+          16011
+        ],
+        [
+          16006,
+          16007,
+          16008
+        ],
+        [
+          16008,
+          16009,
+          16006
+        ],
+        [
+          16008,
+          16006
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "lin",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "offset",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "j",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "24",
+          "23",
+          "22",
+          "21",
+          "1",
+          "0"
+        ],
+        [
+          "24",
+          "23",
+          "22",
+          "1",
+          "0"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "17",
+          "13",
+          "12",
+          "11",
+          "6",
+          "2",
+          "22"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "17",
+          "13",
+          "12",
+          "6",
+          "2",
+          "22"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "13",
+          "12",
+          "11",
+          "6",
+          "2",
+          "22"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "13",
+          "12",
+          "6",
+          "2",
+          "22"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "5",
+          "4",
+          "2",
+          "22"
+        ],
+        [
+          "22",
+          "21",
+          "20",
+          "5",
+          "3",
+          "2",
+          "22"
+        ],
+        [
+          "12",
+          "11",
+          "10",
+          "9",
+          "7",
+          "12"
+        ],
+        [
+          "12",
+          "11",
+          "10",
+          "8",
+          "7",
+          "12"
+        ],
+        [
+          "12",
+          "11",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "17",
+          "13",
+          "12"
+        ],
+        [
+          "12",
+          "11",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "13",
+          "12"
+        ],
+        [
+          "12",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "17",
+          "13",
+          "12"
+        ],
+        [
+          "12",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18",
+          "13",
+          "12"
+        ],
+        [
+          "18",
+          "17",
+          "16",
+          "15",
+          "14",
+          "18"
+        ],
+        [
+          "18",
+          "17",
+          "16",
+          "14",
+          "18"
+        ],
+        [
+          "18",
+          "17",
+          "13",
+          "12",
+          "11",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18"
+        ],
+        [
+          "18",
+          "17",
+          "13",
+          "12",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18"
+        ],
+        [
+          "18",
+          "13",
+          "12",
+          "11",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18"
+        ],
+        [
+          "18",
+          "13",
+          "12",
+          "6",
+          "2",
+          "22",
+          "21",
+          "20",
+          "19",
+          "18"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "change": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 475,
+        "lineEnd": 486
+      },
+      "m2m_paths": [
+        [
+          19001,
+          19002
+        ],
+        [
+          19002,
+          19004
+        ],
+        [
+          19002,
+          19003
+        ],
+        [
+          19003,
+          19002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "sub",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "6",
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "4",
+          "3",
+          "2",
+          "4"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    },
+    "dodash": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "isalnum"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 93,
+        "lineEnd": 121
+      },
+      "m2m_paths": [
+        [
+          4001,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4021
+        ],
+        [
+          4002,
+          4021
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4005
+        ],
+        [
+          4005,
+          4020,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4007
+        ],
+        [
+          4007,
+          4020,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4010
+        ],
+        [
+          4010,
+          4020,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4009,
+          4010
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4009,
+          4011,
+          4012,
+          4013,
+          4014,
+          4015
+        ],
+        [
+          4015,
+          4018,
+          4020,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4009,
+          4011,
+          4012,
+          4013,
+          4019
+        ],
+        [
+          4019,
+          4020,
+          4002
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4009,
+          4011,
+          4012,
+          4019
+        ],
+        [
+          4002,
+          4003,
+          4004,
+          4006,
+          4008,
+          4009,
+          4011,
+          4019
+        ],
+        [
+          4015,
+          4016
+        ],
+        [
+          4016,
+          4017,
+          4015
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "delim",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "src",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "i",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "dest",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "j",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "maxset",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "23",
+          "22",
+          "21",
+          "20",
+          "1",
+          "0"
+        ],
+        [
+          "23",
+          "22",
+          "21",
+          "1",
+          "0"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "18",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "16",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "13",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "13",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "12",
+          "11",
+          "10",
+          "9",
+          "8",
+          "5",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "12",
+          "11",
+          "10",
+          "4",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "12",
+          "11",
+          "4",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "12",
+          "4",
+          "3",
+          "2",
+          "21"
+        ],
+        [
+          "8",
+          "7",
+          "6",
+          "8"
+        ],
+        [
+          "8",
+          "5",
+          "3",
+          "2",
+          "21",
+          "20",
+          "19",
+          "17",
+          "15",
+          "14",
+          "12",
+          "11",
+          "10",
+          "9",
+          "8"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    },
+    "esc": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 73,
+        "lineEnd": 91
+      },
+      "m2m_paths": [
+        [
+          3001,
+          3002,
+          3010
+        ],
+        [
+          3001,
+          3003,
+          3004,
+          3010
+        ],
+        [
+          3001,
+          3003,
+          3005,
+          3006,
+          3010
+        ],
+        [
+          3001,
+          3003,
+          3005,
+          3007,
+          3008,
+          3010
+        ],
+        [
+          3001,
+          3003,
+          3005,
+          3007,
+          3009,
+          3010
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "s",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "i",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "11",
+          "10",
+          "9",
+          "1",
+          "0"
+        ],
+        [
+          "11",
+          "10",
+          "8",
+          "7",
+          "1",
+          "0"
+        ],
+        [
+          "11",
+          "10",
+          "8",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "11",
+          "10",
+          "8",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "11",
+          "10",
+          "8",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "char",
+        "typeClass": "Builtin"
+      }
+    },
+    "getccl": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 123,
+        "lineEnd": 142
+      },
+      "m2m_paths": [
+        [
+          5001,
+          5002
+        ],
+        [
+          5002,
+          5004,
+          5005
+        ],
+        [
+          5001,
+          5003
+        ],
+        [
+          5003,
+          5004,
+          5005
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "arg",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "i",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "j",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "5",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "5",
+          "4",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "getpat": {
+      "extCallees": [
+        "MARK"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 234,
+        "lineEnd": 243
+      },
+      "m2m_paths": [
+        [
+          10001,
+          10002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "arg",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "getsub": {
+      "extCallees": [
+        "MARK"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 277,
+        "lineEnd": 286
+      },
+      "m2m_paths": [
+        [
+          12001,
+          12002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "arg",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "sub",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "in_pat_set": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 168,
+        "lineEnd": 177
+      },
+      "m2m_paths": [
+        [
+          8001,
+          8008,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8003,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8003,
+          8004,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8003,
+          8004,
+          8005,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8003,
+          8004,
+          8005,
+          8006,
+          8009
+        ],
+        [
+          8001,
+          8008,
+          8002,
+          8003,
+          8004,
+          8005,
+          8006,
+          8007,
+          8009
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "c",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "9",
+          "8",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "6",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "3",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "in_set_2": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 159,
+        "lineEnd": 166
+      },
+      "m2m_paths": [
+        [
+          7001,
+          7004,
+          7005
+        ],
+        [
+          7001,
+          7004,
+          7002,
+          7005
+        ],
+        [
+          7001,
+          7004,
+          7002,
+          7003,
+          7005
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "c",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "5",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "5",
+          "4",
+          "3",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "locate": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 288,
+        "lineEnd": 304
+      },
+      "m2m_paths": [
+        [
+          13001,
+          13002
+        ],
+        [
+          13002,
+          13006
+        ],
+        [
+          13002,
+          13003,
+          13004,
+          13002
+        ],
+        [
+          13002,
+          13003,
+          13005,
+          13002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "c",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "offset",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "8",
+          "7",
+          "6",
+          "1",
+          "0"
+        ],
+        [
+          "6",
+          "5",
+          "4",
+          "2",
+          "6"
+        ],
+        [
+          "6",
+          "5",
+          "3",
+          "2",
+          "6"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "main": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "zop_fprintf1",
+        "exit"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 488,
+        "lineEnd": 521
+      },
+      "m2m_paths": [
+        [
+          20001,
+          20002,
+          20011
+        ],
+        [
+          20001,
+          20003
+        ],
+        [
+          20003,
+          20004,
+          20012
+        ],
+        [
+          20003,
+          20005,
+          20006
+        ],
+        [
+          20006,
+          20007,
+          20013
+        ],
+        [
+          20006,
+          20009,
+          20010
+        ],
+        [
+          20003,
+          20005,
+          20008,
+          20009,
+          20010
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "argc",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "argv",
+          "type": {
+            "number": 0,
+            "text": "char **",
+            "type": {
+              "number": 0,
+              "type": {
+                "text": "char",
+                "typeClass": "Builtin"
+              },
+              "typeClass": "Pointer"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "10",
+          "9",
+          "8",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "7",
+          "6",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "7",
+          "5",
+          "4",
+          "3",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "7",
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "7",
+          "5",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "makepat": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 179,
+        "lineEnd": 232
+      },
+      "m2m_paths": [
+        [
+          9001,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9023
+        ],
+        [
+          9023,
+          9025,
+          9029
+        ],
+        [
+          9023,
+          9024,
+          9025,
+          9029
+        ],
+        [
+          9023,
+          9024,
+          9026,
+          9027,
+          9029
+        ],
+        [
+          9023,
+          9024,
+          9026,
+          9028,
+          9029
+        ],
+        [
+          9002,
+          9003,
+          9023
+        ],
+        [
+          9002,
+          9023
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9006
+        ],
+        [
+          9006,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9006,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9009
+        ],
+        [
+          9009,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9009,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9011,
+          9012
+        ],
+        [
+          9012,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9012,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9011,
+          9013,
+          9014
+        ],
+        [
+          9014,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9014,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9011,
+          9013,
+          9015,
+          9016,
+          9017
+        ],
+        [
+          9017,
+          9018,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9017,
+          9018,
+          9021,
+          9002
+        ],
+        [
+          9017,
+          9019
+        ],
+        [
+          9019,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9019,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9011,
+          9013,
+          9015,
+          9016,
+          9020
+        ],
+        [
+          9020,
+          9021,
+          9022,
+          9002
+        ],
+        [
+          9020,
+          9021,
+          9002
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9011,
+          9013,
+          9015,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9013,
+          9014
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9013,
+          9015,
+          9016,
+          9017
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9013,
+          9015,
+          9016,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9008,
+          9010,
+          9013,
+          9015,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9011,
+          9012
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9011,
+          9013,
+          9014
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9011,
+          9013,
+          9015,
+          9016,
+          9017
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9011,
+          9013,
+          9015,
+          9016,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9011,
+          9013,
+          9015,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9013,
+          9014
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9013,
+          9015,
+          9016,
+          9017
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9013,
+          9015,
+          9016,
+          9020
+        ],
+        [
+          9002,
+          9003,
+          9004,
+          9005,
+          9007,
+          9010,
+          9013,
+          9015,
+          9020
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "arg",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "start",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "delim",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "27",
+          "7",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "27",
+          "7",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "27",
+          "7",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "27",
+          "7",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "7",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "7",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "7",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "28",
+          "7",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "7",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "7",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "7",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "31",
+          "30",
+          "29",
+          "7",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "25",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "25",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "22",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "22",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "19",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "19",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "17",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "17",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "20",
+          "18",
+          "16",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "17",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "17",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "23",
+          "21",
+          "18",
+          "16",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "19",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "19",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "17",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "17",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "20",
+          "18",
+          "16",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "17",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "17",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "13",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "14",
+          "12",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "15",
+          "11",
+          "10",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "11",
+          "10",
+          "9",
+          "8",
+          "29"
+        ],
+        [
+          "29",
+          "28",
+          "27",
+          "26",
+          "24",
+          "21",
+          "18",
+          "16",
+          "11",
+          "10",
+          "8",
+          "29"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "makesub": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 245,
+        "lineEnd": 275
+      },
+      "m2m_paths": [
+        [
+          11001,
+          11002
+        ],
+        [
+          11002,
+          11003,
+          11008,
+          11009,
+          11013
+        ],
+        [
+          11002,
+          11003,
+          11008,
+          11010
+        ],
+        [
+          11010,
+          11011,
+          11013
+        ],
+        [
+          11010,
+          11012,
+          11013
+        ],
+        [
+          11002,
+          11008,
+          11009,
+          11013
+        ],
+        [
+          11002,
+          11008,
+          11010
+        ],
+        [
+          11002,
+          11003,
+          11004,
+          11005
+        ],
+        [
+          11005,
+          11007,
+          11002
+        ],
+        [
+          11002,
+          11003,
+          11004,
+          11006
+        ],
+        [
+          11006,
+          11007,
+          11002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "arg",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "from",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "delim",
+          "type": {
+            "text": "char",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "sub",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "15",
+          "14",
+          "13",
+          "12",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "15",
+          "14",
+          "13",
+          "12",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "15",
+          "14",
+          "13",
+          "12",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "15",
+          "14",
+          "13",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "15",
+          "14",
+          "13",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "15",
+          "14",
+          "13",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "11",
+          "10",
+          "8",
+          "7",
+          "13"
+        ],
+        [
+          "13",
+          "12",
+          "11",
+          "9",
+          "8",
+          "7",
+          "13"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "my_getline": {
+      "extCallees": [
+        "MARK",
+        "fgets"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 48,
+        "lineEnd": 57
+      },
+      "m2m_paths": [
+        [
+          1001,
+          1002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "s",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "maxsize",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "omatch": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "abort",
+        "zop_fprintf1"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 306,
+        "lineEnd": 358
+      },
+      "m2m_paths": [
+        [
+          14001,
+          14002,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14001,
+          14002,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14001,
+          14003
+        ],
+        [
+          14003,
+          14004,
+          14024
+        ],
+        [
+          14003,
+          14019,
+          14015,
+          14016
+        ],
+        [
+          14016,
+          14017,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14016,
+          14017,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14016,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14016,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14015,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14015,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14013
+        ],
+        [
+          14013,
+          14014,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14013,
+          14014,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14013,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14013,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14011,
+          14012,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14011,
+          14012,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14011,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14011,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14009,
+          14010,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14009,
+          14010,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14009,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14009,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14007,
+          14008,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14007,
+          14008,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14007,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14007,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14005,
+          14006,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14005,
+          14006,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14005,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14005,
+          14020,
+          14022,
+          14023
+        ],
+        [
+          14003,
+          14019,
+          14018
+        ],
+        [
+          14018,
+          14020,
+          14021,
+          14023
+        ],
+        [
+          14018,
+          14020,
+          14022,
+          14023
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "lin",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "i",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "j",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "30",
+          "29",
+          "28",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "28",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "26",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "9",
+          "8",
+          "7",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "9",
+          "8",
+          "7",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "9",
+          "7",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "9",
+          "7",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "7",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "10",
+          "7",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "13",
+          "12",
+          "11",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "13",
+          "12",
+          "11",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "13",
+          "11",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "13",
+          "11",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "16",
+          "15",
+          "14",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "16",
+          "15",
+          "14",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "16",
+          "14",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "16",
+          "14",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "19",
+          "18",
+          "17",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "19",
+          "18",
+          "17",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "19",
+          "17",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "19",
+          "17",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "22",
+          "21",
+          "20",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "22",
+          "21",
+          "20",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "22",
+          "20",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "22",
+          "20",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "25",
+          "24",
+          "23",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "25",
+          "24",
+          "23",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "25",
+          "23",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "25",
+          "23",
+          "4",
+          "2",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "6",
+          "4",
+          "3",
+          "1",
+          "0"
+        ],
+        [
+          "30",
+          "29",
+          "27",
+          "5",
+          "6",
+          "4",
+          "2",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "patsize": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "abort",
+        "zop_fprintf1"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 360,
+        "lineEnd": 390
+      },
+      "m2m_paths": [
+        [
+          15001,
+          15002,
+          15010
+        ],
+        [
+          15001,
+          15008,
+          15006,
+          15009
+        ],
+        [
+          15001,
+          15008,
+          15005,
+          15009
+        ],
+        [
+          15001,
+          15008,
+          15004,
+          15009
+        ],
+        [
+          15001,
+          15008,
+          15003,
+          15009
+        ],
+        [
+          15001,
+          15008,
+          15007
+        ],
+        [
+          15007,
+          15009
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "n",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "13",
+          "12",
+          "11",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "8",
+          "9",
+          "7",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "9",
+          "7",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "7",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "10",
+          "1",
+          "0"
+        ],
+        [
+          "13",
+          "12",
+          "2",
+          "3",
+          "1",
+          "0"
+        ]
+      ],
+      "type": {
+        "text": "int",
+        "typeClass": "Builtin"
+      }
+    },
+    "putsub": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "fputc"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 433,
+        "lineEnd": 450
+      },
+      "m2m_paths": [
+        [
+          17001,
+          17002
+        ],
+        [
+          17002,
+          17010
+        ],
+        [
+          17002,
+          17003,
+          17004,
+          17005
+        ],
+        [
+          17005,
+          17009,
+          17002
+        ],
+        [
+          17002,
+          17003,
+          17008,
+          17009,
+          17002
+        ],
+        [
+          17005,
+          17006,
+          17007,
+          17005
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "lin",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "s1",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "s2",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "sub",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "12",
+          "11",
+          "10",
+          "1",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "7",
+          "3",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "4",
+          "3",
+          "2",
+          "10"
+        ],
+        [
+          "7",
+          "6",
+          "5",
+          "7"
+        ],
+        [
+          "7",
+          "3",
+          "2",
+          "10",
+          "9",
+          "8",
+          "7"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    },
+    "stclose": {
+      "extCallees": [
+        "MARK",
+        "mark"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 144,
+        "lineEnd": 157
+      },
+      "m2m_paths": [
+        [
+          6001,
+          6002
+        ],
+        [
+          6002,
+          6005,
+          6006
+        ],
+        [
+          6002,
+          6003
+        ],
+        [
+          6003,
+          6004,
+          6002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "j",
+          "type": {
+            "number": 0,
+            "text": "int *",
+            "type": {
+              "text": "int",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "lastj",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "6",
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "4",
+          "3",
+          "2",
+          "4"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    },
+    "subline": {
+      "extCallees": [
+        "MARK",
+        "mark",
+        "fputc"
+      ],
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "old_replace_marked.c",
+        "lineBegin": 452,
+        "lineEnd": 473
+      },
+      "m2m_paths": [
+        [
+          18001,
+          18002
+        ],
+        [
+          18002,
+          18010
+        ],
+        [
+          18002,
+          18003
+        ],
+        [
+          18003,
+          18004,
+          18005
+        ],
+        [
+          18005,
+          18006,
+          18008,
+          18002
+        ],
+        [
+          18005,
+          18006,
+          18007,
+          18008,
+          18002
+        ],
+        [
+          18005,
+          18006,
+          18007,
+          18009,
+          18002
+        ],
+        [
+          18003,
+          18004,
+          18006,
+          18008,
+          18002
+        ],
+        [
+          18003,
+          18004,
+          18006,
+          18007,
+          18008,
+          18002
+        ],
+        [
+          18003,
+          18004,
+          18006,
+          18007,
+          18009,
+          18002
+        ],
+        [
+          18003,
+          18006,
+          18008,
+          18002
+        ],
+        [
+          18003,
+          18006,
+          18007,
+          18008,
+          18002
+        ],
+        [
+          18003,
+          18006,
+          18007,
+          18009,
+          18002
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "lin",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "pat",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "isInput": true,
+          "isOutput": true,
+          "name": "sub",
+          "type": {
+            "number": 0,
+            "text": "char *",
+            "type": {
+              "text": "char",
+              "typeClass": "Builtin"
+            },
+            "typeClass": "Pointer"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "12",
+          "11",
+          "10",
+          "1",
+          "0"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "7",
+          "6",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "7",
+          "6",
+          "5",
+          "3",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "6",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "6",
+          "5",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "8",
+          "6",
+          "5",
+          "3",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "6",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "6",
+          "5",
+          "4",
+          "2",
+          "10"
+        ],
+        [
+          "10",
+          "9",
+          "6",
+          "5",
+          "3",
+          "2",
+          "10"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    }
+  },
+  "globals": {}
+}
