@@ -127,7 +127,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     markers(state.markers),
-    branches(state.branches)
+    branchesTaken(state.branchesTaken)
 
 {
   for (unsigned int i=0; i<symbolics.size(); i++)

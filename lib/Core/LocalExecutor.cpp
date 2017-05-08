@@ -650,19 +650,47 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // Control flow
 
     case Instruction::Br: {
-      auto &branches = state.branches;
-      if (branches.find(ki) == branches.end()) {
-
-        // not a back-edge
-        branches.insert(ki);
-        Executor::executeInstruction(state, ki);
+      BranchInst *bi = cast<BranchInst>(i);
+      if (bi->isUnconditional()) {
+        transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
       } else {
-        // this state has been here before. just terminate early.
-        terminateStateOnExit(state);
+        // FIXME: Find a way that we don't have this hidden dependency.
+        assert(bi->getCondition() == bi->getOperand(0) &&
+            "Wrong operand index!");
+        ref<Expr> cond = eval(ki, 0, state).value;
+        Executor::StatePair branches = fork(state, cond, false);
+
+        // NOTE: There is a hidden dependency here, markBranchVisited
+        // requires that we still be in the context of the branch
+        // instruction (it reuses its statistic id). Should be cleaned
+        // up with convenient instruction specific data.
+        if (statsTracker && state.stack.back().kf->trackCoverage)
+          statsTracker->markBranchVisited(branches.first, branches.second);
+
+        std::pair<KInstruction *, unsigned> thisBranch;
+        thisBranch.first = ki;
+        if (branches.first) {
+          thisBranch.second = 0;
+          transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
+          if (branches.first->branchesTaken.find(thisBranch) != branches.first->branchesTaken.end()) {
+            // already taken this branch once
+            terminateStateOnExit(*branches.first);
+          }
+          branches.first->branchesTaken.insert(thisBranch);
+        }
+        if (branches.second) {
+          thisBranch.second = 1;
+          transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
+          if (branches.second->branchesTaken.find(thisBranch) != branches.second->branchesTaken.end()) {
+            // already taken this branch once
+            terminateStateOnExit(*branches.second);
+          }
+          branches.second->branchesTaken.insert(thisBranch);
+        }
       }
       break;
     }
-      
+
     case Instruction::Invoke:
     case Instruction::Call: {
       const CallInst *ci = cast<CallInst>(i);
@@ -691,14 +719,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           return;
         }
       }
-
-      // RLR TODO: remove this
-#ifdef NEVER
-      if (fnName == "abort" || fnName == "exit") {
-        terminateStateOnExit(state);
-        return;
-      }
-#endif
 
       // hence, this is a function in this module
       Type *ty = fn->getReturnType();

@@ -146,7 +146,7 @@ public:
   
   std::string name;
   std::vector<unsigned> markers;
-  std::set<const KInstruction *> branches;
+  std::set< std::pair<KInstruction *,unsigned> > branchesTaken;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
