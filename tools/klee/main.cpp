@@ -253,7 +253,7 @@ public:
 
   void setInterpreter(Interpreter *i);
 
-  void processTestCase(const ExecutionState  &state,
+  void processTestCase(ExecutionState  &state,
                        const char *errorMessage,
                        const char *errorSuffix);
 
@@ -417,7 +417,7 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
 
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void KleeHandler::processTestCase(const ExecutionState &state,
+void KleeHandler::processTestCase(ExecutionState &state,
                                   const char *errorMessage,
                                   const char *errorSuffix) {
   if (errorMessage && ExitOnError) {
