@@ -20,7 +20,7 @@
 
 namespace klee {
 
-typedef struct std::pair<MemoryObject *, ObjectState *> WObjectPair;
+typedef std::pair<MemoryObject*,ObjectState*> WObjectPair;
 
 class LocalExecutor : public Executor {
 
@@ -45,6 +45,8 @@ public:
                                  char **argv,
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
+
+  virtual void setExpectedPaths(const m2m_paths_t &paths);
 
 protected:
   virtual void run(ExecutionState &initialState);
@@ -108,6 +110,8 @@ protected:
 
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
 
+  virtual void updateStates(ExecutionState *current);
+
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
@@ -115,6 +119,8 @@ protected:
 #endif
 
   unsigned lazyAllocationCount;
+  unsigned iterationCount;
+  m2m_paths_t m2m_pathsRemaining;
 };
   
 } // End klee namespace

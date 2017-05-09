@@ -33,6 +33,7 @@ class PTreeNode;
 struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
+typedef std::pair< KInstruction*, unsigned> BranchPair;
 
 struct StackFrame {
   KInstIterator caller;
@@ -146,7 +147,8 @@ public:
   
   std::string name;
   std::vector<unsigned> markers;
-  std::set< std::pair<KInstruction *,unsigned> > branchesTaken;
+  std::map<BranchPair,unsigned> branchesTaken;
+  bool isProcessed;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

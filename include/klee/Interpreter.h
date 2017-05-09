@@ -15,6 +15,8 @@
 #include <set>
 
 struct KTest;
+typedef std::vector<unsigned> m2m_path_t;
+typedef std::set<m2m_path_t> m2m_paths_t;
 
 namespace llvm {
 class Function;
@@ -41,7 +43,7 @@ public:
 
   virtual void incPathsExplored() = 0;
 
-  virtual void processTestCase(const ExecutionState &state,
+  virtual void processTestCase(ExecutionState &state,
                                const char *err, 
                                const char *suffix) = 0;
 };
@@ -106,9 +108,8 @@ public:
   ///
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
-  virtual const llvm::Module * 
-  setModule(llvm::Module *module, 
-            const ModuleOptions &opts) = 0;
+  virtual const llvm::Module *setModule(llvm::Module *module,
+                                        const ModuleOptions &opts) = 0;
 
   // supply a tree stream writer which the interpreter will use
   // to record the concrete path (as a stream of '0' and '1' bytes).
@@ -130,6 +131,8 @@ public:
   // supply a set of symbolic bindings that will be used as "seeds"
   // for the search. use null to reset.
   virtual void useSeeds(const std::vector<struct KTest *> *seeds) = 0;
+
+  virtual void setExpectedPaths(const m2m_paths_t &paths) {};
 
   virtual void runFunctionAsMain(llvm::Function *f,
                                  int argc,

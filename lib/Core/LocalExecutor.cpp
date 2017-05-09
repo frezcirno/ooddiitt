@@ -66,6 +66,7 @@
 #endif
 
 #include <iostream>
+#include <algorithm>
 
 using namespace llvm;
 
@@ -80,7 +81,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
 Executor(ctx, opts, ih),
-lazyAllocationCount(16)
+lazyAllocationCount(16),
+iterationCount(1)
 {
     
 }
@@ -427,6 +429,11 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
+void LocalExecutor::setExpectedPaths(const m2m_paths_t &paths) {
+
+  m2m_pathsRemaining = paths;
+}
+
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   KFunction *kf = kmodule->functionMap[f];
@@ -436,7 +443,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
   
   std::string name = f->getName();
-  outs() << "locally executing " << name << " ... ";
+  unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
   
   if (pathWriter)
@@ -486,12 +493,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
+
+  outs() << name << ": ";
+  outs() << num_m2m_paths - m2m_pathsRemaining.size() << " of ";
+  outs() << num_m2m_paths << " covered\n";
+  outs().flush();
   
   if (statsTracker)
     statsTracker->done();
-  
-  outs() << "done\n";
-  outs().flush();
 }
   
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -510,7 +519,6 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   assert(kf && "main not found in this compilation unit");
 
   std::string name = f->getName();
-  outs() << "locally executing " << name << " ... ";
 
   // In order to make uclibc happy and be closer to what the system is
   // doing we lay out the environments at the end of the argv array
@@ -606,9 +614,6 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   if (statsTracker)
     statsTracker->done();
-
-  outs() << "done\n";
-  outs().flush();
 }
   
 void LocalExecutor::run(ExecutionState &initialState) {
@@ -640,9 +645,31 @@ void LocalExecutor::run(ExecutionState &initialState) {
   
   delete searcher;
   searcher = 0;
-  
+
   doDumpStates();
 }
+
+void LocalExecutor::updateStates(ExecutionState *current) {
+
+  for (auto itr1 = removedStates.begin(), end1 = removedStates.end(); itr1 != end1; ++itr1) {
+    ExecutionState *state = *itr1;
+    if (state->isProcessed) {
+      const m2m_path_t &trace = state->markers;
+      for (auto itr2 = m2m_pathsRemaining.begin(), end2 = m2m_pathsRemaining.end(); itr2 != end2;) {
+        const m2m_path_t &path = *itr2;
+        auto found = std::search(begin(trace), end(trace), begin(path), end(path));
+        if (found == end(trace)) {
+          ++itr2;
+        } else {
+          itr2 = m2m_pathsRemaining.erase(itr2);
+        }
+      }
+    }
+  }
+
+  Executor::updateStates(current);
+}
+
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
@@ -667,25 +694,23 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (statsTracker && state.stack.back().kf->trackCoverage)
           statsTracker->markBranchVisited(branches.first, branches.second);
 
-        std::pair<KInstruction *, unsigned> thisBranch;
+        BranchPair thisBranch;
         thisBranch.first = ki;
         if (branches.first) {
           thisBranch.second = 0;
           transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
-          if (branches.first->branchesTaken.find(thisBranch) != branches.first->branchesTaken.end()) {
-            // already taken this branch once
-            terminateStateOnExit(*branches.first);
+          if (++branches.first->branchesTaken[thisBranch] > iterationCount) {
+            // this branch exceeds threshold
+            terminateState(*branches.first);
           }
-          branches.first->branchesTaken.insert(thisBranch);
         }
         if (branches.second) {
           thisBranch.second = 1;
           transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
-          if (branches.second->branchesTaken.find(thisBranch) != branches.second->branchesTaken.end()) {
-            // already taken this branch once
-            terminateStateOnExit(*branches.second);
+          if (++branches.second->branchesTaken[thisBranch] > iterationCount) {
+            // this branch exceeds threshold
+            terminateState(*branches.second);
           }
-          branches.second->branchesTaken.insert(thisBranch);
         }
       }
       break;

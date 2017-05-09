@@ -69,7 +69,12 @@ namespace {
                cl::desc("Consider the function with the given name as the entrypoint"),
                cl::init("main"));
 
-  cl::opt<std::string>
+cl::opt<std::string>
+    ProgInfo("prog-info",
+               cl::desc("Json formated program info"),
+               cl::init(""));
+
+cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
 
   cl::opt<std::string>
@@ -207,7 +212,7 @@ public:
 
   void setInterpreter(Interpreter *i);
 
-  void processTestCase(const ExecutionState  &state,
+  void processTestCase(ExecutionState  &state,
                        const char *errorMessage,
                        const char *errorSuffix);
 
@@ -369,7 +374,7 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
 
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void KleeHandler::processTestCase(const ExecutionState &state,
+void KleeHandler::processTestCase(ExecutionState &state,
                                   const char *errorMessage,
                                   const char *errorSuffix) {
   if (errorMessage && ExitOnError) {
@@ -446,6 +451,7 @@ void KleeHandler::processTestCase(const ExecutionState &state,
 
         writer->write(root, &kout);
         kout << std::endl;
+        state.isProcessed = true;
       } else {
         klee_warning("unable to write output test case to %s, losing it", outFilename.c_str());
       }
@@ -1113,6 +1119,23 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
+static void constructExpectedPaths(Function *fn, const Json::Value &progInfo, m2m_paths_t &paths) {
+
+  paths.clear();
+  if (progInfo != Json::nullValue) {
+    const Json::Value &pathInfo = progInfo["functions"][fn->getName()]["m2m_paths"];
+    if (pathInfo != Json::nullValue) {
+      for (auto itr1 = pathInfo.begin(), end1 = pathInfo.end(); itr1 != end1; ++itr1) {
+        m2m_path_t p;
+        for (auto itr2 = itr1->begin(), end2 = itr1->end(); itr2 != end2; ++itr2) {
+          p.push_back(itr2->asUInt());
+        }
+        paths.insert(p);
+      }
+    }
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
@@ -1247,6 +1270,15 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
+  Json::Value progInfo = Json::nullValue;
+  if (!ProgInfo.empty()) {
+    std::ifstream kin;
+    kin.open(ProgInfo);
+    if (kin.is_open()) {
+      kin >> progInfo;
+    }
+  }
+
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1367,6 +1399,9 @@ int main(int argc, char **argv, char **envp) {
   }
 
   if (mainFn != nullptr) {
+    m2m_paths_t m2m_paths;
+    constructExpectedPaths(mainFn, progInfo, m2m_paths);
+    theInterpreter->setExpectedPaths(m2m_paths);
     theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   }
   
@@ -1374,6 +1409,9 @@ int main(int argc, char **argv, char **envp) {
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
     Function *fn = *itr;
     if (fn != mainFn) {
+      m2m_paths_t m2m_paths;
+      constructExpectedPaths(fn, progInfo, m2m_paths);
+      theInterpreter->setExpectedPaths(m2m_paths);
       theInterpreter->runFunctionUnconstrained(fn);
     }
   }

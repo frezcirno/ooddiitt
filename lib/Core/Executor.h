@@ -234,7 +234,7 @@ protected:
   void initializeGlobals(ExecutionState &state);
 
   void stepInstruction(ExecutionState &state);
-  void updateStates(ExecutionState *current);
+  virtual void updateStates(ExecutionState *current);
   void transferToBasicBlock(llvm::BasicBlock *dst, 
 			    llvm::BasicBlock *src,
 			    ExecutionState &state);
@@ -399,7 +399,7 @@ protected:
   // call error handler and terminate state, for execution errors
   // (things that should not be possible, like illegal instruction or
   // unlowered instrinsic, or are unsupported, like inline assembly)
-  void terminateStateOnExecError(ExecutionState &state, 
+  void terminateStateOnExecError(ExecutionState &state,
                                  const llvm::Twine &message,
                                  const llvm::Twine &info="") {
     terminateStateOnError(state, message, Exec, NULL, info);

@@ -80,7 +80,8 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     coveredNew(false),
     forkDisabled(false),
     ptreeNode(0),
-    name(name) {
+    name(name),
+    isProcessed(false) {
   pushFrame(0, kf);
 }
 
@@ -127,8 +128,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     markers(state.markers),
-    branchesTaken(state.branchesTaken)
-
+    branchesTaken(state.branchesTaken),
+    isProcessed(state.isProcessed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
