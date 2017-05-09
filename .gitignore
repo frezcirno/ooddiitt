@@ -31,3 +31,10 @@ autom4te.cache/
 
 # coati db files
 *.srctrldb
+
+# JetBrains IDE stuff
+.idea/workspace.xml
+.idea/tasks.xml
+
+# jupyter notebooks
+**/.ipynb_checkpoints
