@@ -1,15 +1,14 @@
 
 /*  -*- Last-Edit:  Mon Dec  7 10:31:51 1992 by Tarak S. Goradia; -*- */
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include "mark.h"
 
 
 typedef char bool;
 #define false 0
 #define true 1
-#define NULL ((void*)0)
-#define FILE void
-#define stdout NULL
-#define stdin  NULL
 
 #define MAXSTR 100
 #define MAXPAT MAXSTR
@@ -34,14 +33,6 @@ typedef char bool;
 #define CLOSIZE 1
 
 typedef char string[MAXSTR];
-
-void abort(void);
-void exit(int exitlevel);
-char *fgets(char *str, int count, FILE *stream);
-int zop_fprintf1(FILE *stream, const char *format);
-int zop_fprintf2(FILE *stream, const char *format, int n);
-int fputc(int character, FILE *stream);
-int isalnum(int c);
 
 void Caseerror(int n);
 
@@ -313,7 +304,7 @@ int omatch(char *lin, int *i, char *pat, int j) {
     (mark(14, 2), result = false);
   else {
     if (!(mark(14, 3), in_pat_set(pat[j]))) {
-      (void)(mark(14, 4), zop_fprintf1(stdout, "in omatch: can't happen\n"));
+      (void)(mark(14, 4), fprintf(stdout, "in omatch: can't happen\n"));
       MARK(14, 24);
       abort();
     } else {
@@ -361,7 +352,7 @@ int patsize(char *pat, int n) {
   MARK(15, 1);
   int size;
   if (!in_pat_set(pat[n])) {
-    (void)(mark(15, 2), zop_fprintf1(stdout, "in patsize: can't happen\n"));
+    (void)(mark(15, 2), fprintf(stdout, "in patsize: can't happen\n"));
     MARK(15, 10);
     abort();
   } else
@@ -492,14 +483,14 @@ int main(int argc, char *argv[]) {
   int result;
 
   if (argc < 2) {
-    (void)(mark(20, 2), zop_fprintf1(stdout, "usage: change from [to]\n"));
+    (void)(mark(20, 2), fprintf(stdout, "usage: change from [to]\n"));
     MARK(20, 11);
     exit(1);
   };
 
   result = (mark(20, 3), getpat(argv[1], pat));
   if (!result) {
-    (void)(mark(20, 4), zop_fprintf1(stdout, "change: illegal \"from\" pattern\n"));
+    (void)(mark(20, 4), fprintf(stdout, "change: illegal \"from\" pattern\n"));
     MARK(20, 12);
     exit(2);
   }
@@ -507,7 +498,7 @@ int main(int argc, char *argv[]) {
   if ((mark(20, 5), argc >= 3)) {
     result = (mark(20, 6), getsub(argv[2], sub));
     if (!result) {
-      (void)(mark(20, 7), zop_fprintf1(stdout, "change: illegal \"to\" string\n"));
+      (void)(mark(20, 7), fprintf(stdout, "change: illegal \"to\" string\n"));
       MARK(20, 13);
       exit(3);
     }
@@ -521,7 +512,7 @@ int main(int argc, char *argv[]) {
 }
 
 void Caseerror(int n) {
-  (void)(MARK(21, 1), zop_fprintf2(stdout, "Missing case limb: line %d\n", n));
+  (void)(MARK(21, 1), fprintf(stdout, "Missing case limb: line %d\n", n));
   MARK(21, 2);
   exit(4);
 }
