@@ -25,6 +25,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
+
 #include <iomanip>
 #include <sstream>
 #include <cassert>
@@ -55,6 +56,7 @@ StackFrame::StackFrame(const StackFrame &s)
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
+    edgesTaken(s.edgesTaken),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -128,7 +130,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     markers(state.markers),
-    branchesTaken(state.branchesTaken),
     isProcessed(state.isProcessed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)

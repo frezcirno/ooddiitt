@@ -17,6 +17,7 @@
 // FIXME: We do not want to be exposing these? :(
 #include "../../lib/Core/AddressSpace.h"
 #include "klee/Internal/Module/KInstIterator.h"
+#include "llvm/IR/BasicBlock.h"
 
 #include <map>
 #include <set>
@@ -33,7 +34,7 @@ class PTreeNode;
 struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
-typedef std::pair< KInstruction*, unsigned> BranchPair;
+typedef std::pair<llvm::BasicBlock*,llvm::BasicBlock*> CFGEdge;
 
 struct StackFrame {
   KInstIterator caller;
@@ -43,6 +44,8 @@ struct StackFrame {
   std::set<const MemoryObject *> allocas;
   size_t numRegs;
   Cell *locals;
+
+  std::set<CFGEdge> edgesTaken;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -61,6 +64,11 @@ struct StackFrame {
   StackFrame(KInstIterator caller, KFunction *kf);
   StackFrame(const StackFrame &s);
   ~StackFrame();
+
+  void addEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2)  { CFGEdge edge(bb1, bb2);
+                                                                edgesTaken.insert(edge); }
+  bool containsEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2) { CFGEdge edge(bb1, bb2);
+                                                                    return edgesTaken.find(edge) != edgesTaken.end(); }
 };
 
 /// @brief ExecutionState representing a path under exploration
@@ -147,7 +155,6 @@ public:
   
   std::string name;
   std::vector<unsigned> markers;
-  std::map<BranchPair,unsigned> branchesTaken;
   bool isProcessed;
 
   std::string getFnAlias(std::string fn);

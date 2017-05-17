@@ -2871,7 +2871,8 @@ void Executor::terminateState(ExecutionState &state) {
     removedStates.push_back(&state);
   } else {
 
-    assert(state.isProcessed && "deleted processed state");
+    // RLR TODO: not sure why this assertion was here...
+    //assert(state.isProcessed && "deleted processed state");
     // never reached searcher, just delete immediately
     std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it3 =
       seedMap.find(&state);

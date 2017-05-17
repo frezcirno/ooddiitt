@@ -58,6 +58,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
+#include "llvm/Analysis/CFG.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -71,7 +72,9 @@
 using namespace llvm;
 
 namespace klee {
-  
+
+#define countof(a) (sizeof(a)/ sizeof(a[0]))
+
 cl::opt<bool>
 AssumeInboundPointers("assume-inbound-pointers",
                       cl::init(true),
@@ -81,15 +84,20 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
 Executor(ctx, opts, ih),
-lazyAllocationCount(16),
-iterationCount(1)
+lazyAllocationCount(16)
 {
-    
+
+  static const char *fns[] = { "constructUsher", "deleteUsher", "getBit", "setBit", "clearBit", "guide" };
+  for (unsigned index = 0; index < countof(fns); ++index) {
+    usherFunctions.insert(fns[index]);
+  }
 }
 
 LocalExecutor::~LocalExecutor() {
-    
-    
+
+  for (auto itr = domTrees.begin(), end = domTrees.end(); itr != end; ++itr) {
+    delete itr->second;
+  }
 }
 
 #ifdef NEVER
@@ -441,8 +449,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     // not in this compilation unit
     return;
   }
+
+  // RLR TODO: cleanup test code
+  //if (f->getName() != "drv") return;
   
   std::string name = f->getName();
+
+  llvm::FindFunctionBackedges(*f, backedges);
+
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
   
@@ -495,8 +509,11 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   globalAddresses.clear();
 
   outs() << name << ": ";
-  outs() << num_m2m_paths - m2m_pathsRemaining.size() << " of ";
-  outs() << num_m2m_paths << " covered\n";
+  if (num_m2m_paths > 0) {
+    outs() << num_m2m_paths - m2m_pathsRemaining.size() << " of ";
+    outs() << num_m2m_paths << " covered";
+  }
+  outs() << "\n";
   outs().flush();
   
   if (statsTracker)
@@ -678,8 +695,29 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
+
+      // need a dominator tree for this function
+      llvm::BasicBlock *src = i->getParent();
+      Function *fn = src->getParent();
+      DominatorTree *dom = domTrees[fn];
+      if (dom == nullptr) {
+        dom = new DominatorTree();
+        dom->runOnFunction(*fn);
+        domTrees[fn] = dom;
+      }
+
       if (bi->isUnconditional()) {
-        transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
+        BasicBlock *dst = bi->getSuccessor(0);
+        transferToBasicBlock(dst, src, state);
+
+        if (dom->dominates(src, dst)) {
+          StackFrame &sf = state.stack.back();
+          if (sf.containsEdge(src, dst)) {
+            klee_warning("unconditional backedge traversal");
+          } else {
+            sf.addEdge(src, dst);
+          }
+        }
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
         assert(bi->getCondition() == bi->getOperand(0) &&
@@ -694,22 +732,25 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (statsTracker && state.stack.back().kf->trackCoverage)
           statsTracker->markBranchVisited(branches.first, branches.second);
 
-        BranchPair thisBranch;
-        thisBranch.first = ki;
-        if (branches.first) {
-          thisBranch.second = 0;
-          transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
-          if (++branches.first->branchesTaken[thisBranch] > iterationCount) {
-            // this branch exceeds threshold
-            terminateState(*branches.first);
-          }
-        }
-        if (branches.second) {
-          thisBranch.second = 1;
-          transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
-          if (++branches.second->branchesTaken[thisBranch] > iterationCount) {
-            // this branch exceeds threshold
-            terminateState(*branches.second);
+        ExecutionState *states[2] = { branches.first, branches.second };
+        for (unsigned index = 0; index < countof(states); ++index) {
+          if (states[index] != nullptr) {
+            BasicBlock *dst = bi->getSuccessor(index);
+            transferToBasicBlock(dst, src, *states[index]);
+
+            auto test = std::find(backedges.begin(), backedges.end(), std::pair<const BasicBlock*,const BasicBlock*>(src, dst));
+            if (dom->dominates(dst, src)) {
+
+              assert(test != backedges.end());
+              StackFrame &sf = states[index]->stack.back();
+              if (sf.containsEdge(src, dst)) {
+                terminateState(*states[index]);
+              } else {
+                sf.addEdge(src, dst);
+              }
+            } else {
+              assert(test == backedges.end());
+            }
           }
         }
       }
@@ -720,15 +761,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
       const CallInst *ci = cast<CallInst>(i);
       Function *fn = ci->getCalledFunction();
+      std::string fnName = fn->getName();
 
       // if this is a special function, let
       // the standard executor handle it
-      if (specialFunctionHandler->isSpecial(fn)) {
+      if (specialFunctionHandler->isSpecial(fn) || isUsherFunction(fnName)) {
         Executor::executeInstruction(state, ki);
         return;
       }
 
-      std::string fnName = fn->getName();
+      // RLR TODO: delete test code
+      //if ((fnName == "foo") && (state.stack.size() == 1)) {
+      //  Executor::executeInstruction(state, ki);
+      //  return;
+      //}
 
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&

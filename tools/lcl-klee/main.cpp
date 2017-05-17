@@ -70,9 +70,9 @@ namespace {
                cl::init("main"));
 
 cl::opt<std::string>
-    ProgInfo("prog-info",
-               cl::desc("Json formated program info"),
-               cl::init(""));
+    Info("info",
+         cl::desc("Json formated program info"),
+         cl::init(""));
 
 cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
@@ -1119,11 +1119,16 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
-static void constructExpectedPaths(Function *fn, const Json::Value &progInfo, m2m_paths_t &paths) {
+static void constructExpectedPaths(Function *fn, const Json::Value &info, m2m_paths_t &paths) {
 
   paths.clear();
-  if (progInfo != Json::nullValue) {
-    const Json::Value &pathInfo = progInfo["functions"][fn->getName()]["m2m_paths"];
+
+  // RLR TODO: reset from test code
+  std::string name = fn->getName();
+  //std::string name = "amatch";
+
+  if (info != Json::nullValue) {
+    const Json::Value &pathInfo = info["functions"][name]["m2m_paths"];
     if (pathInfo != Json::nullValue) {
       for (auto itr1 = pathInfo.begin(), end1 = pathInfo.end(); itr1 != end1; ++itr1) {
         m2m_path_t p;
@@ -1270,12 +1275,15 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  Json::Value progInfo = Json::nullValue;
-  if (!ProgInfo.empty()) {
+  Json::Value info = Json::nullValue;
+  if (Info.empty()) {
+//    klee_error("json formatted info file is required");
+  }
+  else {
     std::ifstream kin;
-    kin.open(ProgInfo);
+    kin.open(Info);
     if (kin.is_open()) {
-      kin >> progInfo;
+      kin >> info;
     }
   }
 
@@ -1399,10 +1407,12 @@ int main(int argc, char **argv, char **envp) {
   }
 
   if (mainFn != nullptr) {
-    m2m_paths_t m2m_paths;
-    constructExpectedPaths(mainFn, progInfo, m2m_paths);
-    theInterpreter->setExpectedPaths(m2m_paths);
-    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+
+    // RLR TODO: restore this
+    //m2m_paths_t m2m_paths;
+    //constructExpectedPaths(mainFn, info, m2m_paths);
+    //theInterpreter->setExpectedPaths(m2m_paths);
+    //theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   }
   
   // run each function other than main as unconstrained
@@ -1410,7 +1420,8 @@ int main(int argc, char **argv, char **envp) {
     Function *fn = *itr;
     if (fn != mainFn) {
       m2m_paths_t m2m_paths;
-      constructExpectedPaths(fn, progInfo, m2m_paths);
+
+      constructExpectedPaths(fn, info, m2m_paths);
       theInterpreter->setExpectedPaths(m2m_paths);
       theInterpreter->runFunctionUnconstrained(fn);
     }

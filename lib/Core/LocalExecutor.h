@@ -17,6 +17,7 @@
 
 #include "Executor.h"
 #include "Memory.h"
+#include "llvm/Analysis/Dominators.h"
 
 namespace klee {
 
@@ -112,6 +113,8 @@ protected:
 
   virtual void updateStates(ExecutionState *current);
 
+  bool isUsherFunction(std::string name)   { return usherFunctions.find(name) != usherFunctions.end(); }
+
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
@@ -119,8 +122,10 @@ protected:
 #endif
 
   unsigned lazyAllocationCount;
-  unsigned iterationCount;
   m2m_paths_t m2m_pathsRemaining;
+  std::set<std::string> usherFunctions;
+  std::map<llvm::Function*,llvm::DominatorTree*> domTrees;
+  llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
 };
   
 } // End klee namespace

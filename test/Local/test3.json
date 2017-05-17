@@ -1,0 +1,86 @@
+{
+  "extCallees": [
+    "bar",
+    "mark",
+    "MARK"
+  ],
+  "functions": {
+    "foo": {
+      "entry": 5,
+      "exit": [
+        1
+      ],
+      "extCallees": [
+        "bar",
+        "mark",
+        "MARK"
+      ],
+      "fnID": 0,
+      "fragments": [],
+      "globalRefs": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "test3.c",
+        "lineBegin": 5,
+        "lineEnd": 14
+      },
+      "m2m_paths": [
+        [
+          1005,
+          1001
+        ],
+        [
+          1005,
+          1004
+        ],
+        [
+          1004,
+          1001
+        ],
+        [
+          1004,
+          1003,
+          1004
+        ]
+      ],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "flag",
+          "type": {
+            "text": "int",
+            "typeClass": "Builtin"
+          }
+        }
+      ],
+      "raw_paths": [
+        [
+          "6",
+          "5",
+          "1",
+          "0"
+        ],
+        [
+          "6",
+          "5",
+          "4",
+          "1",
+          "0"
+        ],
+        [
+          "4",
+          "3",
+          "2",
+          "4"
+        ]
+      ],
+      "type": {
+        "text": "void",
+        "typeClass": "Builtin"
+      }
+    }
+  },
+  "globals": {}
+}
