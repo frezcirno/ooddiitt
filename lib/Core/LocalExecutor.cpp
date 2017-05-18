@@ -695,9 +695,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
+      BasicBlock *src = i->getParent();
 
+      // RLR TODO: clean this up
+#ifdef NEVER
       // need a dominator tree for this function
-      llvm::BasicBlock *src = i->getParent();
       Function *fn = src->getParent();
       DominatorTree *dom = domTrees[fn];
       if (dom == nullptr) {
@@ -705,15 +707,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         dom->runOnFunction(*fn);
         domTrees[fn] = dom;
       }
+#endif
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
         transferToBasicBlock(dst, src, state);
 
-        if (dom->dominates(src, dst)) {
+        if (isBackedge(src, dst)) {
           StackFrame &sf = state.stack.back();
           if (sf.containsEdge(src, dst)) {
-            klee_warning("unconditional backedge traversal");
+            terminateState(state);
           } else {
             sf.addEdge(src, dst);
           }
@@ -738,18 +741,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(dst, src, *states[index]);
 
-            auto test = std::find(backedges.begin(), backedges.end(), std::pair<const BasicBlock*,const BasicBlock*>(src, dst));
-            if (dom->dominates(dst, src)) {
+            if (isBackedge(src, dst)) {
 
-              assert(test != backedges.end());
               StackFrame &sf = states[index]->stack.back();
               if (sf.containsEdge(src, dst)) {
                 terminateState(*states[index]);
               } else {
                 sf.addEdge(src, dst);
               }
-            } else {
-              assert(test == backedges.end());
             }
           }
         }

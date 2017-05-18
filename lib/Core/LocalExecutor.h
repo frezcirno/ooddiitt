@@ -115,6 +115,11 @@ protected:
 
   bool isUsherFunction(std::string name)   { return usherFunctions.find(name) != usherFunctions.end(); }
 
+  bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst)   {
+    auto itr = std::find(backedges.begin(), backedges.end(), std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>(src, dst));
+    return itr != backedges.end();
+  }
+
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
