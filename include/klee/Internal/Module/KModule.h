@@ -17,6 +17,8 @@
 #include <set>
 #include <vector>
 
+#include "llvm/ADT/SmallVector.h"
+
 namespace llvm {
   class BasicBlock;
   class Constant;
@@ -54,15 +56,35 @@ namespace klee {
     /// "coverable" for statistics and search heuristics.
     bool trackCoverage;
 
+    // values collected from marked ir
+    unsigned fnID;
+    std::map<const llvm::BasicBlock*,unsigned> basicBlockMarker;
+    llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
+    std::set<unsigned> majorMarkers;
+
   private:
     KFunction(const KFunction&);
     KFunction &operator=(const KFunction&);
+
+    void recurseAllSimplePaths(const llvm::BasicBlock *bb,
+                               std::set<const llvm::BasicBlock*> &visited,
+                               std::vector<const llvm::BasicBlock*> &path,
+                               m2m_paths_t &paths);
+
+    void recurseAllSimpleCycles(const llvm::BasicBlock *bb,
+                                const llvm::BasicBlock *dst,
+                                std::set<const llvm::BasicBlock*> &visited,
+                                std::vector<const llvm::BasicBlock*> &path,
+                                m2m_paths_t &paths);
 
   public:
     explicit KFunction(llvm::Function*, KModule *);
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
+    bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
+    void addAllSimplePaths(m2m_paths_t &paths);
+    void addAllSimpleCycles(const llvm::BasicBlock *bb, m2m_paths_t &paths);
   };
 
 
@@ -126,6 +148,8 @@ namespace klee {
     // FIXME: ihandler should not be here
     void prepare(const Interpreter::ModuleOptions &opts, 
                  InterpreterHandler *ihandler);
+
+    void prepareMarkers();
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);

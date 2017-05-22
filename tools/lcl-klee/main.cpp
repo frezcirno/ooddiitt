@@ -1122,10 +1122,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 static void constructExpectedPaths(Function *fn, const Json::Value &info, m2m_paths_t &paths) {
 
   paths.clear();
-
-  // RLR TODO: reset from test code
   std::string name = fn->getName();
-  //std::string name = "amatch";
 
   if (info != Json::nullValue) {
     const Json::Value &pathInfo = info["functions"][name]["m2m_paths"];
@@ -1414,7 +1411,7 @@ int main(int argc, char **argv, char **envp) {
     //theInterpreter->setExpectedPaths(m2m_paths);
     //theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   }
-  
+
   // run each function other than main as unconstrained
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
     Function *fn = *itr;

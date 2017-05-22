@@ -51,14 +51,12 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
-#include "llvm/Analysis/CFG.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -67,7 +65,6 @@
 #endif
 
 #include <iostream>
-#include <algorithm>
 
 using namespace llvm;
 
@@ -76,21 +73,21 @@ namespace klee {
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
 cl::opt<bool>
-AssumeInboundPointers("assume-inbound-pointers",
-                      cl::init(true),
-                      cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
-  
+        AssumeInboundPointers("assume-inbound-pointers",
+                              cl::init(true),
+                              cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
+
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
-Executor(ctx, opts, ih),
-lazyAllocationCount(16)
-{
+        Executor(ctx, opts, ih),
+        lazyAllocationCount(16) {
 
-  static const char *fns[] = { "constructUsher", "deleteUsher", "getBit", "setBit", "clearBit", "guide" };
+  static const char *fns[] = {"constructUsher", "deleteUsher", "getBit", "setBit", "clearBit", "guide"};
   for (unsigned index = 0; index < countof(fns); ++index) {
     usherFunctions.insert(fns[index]);
   }
+  symbolicLocalVars = false;
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -171,9 +168,9 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     solver->setTimeout(0);
     ref<Expr> low = range.first;
     ref<Expr> high = range.second;
-    
+
     if (low->getKind() == Expr::Kind::Constant && high->getKind() == Expr::Kind::Constant) {
-      
+
       uint64_t clow = cast<ConstantExpr>(low)->getZExtValue();
       uint64_t chigh = cast<ConstantExpr>(high)->getZExtValue();
       result = ((clow == 0) && (chigh == UINT64_MAX));
@@ -181,7 +178,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
   }
   return result;
 }
-  
+
 bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
                                                ref<Expr> address,
                                                const Type *type,
@@ -229,8 +226,10 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
   if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
     os = makeSymbolic(state, mo);
+  } else if (!state.isSymbolic(mo) && symbolicLocalVars && !mo->name.empty()) {
+    os = makeSymbolic(state, mo);
   }
-  
+
   ref<Expr> e = os->read(offsetExpr, width);
   if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
     // this is an unconstrained ptr-ptr. allocate something behind the pointer
@@ -239,7 +238,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy,
                                       '*' + mo->name, 0, lazyAllocationCount);
     bindObjectInState(state, newMO);
-    
+
     // and constrain this pointer to point at it.
     ref<ConstantExpr> ptr = newMO->getBaseExpr();
     ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
@@ -248,7 +247,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   bindLocal(target, state, e);
   return true;
 }
-  
+
 bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
                                                 ref<Expr> address,
                                                 ref<Expr> value,
@@ -331,7 +330,7 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
     uniqueName = mo->name + "_" + llvm::utostr(++id);
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
-  
+
   wos = bindObjectInState(state, mo, array);
   state.addSymbolic(mo, array);
   if (!oh.isNull()) {
@@ -350,8 +349,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
-  }
-  else {
+  } else {
     mo->name = name;
   }
   return mo;
@@ -419,19 +417,22 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
   const Module *result = Executor::setModule(module, opts);
+  kmodule->prepareMarkers();
 
-  for (std::vector<KFunction*>::iterator it = kmodule->functions.begin(),
-           ie = kmodule->functions.end(); it != ie; ++it) {
+  for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
+               ie = kmodule->functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
-    for (unsigned i=0; i<kf->numInstructions; ++i)
+
+    for (unsigned i = 0; i < kf->numInstructions; ++i) {
       bindInstructionConstants(kf->instructions[i]);
+    }
   }
   return result;
 }
 
 void LocalExecutor::bindModuleConstants() {
   kmodule->constantTable = new Cell[kmodule->constants.size()];
-  for (unsigned i=0; i<kmodule->constants.size(); ++i) {
+  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
     Cell &c = kmodule->constantTable[i];
     c.value = evalConstant(kmodule->constants[i]);
   }
@@ -450,30 +451,28 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     return;
   }
 
-  // RLR TODO: cleanup test code
-  //if (f->getName() != "drv") return;
-  
   std::string name = f->getName();
-
-  llvm::FindFunctionBackedges(*f, backedges);
+  outs().flush();
+  outs() << name;
+  outs().flush();
 
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
-  
+
   if (pathWriter)
     state->pathOS = pathWriter->open();
   if (symPathWriter)
     state->symPathOS = symPathWriter->open();
-  
+
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
-  
+
   initializeGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
   for (Function::const_arg_iterator ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai, ++index) {
-    
+
     const Argument &arg = *ai;
     std::string argName = arg.getName();
     Type *argType = arg.getType();
@@ -489,7 +488,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     ref<Expr> e = wop.second->read(0, width);
     bindArgument(kf, index, *state, e);
   }
-  
+
   processTree = new PTree(state);
   state->ptreeNode = processTree->root;
   run(*state);
@@ -508,18 +507,133 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   globalObjects.clear();
   globalAddresses.clear();
 
-  outs() << name << ": ";
   if (num_m2m_paths > 0) {
-    outs() << num_m2m_paths - m2m_pathsRemaining.size() << " of ";
-    outs() << num_m2m_paths << " covered";
+    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
+    outs() << " of " << num_m2m_paths << " covered";
+
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+
+      bool first = true;
+      outs() << "\n  [";
+      for (const unsigned &marker : path) {
+        if (!first) outs() << ", ";
+        first = false;
+        outs() << marker;
+      }
+      outs() << "]";
+    }
   }
   outs() << "\n";
   outs().flush();
-  
+
   if (statsTracker)
     statsTracker->done();
 }
-  
+
+#ifdef NEVER
+
+void LocalExecutor::runFragmentUnconstrained(Function *f) {
+
+  KFunction *kf = kmodule->functionMap[f];
+  if (kf == nullptr) {
+    // not in this compilation unit
+    return;
+  }
+
+  std::string name = f->getName();
+  outs().flush();
+  outs() << name;
+  outs().flush();
+
+  llvm::FindFunctionBackedges(*f, backedges);
+
+  m2m_path_t path1 = { 18007, 18006, 18004, 18010 };
+  m2m_path_t path2 = { 18009, 18006, 18005, 18004, 18010 };
+  m2m_path_t path3 = { 18009, 18008, 18006, 18004, 18010 };
+  m2m_path_t path4 = { 18009, 18008, 18006, 18005, 18003, 18010 };
+  m2m_pathsRemaining.clear();
+  m2m_pathsRemaining.insert(path1);
+  m2m_pathsRemaining.insert(path2);
+  m2m_pathsRemaining.insert(path3);
+  m2m_pathsRemaining.insert(path4);
+
+  unsigned num_m2m_paths = m2m_pathsRemaining.size();
+  symbolicLocalVars = true;
+  ExecutionState *state = new ExecutionState(kf, name);
+
+  if (pathWriter)
+    state->pathOS = pathWriter->open();
+  if (symPathWriter)
+    state->symPathOS = symPathWriter->open();
+
+  if (statsTracker)
+    statsTracker->framePushed(*state, 0);
+
+  initializeGlobals(*state);
+
+  // create parameter values
+  unsigned index = 0;
+  for (Function::const_arg_iterator ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai, ++index) {
+
+    const Argument &arg = *ai;
+    std::string argName = arg.getName();
+    Type *argType = arg.getType();
+    size_t argAlign = arg.getParamAlignment();
+
+    // RLR TODO: affirm that this is a fundamental type?
+    WObjectPair wop;
+    if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
+      klee_error("failed to allocate function parameter");
+    }
+
+    Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
+    ref<Expr> e = wop.second->read(0, width);
+    bindArgument(kf, index, *state, e);
+  }
+
+  processTree = new PTree(state);
+  state->ptreeNode = processTree->root;
+  run(*state);
+  delete processTree;
+  processTree = nullptr;
+
+  // hack to clear memory objects
+  delete memory;
+  memory = new MemoryManager(NULL);
+
+  // clean up global objects
+  // RLR TODO: no real need to destroy the globals
+  // and set them up again on next function. just need to
+  // re-initialize
+  legalFunctions.clear();
+  globalObjects.clear();
+  globalAddresses.clear();
+
+  if (num_m2m_paths > 0) {
+    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
+    outs() << " of " << num_m2m_paths << " covered";
+
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+
+      bool first = true;
+      outs() << "\n  [";
+      for (const unsigned &marker : path) {
+        if (!first) outs() << ", ";
+        first = false;
+        outs() << marker;
+      }
+      outs() << "]";
+    }
+  }
+  outs() << "\n";
+  outs().flush();
+
+  if (statsTracker)
+    statsTracker->done();
+}
+
+#endif
+
 void LocalExecutor::runFunctionAsMain(Function *f,
                                       int argc,
                                       char **argv,
@@ -696,6 +810,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
+      const KFunction *kf = state.stack.back().kf;
 
       // RLR TODO: clean this up
 #ifdef NEVER
@@ -713,7 +828,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         BasicBlock *dst = bi->getSuccessor(0);
         transferToBasicBlock(dst, src, state);
 
-        if (isBackedge(src, dst)) {
+        if (kf->isBackedge(src, dst)) {
           StackFrame &sf = state.stack.back();
           if (sf.containsEdge(src, dst)) {
             terminateState(state);
@@ -741,7 +856,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(dst, src, *states[index]);
 
-            if (isBackedge(src, dst)) {
+            if (kf->isBackedge(src, dst)) {
 
               StackFrame &sf = states[index]->stack.back();
               if (sf.containsEdge(src, dst)) {
@@ -769,12 +884,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
-      // RLR TODO: delete test code
-      //if ((fnName == "foo") && (state.stack.size() == 1)) {
-      //  Executor::executeInstruction(state, ki);
-      //  return;
-      //}
-
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&
           (fn->arg_size() == 2) &&
@@ -785,6 +894,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if ((arg0 != nullptr) && (arg1 != nullptr)) {
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+
           state.addMarker(fnID, bbID);
           return;
         }
@@ -853,8 +963,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
-      unsigned elementSize = (unsigned)
-      kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
+
+      unsigned elementSize = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
       ref<Expr> size = Expr::createPointer(elementSize);
       if (ai->isArrayAllocation()) {
         ref<Expr> count = eval(ki, 0, state).value;

@@ -3163,7 +3163,8 @@ void Executor::executeAlloc(ExecutionState &state,
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
     } else {
-      
+
+      mo->name = target->inst->getName();
       ObjectState *os = bindObjectInState(state, mo);
       if (zeroMemory) {
         os->initializeToZero();
@@ -3180,6 +3181,9 @@ void Executor::executeAlloc(ExecutionState &state,
       }
     }
   } else {
+
+    // RLR TODO: what to do about name?
+
     // XXX For now we just pick a size. Ideally we would support
     // symbolic sizes fully but even if we don't it would be better to
     // "smartly" pick a value, for example we could fork and pick the

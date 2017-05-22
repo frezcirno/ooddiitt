@@ -53,6 +53,8 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Analysis/CFG.h"
+#include "llvm/IR/Instruction.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
@@ -241,6 +243,7 @@ void KModule::addInternalFunction(const char* functionName){
 
 void KModule::prepare(const Interpreter::ModuleOptions &opts,
                       InterpreterHandler *ih) {
+
   LLVMContext &ctx = module->getContext();
 
   if (!MergeAtExit.empty()) {
@@ -278,9 +281,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
       ReturnInst::Create(ctx, result, exit);
 
       llvm::errs() << "KLEE: adding klee_merge at exit of: " << name << "\n";
-      for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); 
-           bbit != bbie; ++bbit) {
-	BasicBlock *bb = static_cast<BasicBlock *>(bbit);
+      for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); bbit != bbie; ++bbit) {
+	    BasicBlock *bb = static_cast<BasicBlock *>(bbit);
         if (bb != exit) {
           Instruction *i = bbit->getTerminator();
           if (i->getOpcode()==Instruction::Ret) {
@@ -288,7 +290,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
               result->addIncoming(i->getOperand(0), bb);
             }
             i->eraseFromParent();
-	    BranchInst::Create(exit, bb);
+            BranchInst::Create(exit, bb);
           }
         }
       }
@@ -476,6 +478,73 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   }
 }
 
+
+void KModule::prepareMarkers() {
+
+  // for each function in the main module
+  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+    const Function *fn = kf->function;
+
+    // record its backedges for future reference
+    llvm::FindFunctionBackedges(*fn, kf->backedges);
+
+    // now step through each of the functions basic blocks
+    for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
+      const BasicBlock &bb = *bbit;
+
+      // look through each instruction of the bb looking for function calls
+      // use reverse iterator so we find the first bbid last (single bb function will have two)
+      for (auto iit = bb.rbegin(), iid = bb.rend(); iit != iid; ++iit) {
+        const Instruction *i = &(*iit);
+        if (i->getOpcode() == Instruction::Call) {
+          const CallInst *ci = cast<CallInst>(i);
+
+          // check if this is a call to either marker
+          Function *called = ci->getCalledFunction();
+          std::string calledName = called->getName();
+
+          // check the name, number of arguments, and the return type
+          if (((calledName == "MARK") || (calledName == "mark")) &&
+              (called->arg_size() == 2) &&
+              (called->getReturnType()->isVoidTy())) {
+
+            // extract the two literal arguments
+            const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
+            const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+            if ((arg0 != nullptr) && (arg1 != nullptr)) {
+              unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+              unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+
+              if (kf->fnID == 0) {
+                kf->fnID = fnID;
+              }
+              kf->basicBlockMarker[&bb] = bbID;
+              if (calledName == "MARK") {
+                kf->majorMarkers.insert((kf->fnID * 1000) + bbID);
+              }
+            }
+          }
+        }
+      }
+    }
+    // if this function is marked, enumerate all of the m2m_paths
+    if (kf->fnID != 0) {
+
+      m2m_paths_t paths;
+
+      // find all simple paths from entry to exit
+      kf->addAllSimplePaths(paths);
+
+      // and find all simple paths for cycles
+      for (auto itr = kf->backedges.begin(), end = kf->backedges.end(); itr != end; ++itr) {
+        std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &bbs = *itr;
+        kf->addAllSimpleCycles(bbs.second, paths);
+      }
+    }
+  }
+}
+
 KConstant* KModule::getKConstant(Constant *c) {
   std::map<llvm::Constant*, KConstant*>::iterator it = constantMap.find(c);
   if (it != constantMap.end())
@@ -528,7 +597,8 @@ KFunction::KFunction(llvm::Function *_function,
   : function(_function),
     numArgs(function->arg_size()),
     numInstructions(0),
-    trackCoverage(true) {
+    trackCoverage(true),
+    fnID(0) {
   for (llvm::Function::iterator bbit = function->begin(), 
          bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
@@ -599,3 +669,94 @@ KFunction::~KFunction() {
     delete instructions[i];
   delete[] instructions;
 }
+
+bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const {
+  auto itr = std::find(backedges.begin(), backedges.end(),
+                       std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>(src, dst));
+  return itr != backedges.end();
+}
+
+void KFunction::addAllSimplePaths(m2m_paths_t &paths) {
+
+  std::set<const BasicBlock*> visited;
+  std::vector<const BasicBlock*> path;
+
+  recurseAllSimplePaths(&function->getEntryBlock(), visited, path, paths);
+}
+
+void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
+                                      std::set<const BasicBlock*> &visited,
+                                      std::vector<const BasicBlock*> &path,
+                                      m2m_paths_t &paths) {
+
+  visited.insert(bb);
+  path.push_back(bb);
+
+  std::vector<const BasicBlock*> successors;
+  const TerminatorInst *tinst = bb->getTerminator();
+  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
+    successors.push_back(tinst->getSuccessor(index));
+  }
+
+  // if bb has no successors, then we have a path
+  if (successors.empty()) {
+    m2m_path_t markers;
+    for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
+      markers.push_back((fnID * 1000) + basicBlockMarker[*itr]);
+    }
+    paths.insert(markers);
+  } else {
+    for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
+      const BasicBlock *succ = *itr;
+      if (visited.find(succ) == visited.end()) {
+        recurseAllSimplePaths(succ, visited, path, paths);
+      }
+    }
+  }
+
+  path.pop_back();
+  visited.erase(bb);
+}
+
+void KFunction::addAllSimpleCycles(const BasicBlock *bb, m2m_paths_t &paths) {
+
+  std::set<const BasicBlock*> visited;
+  std::vector<const BasicBlock*> path;
+
+  recurseAllSimpleCycles(bb, bb, visited, path, paths);
+}
+
+void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
+                                       const BasicBlock *dst,
+                                       std::set<const BasicBlock*> &visited,
+                                       std::vector<const BasicBlock*> &path,
+                                       m2m_paths_t &paths) {
+
+  visited.insert(bb);
+  path.push_back(bb);
+
+  std::vector<const BasicBlock*> successors;
+  const TerminatorInst *tinst = bb->getTerminator();
+  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
+    successors.push_back(tinst->getSuccessor(index));
+  }
+
+  for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
+    const BasicBlock *succ = *itr;
+
+    if (succ == dst) {
+      m2m_path_t markers;
+      for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
+        markers.push_back((fnID * 1000) + basicBlockMarker[*itr]);
+      }
+      markers.push_back((fnID * 1000) + basicBlockMarker[dst]);
+      paths.insert(markers);
+    } else if (visited.find(succ) == visited.end()) {
+      recurseAllSimpleCycles(succ, dst, visited, path, paths);
+    }
+  }
+
+  path.pop_back();
+  visited.erase(bb);
+}
+
