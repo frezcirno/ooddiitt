@@ -676,7 +676,7 @@ bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *
   return itr != backedges.end();
 }
 
-void KFunction::addAllSimplePaths(m2m_paths_t &paths) {
+void KFunction::addAllSimplePaths(m2m_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
   std::vector<const BasicBlock*> path;
@@ -687,7 +687,7 @@ void KFunction::addAllSimplePaths(m2m_paths_t &paths) {
 void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
                                       std::set<const BasicBlock*> &visited,
                                       std::vector<const BasicBlock*> &path,
-                                      m2m_paths_t &paths) {
+                                      m2m_paths_t &paths) const {
 
   visited.insert(bb);
   path.push_back(bb);
@@ -702,7 +702,13 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   if (successors.empty()) {
     m2m_path_t markers;
     for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
-      markers.push_back((fnID * 1000) + basicBlockMarker[*itr]);
+
+      auto id = basicBlockMarker.find(*itr);
+
+      // skip unmarked basic blocks
+      if (id != basicBlockMarker.end()) {
+        markers.push_back((fnID * 1000) + id->second);
+      }
     }
     paths.insert(markers);
   } else {
@@ -718,7 +724,7 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   visited.erase(bb);
 }
 
-void KFunction::addAllSimpleCycles(const BasicBlock *bb, m2m_paths_t &paths) {
+void KFunction::addAllSimpleCycles(const BasicBlock *bb, m2m_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
   std::vector<const BasicBlock*> path;
@@ -730,7 +736,7 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
                                        const BasicBlock *dst,
                                        std::set<const BasicBlock*> &visited,
                                        std::vector<const BasicBlock*> &path,
-                                       m2m_paths_t &paths) {
+                                       m2m_paths_t &paths) const {
 
   visited.insert(bb);
   path.push_back(bb);
@@ -747,9 +753,19 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
     if (succ == dst) {
       m2m_path_t markers;
       for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
-        markers.push_back((fnID * 1000) + basicBlockMarker[*itr]);
+        auto id = basicBlockMarker.find(*itr);
+
+        // skip unmarked basic blocks
+        if (id != basicBlockMarker.end()) {
+          markers.push_back((fnID * 1000) + id->second);
+        }
       }
-      markers.push_back((fnID * 1000) + basicBlockMarker[dst]);
+      auto id = basicBlockMarker.find(dst);
+
+      // skip unmarked basic blocks
+      if (id != basicBlockMarker.end()) {
+        markers.push_back((fnID * 1000) + id->second);
+      }
       paths.insert(markers);
     } else if (visited.find(succ) == visited.end()) {
       recurseAllSimpleCycles(succ, dst, visited, path, paths);
@@ -758,5 +774,35 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
 
   path.pop_back();
   visited.erase(bb);
+}
+
+void KFunction::setM2MPaths(const m2m_paths_t &paths) {
+
+  m2m_paths.clear();
+
+  for (auto itrPath = paths.begin(), endPath = paths.end(); itrPath != endPath; ++itrPath) {
+    const m2m_path_t &path = *itrPath;
+
+    assert(path.size() > 0 && isMajorMarker(path.front()));
+    assert(isMajorMarker(path.back()));
+
+    std::vector<unsigned> m2m;
+    for (auto itrMarker = path.begin(), endMarker = path.end(); itrMarker != endMarker; ++itrMarker) {
+
+      unsigned marker = *itrMarker;
+      if (isMajorMarker(marker)) {
+        m2m.push_back(marker);
+        if (itrMarker != path.begin()) {
+          m2m_paths.insert(m2m);
+          m2m.clear();
+          m2m.push_back(marker);
+        }
+      }
+    }
+
+    assert(m2m.size() == 1 && m2m.front() == path.back());
+
+  }
+
 }
 

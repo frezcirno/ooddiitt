@@ -61,6 +61,7 @@ namespace klee {
     std::map<const llvm::BasicBlock*,unsigned> basicBlockMarker;
     llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
     std::set<unsigned> majorMarkers;
+    m2m_paths_t m2m_paths;
 
   private:
     KFunction(const KFunction&);
@@ -69,13 +70,13 @@ namespace klee {
     void recurseAllSimplePaths(const llvm::BasicBlock *bb,
                                std::set<const llvm::BasicBlock*> &visited,
                                std::vector<const llvm::BasicBlock*> &path,
-                               m2m_paths_t &paths);
+                               m2m_paths_t &paths) const;
 
     void recurseAllSimpleCycles(const llvm::BasicBlock *bb,
                                 const llvm::BasicBlock *dst,
                                 std::set<const llvm::BasicBlock*> &visited,
                                 std::vector<const llvm::BasicBlock*> &path,
-                                m2m_paths_t &paths);
+                                m2m_paths_t &paths) const;
 
   public:
     explicit KFunction(llvm::Function*, KModule *);
@@ -83,8 +84,10 @@ namespace klee {
 
     unsigned getArgRegister(unsigned index) { return index; }
     bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
-    void addAllSimplePaths(m2m_paths_t &paths);
-    void addAllSimpleCycles(const llvm::BasicBlock *bb, m2m_paths_t &paths);
+    void addAllSimplePaths(m2m_paths_t &paths) const;
+    void addAllSimpleCycles(const llvm::BasicBlock *bb, m2m_paths_t &paths) const;
+    void setM2MPaths(const m2m_paths_t &paths);
+    bool isMajorMarker(unsigned marker)         { return majorMarkers.find(marker) != majorMarkers.end(); }
   };
 
 
