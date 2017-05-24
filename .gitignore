@@ -31,6 +31,7 @@ autom4te.cache/
 
 # coati db files
 *.srctrldb
+*.srctrlbm
 
 # JetBrains IDE stuff
 .idea/workspace.xml

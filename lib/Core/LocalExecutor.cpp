@@ -82,11 +82,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              InterpreterHandler *ih) :
         Executor(ctx, opts, ih),
         lazyAllocationCount(16) {
-
-  static const char *fns[] = {"constructUsher", "deleteUsher", "getBit", "setBit", "clearBit", "guide"};
-  for (unsigned index = 0; index < countof(fns); ++index) {
-    usherFunctions.insert(fns[index]);
-  }
   symbolicLocalVars = false;
 }
 
@@ -438,11 +433,6 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
-void LocalExecutor::setExpectedPaths(const m2m_paths_t &paths) {
-
-  m2m_pathsRemaining = paths;
-}
-
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   KFunction *kf = kmodule->functionMap[f];
@@ -456,6 +446,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   outs() << name;
   outs().flush();
 
+  m2m_pathsRemaining = kf->m2m_paths;
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
 
@@ -879,7 +870,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if this is a special function, let
       // the standard executor handle it
-      if (specialFunctionHandler->isSpecial(fn) || isUsherFunction(fnName)) {
+      if (specialFunctionHandler->isSpecial(fn) || kmodule->isConcreteFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }

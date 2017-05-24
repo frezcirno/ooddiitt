@@ -230,7 +230,7 @@ static void forceImport(Module *m, const char *name, LLVM_TYPE_Q Type *retType,
 #endif
 
 
-void KModule::addInternalFunction(const char* functionName){
+void KModule::addInternalFunction(std::string functionName){
   Function* internalFunction = module->getFunction(functionName);
   if (!internalFunction) {
     KLEE_DEBUG(klee_warning(
@@ -239,7 +239,15 @@ void KModule::addInternalFunction(const char* functionName){
   }
   KLEE_DEBUG(klee_message("Added function %s.",functionName));
   internalFunctions.insert(internalFunction);
+  concreteFunctions.insert(internalFunction);
 }
+
+void KModule::addConcreteFunction(std::string fnName) {
+
+  const llvm::Function *fn = module->getFunction(fnName);
+  if (fn != nullptr) addConcreteFunction(fn);
+}
+
 
 void KModule::prepare(const Interpreter::ModuleOptions &opts,
                       InterpreterHandler *ih) {
@@ -485,9 +493,7 @@ void KModule::prepareMarkers() {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
-
-    // record its backedges for future reference
-    llvm::FindFunctionBackedges(*fn, kf->backedges);
+    unsigned fnID = 0;
 
     // now step through each of the functions basic blocks
     for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
@@ -495,7 +501,9 @@ void KModule::prepareMarkers() {
 
       // look through each instruction of the bb looking for function calls
       // use reverse iterator so we find the first bbid last (single bb function will have two)
-      for (auto iit = bb.rbegin(), iid = bb.rend(); iit != iid; ++iit) {
+      bool isMajor = false;
+      std::vector<unsigned> bbIDs;
+      for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
         const Instruction *i = &(*iit);
         if (i->getOpcode() == Instruction::Call) {
           const CallInst *ci = cast<CallInst>(i);
@@ -513,23 +521,33 @@ void KModule::prepareMarkers() {
             const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
             const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
             if ((arg0 != nullptr) && (arg1 != nullptr)) {
-              unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+              fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
               unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+              bbIDs.push_back(bbID);
 
-              if (kf->fnID == 0) {
-                kf->fnID = fnID;
-              }
-              kf->basicBlockMarker[&bb] = bbID;
               if (calledName == "MARK") {
-                kf->majorMarkers.insert((kf->fnID * 1000) + bbID);
+                isMajor = true;
               }
             }
+          } else if (!isConcreteFunction(called)) {
+            isMajor = true;
           }
         }
       }
+      if (bbIDs.size() > 0) {
+        kf->basicBlockMarker[&bb] = bbIDs;
+        if (isMajor) {
+          kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
+        }
+      }
     }
+    kf->fnID = fnID;
+
     // if this function is marked, enumerate all of the m2m_paths
     if (kf->fnID != 0) {
+
+      // record its backedges for future reference
+      llvm::FindFunctionBackedges(*fn, kf->backedges);
 
       m2m_paths_t paths;
 
@@ -541,6 +559,8 @@ void KModule::prepareMarkers() {
         std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &bbs = *itr;
         kf->addAllSimpleCycles(bbs.second, paths);
       }
+
+      kf->setM2MPaths(paths);
     }
   }
 }
@@ -599,7 +619,8 @@ KFunction::KFunction(llvm::Function *_function,
     numInstructions(0),
     trackCoverage(true),
     fnID(0) {
-  for (llvm::Function::iterator bbit = function->begin(), 
+
+  for (llvm::Function::iterator bbit = function->begin(),
          bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
     basicBlockEntry[bb] = numInstructions;
@@ -707,7 +728,9 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
 
       // skip unmarked basic blocks
       if (id != basicBlockMarker.end()) {
-        markers.push_back((fnID * 1000) + id->second);
+        for (unsigned m : id->second) {
+          markers.push_back((fnID * 1000) + m);
+        }
       }
     }
     paths.insert(markers);
@@ -757,14 +780,18 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
 
         // skip unmarked basic blocks
         if (id != basicBlockMarker.end()) {
-          markers.push_back((fnID * 1000) + id->second);
+          for (unsigned m : id->second) {
+            markers.push_back((fnID * 1000) + m);
+          }
         }
       }
       auto id = basicBlockMarker.find(dst);
 
       // skip unmarked basic blocks
       if (id != basicBlockMarker.end()) {
-        markers.push_back((fnID * 1000) + id->second);
+        for (unsigned m : id->second) {
+          markers.push_back((fnID * 1000) + m);
+        }
       }
       paths.insert(markers);
     } else if (visited.find(succ) == visited.end()) {
@@ -784,25 +811,21 @@ void KFunction::setM2MPaths(const m2m_paths_t &paths) {
     const m2m_path_t &path = *itrPath;
 
     assert(path.size() > 0 && isMajorMarker(path.front()));
-    assert(isMajorMarker(path.back()));
 
     std::vector<unsigned> m2m;
     for (auto itrMarker = path.begin(), endMarker = path.end(); itrMarker != endMarker; ++itrMarker) {
 
       unsigned marker = *itrMarker;
-      if (isMajorMarker(marker)) {
+      m2m.push_back(marker);
+      if (isMajorMarker(marker) && (itrMarker != path.begin())) {
+        m2m_paths.insert(m2m);
+        m2m.clear();
         m2m.push_back(marker);
-        if (itrMarker != path.begin()) {
-          m2m_paths.insert(m2m);
-          m2m.clear();
-          m2m.push_back(marker);
-        }
       }
     }
-
-    assert(m2m.size() == 1 && m2m.front() == path.back());
-
+    if (m2m.size() > 0 && !isMajorMarker(m2m.back())) {
+      m2m_paths.insert(m2m);
+    }
   }
-
 }
 

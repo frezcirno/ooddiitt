@@ -70,11 +70,6 @@ namespace {
                cl::init("main"));
 
 cl::opt<std::string>
-    Info("info",
-         cl::desc("Json formated program info"),
-         cl::init(""));
-
-cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
 
   cl::opt<std::string>
@@ -788,6 +783,7 @@ static const char *dontCareExternals[] = {
   // ignore marker instrumentation
   "mark",
   "MARK",
+  "guide",
 
   // fp stuff we just don't worry about yet
   "frexp",
@@ -893,10 +889,9 @@ void externalsAndGlobalsCheck(const Module *m) {
         foundUnsafe.insert(*it);
       } else {
 
-// RLR TODO: one way to make the noise go away...
-//        klee_warning("undefined reference to %s: %s",
-//                     it->second ? "variable" : "function",
-//                     ext.c_str());
+        klee_warning("undefined reference to %s: %s",
+                     it->second ? "variable" : "function",
+                     ext.c_str());
       }
     }
   }
@@ -1119,25 +1114,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
-static void constructExpectedPaths(Function *fn, const Json::Value &info, m2m_paths_t &paths) {
-
-  paths.clear();
-  std::string name = fn->getName();
-
-  if (info != Json::nullValue) {
-    const Json::Value &pathInfo = info["functions"][name]["m2m_paths"];
-    if (pathInfo != Json::nullValue) {
-      for (auto itr1 = pathInfo.begin(), end1 = pathInfo.end(); itr1 != end1; ++itr1) {
-        m2m_path_t p;
-        for (auto itr2 = itr1->begin(), end2 = itr1->end(); itr2 != end2; ++itr2) {
-          p.push_back(itr2->asUInt());
-        }
-        paths.insert(p);
-      }
-    }
-  }
-}
-
 int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
@@ -1272,18 +1248,6 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  Json::Value info = Json::nullValue;
-  if (Info.empty()) {
-//    klee_error("json formatted info file is required");
-  }
-  else {
-    std::ifstream kin;
-    kin.open(Info);
-    if (kin.is_open()) {
-      kin >> info;
-    }
-  }
-
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1406,9 +1370,6 @@ int main(int argc, char **argv, char **envp) {
   if (mainFn != nullptr) {
 
     // RLR TODO: restore this
-    //m2m_paths_t m2m_paths;
-    //constructExpectedPaths(mainFn, info, m2m_paths);
-    //theInterpreter->setExpectedPaths(m2m_paths);
     //theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   }
 
@@ -1416,10 +1377,6 @@ int main(int argc, char **argv, char **envp) {
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
     Function *fn = *itr;
     if (fn != mainFn) {
-      m2m_paths_t m2m_paths;
-
-      constructExpectedPaths(fn, info, m2m_paths);
-      theInterpreter->setExpectedPaths(m2m_paths);
       theInterpreter->runFunctionUnconstrained(fn);
     }
   }

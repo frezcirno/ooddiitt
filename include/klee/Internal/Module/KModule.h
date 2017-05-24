@@ -32,6 +32,9 @@ namespace llvm {
 #endif
 }
 
+typedef std::vector<unsigned> m2m_path_t;
+typedef std::set<m2m_path_t> m2m_paths_t;
+
 namespace klee {
   struct Cell;
   class Executor;
@@ -58,7 +61,7 @@ namespace klee {
 
     // values collected from marked ir
     unsigned fnID;
-    std::map<const llvm::BasicBlock*,unsigned> basicBlockMarker;
+    std::map<const llvm::BasicBlock*,std::vector<unsigned> > basicBlockMarker;
     llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
     std::set<unsigned> majorMarkers;
     m2m_paths_t m2m_paths;
@@ -135,12 +138,25 @@ namespace klee {
 
     Cell *constantTable;
 
-    // Functions which are part of KLEE runtime
-    std::set<const llvm::Function*> internalFunctions;
+    // Mark function with functionName as part of the KLEE runtime
+    void addInternalFunction(std::string functionName);
+    bool isInternalFunction(const llvm::Function *fn)
+      { return internalFunctions.find(fn) != internalFunctions.end(); }
+
+    // these functions will not be represented symbolically
+    void addConcreteFunction(const llvm::Function *fn)
+      { concreteFunctions.insert(fn); }
+    void addConcreteFunction(std::string fnName);
+    bool isConcreteFunction(const llvm::Function *fn)
+      { return concreteFunctions.find(fn) != concreteFunctions.end(); }
 
   private:
-    // Mark function with functionName as part of the KLEE runtime
-    void addInternalFunction(const char* functionName);
+
+    // Functions which should not be called symbolically
+    std::set<const llvm::Function*> concreteFunctions;
+
+    // Functions which are part of KLEE runtime
+    std::set<const llvm::Function*> internalFunctions;
 
   public:
     KModule(llvm::Module *_module);

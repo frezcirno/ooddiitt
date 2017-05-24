@@ -2911,7 +2911,7 @@ const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const Execut
   itE--;
 
   const InstructionInfo * ii = 0;
-  if (kmodule->internalFunctions.count(it->kf->function) == 0){
+  if (kmodule->isInternalFunction(it->kf->function)){
     ii =  state.prevPC->info;
     *lastInstruction = state.prevPC->inst;
     //  Cannot return yet because even though
@@ -2925,7 +2925,7 @@ const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const Execut
   for (;it != itE; ++it) {
     // check calling instruction and if it is contained in a KLEE internal function
     const Function * f = (*it->caller).inst->getParent()->getParent();
-    if (kmodule->internalFunctions.count(f)){
+    if (kmodule->isInternalFunction(f)) {
       ii = 0;
       continue;
     }

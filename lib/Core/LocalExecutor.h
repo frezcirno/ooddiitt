@@ -47,8 +47,6 @@ public:
   virtual void runFunctionUnconstrained(llvm::Function *f);
 //  virtual void runFragmentUnconstrained(llvm::Function *f);
 
-  virtual void setExpectedPaths(const m2m_paths_t &paths);
-
 protected:
   virtual void run(ExecutionState &initialState);
 
@@ -113,8 +111,6 @@ protected:
 
   virtual void updateStates(ExecutionState *current);
 
-  bool isUsherFunction(std::string name)   { return usherFunctions.find(name) != usherFunctions.end(); }
-
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
@@ -123,7 +119,6 @@ protected:
 
   unsigned lazyAllocationCount;
   m2m_paths_t m2m_pathsRemaining;
-  std::set<std::string> usherFunctions;
   std::map<llvm::Function*,llvm::DominatorTree*> domTrees;
   bool symbolicLocalVars;
 };
