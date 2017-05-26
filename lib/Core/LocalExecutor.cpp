@@ -237,7 +237,10 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     // and constrain this pointer to point at it.
     ref<ConstantExpr> ptr = newMO->getBaseExpr();
     ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-    state.addConstraint(eq);
+    ref<Expr> null = NotOptimizedExpr::create(EqExpr::create(e, 0));
+    ref<Expr> constraint = OrExpr::create(eq, null);
+
+    state.addConstraint(constraint);
   }
   bindLocal(target, state, e);
   return true;
