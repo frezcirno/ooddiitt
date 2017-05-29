@@ -289,9 +289,9 @@ protected:
   /// convenience for realloc). Note that this function can cause the
   /// state to fork and that \ref state cannot be safely accessed
   /// afterwards.
-  void executeFree(ExecutionState &state,
-                   ref<Expr> address,
-                   KInstruction *target = 0);
+  virtual void executeFree(ExecutionState &state,
+                           ref<Expr> address,
+                           KInstruction *target = 0);
   
   void executeCall(ExecutionState &state, 
                    KInstruction *ki,

@@ -57,7 +57,11 @@ protected:
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
 
   bool resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
-  
+
+  virtual void executeFree(ExecutionState &state,
+                           ref<Expr> address,
+                           KInstruction *target = 0);
+
   bool executeReadMemoryOperation(ExecutionState &state,
                                   ref<Expr> address,
                                   const llvm::Type *type,

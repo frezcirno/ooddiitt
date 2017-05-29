@@ -153,6 +153,33 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
   return result;
 }
 
+void LocalExecutor::executeFree(ExecutionState &state,
+                                ref<Expr> address,
+                                KInstruction *target) {
+  StatePair zeroPointer = fork(state, Expr::createIsZero(address), true);
+  if (zeroPointer.first) {
+    if (target)
+      bindLocal(target, *zeroPointer.first, Expr::createPointer(0));
+  }
+  if (zeroPointer.second) { // address != 0
+
+    ObjectPair op;
+    if (resolveMO(*zeroPointer.second, address, op)) {
+
+      const MemoryObject *mo = op.first;
+      if (mo->isHeap()) {
+        zeroPointer.second->addressSpace.unbindObject(mo);
+        if (target) {
+          bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
+        }
+      }
+    } else {
+
+    }
+  }
+}
+
+
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
@@ -319,7 +346,18 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     solver->setTimeout(0);
   }
   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-  wos->write(offsetExpr, value);
+  if (!isa<ConstantExpr>(offsetExpr)) {
+
+    uint64_t offset = 0;
+    ref<ConstantExpr> cex;
+    if (solver->getValue(state, offsetExpr, cex)) {
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
+      addConstraint(state, eq);
+      wos->write(cex, value);
+    }
+  } else {
+    wos->write(offsetExpr, value);
+  }
   return true;
 }
 

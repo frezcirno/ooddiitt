@@ -495,6 +495,13 @@ void ObjectState::write8(ref<Expr> offset, ref<Expr> value) {
   }
 
   // RLR TODO: how do I mark this as written?
+
+//  ref<ConstantExpr> cex;
+//  if (solver->getValue(state, addr, cex)) {
+//    result = cex->getZExtValue();
+//  }
+
+
   symboliclyWritten = true;
   updates.extend(ZExtExpr::create(offset, Expr::Int32), value);
 }
