@@ -45,7 +45,7 @@ public:
                                  char **argv,
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
-//  virtual void runFragmentUnconstrained(llvm::Function *f);
+  virtual void runFragmentUnconstrained(llvm::Function *f);
 
 protected:
   virtual void run(ExecutionState &initialState);

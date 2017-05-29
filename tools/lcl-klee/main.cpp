@@ -1380,7 +1380,18 @@ int main(int argc, char **argv, char **envp) {
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
     Function *fn = *itr;
     if (fn != mainFn) {
-      theInterpreter->runFunctionUnconstrained(fn);
+
+      // RLR TODO: hijacked for now
+      //theInterpreter->runFunctionUnconstrained(fn);
+
+      std::string fnName = fn->getName();
+      if (fnName == "skip") {
+        theInterpreter->runFragmentUnconstrained(fn);
+      } else if (fnName == "get_actual_token") {
+        theInterpreter->runFragmentUnconstrained(fn);
+      } else if (fnName == "get_token") {
+        theInterpreter->runFragmentUnconstrained(fn);
+      }
     }
   }
 

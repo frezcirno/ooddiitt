@@ -478,8 +478,6 @@ public:
                                  char **argv,
                                  char **envp);
 
-  virtual void runFunctionUnconstrained(llvm::Function *f);
-
   /*** Runtime options ***/
   
   virtual void setHaltExecution(bool value) {

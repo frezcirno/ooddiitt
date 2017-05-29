@@ -1,0 +1,125 @@
+/Users/richard/Projects/arktos/klee/opt-klee/build_debug_clion/bin/lcl-klee -output-source replace_marked.bc
+KLEE: output directory is "/Users/richard/Projects/arktos/klee/opt-klee/test/Local/klee-out-22"
+KLEE: Using STP solver backend
+my_getline: 1 of 1 covered
+addstr: 2 of 2 covered
+esc: 5 of 5 covered
+dodash: 20 of 20 covered
+getccl: 4 of 4 covered
+stclose: 4 of 4 covered
+in_set_2: 3 of 3 covered
+in_pat_set: 7 of 7 covered
+makepat: 23 of 43 covered
+  [9011, 9010, 9029]
+  [9012, 9010, 9009, 9029]
+  [9012, 9010, 9029]
+  [9014, 9012]
+  [9014, 9013, 9010, 9009, 9029]
+  [9019, 9010, 9029]
+  [9022, 9010, 9029]
+  [9025, 9010, 9029]
+  [9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9016, 9015, 9011]
+  [9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9016, 9015, 9014]
+  [9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9017]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9011]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9015, 9011]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9015, 9014]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9017]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9011]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9015, 9011]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9015, 9014]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9017]
+  [9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9019]
+getpat: 1 of 1 covered
+makesub: 9 of 11 covered
+  [11013, 11006, 11005, 11001]
+  [11013, 11012, 11006, 11004]
+getsub: 1 of 1 covered
+locate: 4 of 4 covered
+omatch: 22 of 22 covered
+Caseerror: 1 of 1 covered
+patsize: 7 of 7 covered
+amatch: 19 of 19 covered
+putsub: 8 of 8 covered
+subline: 10 of 14 covered
+  [18007, 18006, 18004]
+  [18009, 18006, 18005, 18004]
+  [18009, 18008, 18006, 18004]
+  [18009, 18008, 18006, 18005, 18003, 18010]
+change: 4 of 4 covered
+
+KLEE: done: total instructions = 16456
+KLEE: done: completed paths = 630
+KLEE: done: generated tests = 240
+
+Process finished with exit code 0
+
+<------------------------------------------------------------------------->
+
+/Users/richard/Projects/arktos/klee/opt-klee/build_debug_clion/bin/lcl-klee -output-source schedule_marked.bc
+KLEE: output directory is "/Users/richard/Projects/arktos/klee/opt-klee/test/Local/klee-out-23"
+KLEE: Using STP solver backend
+new_ele: 1 of 1 covered
+new_list: 1 of 1 covered
+append_ele: 5 of 5 covered
+find_nth: 5 of 5 covered
+del_ele: 6 of 6 covered
+free_ele: 1 of 1 covered
+finish_process: 3 of 3 covered
+schedule: 3 of 4 covered
+  [9005, 9001]
+finish_all_processes: 4 of 4 covered
+upgrade_process_prio: 6 of 6 covered
+unblock_process: 5 of 5 covered
+quantum_expire: 3 of 3 covered
+block_process: 3 of 3 covered
+new_process: 1 of 1 covered
+add_process: 1 of 1 covered
+init_prio_queue: 4 of 4 covered
+initialize: 1 of 1 covered
+
+KLEE: done: total instructions = 1681
+KLEE: done: completed paths = 130
+KLEE: done: generated tests = 84
+
+Process finished with exit code 0
+
+<------------------------------------------------------------------------->
+
+/Users/richard/Projects/arktos/klee/opt-klee/build_debug_clion/bin/lcl-klee -output-source print_tokens_marked.bc
+KLEE: output directory is "/Users/richard/Projects/arktos/klee/opt-klee/test/Local/klee-out-24"
+KLEE: Using STP solver backend
+print_token: 20 of 20 covered
+open_character_stream: 4 of 4 covered
+get_char: 4 of 4 covered
+is_end_of_character_stream: 2 of 2 covered
+unget_char: 3 of 3 covered
+open_token_stream: 1 of 1 covered
+get_token: 15 of 24 covered
+  [7033, 7001]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7004, 7003]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7004, 7005]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7004, 7006]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7004, 7008]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7004, 7018]
+  [7033, 7032, 7030, 7029, 7027, 7025, 7024]
+  [7033, 7032, 7030, 7029, 7027, 7026]
+  [7033, 7032, 7030, 7029, 7028]
+get_actual_token: 10 of 11 covered
+  [18008, 18005, 18004]
+keyword: 7 of 7 covered
+special: 10 of 10 covered
+constant: 3 of 3 covered
+skip: 7 of 8 covered
+  [13006, 13003, 13002]
+is_eof_token: 2 of 2 covered
+next_state: 4 of 4 covered
+check_delimiter: 4 of 4 covered
+error_or_eof_case: 4 of 4 covered
+numeric_case: 6 of 6 covered
+
+KLEE: done: total instructions = 3924
+KLEE: done: completed paths = 254
+KLEE: done: generated tests = 205
+
+Process finished with exit code 0

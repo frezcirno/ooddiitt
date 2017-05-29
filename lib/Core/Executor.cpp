@@ -3624,10 +3624,6 @@ void Executor::runFunctionAsMain(Function *f,
     statsTracker->done();
 }
 
-void Executor::runFunctionUnconstrained(Function *f) {
-  assert(false && "Executor does not support running functions unconstrained");
-}
-
 unsigned Executor::getPathStreamID(const ExecutionState &state) {
   assert(pathWriter);
   return state.pathOS.getID();

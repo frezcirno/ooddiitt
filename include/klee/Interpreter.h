@@ -135,7 +135,9 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f) = 0;
+  virtual void runFunctionUnconstrained(llvm::Function *f)  { };
+
+  virtual void runFragmentUnconstrained(llvm::Function *f)  { };
 
   /*** Runtime options ***/
 
