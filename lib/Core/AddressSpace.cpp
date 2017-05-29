@@ -101,7 +101,10 @@ bool AddressSpace::resolveOne(ExecutionState &state,
       }
     }
 
-    if (optimistic) klee_error("optimistic memory resolution failed");
+    if (optimistic) {
+      return false;
+//      klee_warning("optimistic memory resolution failed");
+    }
 
     // didn't work, now we have to search
        

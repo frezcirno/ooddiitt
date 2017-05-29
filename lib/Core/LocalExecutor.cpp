@@ -145,8 +145,8 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
     // not a const address, so we have to ask the solver
     solver->setTimeout(coreSolverTimeout);
     if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
-      address = toConstant(state, address, "resolveOne failure");
-      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
+//      address = toConstant(state, address, "resolveOne failure");
+//      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
     }
     solver->setTimeout(0);
   }
@@ -181,6 +181,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
   ObjectPair op;
   if (!resolveMO(state, address, op)) {
+    // invalid memory read
+    terminateState(state);
     return false;
   }
 
@@ -226,23 +228,37 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   }
 
   ref<Expr> e = os->read(offsetExpr, width);
-  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
-    // this is an unconstrained ptr-ptr. allocate something behind the pointer
-
-    Type *subtype = type->getPointerElementType()->getPointerElementType();
-    MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy,
-                                      '*' + mo->name, 0, lazyAllocationCount);
-    bindObjectInState(state, newMO);
-
-    // and constrain this pointer to point at it.
-    ref<ConstantExpr> ptr = newMO->getBaseExpr();
-    ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-    ref<Expr> null = NotOptimizedExpr::create(EqExpr::create(e, 0));
-    ref<Expr> constraint = OrExpr::create(eq, null);
-
-    state.addConstraint(constraint);
-  }
   bindLocal(target, state, e);
+
+  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
+    // this is an unconstrained ptr-ptr. this could be either a null ptr or
+    // allocate something behind the pointer
+
+    ref<ConstantExpr> null = Expr::createPointer(0);
+    ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(e, null));
+    StatePair sp = fork(state, eqNull, false);
+
+    // in the true case, ptr is null, so nothing further to do
+    if (sp.first != nullptr) {
+//      bindLocal(target, *sp.first, e);
+      sp.first->addConstraint(eqNull);
+//      terminateState(*sp.first);
+    }
+    // in the false case, allocate new memory for the ptr and
+    // constrain the ptr to point to it.
+    if (sp.second != nullptr) {
+
+      Type *subtype = type->getPointerElementType()->getPointerElementType();
+      MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                        '*' + mo->name, 0, lazyAllocationCount);
+      bindObjectInState(*sp.second, newMO);
+
+      ref<ConstantExpr> ptr = newMO->getBaseExpr();
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+      sp.second->addConstraint(eq);
+//      bindLocal(target, *sp.second, e);
+    }
+  }
   return true;
 }
 
@@ -253,6 +269,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ObjectPair op;
   if (!resolveMO(state, address, op)) {
+    // invalid memory write
+    terminateState(state);
     return false;
   }
 
@@ -761,6 +779,17 @@ void LocalExecutor::run(ExecutionState &initialState) {
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
+#ifdef NEVER
+    if (ki->info->assemblyLine == 66) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 67) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 68) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 69) {
+      outs() << "here\n";
+    }
+#endif
     executeInstruction(state, ki);
 
     processTimers(&state, 0);
@@ -1010,8 +1039,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           klee_error("non-optimistic not supported at this time");
         }
         solver->setTimeout(0);
+        bindLocal(ki, state, base);
+      } else {
+        // invalid memory access
+        terminateState(state);
       }
-      bindLocal(ki, state, base);
+
       break;
     }
 
