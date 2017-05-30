@@ -493,6 +493,7 @@ void KModule::prepareMarkers() {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
+    std::string fnName = fn->getName();
     unsigned fnID = 0;
 
     // now step through each of the functions basic blocks
@@ -510,27 +511,29 @@ void KModule::prepareMarkers() {
 
           // check if this is a call to either marker
           Function *called = ci->getCalledFunction();
-          std::string calledName = called->getName();
+          if (called != nullptr) {
+            std::string calledName = called->getName();
 
-          // check the name, number of arguments, and the return type
-          if (((calledName == "MARK") || (calledName == "mark")) &&
-              (called->arg_size() == 2) &&
-              (called->getReturnType()->isVoidTy())) {
+            // check the name, number of arguments, and the return type
+            if (((calledName == "MARK") || (calledName == "mark")) &&
+                (called->arg_size() == 2) &&
+                (called->getReturnType()->isVoidTy())) {
 
-            // extract the two literal arguments
-            const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-            const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
-            if ((arg0 != nullptr) && (arg1 != nullptr)) {
-              fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-              unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-              bbIDs.push_back(bbID);
+              // extract the two literal arguments
+              const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
+              const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+              if ((arg0 != nullptr) && (arg1 != nullptr)) {
+                fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+                unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+                bbIDs.push_back(bbID);
 
-              if (calledName == "MARK") {
-                isMajor = true;
+                if (calledName == "MARK") {
+                  isMajor = true;
+                }
               }
+            } else if (!isConcreteFunction(called)) {
+              isMajor = true;
             }
-          } else if (!isConcreteFunction(called)) {
-            isMajor = true;
           }
         }
       }

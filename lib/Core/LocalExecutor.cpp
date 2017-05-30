@@ -73,16 +73,17 @@ namespace klee {
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
 cl::opt<bool>
-        AssumeInboundPointers("assume-inbound-pointers",
-                              cl::init(true),
-                              cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
+  AssumeInboundPointers("assume-inbound-pointers",
+                        cl::init(true),
+                        cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
-        Executor(ctx, opts, ih),
-        lazyAllocationCount(16) {
-  symbolicLocalVars = false;
+  Executor(ctx, opts, ih),
+  lazyAllocationCount(16),
+  symbolicLocalVars(false) {
+
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -145,14 +146,41 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
     // not a const address, so we have to ask the solver
     solver->setTimeout(coreSolverTimeout);
     if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
-      address = toConstant(state, address, "resolveOne failure");
-      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
+      // RLR TODO: cleanup on alise 9
+//      address = toConstant(state, address, "resolveOne failure");
+//      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
     }
     solver->setTimeout(0);
   }
   return result;
 }
 
+void LocalExecutor::executeFree(ExecutionState &state,
+                                ref<Expr> address,
+                                KInstruction *target) {
+  StatePair zeroPointer = fork(state, Expr::createIsZero(address), true);
+  if (zeroPointer.first) {
+    if (target)
+      bindLocal(target, *zeroPointer.first, Expr::createPointer(0));
+  }
+  if (zeroPointer.second) { // address != 0
+
+    ObjectPair op;
+    if (resolveMO(*zeroPointer.second, address, op)) {
+
+      const MemoryObject *mo = op.first;
+      if (mo->isHeap()) {
+        zeroPointer.second->addressSpace.unbindObject(mo);
+        if (target) {
+          bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
+        }
+      }
+    } else {
+
+      // RLR TODO: remove if not required
+    }
+  }
+}
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
@@ -181,6 +209,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
   ObjectPair op;
   if (!resolveMO(state, address, op)) {
+    // invalid memory read
+    terminateState(state);
     return false;
   }
 
@@ -222,24 +252,38 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
     os = makeSymbolic(state, mo);
   } else if (!state.isSymbolic(mo) && symbolicLocalVars && !mo->name.empty()) {
+
+    // RLR TODO: yuk. fix this mess
     os = makeSymbolic(state, mo);
   }
 
   ref<Expr> e = os->read(offsetExpr, width);
-  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
-    // this is an unconstrained ptr-ptr. allocate something behind the pointer
-
-    Type *subtype = type->getPointerElementType()->getPointerElementType();
-    MemoryObject *newMO = allocMemory(state, subtype, target->inst, MemKind::lazy,
-                                      '*' + mo->name, 0, lazyAllocationCount);
-    bindObjectInState(state, newMO);
-
-    // and constrain this pointer to point at it.
-    ref<ConstantExpr> ptr = newMO->getBaseExpr();
-    ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-    state.addConstraint(eq);
-  }
   bindLocal(target, state, e);
+
+  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(state, e))) {
+    // this is an unconstrained ptr-ptr. this could be either a null ptr or
+    // allocate something behind the pointer
+
+    ref<ConstantExpr> null = Expr::createPointer(0);
+    ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(e, null));
+    StatePair sp = fork(state, eqNull, false);
+
+    // in the true case, ptr is null, so nothing further to do
+
+    // in the false case, allocate new memory for the ptr and
+    // constrain the ptr to point to it.
+    if (sp.second != nullptr) {
+
+      Type *subtype = type->getPointerElementType()->getPointerElementType();
+      MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                        '*' + mo->name, 0, lazyAllocationCount);
+      bindObjectInState(*sp.second, newMO);
+
+      ref<ConstantExpr> ptr = newMO->getBaseExpr();
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+      sp.second->addConstraint(eq);
+    }
+  }
   return true;
 }
 
@@ -250,6 +294,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ObjectPair op;
   if (!resolveMO(state, address, op)) {
+    // invalid memory write
+    terminateState(state);
     return false;
   }
 
@@ -298,7 +344,17 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     solver->setTimeout(0);
   }
   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-  wos->write(offsetExpr, value);
+  if (!isa<ConstantExpr>(offsetExpr)) {
+
+    ref<ConstantExpr> cex;
+    if (solver->getValue(state, offsetExpr, cex)) {
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
+      addConstraint(state, eq);
+      wos->write(cex, value);
+    }
+  } else {
+    wos->write(offsetExpr, value);
+  }
   return true;
 }
 
@@ -412,6 +468,11 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
   const Module *result = Executor::setModule(module, opts);
+
+  // RLR TODO: temp testing of ushers
+  kmodule->addConcreteFunction("guide");
+  kmodule->addConcreteFunction("u_schedule");
+
   kmodule->prepareMarkers();
 
   for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
@@ -435,6 +496,7 @@ void LocalExecutor::bindModuleConstants() {
 
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
+  symbolicLocalVars = false;
   KFunction *kf = kmodule->functionMap[f];
   if (kf == nullptr) {
     // not in this compilation unit
@@ -521,10 +583,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->done();
 }
 
-#ifdef NEVER
 
-void LocalExecutor::runFragmentUnconstrained(Function *f) {
+void LocalExecutor::runFragmentUnconstrained(Function *f, const m2m_paths_t &paths) {
 
+  symbolicLocalVars = true;
   KFunction *kf = kmodule->functionMap[f];
   if (kf == nullptr) {
     // not in this compilation unit
@@ -536,20 +598,8 @@ void LocalExecutor::runFragmentUnconstrained(Function *f) {
   outs() << name;
   outs().flush();
 
-  llvm::FindFunctionBackedges(*f, backedges);
-
-  m2m_path_t path1 = { 18007, 18006, 18004, 18010 };
-  m2m_path_t path2 = { 18009, 18006, 18005, 18004, 18010 };
-  m2m_path_t path3 = { 18009, 18008, 18006, 18004, 18010 };
-  m2m_path_t path4 = { 18009, 18008, 18006, 18005, 18003, 18010 };
-  m2m_pathsRemaining.clear();
-  m2m_pathsRemaining.insert(path1);
-  m2m_pathsRemaining.insert(path2);
-  m2m_pathsRemaining.insert(path3);
-  m2m_pathsRemaining.insert(path4);
-
+  m2m_pathsRemaining = paths;
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
-  symbolicLocalVars = true;
   ExecutionState *state = new ExecutionState(kf, name);
 
   if (pathWriter)
@@ -622,8 +672,6 @@ void LocalExecutor::runFragmentUnconstrained(Function *f) {
   if (statsTracker)
     statsTracker->done();
 }
-
-#endif
 
 void LocalExecutor::runFunctionAsMain(Function *f,
                                       int argc,
@@ -758,6 +806,17 @@ void LocalExecutor::run(ExecutionState &initialState) {
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
+#ifdef NEVER
+    if (ki->info->assemblyLine == 66) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 67) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 68) {
+      outs() << "here\n";
+    } else if (ki->info->assemblyLine == 69) {
+      outs() << "here\n";
+    }
+#endif
     executeInstruction(state, ki);
 
     processTimers(&state, 0);
@@ -866,6 +925,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
       const CallInst *ci = cast<CallInst>(i);
       Function *fn = ci->getCalledFunction();
+      if (fn == nullptr) {
+
+        // RLR TODO: why????
+        CallSite cs(i);
+
+        Value *fp = cs.getCalledValue();
+        fn = getTargetFunction(fp, state);
+      }
       std::string fnName = fn->getName();
 
       // if this is a special function, let
@@ -886,33 +953,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
+          symbolicLocalVars = false;
           state.addMarker(fnID, bbID);
           return;
         }
       }
 
       // hence, this is a function in this module
-      Type *ty = fn->getReturnType();
       unsigned counter = state.callTargetCounter[fnName]++;
-      if (!ty->isVoidTy()) {
-
-        WObjectPair wop;
-        if (ty->isPointerTy()) {
-
-          Type *subtype = ty->getPointerElementType();
-          allocSymbolic(state, subtype, i, MemKind::output, fullName(fnName, counter, "return"), wop, 0, lazyAllocationCount);
-          bindLocal(ki, state, wop.first->getBaseExpr());
-        } else {
-
-          // RLR TODO: must this then be a fundamental type?
-          if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "return"), wop)) {
-            klee_error("failed to allocate called function parameter");
-          }
-          Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
-          ref<Expr> e = wop.second->read(0, width);
-          bindLocal(ki, state, e);
-        }
-      }
 
       // consider the arguments pushed for the call, rather than
       // args expected by the target
@@ -944,6 +992,43 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             for (unsigned offset = 0; offset < size; ++offset) {
               wos->write(offset, newOS->read8(offset));
             }
+          }
+        }
+      }
+
+      // now get the return type
+      Type *ty = fn->getReturnType();
+      if (!ty->isVoidTy()) {
+
+        WObjectPair wop;
+        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "return"), wop)) {
+          klee_error("failed to allocate called function parameter");
+        }
+        Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
+        ref<Expr> retExpr = wop.second->read(0, width);
+        bindLocal(ki, state, retExpr);
+
+        if (ty->isPointerTy()) {
+
+          // two possible returns for a pointer type, nullptr and a valid object
+
+          ref<ConstantExpr> null = Expr::createPointer(0);
+          ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(retExpr, null));
+          StatePair sp = fork(state, eqNull, false);
+
+          // in the true case, ptr is null, so nothing further to do
+
+          // in the false case, allocate new memory for the ptr and
+          // constrain the ptr to point to it.
+          if (sp.second != nullptr) {
+
+            Type *subtype = ty->getPointerElementType();
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, MemKind::lazy, fullName(fnName, counter, "*return"), 0, lazyAllocationCount);
+            bindObjectInState(*sp.second, newMO);
+
+            ref<ConstantExpr> ptr = newMO->getBaseExpr();
+            ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(retExpr, ptr));
+            sp.second->addConstraint(eq);
           }
         }
       }
@@ -1007,8 +1092,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           klee_error("non-optimistic not supported at this time");
         }
         solver->setTimeout(0);
+        bindLocal(ki, state, base);
+      } else {
+        // invalid memory access
+        terminateState(state);
       }
-      bindLocal(ki, state, base);
+
       break;
     }
 
