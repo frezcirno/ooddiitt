@@ -16,6 +16,10 @@
 
 struct KTest;
 
+// RLR TODO: need to clean up this declaration, perhaps move to its own include file
+typedef std::vector<unsigned> m2m_path_t;
+typedef std::set<m2m_path_t> m2m_paths_t;
+
 namespace llvm {
 class Function;
 class LLVMContext;
@@ -137,7 +141,7 @@ public:
 
   virtual void runFunctionUnconstrained(llvm::Function *f)  { };
 
-  virtual void runFragmentUnconstrained(llvm::Function *f)  { };
+  virtual void runFragmentUnconstrained(llvm::Function *f, const m2m_paths_t &paths)  { };
 
   /*** Runtime options ***/
 

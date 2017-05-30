@@ -20,9 +20,9 @@ void skip(usher_t *usher, character_stream stream_ptr);
 int constant(int state, char token_str[], int token_ind);
 int next_state();
 void get_actual_token(usher_t *usher, char token_str[], int token_ind);
-void unget_char(int ch, character_stream stream_ptr);
 
 int print_token(token token_ptr);
+void unget_char(int ch, character_stream stream_ptr);
 
 /* ********************************************************************
    Function name : get_token

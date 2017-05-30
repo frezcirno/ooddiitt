@@ -73,16 +73,17 @@ namespace klee {
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
 cl::opt<bool>
-        AssumeInboundPointers("assume-inbound-pointers",
-                              cl::init(true),
-                              cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
+  AssumeInboundPointers("assume-inbound-pointers",
+                        cl::init(true),
+                        cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
-        Executor(ctx, opts, ih),
-        lazyAllocationCount(16) {
-  symbolicLocalVars = false;
+  Executor(ctx, opts, ih),
+  lazyAllocationCount(16),
+  symbolicLocalVars(false) {
+
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -467,6 +468,11 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
   const Module *result = Executor::setModule(module, opts);
+
+  // RLR TODO: temp testing of ushers
+  kmodule->addConcreteFunction("guide");
+  kmodule->addConcreteFunction("u_schedule");
+
   kmodule->prepareMarkers();
 
   for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
@@ -578,7 +584,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 }
 
 
-void LocalExecutor::runFragmentUnconstrained(Function *f) {
+void LocalExecutor::runFragmentUnconstrained(Function *f, const m2m_paths_t &paths) {
 
   symbolicLocalVars = true;
   KFunction *kf = kmodule->functionMap[f];
@@ -592,7 +598,7 @@ void LocalExecutor::runFragmentUnconstrained(Function *f) {
   outs() << name;
   outs().flush();
 
-  m2m_pathsRemaining = kf->m2m_paths;
+  m2m_pathsRemaining = paths;
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
 
@@ -919,6 +925,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
       const CallInst *ci = cast<CallInst>(i);
       Function *fn = ci->getCalledFunction();
+      if (fn == nullptr) {
+
+        // RLR TODO: why????
+        CallSite cs(i);
+
+        Value *fp = cs.getCalledValue();
+        fn = getTargetFunction(fp, state);
+      }
       std::string fnName = fn->getName();
 
       // if this is a special function, let
@@ -939,6 +953,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
+          symbolicLocalVars = false;
           state.addMarker(fnID, bbID);
           return;
         }

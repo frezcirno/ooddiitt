@@ -30,6 +30,7 @@ typedef struct list { /* doubly linked list */
 } List;
 
 List *del_ele(List *d_list, Ele *d_ele);
+void u_schedule(usher_t *usher);
 
 int alloc_proc_num;
 int num_processes;
@@ -37,7 +38,12 @@ Ele *cur_proc;
 List *prio_queue[MAXPRIO + 1]; /* 0th element unused */
 List *block_queue;
 
-void schedule(usher_t *usher) {
+void schedule() {
+  u_schedule(NULL);
+  return;
+}
+
+void u_schedule(usher_t *usher) {
   MARK(9, 6);
   int i;
 
