@@ -256,9 +256,11 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         os = makeSymbolic(state, mo);
       }
     } else {
+#ifdef NEVER
       if (!mo->prohibitSymbolic && !mo->name.empty() && !(mo->name == "usher") && (state.callDepth == 0)) {
         os = makeSymbolic(state, mo);
       }
+#endif
     }
   }
 
@@ -951,7 +953,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // if this is a special function, let
       // the standard executor handle it
       if (specialFunctionHandler->isSpecial(fn) || kmodule->isConcreteFunction(fn)) {
-        state.callDepth++;
         Executor::executeInstruction(state, ki);
         return;
       }
@@ -1045,12 +1046,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         }
       }
-      break;
-    }
-
-    case Instruction::Ret: {
-      --state.callDepth;
-      Executor::executeInstruction(state, ki);
       break;
     }
 

@@ -83,8 +83,7 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     forkDisabled(false),
     ptreeNode(0),
     name(name),
-    isProcessed(false),
-    callDepth(0) {
+    isProcessed(false) {
   pushFrame(0, kf);
 }
 
@@ -131,9 +130,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     markers(state.markers),
-    isProcessed(state.isProcessed),
-    callDepth(state.callDepth)
-{
+    isProcessed(state.isProcessed) {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
 }

@@ -1385,8 +1385,13 @@ int main(int argc, char **argv, char **envp) {
     Function *fn = *itr;
     if (fn != mainFn) {
 
-      // RLR TODO: hijacked for now
-      if (EvalUshers) {
+      if (!EvalUshers) {
+        theInterpreter->runFunctionUnconstrained(fn);
+      } else {
+
+#ifdef NEVER
+        // RLR TODO: hijacked for now
+
         std::string fnName = fn->getName();
         m2m_paths_t paths;
         if (fnName == "skip") {
@@ -1488,8 +1493,7 @@ int main(int argc, char **argv, char **envp) {
           paths.insert(p3);
           theInterpreter->runFragmentUnconstrained(fn, paths);
         }
-      } else {
-        theInterpreter->runFunctionUnconstrained(fn);
+#endif
       }
     }
   }

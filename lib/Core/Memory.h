@@ -70,8 +70,6 @@ public:
   /// should sensibly be only at creation time).
   mutable std::vector< ref<Expr> > cexPreferences;
 
-  bool prohibitSymbolic;
-
   // DO NOT IMPLEMENT
   MemoryObject(const MemoryObject &b);
   MemoryObject &operator=(const MemoryObject &b);
@@ -87,8 +85,7 @@ public:
       name("hack"),
       kind(MemKind::fixed),
       parent(NULL),
-      allocSite(0),
-      prohibitSymbolic(false) {
+      allocSite(0) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
@@ -104,8 +101,7 @@ public:
       fake_object(false),
       isUserSpecified(false),
       parent(_parent), 
-      allocSite(_allocSite),
-      prohibitSymbolic(false) {
+      allocSite(_allocSite) {
   }
 
   bool isValid() const  { return kind != MemKind::invalid; }

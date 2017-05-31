@@ -507,6 +507,8 @@ void KModule::prepareMarkers() {
       for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
         const Instruction *i = &(*iit);
         if (i->getOpcode() == Instruction::Call) {
+
+          // RLR TODO: eval this for callsite instead of CallInst
           const CallInst *ci = cast<CallInst>(i);
 
           // check if this is a call to either marker
@@ -700,6 +702,7 @@ bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *
   return itr != backedges.end();
 }
 
+// RLR TODO: this could use some commentary...
 void KFunction::addAllSimplePaths(m2m_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;

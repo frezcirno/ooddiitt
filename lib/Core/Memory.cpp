@@ -495,6 +495,8 @@ void ObjectState::write8(ref<Expr> offset, ref<Expr> value) {
   }
 
   // RLR TODO: how do I mark this as written?
+  //           does this case still even happen?
+  //           consider restore to original
 
 //  ref<ConstantExpr> cex;
 //  if (solver->getValue(state, addr, cex)) {
