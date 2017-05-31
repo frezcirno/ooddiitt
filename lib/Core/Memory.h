@@ -70,6 +70,8 @@ public:
   /// should sensibly be only at creation time).
   mutable std::vector< ref<Expr> > cexPreferences;
 
+  bool prohibitSymbolic;
+
   // DO NOT IMPLEMENT
   MemoryObject(const MemoryObject &b);
   MemoryObject &operator=(const MemoryObject &b);
@@ -85,7 +87,8 @@ public:
       name("hack"),
       kind(MemKind::fixed),
       parent(NULL),
-      allocSite(0) {
+      allocSite(0),
+      prohibitSymbolic(false) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
@@ -101,7 +104,8 @@ public:
       fake_object(false),
       isUserSpecified(false),
       parent(_parent), 
-      allocSite(_allocSite) {
+      allocSite(_allocSite),
+      prohibitSymbolic(false) {
   }
 
   bool isValid() const  { return kind != MemKind::invalid; }
@@ -179,6 +183,7 @@ private:
   BitArray *writtenMask;
 
 public:
+    //RLR TODO: evaluate wether symboliclyWritten is still needed.
   bool symboliclyWritten;
   unsigned size;
   bool readOnly;

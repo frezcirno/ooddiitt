@@ -7,7 +7,7 @@ void MARK(unsigned fn, unsigned bb);
 typedef struct {
   unsigned size;
   unsigned next;
-  unsigned *bits;
+  unsigned bits;
 } usher_t;
 
 void constructUsher(usher_t *usher, unsigned size);

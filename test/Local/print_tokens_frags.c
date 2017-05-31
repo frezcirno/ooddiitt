@@ -40,34 +40,31 @@ void unget_char(int ch, character_stream stream_ptr);
 token get_token(token_stream tstream_ptr) {
   MARK(7, 34);
 
-  usher_t usher;
-  constructUsher(&usher, 0);
-
   char token_str[80]; /* This buffer stores the current token */
   int token_ind;      /* Index to the token_str  */
   token token_ptr;
   char ch;
   int cu_state, next_st, token_found;
 
-  token_ptr = (token)(malloc(sizeof(struct token_type)));
-  ch = get_char(tstream_ptr->ch_stream);
-  cu_state = token_ind = token_found = 0;
-  while ((MARK(7, 33), !guide(&usher, token_found))) {
-    if ((mark(7, 32), guide(&usher, token_ind < 80))) { /* ADDED ERROR CHECK - hf */
+//  token_ptr = (token)(malloc(sizeof(struct token_type)));
+//  ch = get_char(tstream_ptr->ch_stream);
+//  cu_state = token_ind = token_found = 0;
+  while ((MARK(7, 33), !token_found)) {
+    if ((mark(7, 32), token_ind < 80)) { /* ADDED ERROR CHECK - hf */
       (mark(7, 31), token_str[token_ind++] = ch);
       next_st = next_state(cu_state, ch);
     } else {
       (mark(7, 30), next_st = -1); /* - hf */
     }
-    if ((mark(7, 29), guide(&usher, next_st == -1))) { /* ERROR or EOF case */
+    if ((mark(7, 29), next_st == -1)) { /* ERROR or EOF case */
       token result_4882dff095 = (error_or_eof_case(
           tstream_ptr, token_ptr, cu_state, token_str, token_ind, ch));
       return (MARK(7, 28), (result_4882dff095));
-    } else if ((mark(7, 27), guide(&usher, next_st == -2))) { /* This is numeric case. */
+    } else if ((mark(7, 27), next_st == -2)) { /* This is numeric case. */
       token result_8025f5e6e0 =
           (numeric_case(tstream_ptr, token_ptr, ch, token_str, token_ind));
       return (MARK(7, 26), (result_8025f5e6e0));
-    } else if ((mark(7, 25), guide(&usher, next_st == -3))) { /* This is the IDENTIFIER case */
+    } else if ((mark(7, 25), next_st == -3)) { /* This is the IDENTIFIER case */
       token_ptr->token_id = IDENTIFIER;
       unget_char(ch, tstream_ptr->ch_stream);
       token_ind--;
@@ -85,7 +82,7 @@ token get_token(token_stream tstream_ptr) {
     case 13:
     case 16:
       ch = (mark(7, 18), get_char(tstream_ptr->ch_stream));
-      if (guide(&usher, check_delimiter(ch) == TRUE)) {
+      if (check_delimiter(ch) == TRUE) {
         token_ptr->token_id = keyword(next_st);
         unget_char(ch, tstream_ptr->ch_stream);
         token_ptr->token_string[0] = '\0';
@@ -135,21 +132,19 @@ token get_token(token_stream tstream_ptr) {
 void skip(character_stream stream_ptr) {
   MARK(13, 7);
 
-  usher_t usher;
-  constructUsher(&usher, 0);
-
   char c;
 
-  while ( guide(&usher, (c = (MARK(13, 6), get_char(stream_ptr))) != '\n') &&
-         !(mark(13, 5), guide(&usher, is_end_of_character_stream(stream_ptr))))
+  while ((c = (MARK(13, 6), get_char(stream_ptr)) != '\n') &&
+         !(mark(13, 5), is_end_of_character_stream(stream_ptr)))
     ; /* Skip the characters until EOF or EOL found. */
-  if ((mark(13, 3), guide(&usher, c == EOF))) {
+  if ((mark(13, 3), c == EOF)) {
     (mark(13, 2),
      unget_char(c, stream_ptr)); /* Put back to leave gracefully - hf */
   }
   MARK(13, 1);
   return;
 }
+
 
 /* **********************************************************************
    Function name : get_actual_token
@@ -164,25 +159,13 @@ void skip(character_stream stream_ptr) {
 void get_actual_token(char token_str[], int token_ind) {
   MARK(18, 14);
 
-  usher_t usher;
-  constructUsher(&usher, 2);
-  clearBit(&usher, 0);
-  setBit(&usher, 1);
-  
   int ind, start;
 
-  for (ind = token_ind;
-       (MARK(18, 13), guide(&usher, ind > 0)) && (mark(18, 12), guide(&usher, isspace(token_str[ind - 1])));
-       (mark(18, 11), --ind))
-    ;
-  /* Delete the trailing white spaces & protect - hf */
-  (mark(18, 10), token_str[ind] = '\0');
-  token_ind = ind;
-  for (ind = 0; (MARK(18, 9), guide(&usher, ind < token_ind)); (mark(18, 6), ++ind))
-    if (!(mark(18, 8), guide(&usher, isspace(token_str[ind])))) {
+  for (; ; )
+    if (!(mark(18, 8), isspace(token_str[ind]))) {
       break;
     }
-  for ((mark(18, 5), start = 0); (MARK(18, 4), guide(&usher, ind <= token_ind)); (mark(18, 2), ++start), ++ind)   {
+  for ((mark(18, 5), start = 0); (MARK(18, 4), ind <= token_ind); (mark(18, 2), ++start), ++ind)   {
     (mark(18, 3), token_str[start] = token_str[ind]);
   }
   MARK(18, 1);

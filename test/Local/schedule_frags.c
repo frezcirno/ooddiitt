@@ -39,13 +39,12 @@ List *block_queue;
 
 void schedule() {
   MARK(9, 6);
-  usher_t usher;
-  constructUsher(&usher, 0);
+
   int i;
 
-  cur_proc = NULL;
-  for (i = MAXPRIO; (MARK(9, 5), guide(&usher, i > 0)); (mark(9, 2), i--)) {
-    if ((mark(9, 4), guide(&usher, prio_queue[i]->mem_count > 0))) {
+//  cur_proc = NULL;
+  for (; (MARK(9, 5), i > 0); (mark(9, 2), i--)) {
+    if ((mark(9, 4), prio_queue[i]->mem_count > 0)) {
       cur_proc = prio_queue[i]->first;
       prio_queue[i] = del_ele(prio_queue[i], cur_proc);
       MARK(9, 3);

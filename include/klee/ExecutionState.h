@@ -156,6 +156,7 @@ public:
   std::string name;
   std::vector<unsigned> markers;
   bool isProcessed;
+  unsigned callDepth;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

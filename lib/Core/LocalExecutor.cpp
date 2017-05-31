@@ -249,12 +249,17 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     solver->setTimeout(0);
   }
 
-  if (!state.isSymbolic(mo) && !isLocallyAllocated(state, mo)) {
-    os = makeSymbolic(state, mo);
-  } else if (!state.isSymbolic(mo) && symbolicLocalVars && !mo->name.empty()) {
-
-    // RLR TODO: yuk. fix this mess
-    os = makeSymbolic(state, mo);
+  // RLR TODO: yuk. fix this mess
+  if (!state.isSymbolic(mo)) {
+    if (!symbolicLocalVars) {
+      if (!isLocallyAllocated(state, mo)) {
+        os = makeSymbolic(state, mo);
+      }
+    } else {
+      if (!mo->prohibitSymbolic && !mo->name.empty() && !(mo->name == "usher") && (state.callDepth == 0)) {
+        os = makeSymbolic(state, mo);
+      }
+    }
   }
 
   ref<Expr> e = os->read(offsetExpr, width);
@@ -359,6 +364,10 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 }
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
+
+  assert(mo->name != "usher");
+  assert(mo->name != "*usher");
+  assert(mo->name != "**usher");
 
   ObjectState *wos = nullptr;
   const ObjectState *os = state.addressSpace.findObject(mo);
@@ -471,7 +480,11 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
 
   // RLR TODO: temp testing of ushers
   kmodule->addConcreteFunction("guide");
-  kmodule->addConcreteFunction("u_schedule");
+  kmodule->addConcreteFunction("constructUsher");
+  kmodule->addConcreteFunction("deleteUsher");
+  kmodule->addConcreteFunction("getBit");
+  kmodule->addConcreteFunction("setBit");
+  kmodule->addConcreteFunction("clearBit");
 
   kmodule->prepareMarkers();
 
@@ -938,6 +951,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // if this is a special function, let
       // the standard executor handle it
       if (specialFunctionHandler->isSpecial(fn) || kmodule->isConcreteFunction(fn)) {
+        state.callDepth++;
         Executor::executeInstruction(state, ki);
         return;
       }
@@ -953,7 +967,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
-          symbolicLocalVars = false;
           state.addMarker(fnID, bbID);
           return;
         }
@@ -1032,6 +1045,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         }
       }
+      break;
+    }
+
+    case Instruction::Ret: {
+      --state.callDepth;
+      Executor::executeInstruction(state, ki);
       break;
     }
 
