@@ -81,8 +81,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
-  lazyAllocationCount(16),
-  symbolicLocalVars(false) {
+  lazyAllocationCount(16) {
 
 }
 
@@ -146,9 +145,8 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
     // not a const address, so we have to ask the solver
     solver->setTimeout(coreSolverTimeout);
     if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
-      // RLR TODO: cleanup on alise 9
-//      address = toConstant(state, address, "resolveOne failure");
-//      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
+      address = toConstant(state, address, "resolveOne failure");
+      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
     }
     solver->setTimeout(0);
   }
@@ -177,7 +175,8 @@ void LocalExecutor::executeFree(ExecutionState &state,
       }
     } else {
 
-      // RLR TODO: remove if not required
+      // when executing at the function/fragment level, memory objects
+      // may not exist. this is not an error.
     }
   }
 }
@@ -249,18 +248,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     solver->setTimeout(0);
   }
 
-  // RLR TODO: yuk. fix this mess
   if (!state.isSymbolic(mo)) {
-    if (!symbolicLocalVars) {
-      if (!isLocallyAllocated(state, mo)) {
-        os = makeSymbolic(state, mo);
-      }
-    } else {
-#ifdef NEVER
-      if (!mo->prohibitSymbolic && !mo->name.empty() && !(mo->name == "usher") && (state.callDepth == 0)) {
-        os = makeSymbolic(state, mo);
-      }
-#endif
+    if (!isLocallyAllocated(state, mo)) {
+      os = makeSymbolic(state, mo);
     }
   }
 
@@ -317,7 +307,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   unsigned bytes = Expr::getMinBytesForWidth(width);
 
   // propagate address name, if unset
-  if ((mo->name.empty()) && (!name.empty())) {
+  if (mo->name.empty()) {
     mo->name = name;
   }
 
@@ -480,14 +470,6 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
   const Module *result = Executor::setModule(module, opts);
 
-  // RLR TODO: temp testing of ushers
-  kmodule->addConcreteFunction("guide");
-  kmodule->addConcreteFunction("constructUsher");
-  kmodule->addConcreteFunction("deleteUsher");
-  kmodule->addConcreteFunction("getBit");
-  kmodule->addConcreteFunction("setBit");
-  kmodule->addConcreteFunction("clearBit");
-
   kmodule->prepareMarkers();
 
   for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
@@ -511,7 +493,6 @@ void LocalExecutor::bindModuleConstants() {
 
 void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
-  symbolicLocalVars = false;
   KFunction *kf = kmodule->functionMap[f];
   if (kf == nullptr) {
     // not in this compilation unit
@@ -524,96 +505,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   outs().flush();
 
   m2m_pathsRemaining = kf->m2m_paths;
-  unsigned num_m2m_paths = m2m_pathsRemaining.size();
-  ExecutionState *state = new ExecutionState(kf, name);
-
-  if (pathWriter)
-    state->pathOS = pathWriter->open();
-  if (symPathWriter)
-    state->symPathOS = symPathWriter->open();
-
-  if (statsTracker)
-    statsTracker->framePushed(*state, 0);
-
-  initializeGlobals(*state);
-
-  // create parameter values
-  unsigned index = 0;
-  for (Function::const_arg_iterator ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai, ++index) {
-
-    const Argument &arg = *ai;
-    std::string argName = arg.getName();
-    Type *argType = arg.getType();
-    size_t argAlign = arg.getParamAlignment();
-
-    // RLR TODO: affirm that this is a fundamental type?
-    WObjectPair wop;
-    if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
-      klee_error("failed to allocate function parameter");
-    }
-
-    Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
-    ref<Expr> e = wop.second->read(0, width);
-    bindArgument(kf, index, *state, e);
-  }
-
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = nullptr;
-
-  // hack to clear memory objects
-  delete memory;
-  memory = new MemoryManager(NULL);
-
-  // clean up global objects
-  // RLR TODO: no real need to destroy the globals
-  // and set them up again on next function. just need to
-  // re-initialize
-  legalFunctions.clear();
-  globalObjects.clear();
-  globalAddresses.clear();
-
-  if (num_m2m_paths > 0) {
-    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
-    outs() << " of " << num_m2m_paths << " covered";
-
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
-
-      bool first = true;
-      outs() << "\n  [";
-      for (const unsigned &marker : path) {
-        if (!first) outs() << ", ";
-        first = false;
-        outs() << marker;
-      }
-      outs() << "]";
-    }
-  }
-  outs() << "\n";
-  outs().flush();
-
-  if (statsTracker)
-    statsTracker->done();
-}
-
-
-void LocalExecutor::runFragmentUnconstrained(Function *f, const m2m_paths_t &paths) {
-
-  symbolicLocalVars = true;
-  KFunction *kf = kmodule->functionMap[f];
-  if (kf == nullptr) {
-    // not in this compilation unit
-    return;
-  }
-
-  std::string name = f->getName();
-  outs().flush();
-  outs() << name;
-  outs().flush();
-
-  m2m_pathsRemaining = paths;
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
 
@@ -821,17 +712,6 @@ void LocalExecutor::run(ExecutionState &initialState) {
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
-#ifdef NEVER
-    if (ki->info->assemblyLine == 66) {
-      outs() << "here\n";
-    } else if (ki->info->assemblyLine == 67) {
-      outs() << "here\n";
-    } else if (ki->info->assemblyLine == 68) {
-      outs() << "here\n";
-    } else if (ki->info->assemblyLine == 69) {
-      outs() << "here\n";
-    }
-#endif
     executeInstruction(state, ki);
 
     processTimers(&state, 0);
@@ -877,8 +757,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       BasicBlock *src = i->getParent();
       const KFunction *kf = state.stack.back().kf;
 
-      // RLR TODO: clean this up
 #ifdef NEVER
+      // RLR TODO: klee's own back-edge detection does not use
+      // dominator trees. When confortable with klee's approach
+      // remove this
       // need a dominator tree for this function
       Function *fn = src->getParent();
       DominatorTree *dom = domTrees[fn];

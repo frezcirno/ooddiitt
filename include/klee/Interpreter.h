@@ -141,7 +141,7 @@ public:
 
   virtual void runFunctionUnconstrained(llvm::Function *f)  { };
 
-  virtual void runFragmentUnconstrained(llvm::Function *f, const m2m_paths_t &paths)  { };
+//  virtual void runFragmentUnconstrained(llvm::Function *f, const m2m_paths_t &paths)  { };
 
   /*** Runtime options ***/
 
