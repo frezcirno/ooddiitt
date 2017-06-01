@@ -130,26 +130,31 @@ int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
 
 bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
 
-  bool result = false;
-
   assert(address.get()->getWidth() == Context::get().getPointerWidth());
+
+  address = state.constraints.simplifyExpr(address);
 
   if (isa<ConstantExpr>(address)) {
     ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
+    if (caddress.get()->isZero()) {
+      return false;
+    }
 
     // fast path: single in-bounds resolution
-    result = state.addressSpace.resolveOne(caddress, op);
+    return state.addressSpace.resolveOne(caddress, op);
   }
-  if (!result) {
 
-    // not a const address, so we have to ask the solver
+  // not a const address, so we have to ask the solver
+  solver->setTimeout(coreSolverTimeout);
+  bool result = false;
+  if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
+
+    ref<ConstantExpr> caddr;
     solver->setTimeout(coreSolverTimeout);
-    if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
-      address = toConstant(state, address, "resolveOne failure");
-      result = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
-    }
-    solver->setTimeout(0);
+    result = solver->getValue(state, address, caddr);
+    result = resolveMO(state, caddr, op);
   }
+  solver->setTimeout(0);
   return result;
 }
 
@@ -824,9 +829,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Function *fn = ci->getCalledFunction();
       if (fn == nullptr) {
 
+        klee_warning("mystery CallInst failure");
+
         // RLR TODO: why????
         CallSite cs(i);
-
         Value *fp = cs.getCalledValue();
         fn = getTargetFunction(fp, state);
       }
