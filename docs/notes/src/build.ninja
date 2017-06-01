@@ -1,0 +1,11 @@
+
+pflags = -V geometry:margin=1in --latex-engine=xelatex
+latexflags = -silent
+outdir = ..
+
+rule pc
+  command = pandoc ${pflags} ${in} -o ${out}
+
+build ${outdir}/building_klee.pdf: pc building_klee.md
+
+default ${outdir}/building_klee.pdf
