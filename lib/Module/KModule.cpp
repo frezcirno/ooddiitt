@@ -513,7 +513,10 @@ void KModule::prepareMarkers() {
 
           // check if this is a call to either marker
           Function *called = ci->getCalledFunction();
-          if (called != nullptr) {
+          if (called == nullptr) {
+            klee_warning("mystery CallInst failure at setup");
+          } else {
+
             std::string calledName = called->getName();
 
             // check the name, number of arguments, and the return type
@@ -561,8 +564,7 @@ void KModule::prepareMarkers() {
 
       // and find all simple paths for cycles
       for (auto itr = kf->backedges.begin(), end = kf->backedges.end(); itr != end; ++itr) {
-        std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &bbs = *itr;
-        kf->addAllSimpleCycles(bbs.second, paths);
+        kf->addAllSimpleCycles(itr->second, paths);
       }
 
       kf->setM2MPaths(paths);
@@ -696,10 +698,14 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const {
-  auto itr = std::find(backedges.begin(), backedges.end(),
-                       std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>(src, dst));
+bool KFunction::isBackedge(const std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &edge) const {
+  auto itr = std::find(backedges.begin(), backedges.end(), edge);
   return itr != backedges.end();
+}
+
+bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const {
+  std::pair<const llvm::BasicBlock*, const llvm::BasicBlock*> edge(src, dst);
+  return isBackedge(edge);
 }
 
 // RLR TODO: this could use some commentary...

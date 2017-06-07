@@ -31,6 +31,14 @@ typedef struct list { /* doubly linked list */
 
 void schedule(void);
 
+Ele *new_ele(int new_num);
+List *new_list(void);
+List *append_ele(List *a_list, Ele *a_ele);
+List *del_ele(List *d_list, Ele *d_ele);
+
+
+#ifdef NEVER
+
 /*-----------------------------------------------------------------------------
   new_ele
      alloates a new element with value as num.
@@ -85,6 +93,10 @@ List *append_ele(List *a_list, Ele *a_ele) {
   a_list->mem_count++;
   return (MARK(3, 1), (a_list));
 }
+
+#endif
+
+#ifdef NEVER
 
 /*-----------------------------------------------------------------------------
   find_nth
@@ -142,11 +154,16 @@ void free_ele(Ele *ptr) {
   return;
 }
 
+#endif
+
+
 int alloc_proc_num;
 int num_processes;
 Ele *cur_proc;
 List *prio_queue[MAXPRIO + 1]; /* 0th element unused */
 List *block_queue;
+
+#ifdef NEVER
 
 void finish_process(void) {
   (MARK(7, 3), schedule());
@@ -171,6 +188,8 @@ void finish_all_processes(void) {
   return;
 }
 
+#endif
+
 void schedule(void) {
   MARK(9, 6);
   int i;
@@ -187,6 +206,8 @@ void schedule(void) {
   MARK(9, 1);
   return;
 }
+
+#ifdef NEVER
 
 void upgrade_process_prio(int prio, short numerator) {
   MARK(10, 6);
@@ -402,3 +423,4 @@ and ratio is in           0.0..1.0
  processes exit from the system.
 
 */
+#endif

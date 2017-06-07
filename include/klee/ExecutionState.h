@@ -36,6 +36,12 @@ struct InstructionInfo;
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 typedef std::pair<llvm::BasicBlock*,llvm::BasicBlock*> CFGEdge;
 
+struct LoopInfo {
+  unsigned counter;
+  LoopInfo()                  { counter = 0; }
+  LoopInfo(const LoopInfo &s) { counter = s.counter; }
+};
+
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
@@ -45,7 +51,8 @@ struct StackFrame {
   size_t numRegs;
   Cell *locals;
 
-  std::set<CFGEdge> edgesTaken;
+  llvm::BasicBlock *prevBranchBB;
+  std::map<CFGEdge,LoopInfo> loopInfo;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -65,10 +72,6 @@ struct StackFrame {
   StackFrame(const StackFrame &s);
   ~StackFrame();
 
-  void addEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2)  { CFGEdge edge(bb1, bb2);
-                                                                edgesTaken.insert(edge); }
-  bool containsEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2) { CFGEdge edge(bb1, bb2);
-                                                                    return edgesTaken.find(edge) != edgesTaken.end(); }
 };
 
 /// @brief ExecutionState representing a path under exploration

@@ -760,40 +760,35 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
-      const KFunction *kf = state.stack.back().kf;
+      StackFrame &sf = state.stack.back();
+      KFunction *kf = sf.kf;
 
-#ifdef NEVER
-      // RLR TODO: klee's own back-edge detection does not use
-      // dominator trees. When confortable with klee's approach
-      // remove this
-      // need a dominator tree for this function
-      Function *fn = src->getParent();
-      DominatorTree *dom = domTrees[fn];
-      if (dom == nullptr) {
-        dom = new DominatorTree();
-        dom->runOnFunction(*fn);
-        domTrees[fn] = dom;
+      LoopInfo *loopHeaderInfo = nullptr;
+      CFGEdge edge(sf.prevBranchBB, src);
+      if (kf->isBackedge(edge)) {
+        loopHeaderInfo = &sf.loopInfo[edge];
+        loopHeaderInfo->counter++;
       }
-#endif
+
+      sf.prevBranchBB = src;
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
         transferToBasicBlock(dst, src, state);
 
-        if (kf->isBackedge(src, dst)) {
-          StackFrame &sf = state.stack.back();
-          if (sf.containsEdge(src, dst)) {
-            terminateState(state);
-          } else {
-            sf.addEdge(src, dst);
-          }
-        }
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
         assert(bi->getCondition() == bi->getOperand(0) &&
             "Wrong operand index!");
         ref<Expr> cond = eval(ki, 0, state).value;
         Executor::StatePair branches = fork(state, cond, false);
+
+        if (branches.first && branches.second && loopHeaderInfo) {
+          if (loopHeaderInfo->counter > 1) {
+            terminateState(*branches.first);
+            branches.first = nullptr;
+          }
+        }
 
         // NOTE: There is a hidden dependency here, markBranchVisited
         // requires that we still be in the context of the branch
@@ -807,20 +802,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (states[index] != nullptr) {
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(dst, src, *states[index]);
-
-            if (kf->isBackedge(src, dst)) {
-
-              StackFrame &sf = states[index]->stack.back();
-              if (sf.containsEdge(src, dst)) {
-                terminateState(*states[index]);
-              } else {
-                sf.addEdge(src, dst);
-              }
-            }
           }
         }
       }
       break;
+    }
+
+    case Instruction::Switch: {
+      BasicBlock *src = i->getParent();
+      StackFrame &sf = state.stack.back();
+      sf.prevBranchBB = src;
+      Executor::executeInstruction(state, ki);
+      return;
     }
 
     case Instruction::Invoke:
@@ -829,7 +822,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Function *fn = ci->getCalledFunction();
       if (fn == nullptr) {
 
-        klee_warning("mystery CallInst failure");
+        klee_warning("mystery CallInst failure at runtime");
 
         // RLR TODO: why????
         CallSite cs(i);
@@ -937,7 +930,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
-      // Memory instructions...
+    // Memory instructions...
       
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
@@ -1030,8 +1023,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     default:
       Executor::executeInstruction(state, ki);
       break;
-    }
   }
+}
   
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   

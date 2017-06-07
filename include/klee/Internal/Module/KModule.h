@@ -62,7 +62,7 @@ namespace klee {
     // values collected from marked ir
     unsigned fnID;
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > basicBlockMarker;
-    llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
+    llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 64> backedges;
     std::set<unsigned> majorMarkers;
     m2m_paths_t m2m_paths;
 
@@ -86,11 +86,12 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
+    bool isBackedge(const std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &edge) const;
     bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
     void addAllSimplePaths(m2m_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, m2m_paths_t &paths) const;
     void setM2MPaths(const m2m_paths_t &paths);
-    bool isMajorMarker(unsigned marker)         { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
   };
 
 
