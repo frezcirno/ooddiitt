@@ -17,6 +17,7 @@
 // FIXME: We do not want to be exposing these? :(
 #include "../../lib/Core/AddressSpace.h"
 #include "klee/Internal/Module/KInstIterator.h"
+#include "klee/Internal/Module/KModule.h"
 #include "llvm/IR/BasicBlock.h"
 
 #include <map>
@@ -34,7 +35,6 @@ class PTreeNode;
 struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
-typedef std::pair<llvm::BasicBlock*,llvm::BasicBlock*> CFGEdge;
 
 struct LoopInfo {
   unsigned counter;

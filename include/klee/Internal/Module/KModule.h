@@ -32,8 +32,11 @@ namespace llvm {
 #endif
 }
 
-typedef std::vector<unsigned> m2m_path_t;
-typedef std::set<m2m_path_t> m2m_paths_t;
+typedef std::vector<unsigned> marker_path_t;
+typedef std::set<marker_path_t> marker_paths_t;
+typedef std::vector<const llvm::BasicBlock*> bb_path_t;
+typedef std::set<bb_path_t> bb_paths_t;
+typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
 
 namespace klee {
   struct Cell;
@@ -44,6 +47,13 @@ namespace klee {
   struct KInstruction;
   class KModule;
   template<class T> class ref;
+
+
+  struct KLoopInfo {
+    std::set<llvm::BasicBlock*> bbs;
+    KLoopInfo()                   { }
+    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; }
+  };
 
   struct KFunction {
     llvm::Function *function;
@@ -59,12 +69,16 @@ namespace klee {
     /// "coverable" for statistics and search heuristics.
     bool trackCoverage;
 
-    // values collected from marked ir
     unsigned fnID;
-    std::map<const llvm::BasicBlock*,std::vector<unsigned> > basicBlockMarker;
-    llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 64> backedges;
+
+    // loop analysis
+    std::set<CFGEdge> backedges;
+    std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
+
+    // marker info
+    std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
     std::set<unsigned> majorMarkers;
-    m2m_paths_t m2m_paths;
+    marker_paths_t m2m_paths;
 
   private:
     KFunction(const KFunction&);
@@ -72,25 +86,28 @@ namespace klee {
 
     void recurseAllSimplePaths(const llvm::BasicBlock *bb,
                                std::set<const llvm::BasicBlock*> &visited,
-                               std::vector<const llvm::BasicBlock*> &path,
-                               m2m_paths_t &paths) const;
+                               bb_path_t &path,
+                               bb_paths_t &paths) const;
 
     void recurseAllSimpleCycles(const llvm::BasicBlock *bb,
                                 const llvm::BasicBlock *dst,
                                 std::set<const llvm::BasicBlock*> &visited,
-                                std::vector<const llvm::BasicBlock*> &path,
-                                m2m_paths_t &paths) const;
+                                bb_path_t &path,
+                                bb_paths_t &paths) const;
+    
+    void translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const;
 
   public:
     explicit KFunction(llvm::Function*, KModule *);
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-    bool isBackedge(const std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &edge) const;
+    void findBackedges();
+    bool isBackedge(const CFGEdge &edge) const;
     bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
-    void addAllSimplePaths(m2m_paths_t &paths) const;
-    void addAllSimpleCycles(const llvm::BasicBlock *bb, m2m_paths_t &paths) const;
-    void setM2MPaths(const m2m_paths_t &paths);
+    void addAllSimplePaths(bb_paths_t &paths) const;
+    void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
+    void setM2MPaths(const bb_paths_t &bb_paths);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
   };
 
