@@ -760,17 +760,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
-      StackFrame &sf = state.stack.back();
-      KFunction *kf = sf.kf;
+//      StackFrame &sf = state.stack.back();
+//      KFunction *kf = sf.kf;
 
       LoopInfo *loopHeaderInfo = nullptr;
-      CFGEdge edge(sf.prevBranchBB, src);
-      if (kf->isBackedge(edge)) {
-        loopHeaderInfo = &sf.loopInfo[edge];
-        loopHeaderInfo->counter++;
-      }
+//      CFGEdge edge(sf.prevBranchBB, src);
+//      if (kf->isBackedge(edge)) {
+//        loopHeaderInfo = &sf.loopInfo[edge];
+//        loopHeaderInfo->counter++;
+//      }
 
-      sf.prevBranchBB = src;
+//      sf.prevBranchBB = src;
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
@@ -809,9 +809,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 
     case Instruction::Switch: {
-      BasicBlock *src = i->getParent();
-      StackFrame &sf = state.stack.back();
-      sf.prevBranchBB = src;
+// RLR TODO: remove or use
+//      BasicBlock *src = i->getParent();
+//      StackFrame &sf = state.stack.back();
+//      sf.prevBranchBB = src;
       Executor::executeInstruction(state, ki);
       return;
     }

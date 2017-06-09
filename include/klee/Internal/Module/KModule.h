@@ -50,9 +50,10 @@ namespace klee {
 
 
   struct KLoopInfo {
-    std::set<llvm::BasicBlock*> bbs;
+    std::set<const llvm::BasicBlock*> bbs;
+    std::set<const llvm::BasicBlock*> exits;
     KLoopInfo()                   { }
-    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; }
+    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; exits = s.exits; }
   };
 
   struct KFunction {
@@ -109,6 +110,7 @@ namespace klee {
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &bb_paths);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool isLoopExit(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &scc) const;
   };
 
 

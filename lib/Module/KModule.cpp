@@ -569,9 +569,17 @@ void KModule::prepareMarkers() {
         const bb_path_t &path = *itr;
         const BasicBlock *hdr = path.front();
         KLoopInfo &info = kf->loopInfo[hdr];
+        for (const BasicBlock *bb : path) {
+         info.bbs.insert(bb);
+        }
 
+        // for each basic block in the final set, collect the exit nodes
+        for (const BasicBlock *bb : info.bbs) {
+          if (kf->isLoopExit(bb, info.bbs)) {
+            info.exits.insert(bb);
+          }
+        }
       }
-
 
       // find all simple paths from entry to exit
       kf->addAllSimplePaths(paths);
@@ -847,4 +855,23 @@ void KFunction::findBackedges() {
   for (auto itr = edges.begin(), end = edges.end(); itr != end; ++itr) {
     backedges.insert(*itr);
   }
+}
+
+bool KFunction::isLoopExit(const llvm::BasicBlock *bb,
+                           const std::set<const llvm::BasicBlock*> &scc) const {
+
+  const TerminatorInst *tinst = bb->getTerminator();
+  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
+    const BasicBlock *successor = tinst->getSuccessor(index);
+    if (scc.find(successor) == scc.end()) {
+
+      // not in this scc, either exiting loop or entering a
+      // nested loop header
+      return true;
+    }
+  }
+
+  // all successors in are the strongly connected component, so
+  // this must not be an exit node
+  return false;
 }

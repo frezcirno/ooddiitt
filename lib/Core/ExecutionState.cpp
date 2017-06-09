@@ -46,7 +46,8 @@ namespace {
 StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
   : caller(_caller), kf(_kf), callPathNode(0), 
     numRegs(kf->numRegisters),
-    prevBranchBB(nullptr),
+// RLR TODO: remove
+//    prevBranchBB(nullptr),
     minDistToUncoveredOnReturn(0), varargs(0) {
   locals = new Cell[numRegs];
 }
@@ -57,8 +58,9 @@ StackFrame::StackFrame(const StackFrame &s)
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
-    prevBranchBB(s.prevBranchBB),
-    loopInfo(s.loopInfo),
+// RLR TODO: remove
+//    prevBranchBB(s.prevBranchBB),
+//    loopInfo(s.loopInfo),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];

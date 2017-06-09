@@ -51,8 +51,9 @@ struct StackFrame {
   size_t numRegs;
   Cell *locals;
 
-  llvm::BasicBlock *prevBranchBB;
-  std::map<CFGEdge,LoopInfo> loopInfo;
+// RLR TODO: remove this
+//  llvm::BasicBlock *prevBranchBB;
+//  std::map<CFGEdge,LoopInfo> loopInfo;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
