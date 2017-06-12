@@ -751,6 +751,38 @@ void LocalExecutor::updateStates(ExecutionState *current) {
   Executor::updateStates(current);
 }
 
+void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
+
+  // if src and dst bbs have the same parent, then this is a branch
+  // update the loop frame
+  if (dst->getParent() == src->getParent()) {
+    StackFrame &sf = state.stack.back();
+    KFunction *kf = sf.kf;
+
+    if (kf->isLoopHeader(dst)) {
+      if (kf->isInLoop(dst, src)) {
+
+        // completed a cycle
+        assert(!sf.loopFrames.empty() && "cycled an empty loop");
+        ++sf.loopFrames.back().counter;
+
+      } else {
+        // this is a new loop
+        sf.loopFrames.push_back(LoopFrame(dst));
+      }
+    } else if (!sf.loopFrames.empty()) {
+
+      LoopFrame *lf = &sf.loopFrames.back();
+      const BasicBlock *hdr = lf->hdr;
+      if (!kf->isInLoop(hdr, dst)) {
+
+        // just left the loop
+        sf.loopFrames.pop_back();
+      }
+    }
+  }
+  Executor::transferToBasicBlock(dst, src, state);
+}
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
@@ -760,17 +792,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
-//      StackFrame &sf = state.stack.back();
-//      KFunction *kf = sf.kf;
-
-      LoopInfo *loopHeaderInfo = nullptr;
-//      CFGEdge edge(sf.prevBranchBB, src);
-//      if (kf->isBackedge(edge)) {
-//        loopHeaderInfo = &sf.loopInfo[edge];
-//        loopHeaderInfo->counter++;
-//      }
-
-//      sf.prevBranchBB = src;
+      KFunction *kf = state.stack.back().kf;
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
@@ -783,13 +805,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         ref<Expr> cond = eval(ki, 0, state).value;
         Executor::StatePair branches = fork(state, cond, false);
 
-        if (branches.first && branches.second && loopHeaderInfo) {
-          if (loopHeaderInfo->counter > 1) {
-            terminateState(*branches.first);
-            branches.first = nullptr;
-          }
-        }
-
         // NOTE: There is a hidden dependency here, markBranchVisited
         // requires that we still be in the context of the branch
         // instruction (it reuses its statistic id). Should be cleaned
@@ -798,23 +813,31 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           statsTracker->markBranchVisited(branches.first, branches.second);
 
         ExecutionState *states[2] = { branches.first, branches.second };
+        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
+
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(dst, src, *states[index]);
+
+            if (bothSatisfyable) {
+              StackFrame &sf = states[index]->stack.back();
+              if (!sf.loopFrames.empty()) {
+                LoopFrame &lf = sf.loopFrames.back();
+                if (kf->isLoopExit(lf.hdr, src)) {
+                  if (kf->isInLoop(lf.hdr, dst)) {
+                    if (lf.counter > 2) {
+                      // finally consider terminating the state.
+                      outs() << "can I finally kill it???";
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
       break;
-    }
-
-    case Instruction::Switch: {
-// RLR TODO: remove or use
-//      BasicBlock *src = i->getParent();
-//      StackFrame &sf = state.stack.back();
-//      sf.prevBranchBB = src;
-      Executor::executeInstruction(state, ki);
-      return;
     }
 
     case Instruction::Invoke:

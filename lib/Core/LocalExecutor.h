@@ -107,12 +107,11 @@ protected:
                      unsigned count = 1);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
-  
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
-
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
 
   virtual void updateStates(ExecutionState *current);
+  virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)

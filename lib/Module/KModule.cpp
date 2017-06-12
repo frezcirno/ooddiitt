@@ -54,11 +54,10 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/Dominators.h"
 #include "llvm/IR/Instruction.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
-
-#include <sstream>
 
 using namespace llvm;
 using namespace klee;
@@ -554,29 +553,47 @@ void KModule::prepareMarkers() {
     // if this function is marked, enumerate all of the m2m_paths
     if (kf->fnID != 0) {
 
-      // record its backedges for future reference
-      bb_paths_t paths;
+      // find all (possibly nested) loop headers
+      kf->findLoopHeaders();
 
       // and find all simple paths for cycles
-      kf->findBackedges();
-      for (auto itr = kf->backedges.begin(), end = kf->backedges.end(); itr != end; ++itr) {
-        kf->addAllSimpleCycles(itr->second, paths);
+      // beginning with each loop header
+      bb_paths_t paths;
+      for (const auto pr : kf->loopInfo) {
+        kf->addAllSimpleCycles(pr.first, paths);
       }
 
       // create a list of bbs that belong to each cycle found above
-      for (auto itr = paths.begin(), end = paths.end(); itr != end; ++itr) {
+      for (const auto path : paths) {
 
-        const bb_path_t &path = *itr;
         const BasicBlock *hdr = path.front();
+
+        assert(kf->isLoopHeader(hdr));
+
         KLoopInfo &info = kf->loopInfo[hdr];
         for (const BasicBlock *bb : path) {
-         info.bbs.insert(bb);
+          info.bbs.insert(bb);
         }
+      }
 
-        // for each basic block in the final set, collect the exit nodes
+      // iterate over each loop and each basic block to
+      // find the exit nodes
+      for (auto pr : kf->loopInfo) {
+
+        const BasicBlock *hdr = pr.first;
+        KLoopInfo &info = pr.second;
+
         for (const BasicBlock *bb : info.bbs) {
-          if (kf->isLoopExit(bb, info.bbs)) {
-            info.exits.insert(bb);
+          BasicBlocks successors;
+          kf->getSuccessorBBs(bb, successors);
+
+          // if any successor is not in loop, then
+          // it is an exit node
+          for (const auto succ : successors) {
+            if (!kf->isInLoop(hdr, succ)) {
+              info.exits.insert(bb);
+              break;
+            }
           }
         }
       }
@@ -715,15 +732,6 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-bool KFunction::isBackedge(const CFGEdge &edge) const {
-  auto itr = std::find(backedges.begin(), backedges.end(), edge);
-  return itr != backedges.end();
-}
-
-bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const {
-  return isBackedge(CFGEdge(src, dst));
-}
-
 // RLR TODO: this could use some commentary...
 void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
 
@@ -740,11 +748,8 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   visited.insert(bb);
   path.push_back(bb);
 
-  std::set<const BasicBlock*> successors;
-  const TerminatorInst *tinst = bb->getTerminator();
-  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    successors.insert(tinst->getSuccessor(index));
-  }
+  BasicBlocks successors;
+  getSuccessorBBs(bb, successors);
 
   // if bb has no successors, then we have a path
   if (successors.empty()) {
@@ -779,12 +784,8 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
   visited.insert(bb);
   path.push_back(bb);
 
-  std::set<const BasicBlock*> successors;
-  const TerminatorInst *tinst = bb->getTerminator();
-  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    successors.insert(tinst->getSuccessor(index));
-  }
-
+  BasicBlocks successors;
+  getSuccessorBBs(bb, successors);
   for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
     const BasicBlock *succ = *itr;
 
@@ -847,31 +848,54 @@ void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
   }
 }
 
-void KFunction::findBackedges() {
+void KFunction::findLoopHeaders() {
 
-  // RLR TODO: replace with dom tree
-  llvm::SmallVector<CFGEdge, 64> edges;
-  llvm::FindFunctionBackedges(*function, edges);
-  for (auto itr = edges.begin(), end = edges.end(); itr != end; ++itr) {
-    backedges.insert(*itr);
+  DominatorTree domTree;
+  domTree.runOnFunction(*function);
+
+  for (const BasicBlock &bb : *function) {
+
+    BasicBlocks successors;
+    getSuccessorBBs(&bb, successors);
+    for (const BasicBlock *succ : successors) {
+      if (domTree.dominates(succ, &bb)) {
+        KLoopInfo &info = loopInfo[succ];
+        (void) info;
+      }
+    }
   }
 }
 
-bool KFunction::isLoopExit(const llvm::BasicBlock *bb,
-                           const std::set<const llvm::BasicBlock*> &scc) const {
+void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) const {
 
+  successors.clear();
   const TerminatorInst *tinst = bb->getTerminator();
   for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    const BasicBlock *successor = tinst->getSuccessor(index);
-    if (scc.find(successor) == scc.end()) {
-
-      // not in this scc, either exiting loop or entering a
-      // nested loop header
-      return true;
-    }
+    successors.insert(tinst->getSuccessor(index));
   }
+}
 
-  // all successors in are the strongly connected component, so
-  // this must not be an exit node
+
+bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
+
+  assert(isLoopHeader(hdr));
+
+  const auto pr = loopInfo.find(hdr);
+  if (pr != loopInfo.end()) {
+    const KLoopInfo &info = pr->second;
+    return info.bbs.find(bb) != info.bbs.end();
+  }
+  return false;
+}
+
+bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
+
+  assert(isLoopHeader(hdr));
+
+  const auto pr = loopInfo.find(hdr);
+  if (pr != loopInfo.end()) {
+    const KLoopInfo &info = pr->second;
+    return info.exits.find(bb) != info.exits.end();
+  }
   return false;
 }

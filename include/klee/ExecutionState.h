@@ -36,10 +36,12 @@ struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 
-struct LoopInfo {
+struct LoopFrame {
+  const llvm::BasicBlock *hdr;
   unsigned counter;
-  LoopInfo()                  { counter = 0; }
-  LoopInfo(const LoopInfo &s) { counter = s.counter; }
+
+  LoopFrame(const llvm::BasicBlock *bb) : hdr(bb), counter(0) { }
+  LoopFrame(const LoopFrame &s) : hdr(s.hdr), counter(s.counter) { }
 };
 
 struct StackFrame {
@@ -51,9 +53,7 @@ struct StackFrame {
   size_t numRegs;
   Cell *locals;
 
-// RLR TODO: remove this
-//  llvm::BasicBlock *prevBranchBB;
-//  std::map<CFGEdge,LoopInfo> loopInfo;
+  std::vector<LoopFrame> loopFrames;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to

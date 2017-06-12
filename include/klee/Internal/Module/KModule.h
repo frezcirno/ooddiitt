@@ -37,6 +37,7 @@ typedef std::set<marker_path_t> marker_paths_t;
 typedef std::vector<const llvm::BasicBlock*> bb_path_t;
 typedef std::set<bb_path_t> bb_paths_t;
 typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
+typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
 namespace klee {
   struct Cell;
@@ -73,7 +74,6 @@ namespace klee {
     unsigned fnID;
 
     // loop analysis
-    std::set<CFGEdge> backedges;
     std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
 
     // marker info
@@ -103,14 +103,15 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-    void findBackedges();
-    bool isBackedge(const CFGEdge &edge) const;
-    bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
+    void findLoopHeaders();
+    bool isLoopHeader(const llvm::BasicBlock *bb) const { return (loopInfo.find(bb) != loopInfo.end()); }
+    bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
+    bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
+    void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &bb_paths);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
-    bool isLoopExit(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &scc) const;
   };
 
 

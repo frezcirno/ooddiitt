@@ -235,9 +235,7 @@ protected:
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);
-  void transferToBasicBlock(llvm::BasicBlock *dst, 
-			    llvm::BasicBlock *src,
-			    ExecutionState &state);
+  virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
 
   void callExternalFunction(ExecutionState &state,
                             KInstruction *target,
