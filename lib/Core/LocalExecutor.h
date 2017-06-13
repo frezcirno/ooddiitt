@@ -120,9 +120,8 @@ protected:
 #endif
 
   unsigned lazyAllocationCount;
+  unsigned maxLoopIteration;
   m2m_paths_t m2m_pathsRemaining;
-  std::map<llvm::Function*,llvm::DominatorTree*> domTrees;
-//  bool symbolicLocalVars;
 };
   
 } // End klee namespace

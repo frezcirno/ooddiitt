@@ -17,8 +17,6 @@
 #include <set>
 #include <vector>
 
-#include "llvm/ADT/SmallVector.h"
-
 namespace llvm {
   class BasicBlock;
   class Constant;

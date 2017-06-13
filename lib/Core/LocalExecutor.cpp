@@ -81,15 +81,13 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
-  lazyAllocationCount(16) {
+  lazyAllocationCount(16),
+  maxLoopIteration(1) {
 
 }
 
 LocalExecutor::~LocalExecutor() {
 
-  for (auto itr = domTrees.begin(), end = domTrees.end(); itr != end; ++itr) {
-    delete itr->second;
-  }
 }
 
 #ifdef NEVER
@@ -826,9 +824,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 LoopFrame &lf = sf.loopFrames.back();
                 if (kf->isLoopExit(lf.hdr, src)) {
                   if (kf->isInLoop(lf.hdr, dst)) {
-                    if (lf.counter > 2) {
+                    if (lf.counter > maxLoopIteration) {
                       // finally consider terminating the state.
-                      outs() << "can I finally kill it???";
+                      terminateState(*states[index]);
                     }
                   }
                 }

@@ -30,13 +30,11 @@ typedef struct list { /* doubly linked list */
 } List;
 
 void schedule(void);
-int identity(int i) { return i;}
 
 Ele *new_ele(int new_num);
 List *new_list(void);
 List *append_ele(List *a_list, Ele *a_ele);
 List *del_ele(List *d_list, Ele *d_ele);
-
 
 /*-----------------------------------------------------------------------------
   new_ele
@@ -149,7 +147,6 @@ void free_ele(Ele *ptr) {
   MARK(6, 13);
   return;
 }
-
 
 int alloc_proc_num;
 int num_processes;
@@ -411,3 +408,4 @@ and ratio is in           0.0..1.0
  processes exit from the system.
 
 */
+

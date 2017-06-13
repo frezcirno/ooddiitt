@@ -581,7 +581,7 @@ void KModule::prepareMarkers() {
       for (auto pr : kf->loopInfo) {
 
         const BasicBlock *hdr = pr.first;
-        KLoopInfo &info = pr.second;
+        KLoopInfo &info = kf->loopInfo[hdr];
 
         for (const BasicBlock *bb : info.bbs) {
           BasicBlocks successors;
@@ -806,7 +806,7 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
 
   for (auto itr = bb_path.begin(), end = bb_path.end(); itr != end; ++itr) {
 
-    auto markers = mapMarkers.find(*itr);
+    const auto &markers = mapMarkers.find(*itr);
 
     // skip unmarked basic blocks
     if (markers != mapMarkers.end()) {
@@ -880,7 +880,7 @@ bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb
 
   assert(isLoopHeader(hdr));
 
-  const auto pr = loopInfo.find(hdr);
+  const auto &pr = loopInfo.find(hdr);
   if (pr != loopInfo.end()) {
     const KLoopInfo &info = pr->second;
     return info.bbs.find(bb) != info.bbs.end();
@@ -892,7 +892,7 @@ bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *
 
   assert(isLoopHeader(hdr));
 
-  const auto pr = loopInfo.find(hdr);
+  const auto &pr = loopInfo.find(hdr);
   if (pr != loopInfo.end()) {
     const KLoopInfo &info = pr->second;
     return info.exits.find(bb) != info.exits.end();
