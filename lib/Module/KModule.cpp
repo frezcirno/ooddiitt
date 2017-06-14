@@ -54,7 +54,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/CFG.h"
-#include "llvm/Analysis/Dominators.h"
 #include "llvm/IR/Instruction.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -784,19 +783,20 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
   visited.insert(bb);
   path.push_back(bb);
 
-  BasicBlocks successors;
-  getSuccessorBBs(bb, successors);
-  for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
-    const BasicBlock *succ = *itr;
+  if (domTree.dominates(dst, bb)) {
+    BasicBlocks successors;
+    getSuccessorBBs(bb, successors);
+    for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
+      const BasicBlock *succ = *itr;
 
-    if (succ == dst) {
-      path.push_back(dst);
-      paths.insert(path);
-    } else if (visited.find(succ) == visited.end()) {
-      recurseAllSimpleCycles(succ, dst, visited, path, paths);
+      if (succ == dst) {
+        path.push_back(dst);
+        paths.insert(path);
+      } else if (visited.find(succ) == visited.end()) {
+        recurseAllSimpleCycles(succ, dst, visited, path, paths);
+      }
     }
   }
-
   path.pop_back();
   visited.erase(bb);
 }
@@ -850,7 +850,6 @@ void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
 
 void KFunction::findLoopHeaders() {
 
-  DominatorTree domTree;
   domTree.runOnFunction(*function);
 
   for (const BasicBlock &bb : *function) {

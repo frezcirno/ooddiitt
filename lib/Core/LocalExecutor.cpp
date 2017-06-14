@@ -561,7 +561,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   if (num_m2m_paths > 0) {
     outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
-    outs() << " of " << num_m2m_paths << " covered";
+    outs() << " of " << num_m2m_paths << " m2m paths covered";
 
     for (const m2m_path_t &path : m2m_pathsRemaining) {
 

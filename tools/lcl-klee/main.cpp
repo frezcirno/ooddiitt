@@ -66,7 +66,10 @@ namespace {
   InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
 
   cl::opt<bool>
-  EvalUshers("eval-ushers", cl::init(false),  cl::desc("This option should be removed after evaluation"));
+  EvalUshers("eval-ushers", cl::init(false), cl::desc("This option should be removed after evaluation"));
+
+  cl::opt<unsigned>
+  MaxLoopIteration("max-loop-iteration", cl::init(1), cl::desc("The maximum number of times to iteration through a loop"));
 
   cl::opt<std::string>
   EntryPoint("entry-point",
@@ -1349,6 +1352,7 @@ int main(int argc, char **argv, char **envp) {
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  theInterpreter->setMaxLoopIteration(MaxLoopIteration);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {

@@ -46,6 +46,8 @@ public:
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
 
+  virtual void setMaxLoopIteration(unsigned max) { maxLoopIteration = max; }
+
 protected:
   virtual void run(ExecutionState &initialState);
 
