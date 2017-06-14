@@ -792,6 +792,7 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
       if (succ == dst) {
         path.push_back(dst);
         paths.insert(path);
+        path.pop_back();
       } else if (visited.find(succ) == visited.end()) {
         recurseAllSimpleCycles(succ, dst, visited, path, paths);
       }
