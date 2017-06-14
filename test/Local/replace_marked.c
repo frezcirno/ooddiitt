@@ -471,8 +471,6 @@ void change(char *pat, char *sub) {
   return;
 }
 
-#ifdef NEVER
-
 int main(int argc, char *argv[]) {
   MARK(20, 9);
   string pat, sub;
@@ -502,8 +500,6 @@ int main(int argc, char *argv[]) {
   change(pat, sub);
   return (MARK(20, 1), 0);
 }
-
-#endif
 
 void Caseerror(int n) {
   (void)(MARK(21, 1), fprintf(stdout, "Missing case limb: line %d\n", n));
