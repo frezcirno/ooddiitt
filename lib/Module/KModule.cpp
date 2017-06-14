@@ -540,7 +540,7 @@ void KModule::prepareMarkers() {
         }
       }
       if (bbIDs.size() > 0) {
-        kf->basicBlockMarker[&bb] = bbIDs;
+        kf->mapMarkers[&bb] = bbIDs;
         if (isMajor) {
           kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
         }
@@ -551,20 +551,20 @@ void KModule::prepareMarkers() {
     // if this function is marked, enumerate all of the m2m_paths
     if (kf->fnID != 0) {
 
-      // record its backedges for future reference
-      llvm::FindFunctionBackedges(*fn, kf->backedges);
+      // find all (possibly nested) loop headers
+      kf->findLoopHeaders();
 
-      m2m_paths_t paths;
+      // and find all simple paths for cycles
+      // beginning with each loop header
+      bb_paths_t paths;
+      for (const auto hdr : kf->loopHeaders) {
+        kf->addAllSimpleCycles(hdr, paths);
+      }
 
       // find all simple paths from entry to exit
       kf->addAllSimplePaths(paths);
 
-      // and find all simple paths for cycles
-      for (auto itr = kf->backedges.begin(), end = kf->backedges.end(); itr != end; ++itr) {
-        std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> &bbs = *itr;
-        kf->addAllSimpleCycles(bbs.second, paths);
-      }
-
+      // convert to marker-to-marker paths
       kf->setM2MPaths(paths);
     }
   }
@@ -703,7 +703,7 @@ bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *
 }
 
 // RLR TODO: this could use some commentary...
-void KFunction::addAllSimplePaths(m2m_paths_t &paths) const {
+void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
   std::vector<const BasicBlock*> path;
@@ -713,33 +713,17 @@ void KFunction::addAllSimplePaths(m2m_paths_t &paths) const {
 
 void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
                                       std::set<const BasicBlock*> &visited,
-                                      std::vector<const BasicBlock*> &path,
-                                      m2m_paths_t &paths) const {
-
+                                      bb_path_t &path,
+                                      bb_paths_t &paths) const {
   visited.insert(bb);
   path.push_back(bb);
 
-  std::vector<const BasicBlock*> successors;
-  const TerminatorInst *tinst = bb->getTerminator();
-  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    successors.push_back(tinst->getSuccessor(index));
-  }
+  BasicBlocks successors;
+  getSuccessorBBs(bb, successors);
 
   // if bb has no successors, then we have a path
   if (successors.empty()) {
-    m2m_path_t markers;
-    for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
-
-      auto id = basicBlockMarker.find(*itr);
-
-      // skip unmarked basic blocks
-      if (id != basicBlockMarker.end()) {
-        for (unsigned m : id->second) {
-          markers.push_back((fnID * 1000) + m);
-        }
-      }
-    }
-    paths.insert(markers);
+    paths.insert(path);
   } else {
     for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
       const BasicBlock *succ = *itr;
@@ -753,7 +737,7 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   visited.erase(bb);
 }
 
-void KFunction::addAllSimpleCycles(const BasicBlock *bb, m2m_paths_t &paths) const {
+void KFunction::addAllSimpleCycles(const BasicBlock *bb, bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
   std::vector<const BasicBlock*> path;
@@ -764,74 +748,104 @@ void KFunction::addAllSimpleCycles(const BasicBlock *bb, m2m_paths_t &paths) con
 void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
                                        const BasicBlock *dst,
                                        std::set<const BasicBlock*> &visited,
-                                       std::vector<const BasicBlock*> &path,
-                                       m2m_paths_t &paths) const {
+                                       bb_path_t &path,
+                                       bb_paths_t &paths) const {
 
   visited.insert(bb);
   path.push_back(bb);
 
-  std::vector<const BasicBlock*> successors;
-  const TerminatorInst *tinst = bb->getTerminator();
-  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    successors.push_back(tinst->getSuccessor(index));
-  }
+  if (domTree.dominates(dst, bb)) {
+    BasicBlocks successors;
+    getSuccessorBBs(bb, successors);
+    for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
+      const BasicBlock *succ = *itr;
 
-  for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
-    const BasicBlock *succ = *itr;
-
-    if (succ == dst) {
-      m2m_path_t markers;
-      for (auto itr = path.begin(), end = path.end(); itr != end; ++itr) {
-        auto id = basicBlockMarker.find(*itr);
-
-        // skip unmarked basic blocks
-        if (id != basicBlockMarker.end()) {
-          for (unsigned m : id->second) {
-            markers.push_back((fnID * 1000) + m);
-          }
-        }
+      if (succ == dst) {
+        path.push_back(dst);
+        paths.insert(path);
+        path.pop_back();
+      } else if (visited.find(succ) == visited.end()) {
+        recurseAllSimpleCycles(succ, dst, visited, path, paths);
       }
-      auto id = basicBlockMarker.find(dst);
-
-      // skip unmarked basic blocks
-      if (id != basicBlockMarker.end()) {
-        for (unsigned m : id->second) {
-          markers.push_back((fnID * 1000) + m);
-        }
-      }
-      paths.insert(markers);
-    } else if (visited.find(succ) == visited.end()) {
-      recurseAllSimpleCycles(succ, dst, visited, path, paths);
     }
   }
-
   path.pop_back();
   visited.erase(bb);
 }
 
-void KFunction::setM2MPaths(const m2m_paths_t &paths) {
 
-  m2m_paths.clear();
+void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
 
-  for (auto itrPath = paths.begin(), endPath = paths.end(); itrPath != endPath; ++itrPath) {
-    const m2m_path_t &path = *itrPath;
+  for (auto itr = bb_path.begin(), end = bb_path.end(); itr != end; ++itr) {
 
-    assert(path.size() > 0 && isMajorMarker(path.front()));
+    const auto &markers = mapMarkers.find(*itr);
 
-    std::vector<unsigned> m2m;
-    for (auto itrMarker = path.begin(), endMarker = path.end(); itrMarker != endMarker; ++itrMarker) {
-
-      unsigned marker = *itrMarker;
-      m2m.push_back(marker);
-      if (isMajorMarker(marker) && (itrMarker != path.begin())) {
-        m2m_paths.insert(m2m);
-        m2m.clear();
-        m2m.push_back(marker);
+    // skip unmarked basic blocks
+    if (markers != mapMarkers.end()) {
+      for (unsigned bbID : markers->second) {
+        marker_path.push_back((fnID * 1000) + bbID);
       }
-    }
-    if (m2m.size() > 0 && !isMajorMarker(m2m.back())) {
-      m2m_paths.insert(m2m);
     }
   }
 }
+
+void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
+
+
+  m2m_paths.clear();
+
+  // for each bb path, translate to marker path
+  for (auto itr1 = bb_paths.begin(), end1 = bb_paths.end(); itr1 != end1; ++itr1) {
+
+    const bb_path_t &bb_path = *itr1;
+    marker_path_t marker_path;
+
+    translateBBPath2MarkerPath(bb_path, marker_path);
+    assert(marker_path.size() > 0 && isMajorMarker(marker_path.front()) && "Invalid marker path");
+
+    marker_path_t m2m_path;
+    for (auto itr2 = marker_path.begin(), end2 = marker_path.end(); itr2 != end2; ++itr2) {
+
+      unsigned marker = *itr2;
+      m2m_path.push_back(marker);
+      if (isMajorMarker(marker) && (itr2 != marker_path.begin())) {
+        m2m_paths.insert(m2m_path);
+        m2m_path.clear();
+        m2m_path.push_back(marker);
+      }
+    }
+    if (m2m_path.size() > 0 && !isMajorMarker(m2m_path.back())) {
+      m2m_paths.insert(m2m_path);
+    }
+  }
+}
+
+void KFunction::findLoopHeaders() {
+
+  // RLR TODO: temp hack
+  llvm::FindFunctionBackedges(*function, backedges);
+
+  domTree.runOnFunction(*function);
+
+  for (const BasicBlock &bb : *function) {
+
+    BasicBlocks successors;
+    getSuccessorBBs(&bb, successors);
+    for (const BasicBlock *succ : successors) {
+      if (domTree.dominates(succ, &bb)) {
+        loopHeaders.insert(succ);
+      }
+    }
+  }
+}
+
+void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) const {
+
+  successors.clear();
+  const TerminatorInst *tinst = bb->getTerminator();
+  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
+    successors.insert(tinst->getSuccessor(index));
+  }
+}
+
 
