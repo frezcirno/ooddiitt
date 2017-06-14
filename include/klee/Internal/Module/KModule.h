@@ -35,13 +35,6 @@ namespace llvm {
 #endif
 }
 
-typedef std::vector<unsigned> marker_path_t;
-typedef std::set<marker_path_t> marker_paths_t;
-typedef std::vector<const llvm::BasicBlock*> bb_path_t;
-typedef std::set<bb_path_t> bb_paths_t;
-typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
-typedef std::set<const llvm::BasicBlock*> BasicBlocks;
-
 namespace klee {
   struct Cell;
   class Executor;
@@ -52,7 +45,16 @@ namespace klee {
   class KModule;
   template<class T> class ref;
 
-  struct KFunction {
+
+typedef std::vector<unsigned> marker_path_t;
+typedef std::set<marker_path_t> marker_paths_t;
+typedef std::vector<const llvm::BasicBlock*> bb_path_t;
+typedef std::set<bb_path_t> bb_paths_t;
+typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
+typedef std::set<CFGEdge> CFGEdges;
+typedef std::set<const llvm::BasicBlock*> BasicBlocks;
+
+struct KFunction {
     llvm::Function *function;
 
     unsigned numArgs, numRegisters;
@@ -69,11 +71,11 @@ namespace klee {
     // values collected from marked ir
     unsigned fnID;
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
-    llvm::SmallVector<std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>, 32> backedges;
     std::set<unsigned> majorMarkers;
     marker_paths_t m2m_paths;
     llvm::DominatorTree domTree;
     BasicBlocks loopHeaders;
+    CFGEdges backedges;
 
   private:
     KFunction(const KFunction&);
@@ -99,12 +101,16 @@ namespace klee {
     unsigned getArgRegister(unsigned index) { return index; }
 
     void findLoopHeaders();
-    bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const;
+    bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const
+      { CFGEdge edge(src, dst); return isBackedge(edge); }
+    bool isBackedge(const CFGEdge &edge) const
+      { return backedges.find(edge) != backedges.end(); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &paths);
-    bool isMajorMarker(unsigned marker)         { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool isMajorMarker(unsigned marker)
+      { return majorMarkers.find(marker) != majorMarkers.end(); }
   };
 
 

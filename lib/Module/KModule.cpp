@@ -696,12 +696,6 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-bool KFunction::isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const {
-  auto itr = std::find(backedges.begin(), backedges.end(),
-                       std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*>(src, dst));
-  return itr != backedges.end();
-}
-
 // RLR TODO: this could use some commentary...
 void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
 
@@ -822,9 +816,6 @@ void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
 
 void KFunction::findLoopHeaders() {
 
-  // RLR TODO: temp hack
-  llvm::FindFunctionBackedges(*function, backedges);
-
   domTree.runOnFunction(*function);
 
   for (const BasicBlock &bb : *function) {
@@ -834,6 +825,7 @@ void KFunction::findLoopHeaders() {
     for (const BasicBlock *succ : successors) {
       if (domTree.dominates(succ, &bb)) {
         loopHeaders.insert(succ);
+        backedges.insert(CFGEdge(&bb, succ));
       }
     }
   }

@@ -563,7 +563,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   if (num_m2m_paths > 0) {
     outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
-    outs() << " of " << num_m2m_paths << " covered";
+    outs() << " of " << num_m2m_paths << " m2m paths covered";
 
     for (const m2m_path_t &path : m2m_pathsRemaining) {
 
@@ -761,20 +761,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
       const KFunction *kf = state.stack.back().kf;
-
-#ifdef NEVER
-      // RLR TODO: klee's own back-edge detection does not use
-      // dominator trees. When confortable with klee's approach
-      // remove this
-      // need a dominator tree for this function
-      Function *fn = src->getParent();
-      DominatorTree *dom = domTrees[fn];
-      if (dom == nullptr) {
-        dom = new DominatorTree();
-        dom->runOnFunction(*fn);
-        domTrees[fn] = dom;
-      }
-#endif
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
