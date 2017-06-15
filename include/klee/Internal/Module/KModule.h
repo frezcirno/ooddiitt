@@ -32,12 +32,6 @@ namespace llvm {
 #endif
 }
 
-typedef std::vector<unsigned> marker_path_t;
-typedef std::set<marker_path_t> marker_paths_t;
-typedef std::vector<const llvm::BasicBlock*> bb_path_t;
-typedef std::set<bb_path_t> bb_paths_t;
-typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
-typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
 namespace klee {
   struct Cell;
@@ -49,6 +43,12 @@ namespace klee {
   class KModule;
   template<class T> class ref;
 
+  typedef std::vector<unsigned> marker_path_t;
+  typedef std::set<marker_path_t> marker_paths_t;
+  typedef std::vector<const llvm::BasicBlock*> bb_path_t;
+  typedef std::set<bb_path_t> bb_paths_t;
+  typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
+  typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
   struct KLoopInfo {
     std::set<const llvm::BasicBlock*> bbs;

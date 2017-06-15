@@ -1,13 +1,14 @@
-#include "mark.h"
+
 /*  -*- Last-Edit:  Mon Dec  7 10:31:51 1992 by Tarak S. Goradia; -*- */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include "mark.h"
 
 typedef char bool;
 #define false 0
 #define true 1
-#define NULL ((void*)0)
-#define FILE void
-#define stdout NULL
-#define stdin  NULL
 
 #define MAXSTR 100
 #define MAXPAT MAXSTR
@@ -36,9 +37,8 @@ typedef char string[MAXSTR];
 
 int patsize(char *pat, int n);
 bool omatch(char *lin, int *i, char *pat, int j);
-int foo(char *lin, int offset, char *pat, int j);
 
-int drv(char *lin, int offset, char *pat, int j) {
+int amatch(char *lin, int offset, char *pat, int j) {
   MARK(16, 23);
   int i, k;
   bool result, done;
@@ -56,7 +56,7 @@ int drv(char *lin, int offset, char *pat, int j) {
       }
       (mark(16, 13), done = false);
       while (((MARK(16, 12), !done)) && ((mark(16, 11), i >= offset))) {
-        k = foo(lin, i, pat, j + (mark(16, 10), patsize(pat, j)));
+        k = amatch(lin, i, pat, j + (mark(16, 10), patsize(pat, j)));
         if ((k >= 0)) {
           (mark(16, 9), done = true);
         } else {
