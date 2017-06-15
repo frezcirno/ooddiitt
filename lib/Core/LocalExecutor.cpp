@@ -881,16 +881,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // consider the arguments pushed for the call, rather than
       // args expected by the target
-      unsigned numArgs = ci->getNumOperands();
-      for (unsigned index = 1; index < numArgs; ++index) {
+      unsigned numArgs = ci->getNumOperands() - 1;
+      for (unsigned index = 0; index < numArgs; ++index) {
         const Value *v = ci->getArgOperand(index);
         Type *type = v->getType();
 
-        const unsigned indirection = countLoadIndirection(type);
-        if (indirection > 1) {
+        if (countLoadIndirection(type) > 0) {
 
           // RLR TODO: check for const (not available to LLVM IR)
-          ref<Expr> address = eval(ki, index, state).value;
+          ref<Expr> address = eval(ki, index + 1, state).value;
           Expr::Width width = address.get()->getWidth();
           assert(width == Context::get().getPointerWidth());
 
@@ -1049,12 +1048,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 }
   
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
-  
+
   unsigned counter = 0;
 
   while (type->isPointerTy()) {
-    counter++;
     type = type->getPointerElementType();
+    ++counter;
   }
   return counter;
 }
