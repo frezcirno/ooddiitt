@@ -362,6 +362,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
 
+  // RLR TODO: clean up ushers after eval
   assert(mo->name != "usher");
   assert(mo->name != "*usher");
   assert(mo->name != "**usher");
