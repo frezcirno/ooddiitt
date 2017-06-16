@@ -705,12 +705,12 @@ void LocalExecutor::run(ExecutionState &initialState) {
   
   states.insert(&initialState);
   
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(0, newStates, std::vector<ExecutionState *>());
   
-  while (!states.empty() && !haltExecution) {
+  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
     ExecutionState &state = searcher->selectState();
     KInstruction *ki = state.pc;
     stepInstruction(state);
@@ -725,7 +725,10 @@ void LocalExecutor::run(ExecutionState &initialState) {
   delete searcher;
   searcher = 0;
 
-  doDumpStates();
+  for (ExecutionState *state : states) {
+    terminateState(*state);
+  }
+  updateStates(nullptr);
 }
 
 void LocalExecutor::updateStates(ExecutionState *current) {
@@ -748,6 +751,28 @@ void LocalExecutor::updateStates(ExecutionState *current) {
 
   Executor::updateStates(current);
 }
+
+bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
+
+  bool result = false;
+  if (isa<ConstantExpr>(e)) {
+    result = true;
+  } else {
+
+    ref<ConstantExpr> value;
+    solver->setTimeout(coreSolverTimeout);
+    if (solver->getValue(state, e, value)) {
+
+      bool isTrue = false;
+      if (solver->mustBeTrue(state, EqExpr::create(e, value), isTrue)) {
+        result = isTrue;
+      }
+    }
+    solver->setTimeout(0);
+  }
+  return result;
+}
+
 
 void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
 
@@ -822,12 +847,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               StackFrame &sf = states[index]->stack.back();
               if (!sf.loopFrames.empty()) {
                 LoopFrame &lf = sf.loopFrames.back();
-                if (kf->isLoopExit(lf.hdr, src)) {
-                  if (kf->isInLoop(lf.hdr, dst)) {
-                    if (lf.counter > maxLoopIteration) {
-                      // finally consider terminating the state.
-                      terminateState(*states[index]);
-                    }
+                if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
+                  if (lf.counter > maxLoopIteration) {
+                    // finally consider terminating the state.
+                    terminateState(*states[index]);
                   }
                 }
               }
