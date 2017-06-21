@@ -506,14 +506,10 @@ void KModule::prepareMarkers() {
         const Instruction *i = &(*iit);
         if (i->getOpcode() == Instruction::Call) {
 
-          // RLR TODO: eval this for callsite instead of CallInst
-          const CallInst *ci = cast<CallInst>(i);
+          const CallSite cs(const_cast<Instruction*>(i));
 
-          // check if this is a call to either marker
-          Function *called = ci->getCalledFunction();
-          if (called == nullptr) {
-            klee_warning("mystery CallInst failure at setup");
-          } else {
+          Function *called = getTargetFunction(cs.getCalledValue());
+          if (called != nullptr) {
 
             std::string calledName = called->getName();
 
@@ -523,8 +519,8 @@ void KModule::prepareMarkers() {
                 (called->getReturnType()->isVoidTy())) {
 
               // extract the two literal arguments
-              const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-              const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+              const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+              const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
               if ((arg0 != nullptr) && (arg1 != nullptr)) {
                 fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
                 unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
@@ -603,6 +599,25 @@ void KModule::prepareMarkers() {
       kf->setM2MPaths(paths);
     }
   }
+}
+
+Function *KModule::getTargetFunction(Value *value) const {
+
+  Constant *c = dyn_cast<Constant>(value);
+
+  while (c != nullptr) {
+
+    if (GlobalValue *gv = dyn_cast<GlobalValue>(c)) {
+      return dyn_cast<Function>(gv);
+    } else if (llvm::ConstantExpr *ce = dyn_cast<llvm::ConstantExpr>(c)) {
+      if (ce->getOpcode() == Instruction::BitCast) {
+        c = ce->getOperand(0);
+      } else {
+        return nullptr;
+      }
+    }
+  }
+  return nullptr;
 }
 
 KConstant* KModule::getKConstant(Constant *c) {

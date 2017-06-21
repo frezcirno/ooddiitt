@@ -82,8 +82,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(16),
-  maxLoopIteration(1) {
-
+  maxLoopIteration(81),
+  nextLoopSignature(INVALID_LOOP_SIGNATURE) {
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -725,6 +725,7 @@ void LocalExecutor::run(ExecutionState &initialState) {
   delete searcher;
   searcher = 0;
 
+  forkCounter.clear();
   for (ExecutionState *state : states) {
     terminateState(*state);
   }
@@ -791,7 +792,7 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
 
       } else {
         // this is a new loop
-        sf.loopFrames.push_back(LoopFrame(dst));
+        sf.loopFrames.push_back(LoopFrame(dst, getNextLoopSignature()));
       }
     } else if (!sf.loopFrames.empty()) {
 
@@ -806,6 +807,24 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
   }
   Executor::transferToBasicBlock(dst, src, state);
 }
+
+unsigned LocalExecutor::numStatesInLoop(unsigned loopSig) const {
+
+  unsigned counter = 0;
+  for (const ExecutionState *state : states) {
+    if (!state->stack.empty()) {
+      const StackFrame &sf = state->stack.back();
+      if (!sf.loopFrames.empty()) {
+        const LoopFrame &lf = sf.loopFrames.back();
+        if (lf.loopSignature == loopSig) {
+          ++counter;
+        }
+      }
+    }
+  }
+  return counter;
+}
+
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
@@ -847,8 +866,43 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               StackFrame &sf = states[index]->stack.back();
               if (!sf.loopFrames.empty()) {
                 LoopFrame &lf = sf.loopFrames.back();
+                ++forkCounter[lf.hdr];
                 if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
-                  if (lf.counter > maxLoopIteration) {
+
+#ifdef NEVER
+                  static unsigned reportedStates;
+                  static unsigned reportedInLoop;
+                  static unsigned reportedCounter;
+
+                  unsigned numStates = this->states.size();
+                  unsigned numInLoop = numStatesInLoop(lf.loopSignature);
+
+                  if (numStates > reportedStates || numInLoop > reportedInLoop || lf.counter > reportedCounter) {
+                    outs() << "states : " << numStates << ", " << numInLoop << ", " << lf.counter <<  "\n";
+                    reportedStates = numStates;
+                    reportedInLoop = numInLoop;
+                    reportedCounter = lf.counter;
+                  }
+
+                  if (mapLoopStateExceeded[lf.loopSignature] || (numStatesInLoop(lf.loopSignature) > 32)) {
+
+                    reportedStates = reportedInLoop = reportedCounter = 0;
+
+                    mapLoopStateExceeded[lf.loopSignature] = true;
+                    for (ExecutionState *es : this->states) {
+                      if (!es->stack.empty()) {
+                        const StackFrame &sf = es->stack.back();
+                        if (!sf.loopFrames.empty()) {
+                          const LoopFrame &lf2 = sf.loopFrames.back();
+                          if (lf2.loopSignature == lf.loopSignature && lf.counter > 1) {
+                            terminateState(*es);
+                          }
+                        }
+                      }
+                    }
+#endif
+                  if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > 16){
+//                    outs() << forkCounter[lf.hdr] << "\n";
                     // finally consider terminating the state.
                     terminateState(*states[index]);
                   }
@@ -863,17 +917,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::Invoke:
     case Instruction::Call: {
-      const CallInst *ci = cast<CallInst>(i);
-      Function *fn = ci->getCalledFunction();
-      if (fn == nullptr) {
 
-        klee_warning("mystery CallInst failure at runtime");
+      const CallSite cs(i);
+      Function *fn = getTargetFunction(cs.getCalledValue(), state);
 
-        // RLR TODO: why????
-        CallSite cs(i);
-        Value *fp = cs.getCalledValue();
-        fn = getTargetFunction(fp, state);
-      }
+//      const CallInst *ci = cast<CallInst>(i);
       std::string fnName = fn->getName();
 
       // if this is a special function, let
@@ -888,8 +936,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           (fn->arg_size() == 2) &&
           (fn->getReturnType()->isVoidTy())) {
 
-        const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-        const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+        const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+        const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
         if ((arg0 != nullptr) && (arg1 != nullptr)) {
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
@@ -902,11 +950,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 
+
       // consider the arguments pushed for the call, rather than
       // args expected by the target
-      unsigned numArgs = ci->getNumOperands() - 1;
+      unsigned numArgs = cs.arg_size();
       for (unsigned index = 0; index < numArgs; ++index) {
-        const Value *v = ci->getArgOperand(index);
+        const Value *v = cs.getArgument(index);
         Type *type = v->getType();
 
         if (countLoadIndirection(type) > 0) {

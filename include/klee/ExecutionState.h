@@ -24,6 +24,8 @@
 #include <set>
 #include <vector>
 
+#define INVALID_LOOP_SIGNATURE   (0)
+
 namespace klee {
 class Array;
 class CallPathNode;
@@ -39,9 +41,12 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 struct LoopFrame {
   const llvm::BasicBlock *hdr;
   unsigned counter;
+  const unsigned loopSignature;
 
-  LoopFrame(const llvm::BasicBlock *bb) : hdr(bb), counter(0) { }
-  LoopFrame(const LoopFrame &s) : hdr(s.hdr), counter(s.counter) { }
+  LoopFrame(const llvm::BasicBlock *bb, unsigned loopSig) : hdr(bb), counter(0), loopSignature(loopSig)
+    { assert(loopSig != INVALID_LOOP_SIGNATURE); }
+  LoopFrame(const LoopFrame &s) : hdr(s.hdr), counter(s.counter), loopSignature(s.loopSignature)
+    { assert(s.loopSignature != INVALID_LOOP_SIGNATURE); }
 };
 
 struct StackFrame {

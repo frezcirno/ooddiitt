@@ -6,7 +6,7 @@ void foo(int n) {
   MARK(1, 3);
 
   int index;
-  for (index = 0; (MARK(1, 2), index < 3); ++index) {
+  for (index = 0; (MARK(1, 2), index < 1024); ++index) {
     printf("Hello");
   }
   MARK(1,1);

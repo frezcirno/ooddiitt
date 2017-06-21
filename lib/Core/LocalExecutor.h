@@ -115,6 +115,8 @@ protected:
 
   virtual void updateStates(ExecutionState *current);
   virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
+  unsigned getNextLoopSignature() { return ++nextLoopSignature; }
+  unsigned numStatesInLoop(unsigned loopSig) const;
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
@@ -125,8 +127,12 @@ protected:
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   m2m_paths_t m2m_pathsRemaining;
+  unsigned nextLoopSignature;
+//  std::map<unsigned, bool> mapLoopStateExceeded;
+  std::map<const llvm::BasicBlock*, unsigned> forkCounter;
 };
-  
+
+
 } // End klee namespace
 
 #endif

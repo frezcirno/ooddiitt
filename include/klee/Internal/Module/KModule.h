@@ -172,6 +172,8 @@ namespace klee {
     bool isConcreteFunction(const llvm::Function *fn)
       { return concreteFunctions.find(fn) != concreteFunctions.end(); }
 
+    llvm::Function *getTargetFunction(llvm::Value *value) const;
+
   private:
 
     // Functions which should not be called symbolically
