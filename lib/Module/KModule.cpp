@@ -348,14 +348,24 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   // this to be linked in, it makes low level debugging much more
   // annoying.
 
+
   SmallString<128> LibPath(opts.LibraryDir);
-  llvm::sys::path::append(LibPath,
+  std::string intrinsicLib = "kleeRuntimeIntrinsic";
+  Expr::Width width = targetData->getPointerSizeInBits();
+
+  if (width == Expr::Int32) {
+    intrinsicLib += "-32";
+  } else if (width == Expr::Int64) {
+    intrinsicLib += "-64";
+  }
+
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,3)
-      "kleeRuntimeIntrinsic.bc"
+  intrinsicLib += ".bc";
 #else
-      "libkleeRuntimeIntrinsic.bca"
+  intrinsicLib += ".bca";
 #endif
-    );
+
+  llvm::sys::path::append(LibPath,intrinsicLib);
   module = linkWithLibrary(module, LibPath.str());
 
   // Add internal functions which are not used to check if instructions

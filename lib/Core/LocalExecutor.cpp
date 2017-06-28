@@ -186,22 +186,21 @@ void LocalExecutor::executeFree(ExecutionState &state,
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
-  bool result = false;
-  if (e->getWidth() == Context::get().getPointerWidth()) {
+  Expr::Width width = Context::get().getPointerWidth();
+  if (e->getWidth() == width) {
+
+    ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
+    ref<Expr> eqMax = NotOptimizedExpr::create(EqExpr::create(e, max));
+
+    bool result = false;
     solver->setTimeout(coreSolverTimeout);
-    auto range = solver->getRange(state, e);
-    solver->setTimeout(0);
-    ref<Expr> low = range.first;
-    ref<Expr> high = range.second;
-
-    if (low->getKind() == Expr::Kind::Constant && high->getKind() == Expr::Kind::Constant) {
-
-      uint64_t clow = cast<ConstantExpr>(low)->getZExtValue();
-      uint64_t chigh = cast<ConstantExpr>(high)->getZExtValue();
-      result = ((clow == 0) && (chigh == UINT64_MAX));
+    if (solver->mayBeTrue(state, eqMax, result)) {
+      solver->setTimeout(0);
+      return result;
     }
+    solver->setTimeout(0);
   }
-  return result;
+  return false;
 }
 
 bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
@@ -360,6 +359,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
 
+  // RLR TODO: clean up ushers after eval
   assert(mo->name != "usher");
   assert(mo->name != "*usher");
   assert(mo->name != "**usher");

@@ -32,7 +32,6 @@ namespace llvm {
 #endif
 }
 
-
 namespace klee {
   struct Cell;
   class Executor;

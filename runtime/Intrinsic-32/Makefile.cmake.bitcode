@@ -6,15 +6,17 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-LEVEL := ./
+LEVEL := ../
+
 include $(LEVEL)/Makefile.cmake.bitcode.config
 
-DIRS += Intrinsic
-DIRS += Intrinsic-32
-DIRS += Intrinsic-64
-DIRS += klee-libc
-ifneq ($(ENABLE_POSIX_RUNTIME),0)
-	DIRS += POSIX
+LLVMCC.Flags += -fno-builtin -m32
+
+# FIXME: This is a horrible hack
+ifeq ($(USE_MODULE_INSTEAD_OF_BCA),1)
+	MODULE_NAME=kleeRuntimeIntrinsic-32
+else
+	ARCHIVE_NAME=kleeRuntimeIntrinsic-32
 endif
 
 include $(LEVEL)/Makefile.cmake.bitcode.rules
