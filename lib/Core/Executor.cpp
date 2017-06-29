@@ -12,7 +12,7 @@
 #include "CoreStats.h"
 #include "ExternalDispatcher.h"
 #include "ImpliedValue.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "MemoryManager.h"
 #include "PTree.h"
 #include "Searcher.h"
@@ -626,6 +626,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
       }
 
       MemoryObject *mo = memory->allocate(size, MemKind::global, v, globalObjectAlignment);
+      mo->type = ty;
+      mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
@@ -653,6 +655,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
       if (!mo)
         llvm::report_fatal_error("out of memory");
       mo->name = v->getName();
+      mo->type = ty;
+      mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
@@ -3670,11 +3674,8 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
   }
 }
 
-bool Executor::getSymbolicSolution(const ExecutionState &state,
-                                   std::vector<
-                                   std::pair<std::string,
-                                   std::vector<unsigned char> > >
-                                   &res) {
+bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) {
+
   solver->setTimeout(coreSolverTimeout);
 
   ExecutionState tmp(state);
@@ -3721,7 +3722,7 @@ bool Executor::getSymbolicSolution(const ExecutionState &state,
   }
 
   for (unsigned i = 0; i != state.symbolics.size(); ++i)
-    res.push_back(std::make_pair(state.symbolics[i].first->name, values[i]));
+    res.push_back(std::make_pair(state.symbolics[i].first, values[i]));
   return true;
 }
 

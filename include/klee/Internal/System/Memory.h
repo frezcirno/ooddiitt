@@ -10,7 +10,7 @@
 #ifndef KLEE_MEMORY_H
 #define KLEE_MEMORY_H
 
-#include "Context.h"
+#include "../../../../lib/Core/Context.h"
 #include "klee/Expr.h"
 
 #include "llvm/ADT/StringExtras.h"
@@ -52,6 +52,8 @@ public:
 
 
   MemKind kind;
+  const llvm::Type *type;
+  unsigned count;
 
   /// true if created by us.
   bool fake_object;
@@ -84,6 +86,8 @@ public:
       size(0),
       name("hack"),
       kind(MemKind::fixed),
+      type(nullptr),
+      count(0),
       parent(NULL),
       allocSite(0) {
   }
@@ -98,6 +102,8 @@ public:
       align(_align),
       name(""),
       kind(_kind),
+      type(nullptr),
+      count(0),
       fake_object(false),
       isUserSpecified(false),
       parent(_parent), 

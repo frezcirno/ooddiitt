@@ -25,7 +25,7 @@
 
 #include "llvm/ADT/Twine.h"
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 
 #include <vector>
 #include <string>
@@ -498,11 +498,7 @@ public:
                                 std::string &res,
                                 Interpreter::LogType logFormat = Interpreter::STP);
 
-  virtual bool getSymbolicSolution(const ExecutionState &state, 
-                                   std::vector< 
-                                   std::pair<std::string,
-                                   std::vector<unsigned char> > >
-                                   &res);
+  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res);
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res);

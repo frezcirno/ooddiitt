@@ -395,22 +395,6 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
 }
 
 MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
-                                         size_t size,
-                                         const llvm::Value *allocSite,
-                                         MemKind kind,
-                                         std::string name,
-                                         size_t align) {
-
-  MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
-  if (mo == nullptr) {
-    klee_error("Could not allocate memory for symbolic allocation");
-  } else {
-    mo->name = name;
-  }
-  return mo;
-}
-
-MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          llvm::Type *type,
                                          const llvm::Value *allocSite,
                                          MemKind kind,
@@ -422,25 +406,36 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  return allocMemory(state, size, allocSite, kind, name, align);
+  MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic allocation");
+  } else {
+    mo->name = name;
+    mo->type = type;
+    mo->count = count;
+  }
+  return mo;
 }
 
-bool LocalExecutor::allocSymbolic(ExecutionState &state,
-                                  size_t size,
-                                  const llvm::Value *allocSite,
-                                  MemKind kind,
-                                  std::string name,
-                                  WObjectPair &wop,
-                                  size_t align) {
+bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
+                                      const MemoryObject *origMO,
+                                      const llvm::Value *allocSite,
+                                      MemKind kind,
+                                      std::string name,
+                                      WObjectPair &wop) {
 
-  MemoryObject *mo = allocMemory(state, size, allocSite, kind, name, align);
-  if (mo != nullptr) {
-    ObjectState *os = makeSymbolic(state, mo);
-    wop.first = mo;
-    wop.second = os;
-    return true;
+  MemoryObject *mo = memory->allocate(origMO->size, kind, allocSite, origMO->align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic duplication");
+    return false;
   }
-  return false;
+  mo->name = name;
+  mo->type = origMO->type;
+  mo->count = origMO->count;
+  ObjectState *os = makeSymbolic(state, mo);
+  wop.first = mo;
+  wop.second = os;
+  return true;
 }
 
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
@@ -973,7 +968,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
 
             WObjectPair wop;
-            if (!allocSymbolic(state, size, v, MemKind::output, fullName(fnName, counter, std::to_string(index - 1)), wop, orgMO->align)) {
+            if (!duplicateSymbolic(state,
+                                   orgMO,
+                                   v,
+                                   MemKind::output,
+                                   fullName(fnName, counter, std::to_string(index - 1)),
+                                   wop)) {
               klee_error("failed to allocate ptr argument");
             }
             ObjectState *newOS = wop.second;

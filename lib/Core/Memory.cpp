@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 
 #include "Context.h"
 #include "klee/Expr.h"

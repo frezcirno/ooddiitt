@@ -13,7 +13,7 @@
 #include <set>
 #include <stdint.h>
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 
 namespace llvm {
 class Value;

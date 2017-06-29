@@ -16,8 +16,9 @@
 #define KLEE_LOCAL_EXECUTOR_H
 
 #include "Executor.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "llvm/Analysis/Dominators.h"
+#include "tuple"
 
 namespace klee {
 
@@ -77,13 +78,6 @@ protected:
                             const MemoryObject *mo);
 
   MemoryObject *allocMemory(ExecutionState &state,
-                            size_t size,
-                            const llvm::Value *allocSite,
-                            MemKind kind,
-                            std::string name,
-                            size_t align = 0);
-
-  MemoryObject *allocMemory(ExecutionState &state,
                             llvm::Type *type,
                             const llvm::Value *allocSite,
                             MemKind kind,
@@ -91,13 +85,12 @@ protected:
                             size_t align = 0,
                             unsigned count = 1);
 
-  bool allocSymbolic(ExecutionState &state,
-                     size_t size,
-                     const llvm::Value *allocSite,
-                     MemKind kind,
-                     std::string name,
-                     WObjectPair &wop,
-                     size_t align = 0);
+  bool duplicateSymbolic(ExecutionState &state,
+                         const MemoryObject *mo,
+                         const llvm::Value *allocSite,
+                         MemKind kind,
+                         std::string name,
+                         WObjectPair &wop);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,
@@ -128,7 +121,6 @@ protected:
   unsigned maxLoopIteration;
   m2m_paths_t m2m_pathsRemaining;
   unsigned nextLoopSignature;
-//  std::map<unsigned, bool> mapLoopStateExceeded;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
 };
 

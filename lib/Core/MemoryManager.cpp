@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CoreStats.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "MemoryManager.h"
 
 #include "klee/Expr.h"

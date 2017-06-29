@@ -22,6 +22,7 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/Internal/System/Memory.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
@@ -385,7 +386,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
   }
 
   if (!NoOutput) {
-    std::vector< std::pair<std::string, std::vector<unsigned char> > > out;
+    std::vector<SymbolicSolution> out;
     bool success = m_interpreter->getSymbolicSolution(state, out);
 
     if (!success)
@@ -402,6 +403,13 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::ofstream kout;
       kout.open(outFilename);
       if (kout.is_open()) {
+
+        // RLR TODO: hard hat area
+        std::string dataFilename = getOutputFilename(getTestFilename("txt", id));
+        std::string error;
+        llvm::raw_fd_ostream dataout(dataFilename.c_str(), error);
+        dataout << "is this thing on?\n";
+
 
         // construct the json object representing the test case
         Json::Value root = Json::objectValue;
@@ -424,8 +432,21 @@ void KleeHandler::processTestCase(ExecutionState &state,
         Json::Value &objects = root["objects"] = Json::arrayValue;
         for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
-          auto test = *itrObj;
-          std::string name = test.first;
+          auto &test = *itrObj;
+          assert(test.first->type != nullptr);
+
+          std::string name = test.first->name;
+          const llvm::Type *type = test.first->type;
+          dataout << name << ": ";
+          if (type->isPrimitiveType()) {
+            dataout << "Primative";
+          } else if (type->isIntegerTy()) {
+            dataout << "int" << type->getIntegerBitWidth();
+          } else {
+            type->print(dataout);
+          }
+          dataout << "\n";
+
           std::vector<unsigned char> &data = test.second;
 
           Json::Value obj = Json::objectValue;
