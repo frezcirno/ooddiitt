@@ -219,6 +219,8 @@ public:
                        const char *errorMessage,
                        const char *errorSuffix);
 
+  std::string toDataString(const std::vector<unsigned char> &data) const;
+
   std::string getOutputFilename(const std::string &filename);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
   std::string getTestFilename(const std::string &suffix, unsigned id);
@@ -376,6 +378,21 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
 }
 
 
+
+std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
+
+  std::stringstream bytes;
+  for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+
+    unsigned char hi = (unsigned char) (*itrData >> 4);
+    unsigned char low = (unsigned char) (*itrData & 0x0F);
+    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+    bytes << hi << low;
+  }
+  return bytes.str();
+}
+
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
 void KleeHandler::processTestCase(ExecutionState &state,
                                   const char *errorMessage,
@@ -404,13 +421,6 @@ void KleeHandler::processTestCase(ExecutionState &state,
       kout.open(outFilename);
       if (kout.is_open()) {
 
-        // RLR TODO: hard hat area
-        std::string dataFilename = getOutputFilename(getTestFilename("txt", id));
-        std::string error;
-        llvm::raw_fd_ostream dataout(dataFilename.c_str(), error);
-        dataout << "is this thing on?\n";
-
-
         // construct the json object representing the test case
         Json::Value root = Json::objectValue;
         root["entryFn"] = state.name;
@@ -437,31 +447,27 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
           std::string name = test.first->name;
           const llvm::Type *type = test.first->type;
-          dataout << name << ": ";
-          if (type->isPrimitiveType()) {
-            dataout << "Primative";
-          } else if (type->isIntegerTy()) {
-            dataout << "int" << type->getIntegerBitWidth();
-          } else {
-            type->print(dataout);
-          }
-          dataout << "\n";
-
           std::vector<unsigned char> &data = test.second;
 
           Json::Value obj = Json::objectValue;
           obj["name"] = name;
+          obj["kind"] = test.first->getKindAsStr();
+          obj["count"] = test.first->count;
 
-          std::stringstream bytes;
-          for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+          std::string str;
+          llvm::raw_string_ostream rso(str);
+          type->print(rso);
+          obj["type"] = rso.str();
 
-            unsigned char hi = (unsigned char) (*itrData >> 4);
-            unsigned char low = (unsigned char) (*itrData & 0x0F);
-            hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-            low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-            bytes << hi << low;
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
           }
-          obj["data"] = bytes.str();
+          obj["addr"] = toDataString(addr);
+          obj["data"] = toDataString(data);
 
           objects.append(obj);
         }

@@ -498,7 +498,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-  outs().flush();
   outs() << name;
   outs().flush();
 
@@ -916,7 +915,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       const CallSite cs(i);
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
 
-//      const CallInst *ci = cast<CallInst>(i);
       std::string fnName = fn->getName();
 
       // if this is a special function, let
@@ -996,6 +994,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         ref<Expr> retExpr = wop.second->read(0, width);
         bindLocal(ki, state, retExpr);
 
+        // need return value lazy init to occur here, otherwize, the allocation
+        // gets the wrong name.
         if (ty->isPointerTy()) {
 
           // two possible returns for a pointer type, nullptr and a valid object

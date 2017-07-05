@@ -50,7 +50,6 @@ public:
   size_t align;
   mutable std::string name;
 
-
   MemKind kind;
   const llvm::Type *type;
   unsigned count;
@@ -119,6 +118,12 @@ public:
   bool isOutput() const { return kind == MemKind::output; }
   bool isLazy() const   { return kind == MemKind::lazy; }
   bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca); }
+
+  const char *getKindAsStr() const
+    {
+      static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
+      return kindStrings[kind];
+    };
 
   ~MemoryObject();
 
