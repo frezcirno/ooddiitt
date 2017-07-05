@@ -60,6 +60,14 @@ protected:
 
   bool resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
+  void executeAlloc(ExecutionState &state,
+                    unsigned size,
+                    unsigned count,
+                    const llvm::Type *type,
+                    MemKind kind,
+                    KInstruction *target);
+
+
   virtual void executeFree(ExecutionState &state,
                            ref<Expr> address,
                            KInstruction *target = 0);

@@ -156,6 +156,31 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
   return result;
 }
 
+void LocalExecutor::executeAlloc(ExecutionState &state,
+                                 unsigned size,
+                                 unsigned count,
+                                 const llvm::Type *type,
+                                 MemKind kind,
+                                 KInstruction *target) {
+
+  size_t allocationAlignment = getAllocationAlignment(target->inst);
+  MemoryObject *mo =
+      memory->allocate(size, kind, target->inst, allocationAlignment);
+  if (!mo) {
+    bindLocal(target, state,
+              ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+  } else {
+
+    mo->name = target->inst->getName();
+    mo->count = count;
+    mo->type = type;
+    ObjectState *os = bindObjectInState(state, mo);
+    os->initializeToRandom();
+    bindLocal(target, state, mo->getBaseExpr());
+  }
+}
+
+
 void LocalExecutor::executeFree(ExecutionState &state,
                                 ref<Expr> address,
                                 KInstruction *target) {
@@ -1028,14 +1053,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
 
-      unsigned elementSize = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
-      ref<Expr> size = Expr::createPointer(elementSize);
+      unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
       if (ai->isArrayAllocation()) {
-        ref<Expr> count = eval(ki, 0, state).value;
-        count = Expr::createZExtToPointerWidth(count);
-        size = MulExpr::create(size, count);
+        assert("resolve array allocation");
       }
-      executeAlloc(state, size, MemKind::alloca, ki);
+
+      executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki);
       break;
     }
 
@@ -1135,8 +1158,7 @@ Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       InterpreterHandler *ih) {
   return new LocalExecutor(ctx, opts, ih);
 }
-  
-  
+
   
 }
 
