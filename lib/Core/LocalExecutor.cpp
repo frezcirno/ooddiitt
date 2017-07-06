@@ -940,7 +940,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       const CallSite cs(i);
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
 
-      std::string fnName = fn->getName();
+      // if this function does not return, (exit, abort, zopc_exit, etc)
+      // then this state has completed
+      if (fn->hasFnAttribute(Attribute::NoReturn)) {
+        terminateStateOnExit(state);
+        return;
+      }
 
       // if this is a special function, let
       // the standard executor handle it
@@ -948,6 +953,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         Executor::executeInstruction(state, ki);
         return;
       }
+
+      std::string fnName = fn->getName();
 
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&
