@@ -139,6 +139,10 @@ MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, const llvm::V
   if (!address)
     return 0;
 
+  if ((Context::get().getPointerWidth() == Expr::Int32) && (address > UINT32_MAX)) {
+    klee_error("exhausted 32-bit memory allocation");
+  }
+
   ++stats::allocations;
   MemoryObject *res = new MemoryObject(address, size, alignment, kind, allocSite, this);
   objects.insert(res);
