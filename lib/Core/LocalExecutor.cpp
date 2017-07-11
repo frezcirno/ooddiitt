@@ -265,7 +265,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
         solver->setTimeout(0);
         state.pc = state.prevPC;
-        terminateStateEarly(state, "Failed to resolve read memory offset.");
+        terminateState(state);
       }
       addConstraint(state, mc);
 
@@ -358,7 +358,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
         solver->setTimeout(0);
         state.pc = state.prevPC;
-        terminateStateEarly(state, "Failed to resolve write memory offset.");
+        terminateState(state);
       }
       addConstraint(state, mc);
 
@@ -1103,7 +1103,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
             solver->setTimeout(0);
             state.pc = state.prevPC;
-            terminateStateEarly(state, "gep optimistic offset failure.");
+            terminateState(state);
           }
           addConstraint(state, mc);
         } else {
