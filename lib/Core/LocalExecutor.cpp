@@ -82,7 +82,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(16),
-  maxLoopIteration(81),
+  maxLoopIteration(1),
   nextLoopSignature(INVALID_LOOP_SIGNATURE) {
 }
 
@@ -529,6 +529,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   m2m_pathsRemaining = kf->m2m_paths;
   unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
+  state->maxLoopIteration = maxLoopIteration;
+  state->lazyAllocationCount = lazyAllocationCount;
 
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -1002,7 +1004,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                                    orgMO,
                                    v,
                                    MemKind::output,
-                                   fullName(fnName, counter, std::to_string(index - 1)),
+                                   fullName(fnName, counter, std::to_string(index + 1)),
                                    wop)) {
               klee_error("failed to allocate ptr argument");
             }
@@ -1019,7 +1021,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (!ty->isVoidTy()) {
 
         WObjectPair wop;
-        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "return"), wop)) {
+        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "0"), wop)) {
           klee_error("failed to allocate called function parameter");
         }
         Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
@@ -1043,7 +1045,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (sp.second != nullptr) {
 
             Type *subtype = ty->getPointerElementType();
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, MemKind::lazy, fullName(fnName, counter, "*return"), 0, lazyAllocationCount);
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, MemKind::lazy, fullName(fnName, counter, "*0"), 0, lazyAllocationCount);
             bindObjectInState(*sp.second, newMO);
 
             ref<ConstantExpr> ptr = newMO->getBaseExpr();

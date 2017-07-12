@@ -426,6 +426,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["entryFn"] = state.name;
         root["testID"] = id;
         root["argC"] = m_argc;
+        root["lazyAllocationCount"] = state.lazyAllocationCount;
+        root["maxLoopIteration"] = state.maxLoopIteration;
 
         std::stringstream args;
         for (int index = 0; index < m_argc; ++index) {

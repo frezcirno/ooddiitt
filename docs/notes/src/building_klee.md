@@ -158,7 +158,10 @@ cmake -G "Ninja" \
  -DUSE_CXX11=ON \
  -DENABLE_TCMALLOC=ON \
  -DENABLE_SOLVER_STP=ON \
+ -DSTP_DIR="${KLEE_DIR}/lib/cmake/STP" \
  -DENABLE_SOLVER_Z3=ON \
+ -DZ3_INCLUDE_DIRS="${KLEE_DIR}/include" \
+ -DZ3_LIBRARIES="${KLEE_DIR}/lib/libz3.so" \
  -DENABLE_POSIX_RUNTIME=ON \
  -DENABLE_KLEE_UCLIBC=ON \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
@@ -168,6 +171,7 @@ cmake -G "Ninja" \
  ..
 
 ```
+
 
 Final installed build in /usr/local/stow/klee. Activate by `sudo stow --dir=/usr/local/stow klee`
 
