@@ -1,4 +1,4 @@
-# How to build KLEE
+cd ..# How to build KLEE
 
 This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building KLEE and its dependencies.
 
