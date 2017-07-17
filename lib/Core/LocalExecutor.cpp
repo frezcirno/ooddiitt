@@ -301,6 +301,10 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       Type *subtype = type->getPointerElementType()->getPointerElementType();
       MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                         '*' + mo->name, 0, lazyAllocationCount);
+
+//      WObjectPair wop;
+//      allocSymbolic(*sp.second, subtype, target->inst, MemKind::lazy, '*' + mo->name, wop, 0, lazyAllocationCount);
+//      MemoryObject *newMO = wop.first;
       bindObjectInState(*sp.second, newMO);
 
       ref<ConstantExpr> ptr = newMO->getBaseExpr();
@@ -472,6 +476,8 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   size_t align,
                                   unsigned count) {
 
+  wop.first = nullptr;
+  wop.second = nullptr;
   MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
@@ -977,7 +983,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 
-
       // consider the arguments pushed for the call, rather than
       // args expected by the target
       unsigned numArgs = cs.arg_size();
@@ -1028,7 +1033,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         ref<Expr> retExpr = wop.second->read(0, width);
         bindLocal(ki, state, retExpr);
 
-        // need return value lazy init to occur here, otherwize, the allocation
+        // need return value lazy init to occur here, otherwise, the allocation
         // gets the wrong name.
         if (ty->isPointerTy()) {
 
@@ -1044,13 +1049,38 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // constrain the ptr to point to it.
           if (sp.second != nullptr) {
 
+            MemKind kind = MemKind::lazy;
+            unsigned count = lazyAllocationCount;
+
+            // special handling for zopc_malloc. argument contains the allocation size
+            if (fnName == "zopc_malloc") {
+              kind = MemKind::heap;
+              ref<Expr> size = eval(ki, 1, *sp.second).value;
+              size = sp.second->constraints.simplifyExpr(size);
+
+              if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
+                count = (unsigned) CE->getZExtValue();
+              } else {
+                ref<ConstantExpr> value;
+                bool success = solver->getValue(*sp.second, size, value);
+                if (!success) {
+                  terminateState(*sp.second);
+                  return;
+                }
+                count = (unsigned) value->getZExtValue();
+                sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(size, value)));
+              }
+            }
             Type *subtype = ty->getPointerElementType();
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, MemKind::lazy, fullName(fnName, counter, "*0"), 0, lazyAllocationCount);
+
+            WObjectPair wop;
+            allocSymbolic(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), wop, 0, count);
+//            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
+            MemoryObject *newMO = wop.first;
             bindObjectInState(*sp.second, newMO);
 
             ref<ConstantExpr> ptr = newMO->getBaseExpr();
-            ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(retExpr, ptr));
-            sp.second->addConstraint(eq);
+            sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
           }
         }
       }
@@ -1102,12 +1132,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         if (AssumeInboundPointers) {
           bool inBounds;
-          if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
+          if (!(solver->mayBeTrue(state, mc, inBounds) && inBounds)) {
             solver->setTimeout(0);
             state.pc = state.prevPC;
             terminateState(state);
+          } else {
+            addConstraint(state, mc);
           }
-          addConstraint(state, mc);
         } else {
           klee_error("non-optimistic not supported at this time");
         }
@@ -1117,7 +1148,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // invalid memory access
         terminateState(state);
       }
-
       break;
     }
 
