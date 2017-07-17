@@ -494,6 +494,35 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
+void LocalExecutor::unconstrainGlobals(ExecutionState &state) {
+
+  Module *m = kmodule->module;
+  for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+    MemoryObject *mo = globalObjects.find(v)->second;
+    std::string name = mo->name;
+    if (name.find('.') == std::string::npos) {
+
+      const ObjectState *os = state.addressSpace.findObject(mo);
+      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+      unsigned size = mo->size;
+
+      WObjectPair wop;
+      if (!duplicateSymbolic(state,
+                             mo,
+                             v,
+                             MemKind::global,
+                             name,
+                             wop)) {
+        klee_error("failed to allocate global");
+      }
+      ObjectState *newOS = wop.second;
+      for (unsigned offset = 0; offset < size; ++offset) {
+        wos->write(offset, newOS->read8(offset));
+      }
+    }
+  }
+}
 
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
@@ -547,6 +576,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->framePushed(*state, 0);
 
   initializeGlobals(*state);
+  unconstrainGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
@@ -1073,10 +1103,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             }
             Type *subtype = ty->getPointerElementType();
 
-            WObjectPair wop;
-            allocSymbolic(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), wop, 0, count);
-//            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
-            MemoryObject *newMO = wop.first;
+//            WObjectPair wop;
+//            allocSymbolic(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), wop, 0, count);
+//            MemoryObject *newMO = wop.first;
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
             bindObjectInState(*sp.second, newMO);
 
             ref<ConstantExpr> ptr = newMO->getBaseExpr();

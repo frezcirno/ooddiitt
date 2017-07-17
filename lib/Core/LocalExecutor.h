@@ -109,6 +109,8 @@ protected:
                      size_t align = 0,
                      unsigned count = 1);
 
+  void unconstrainGlobals(ExecutionState &state);
+
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
