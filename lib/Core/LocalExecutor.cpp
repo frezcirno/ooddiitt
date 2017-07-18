@@ -558,14 +558,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-  outs() << name;
-  outs().flush();
-
-  m2m_pathsRemaining = kf->m2m_paths;
-  unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
-  state->maxLoopIteration = maxLoopIteration;
-  state->lazyAllocationCount = lazyAllocationCount;
 
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -574,9 +567,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
-
-  initializeGlobals(*state);
-  unconstrainGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
@@ -598,11 +588,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     bindArgument(kf, index, *state, e);
   }
 
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = nullptr;
+  run(kf, *state);
 
   // hack to clear memory objects
   delete memory;
@@ -615,25 +601,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
-
-  if (num_m2m_paths > 0) {
-    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
-    outs() << " of " << num_m2m_paths << " m2m paths covered";
-
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
-
-      bool first = true;
-      outs() << "\n  [";
-      for (const unsigned &marker : path) {
-        if (!first) outs() << ", ";
-        first = false;
-        outs() << marker;
-      }
-      outs() << "]";
-    }
-  }
-  outs() << "\n";
-  outs().flush();
 
   if (statsTracker)
     statsTracker->done();
@@ -728,13 +695,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     }
   }
   
-  initializeGlobals(*state);
-  
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = 0;
+  run(kf, *state);
   
   // hack to clear memory objects
   delete memory;
@@ -752,14 +713,27 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     statsTracker->done();
 }
   
-void LocalExecutor::run(ExecutionState &initialState) {
+void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
+  initializeGlobals(initialState);
+  unconstrainGlobals(initialState);
   bindModuleConstants();
+
+  processTree = new PTree(&initialState);
+  initialState.ptreeNode = processTree->root;
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
-  
+
+  outs() << initialState.name;
+  outs().flush();
+
+  m2m_pathsRemaining = kf->m2m_paths;
+  unsigned num_m2m_paths = m2m_pathsRemaining.size();
+  initialState.maxLoopIteration = maxLoopIteration;
+  initialState.lazyAllocationCount = lazyAllocationCount;
+
   states.insert(&initialState);
   
   searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
@@ -787,6 +761,28 @@ void LocalExecutor::run(ExecutionState &initialState) {
     terminateState(*state);
   }
   updateStates(nullptr);
+
+  delete processTree;
+  processTree = 0;
+
+  if (num_m2m_paths > 0) {
+    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
+    outs() << " of " << num_m2m_paths << " m2m paths covered";
+
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+
+      bool first = true;
+      outs() << "\n  [";
+      for (const unsigned &marker : path) {
+        if (!first) outs() << ", ";
+        first = false;
+        outs() << marker;
+      }
+      outs() << "]";
+    }
+  }
+  outs() << "\n";
+  outs().flush();
 }
 
 void LocalExecutor::updateStates(ExecutionState *current) {

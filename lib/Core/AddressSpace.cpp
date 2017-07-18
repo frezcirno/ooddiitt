@@ -336,6 +336,16 @@ bool AddressSpace::copyInConcretes() {
   return true;
 }
 
+void AddressSpace::getMemoryObjects(std::vector<const MemoryObject*> &listMOs) const {
+
+  listMOs.clear();
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    listMOs.push_back(mo);
+  }
+}
+
 /***/
 
 bool MemoryObjectLT::operator()(const MemoryObject *a, const MemoryObject *b) const {

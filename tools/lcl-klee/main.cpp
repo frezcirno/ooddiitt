@@ -474,6 +474,42 @@ void KleeHandler::processTestCase(ExecutionState &state,
           objects.append(obj);
         }
 
+        // dump details of the state address space
+        root["addressSpace"] = Json::arrayValue;
+        Json::Value &addrSpace = root["addressSpace"];
+
+        std::vector<const MemoryObject*> listMOs;
+        state.addressSpace.getMemoryObjects(listMOs);
+        for (const MemoryObject *mo : listMOs) {
+
+          Json::Value obj = Json::objectValue;
+          obj["id"] = mo->id;
+          obj["name"] = mo->name;
+          obj["kind"] = mo->getKindAsStr();
+          obj["count"] = mo->count;
+          obj["size"] = mo->size;
+
+          if (mo->type != nullptr) {
+            std::string str;
+            llvm::raw_string_ostream rso(str);
+            mo->type->print(rso);
+            obj["type"] = rso.str();
+          } else {
+            obj["type"] = "";
+          }
+
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
+          }
+          obj["addr"] = toDataString(addr);
+
+          addrSpace.append(obj);
+        }
+
         // write the constructed json object to file
         Json::StreamWriterBuilder builder;
         builder["commentStyle"] = "None";
@@ -1319,7 +1355,17 @@ int main(int argc, char **argv, char **envp) {
 
   if (WithPOSIXRuntime) {
     SmallString<128> Path(Opts.LibraryDir);
-    llvm::sys::path::append(Path, "libkleeRuntimePOSIX.bca");
+
+    std::string posixLib = "libkleeRuntimePOSIX";
+    Module::PointerSize width = mainModule->getPointerSize();
+    if (width == Module::PointerSize::Pointer32) {
+      posixLib += "-32";
+    } else if (width == Module::PointerSize::Pointer64) {
+      posixLib += "-64";
+    }
+    posixLib += ".bca";
+
+    llvm::sys::path::append(Path, posixLib);
     klee_message("NOTE: Using model: %s", Path.c_str());
     mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
     assert(mainModule && "unable to link with simple model");
@@ -1408,9 +1454,8 @@ int main(int argc, char **argv, char **envp) {
   }
 
   if (mainFn != nullptr) {
-
-    // RLR TODO: restore this
-    //theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+//    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+    theInterpreter->runFunctionUnconstrained(mainFn);
   }
 
   // run each function other than main as unconstrained

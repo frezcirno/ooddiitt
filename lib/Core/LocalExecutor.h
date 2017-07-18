@@ -50,7 +50,7 @@ public:
   virtual void setMaxLoopIteration(unsigned max) { maxLoopIteration = max; }
 
 protected:
-  virtual void run(ExecutionState &initialState);
+  virtual void run(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);

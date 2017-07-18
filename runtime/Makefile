@@ -20,7 +20,7 @@ PARALLEL_DIRS=Intrinsic Intrinsic-32 Intrinsic-64 klee-libc Runtest
 include $(LEVEL)/Makefile.config
 
 ifeq ($(ENABLE_POSIX_RUNTIME),1)
-PARALLEL_DIRS += POSIX
+PARALLEL_DIRS += POSIX POSIX-32 POSIX-64
 endif
 
 ifeq ($(ENABLE_UCLIBC),1)

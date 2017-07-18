@@ -126,6 +126,7 @@ namespace klee {
     /// \retval true The copy succeeded. 
     /// \retval false The copy failed because a read-only object was modified.
     bool copyInConcretes();
+    void getMemoryObjects(std::vector<const MemoryObject*> &listMOs) const;
   };
 } // End klee namespace
 
