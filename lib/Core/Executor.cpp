@@ -625,8 +625,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
 			(int)i->getName().size(), i->getName().data());
       }
 
-      MemoryObject *mo = memory->allocate(size, MemKind::global, v, globalObjectAlignment);
-      mo->type = ty;
+      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, globalObjectAlignment);
       mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
@@ -651,7 +650,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-      MemoryObject *mo = memory->allocate(size, MemKind::global, v, globalObjectAlignment);
+      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, globalObjectAlignment);
       if (!mo)
         llvm::report_fatal_error("out of memory");
       mo->name = v->getName();
@@ -1401,7 +1400,7 @@ void Executor::executeCall(ExecutionState &state,
       }
 
       MemoryObject *mo = sf.varargs =
-          memory->allocate(size, MemKind::output, state.prevPC->inst,
+          memory->allocate(size, nullptr, MemKind::output, state.prevPC->inst,
                            (requires16ByteAlignment ? 16 : 8));
       if (!mo && size) {
         terminateStateOnExecError(state, "out of memory (varargs)");
@@ -3162,7 +3161,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
     size_t allocationAlignment = getAllocationAlignment(target->inst);
     MemoryObject *mo =
-        memory->allocate(CE->getZExtValue(), kind, target->inst, allocationAlignment);
+        memory->allocate(CE->getZExtValue(), nullptr, kind, target->inst, allocationAlignment);
     if (!mo) {
       bindLocal(target, state,
                 ConstantExpr::alloc(0, Context::get().getPointerWidth()));
@@ -3545,6 +3544,7 @@ void Executor::runFunctionAsMain(Function *f,
   unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
   KFunction *kf = kmodule->functionMap[f];
   assert(kf);
+  LLVMContext &ctx = kmodule->module->getContext();
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
     arguments.push_back(ConstantExpr::alloc(argc, Expr::Int32));
@@ -3552,7 +3552,7 @@ void Executor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
           memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                           MemKind::param, first, 8);
+                           Type::getInt8Ty(ctx), MemKind::param, first, 8);
 
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -3596,7 +3596,7 @@ void Executor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
 
         MemoryObject *arg =
-            memory->allocate(len + 1, MemKind::param, state->pc->inst, 8);
+            memory->allocate(len + 1, Type::getInt8Ty(ctx), MemKind::param, state->pc->inst, 8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
         ObjectState *os = bindObjectInState(*state, arg);

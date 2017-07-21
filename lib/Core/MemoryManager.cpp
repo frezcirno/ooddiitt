@@ -91,7 +91,7 @@ MemoryManager::~MemoryManager() {
     munmap(deterministicSpace, spaceSize);
 }
 
-MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
+MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
   if (size > 10 * 1024 * 1024)
     klee_warning_once(0, "Large alloc: %" PRIu64
                          " bytes.  KLEE may run out of memory.",
@@ -144,7 +144,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, MemKind kind, const llvm::V
   }
 
   ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, alignment, kind, allocSite, this);
+  MemoryObject *res = new MemoryObject(address, size, alignment, type, kind, allocSite, this);
   objects.insert(res);
   return res;
 }
@@ -161,7 +161,7 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
 #endif
 
   ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, 1, MemKind::fixed, allocSite, this);
+  MemoryObject *res = new MemoryObject(address, size, 1, nullptr, MemKind::fixed, allocSite, this);
   objects.insert(res);
   return res;
 }

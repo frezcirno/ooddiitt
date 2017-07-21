@@ -92,8 +92,8 @@ public:
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
-               MemKind _kind, const llvm::Value *_allocSite,
-               MemoryManager *_parent)
+               const llvm::Type *type, MemKind _kind,
+               const llvm::Value *_allocSite, MemoryManager *_parent)
     : refCount(0), 
       id(counter++),
       address(_address),
@@ -101,7 +101,7 @@ public:
       align(_align),
       name(""),
       kind(_kind),
-      type(nullptr),
+      type(type),
       count(0),
       fake_object(false),
       isUserSpecified(false),

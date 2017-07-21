@@ -165,7 +165,7 @@ void LocalExecutor::executeAlloc(ExecutionState &state,
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
   MemoryObject *mo =
-      memory->allocate(size, kind, target->inst, allocationAlignment);
+      memory->allocate(size, type, kind, target->inst, allocationAlignment);
   if (!mo) {
     bindLocal(target, state,
               ConstantExpr::alloc(0, Context::get().getPointerWidth()));
@@ -173,7 +173,6 @@ void LocalExecutor::executeAlloc(ExecutionState &state,
 
     mo->name = target->inst->getName();
     mo->count = count;
-    mo->type = type;
     ObjectState *os = bindObjectInState(state, mo);
     os->initializeToRandom();
     bindLocal(target, state, mo->getBaseExpr());
@@ -435,12 +434,11 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
+  MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
   } else {
     mo->name = name;
-    mo->type = type;
     mo->count = count;
   }
   return mo;
@@ -453,13 +451,12 @@ bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
                                       std::string name,
                                       WObjectPair &wop) {
 
-  MemoryObject *mo = memory->allocate(origMO->size, kind, allocSite, origMO->align);
+  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, kind, allocSite, origMO->align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic duplication");
     return false;
   }
   mo->name = name;
-  mo->type = origMO->type;
   mo->count = origMO->count;
   ObjectState *os = makeSymbolic(state, mo);
   wop.first = mo;
@@ -619,6 +616,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   MemoryObject *argvMO = nullptr;
   KFunction *kf = kmodule->functionMap[f];
+  LLVMContext &ctx = kmodule->module->getContext();
   assert(kf && "main not found in this compilation unit");
 
   std::string name = f->getName();
@@ -630,7 +628,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   int envc;
   for (envc=0; envp[envc]; ++envc) ;
-  
+
   unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
@@ -639,7 +637,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
       memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                       MemKind::param, first, 8);
+                       Type::getInt8Ty(ctx), MemKind::param, first, 8);
       
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -682,7 +680,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
         
         MemoryObject *arg =
-        memory->allocate(len + 1, MemKind::param, state->pc->inst, 8);
+        memory->allocate(len + 1, Type::getInt8Ty(ctx), MemKind::param, state->pc->inst, 8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
         ObjectState *os = bindObjectInState(*state, arg);
