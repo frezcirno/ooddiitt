@@ -493,30 +493,14 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 
 void LocalExecutor::unconstrainGlobals(ExecutionState &state) {
 
+
   Module *m = kmodule->module;
   for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
     if (name.find('.') == std::string::npos) {
-
-      const ObjectState *os = state.addressSpace.findObject(mo);
-      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-      unsigned size = mo->size;
-
-      WObjectPair wop;
-      if (!duplicateSymbolic(state,
-                             mo,
-                             v,
-                             MemKind::global,
-                             name,
-                             wop)) {
-        klee_error("failed to allocate global");
-      }
-      ObjectState *newOS = wop.second;
-      for (unsigned offset = 0; offset < size; ++offset) {
-        wos->write(offset, newOS->read8(offset));
-      }
+      makeSymbolic(state, mo);
     }
   }
 }
