@@ -788,6 +788,35 @@ void LocalExecutor::updateStates(ExecutionState *current) {
   Executor::updateStates(current);
 }
 
+
+ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
+
+  ref<ConstantExpr> result;
+
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e)) {
+    result = CE;
+  } else {
+
+    solver->setTimeout(coreSolverTimeout);
+    if (solver->getValue(state, e, result)) {
+
+      bool isTrue;
+      if (solver->mustBeTrue(state, EqExpr::create(e, result), isTrue)) {
+        if (!isTrue) {
+          state.addConstraint(NotOptimizedExpr::create(EqExpr::create(e, result)));
+        }
+      } else {
+        klee_error("solver failure");
+      }
+    } else {
+      klee_error("solver failure");
+    }
+    solver->setTimeout(0);
+  }
+
+  return result;
+}
+
 bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
 
   bool result = false;
@@ -996,34 +1025,51 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       unsigned numArgs = cs.arg_size();
       for (unsigned index = 0; index < numArgs; ++index) {
         const Value *v = cs.getArgument(index);
-        Type *type = v->getType();
+        Type *argType = v->getType();
 
-        if (countLoadIndirection(type) > 0) {
+        if ((countLoadIndirection(argType) > 0) &&
+            !kmodule->functionMap[fn]->isConst(index)) {
 
-          // RLR TODO: check for const (not available to LLVM IR)
-          ref<Expr> address = eval(ki, index + 1, state).value;
-          Expr::Width width = address.get()->getWidth();
+#define _DEBUG
+#ifdef _DEBUG
+          std::string str;
+          llvm::raw_string_ostream rso(str);
+          argType->print(rso);
+          str = rso.str();
+#endif
+
+          ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
+          Expr::Width width = address->getWidth();
           assert(width == Context::get().getPointerWidth());
 
           ObjectPair op;
           if (resolveMO(state, address, op)) {
             const MemoryObject *orgMO = op.first;
             const ObjectState *orgOS = op.second;
-            unsigned size = orgMO->size;
-            ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
+            ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
 
+            Type *eleType = argType->getPointerElementType();
+            unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
+            unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
+            unsigned count = (orgMO->size - offset) / eleSize;
+
+            // unconstrain from address to end of the memory block
             WObjectPair wop;
-            if (!duplicateSymbolic(state,
-                                   orgMO,
-                                   v,
-                                   MemKind::output,
-                                   fullName(fnName, counter, std::to_string(index + 1)),
-                                   wop)) {
+            if (!allocSymbolic(state,
+                               eleType,
+                               v,
+                               MemKind::output,
+                               fullName(fnName, counter,
+                               std::to_string(index + 1)),
+                               wop,
+                               0,
+                               count)) {
               klee_error("failed to allocate ptr argument");
             }
+
             ObjectState *newOS = wop.second;
-            for (unsigned offset = 0; offset < size; ++offset) {
-              wos->write(offset, newOS->read8(offset));
+            for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
+              argOS->write(idx, newOS->read8(idx));
             }
           }
         }

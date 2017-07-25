@@ -114,6 +114,7 @@ protected:
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
+  ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
   virtual void updateStates(ExecutionState *current);
