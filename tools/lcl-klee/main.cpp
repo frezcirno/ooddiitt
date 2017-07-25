@@ -22,6 +22,7 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/Internal/System/ProgInfo.h"
 #include "klee/Internal/System/Memory.h"
 
 #include "llvm/IR/Constants.h"
@@ -73,6 +74,11 @@ namespace {
   MaxLoopIteration("max-loop-iteration", cl::init(1), cl::desc("The maximum number of times to iteration through a loop"));
 
   cl::opt<std::string>
+  ProgramInfo("prog-info",
+           cl::desc("json formated info from static analysis"),
+           cl::init(""));
+
+cl::opt<std::string>
   EntryPoint("entry-point",
              cl::desc("Consider the function with the given name as the entrypoint"),
              cl::init("main"));
@@ -1189,6 +1195,30 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
+void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
+
+  // complete progInfo from json structure
+  Json::Value &fnsRoot = root["functions"];
+  Json::Value::Members fns = fnsRoot.getMemberNames();
+  for (const auto fn : fns) {
+
+    Json::Value &fnRoot = fnsRoot[fn];
+    Json::Value &params = fnRoot["params"];
+    if (params.isArray()) {
+      for (unsigned index = 0, end = params.size(); index < end; ++index) {
+
+        Json::Value &param = params[index];
+        if (!param["isOutput"].asBool()) {
+          Json::Value &type = param["type"];
+          if (type.isMember("isConst") && type["isConst"].asBool()) {
+            progInfo.setConstParam(fn, index);
+          }
+        }
+      }
+    }
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
@@ -1275,6 +1305,19 @@ int main(int argc, char **argv, char **envp) {
   if (ec) {
     klee_error("error loading program '%s': %s", InputFile.c_str(),
                ec.message().c_str());
+  }
+
+  ProgInfo progInfo;
+  if (ProgramInfo.length() > 0) {
+
+    std::ifstream info;
+    info.open(ProgramInfo);
+    if (info.is_open()) {
+
+      Json::Value root;
+      info >> root;
+      load_prog_info(root, progInfo);
+    }
   }
 
   mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
@@ -1426,7 +1469,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
   theInterpreter->setMaxLoopIteration(MaxLoopIteration);
   handler->setInterpreter(theInterpreter);
 

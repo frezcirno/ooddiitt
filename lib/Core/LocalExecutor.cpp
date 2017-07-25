@@ -45,6 +45,7 @@
 #include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/System/Time.h"
 #include "klee/Internal/System/MemoryUsage.h"
+#include "klee/Internal/System/ProgInfo.h"
 #include "klee/SolverStats.h"
 
 #include "llvm/IR/Function.h"
@@ -79,11 +80,14 @@ cl::opt<bool>
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih) :
+                             InterpreterHandler *ih,
+                             ProgInfo *pi) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(16),
   maxLoopIteration(1),
-  nextLoopSignature(INVALID_LOOP_SIGNATURE) {
+  nextLoopSignature(INVALID_LOOP_SIGNATURE),
+  progInfo(pi)  {
+  assert(pi != nullptr);
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -444,6 +448,8 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   return mo;
 }
 
+// RLR TODO: remove this
+#ifdef NEVER
 bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
                                       const MemoryObject *origMO,
                                       const llvm::Value *allocSite,
@@ -463,6 +469,7 @@ bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
   wop.second = os;
   return true;
 }
+#endif
 
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
@@ -1028,15 +1035,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         Type *argType = v->getType();
 
         if ((countLoadIndirection(argType) > 0) &&
-            !kmodule->functionMap[fn]->isConst(index)) {
-
-#define _DEBUG
-#ifdef _DEBUG
-          std::string str;
-          llvm::raw_string_ostream rso(str);
-          argType->print(rso);
-          str = rso.str();
-#endif
+            !progInfo->isConstParam(fnName, index)) {
 
           ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
           Expr::Width width = address->getWidth();
@@ -1248,8 +1247,9 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
-                                      InterpreterHandler *ih) {
-  return new LocalExecutor(ctx, opts, ih);
+                                      InterpreterHandler *ih,
+                                      ProgInfo *progInfo) {
+  return new LocalExecutor(ctx, opts, ih, progInfo);
 }
 
   

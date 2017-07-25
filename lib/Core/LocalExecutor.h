@@ -29,12 +29,14 @@ class LocalExecutor : public Executor {
 public:
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih)
-    { return new klee::LocalExecutor(ctx, opts, ih); }
+                             InterpreterHandler *ih,
+                             ProgInfo *progInfo)
+    { return new klee::LocalExecutor(ctx, opts, ih, progInfo); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
-                InterpreterHandler *ie);
+                InterpreterHandler *ie,
+                ProgInfo *progInfo);
 
   virtual ~LocalExecutor();
 
@@ -93,12 +95,13 @@ protected:
                             size_t align = 0,
                             unsigned count = 1);
 
-  bool duplicateSymbolic(ExecutionState &state,
-                         const MemoryObject *mo,
-                         const llvm::Value *allocSite,
-                         MemKind kind,
-                         std::string name,
-                         WObjectPair &wop);
+// RLR TODO: remove this
+//  bool duplicateSymbolic(ExecutionState &state,
+//                         const MemoryObject *mo,
+//                         const llvm::Value *allocSite,
+//                         MemKind kind,
+//                         std::string name,
+//                         WObjectPair &wop);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,
@@ -133,6 +136,7 @@ protected:
   m2m_paths_t m2m_pathsRemaining;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
+  ProgInfo *progInfo;
 };
 
 

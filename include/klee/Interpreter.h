@@ -9,6 +9,8 @@
 #ifndef KLEE_INTERPRETER_H
 #define KLEE_INTERPRETER_H
 
+#include "klee/Internal/System/ProgInfo.h"
+
 #include <vector>
 #include <string>
 #include <map>
@@ -105,7 +107,8 @@ public:
 
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
-                                  InterpreterHandler *ih);
+                                  InterpreterHandler *ih,
+                                  ProgInfo *progInfo);
 
   /// Register the module to be executed.  
   ///
