@@ -10,7 +10,6 @@
 #ifndef KLEE_KMODULE_H
 #define KLEE_KMODULE_H
 
-
 #include "llvm/Analysis/Dominators.h"
 
 #include "klee/Config/Version.h"
@@ -19,8 +18,6 @@
 #include <map>
 #include <set>
 #include <vector>
-
-#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
   class BasicBlock;
@@ -45,16 +42,21 @@ namespace klee {
   class KModule;
   template<class T> class ref;
 
+  typedef std::vector<unsigned> marker_path_t;
+  typedef std::set<marker_path_t> marker_paths_t;
+  typedef std::vector<const llvm::BasicBlock*> bb_path_t;
+  typedef std::set<bb_path_t> bb_paths_t;
+  typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
+  typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
-typedef std::vector<unsigned> marker_path_t;
-typedef std::set<marker_path_t> marker_paths_t;
-typedef std::vector<const llvm::BasicBlock*> bb_path_t;
-typedef std::set<bb_path_t> bb_paths_t;
-typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
-typedef std::set<CFGEdge> CFGEdges;
-typedef std::set<const llvm::BasicBlock*> BasicBlocks;
+  struct KLoopInfo {
+    std::set<const llvm::BasicBlock*> bbs;
+    std::set<const llvm::BasicBlock*> exits;
+    KLoopInfo()                   { }
+    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; exits = s.exits; }
+  };
 
-struct KFunction {
+  struct KFunction {
     llvm::Function *function;
 
     unsigned numArgs, numRegisters;
@@ -68,30 +70,32 @@ struct KFunction {
     /// "coverable" for statistics and search heuristics.
     bool trackCoverage;
 
-    // values collected from marked ir
     unsigned fnID;
+
+    // loop analysis
+    std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
+    llvm::DominatorTree domTree;
+
+    // marker info
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
     std::set<unsigned> majorMarkers;
     marker_paths_t m2m_paths;
-    llvm::DominatorTree domTree;
-    BasicBlocks loopHeaders;
-    CFGEdges backedges;
 
   private:
     KFunction(const KFunction&);
     KFunction &operator=(const KFunction&);
 
     void recurseAllSimplePaths(const llvm::BasicBlock *bb,
-                               BasicBlocks &visited,
+                               std::set<const llvm::BasicBlock*> &visited,
                                bb_path_t &path,
                                bb_paths_t &paths) const;
 
     void recurseAllSimpleCycles(const llvm::BasicBlock *bb,
                                 const llvm::BasicBlock *dst,
-                                BasicBlocks &visited,
+                                std::set<const llvm::BasicBlock*> &visited,
                                 bb_path_t &path,
                                 bb_paths_t &paths) const;
-
+    
     void translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const;
 
   public:
@@ -99,18 +103,16 @@ struct KFunction {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-
     void findLoopHeaders();
-    bool isBackedge(const llvm::BasicBlock* src, const llvm::BasicBlock *dst) const
-      { CFGEdge edge(src, dst); return isBackedge(edge); }
-    bool isBackedge(const CFGEdge &edge) const
-      { return backedges.find(edge) != backedges.end(); }
+    bool isLoopHeader(const llvm::BasicBlock *bb) const { return (loopInfo.find(bb) != loopInfo.end()); }
+    bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
+    bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
-    void setM2MPaths(const bb_paths_t &paths);
-    bool isMajorMarker(unsigned marker)
-      { return majorMarkers.find(marker) != majorMarkers.end(); }
+    void setM2MPaths(const bb_paths_t &bb_paths);
+    bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool isConst(unsigned paramNum) const            { return false; } // RLR TODO: implement this
   };
 
 
@@ -169,6 +171,8 @@ struct KFunction {
     void addConcreteFunction(std::string fnName);
     bool isConcreteFunction(const llvm::Function *fn)
       { return concreteFunctions.find(fn) != concreteFunctions.end(); }
+
+    llvm::Function *getTargetFunction(llvm::Value *value) const;
 
   private:
 

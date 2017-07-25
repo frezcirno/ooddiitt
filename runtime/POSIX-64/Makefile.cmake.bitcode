@@ -6,17 +6,12 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-LEVEL := ./
+LEVEL := ../
+
 include $(LEVEL)/Makefile.cmake.bitcode.config
 
-DIRS += Intrinsic
-DIRS += Intrinsic-32
-DIRS += Intrinsic-64
-DIRS += klee-libc
-ifneq ($(ENABLE_POSIX_RUNTIME),0)
-	DIRS += POSIX
-	DIRS += POSIX-32
-	DIRS += POSIX-64
-endif
+LLVMCC.Flags += -m64
+
+ARCHIVE_NAME=kleeRuntimePOSIX-64
 
 include $(LEVEL)/Makefile.cmake.bitcode.rules

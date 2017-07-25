@@ -16,10 +16,6 @@
 
 struct KTest;
 
-// RLR TODO: need to clean up this declaration, perhaps move to its own include file
-typedef std::vector<unsigned> m2m_path_t;
-typedef std::set<m2m_path_t> m2m_paths_t;
-
 namespace llvm {
 class Function;
 class LLVMContext;
@@ -32,6 +28,11 @@ namespace klee {
 class ExecutionState;
 class Interpreter;
 class TreeStreamWriter;
+class MemoryObject;
+
+typedef std::vector<unsigned> m2m_path_t;
+typedef std::set<m2m_path_t> m2m_paths_t;
+typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
 class InterpreterHandler {
 public:
@@ -140,6 +141,7 @@ public:
                                  char **envp) = 0;
 
   virtual void runFunctionUnconstrained(llvm::Function *f)  { };
+  virtual void setMaxLoopIteration(unsigned max)            { };
 
 //  virtual void runFragmentUnconstrained(llvm::Function *f, const m2m_paths_t &paths)  { };
 
@@ -161,11 +163,7 @@ public:
                                 std::string &res,
                                 LogType logFormat = STP) = 0;
 
-  virtual bool getSymbolicSolution(const ExecutionState &state, 
-                                   std::vector< 
-                                   std::pair<std::string,
-                                   std::vector<unsigned char> > >
-                                   &res) = 0;
+  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res) = 0;

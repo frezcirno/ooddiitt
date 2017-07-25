@@ -24,6 +24,8 @@
 #include <set>
 #include <vector>
 
+#define INVALID_LOOP_SIGNATURE   (0)
+
 namespace klee {
 class Array;
 class CallPathNode;
@@ -36,6 +38,17 @@ struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 
+struct LoopFrame {
+  const llvm::BasicBlock *hdr;
+  unsigned counter;
+  const unsigned loopSignature;
+
+  LoopFrame(const llvm::BasicBlock *bb, unsigned loopSig) : hdr(bb), counter(0), loopSignature(loopSig)
+    { assert(loopSig != INVALID_LOOP_SIGNATURE); }
+  LoopFrame(const LoopFrame &s) : hdr(s.hdr), counter(s.counter), loopSignature(s.loopSignature)
+    { assert(s.loopSignature != INVALID_LOOP_SIGNATURE); }
+};
+
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
@@ -45,7 +58,7 @@ struct StackFrame {
   size_t numRegs;
   Cell *locals;
 
-  std::set<CFGEdge> edgesTaken;
+  std::vector<LoopFrame> loopFrames;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -65,10 +78,6 @@ struct StackFrame {
   StackFrame(const StackFrame &s);
   ~StackFrame();
 
-  void addEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2)  { CFGEdge edge(bb1, bb2);
-                                                                edgesTaken.insert(edge); }
-  bool containsEdge(llvm::BasicBlock *bb1, llvm::BasicBlock *bb2) { CFGEdge edge(bb1, bb2);
-                                                                    return edgesTaken.find(edge) != edgesTaken.end(); }
 };
 
 /// @brief ExecutionState representing a path under exploration
@@ -156,6 +165,8 @@ public:
   std::string name;
   std::vector<unsigned> markers;
   bool isProcessed;
+  unsigned lazyAllocationCount;
+  unsigned maxLoopIteration;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

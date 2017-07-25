@@ -21,6 +21,7 @@
 #include "klee/Internal/System/Time.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
+#include "klee/Internal/System/Memory.h"
 
 #if LLVM_VERSION_CODE > LLVM_VERSION(3, 2)
 #include "llvm/IR/Constants.h"
@@ -426,7 +427,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
   }
 
   if (!NoOutput) {
-    std::vector< std::pair<std::string, std::vector<unsigned char> > > out;
+    std::vector<SymbolicSolution> out;
     bool success = m_interpreter->getSymbolicSolution(state, out);
 
     if (!success)
@@ -447,7 +448,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
       assert(b.objects);
       for (unsigned i=0; i<b.numObjects; i++) {
         KTestObject *o = &b.objects[i];
-        o->name = const_cast<char*>(out[i].first.c_str());
+
+        o->name = const_cast<char*>(out[i].first->name.c_str());
         o->numBytes = out[i].second.size();
         o->bytes = new unsigned char[o->numBytes];
         assert(o->bytes);

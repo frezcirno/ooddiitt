@@ -81,15 +81,13 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
-  lazyAllocationCount(16) {
-
+  lazyAllocationCount(16),
+  maxLoopIteration(1),
+  nextLoopSignature(INVALID_LOOP_SIGNATURE) {
 }
 
 LocalExecutor::~LocalExecutor() {
 
-  for (auto itr = domTrees.begin(), end = domTrees.end(); itr != end; ++itr) {
-    delete itr->second;
-  }
 }
 
 #ifdef NEVER
@@ -158,6 +156,30 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
   return result;
 }
 
+void LocalExecutor::executeAlloc(ExecutionState &state,
+                                 unsigned size,
+                                 unsigned count,
+                                 const llvm::Type *type,
+                                 MemKind kind,
+                                 KInstruction *target) {
+
+  size_t allocationAlignment = getAllocationAlignment(target->inst);
+  MemoryObject *mo =
+      memory->allocate(size, type, kind, target->inst, allocationAlignment);
+  if (!mo) {
+    bindLocal(target, state,
+              ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+  } else {
+
+    mo->name = target->inst->getName();
+    mo->count = count;
+    ObjectState *os = bindObjectInState(state, mo);
+    os->initializeToRandom();
+    bindLocal(target, state, mo->getBaseExpr());
+  }
+}
+
+
 void LocalExecutor::executeFree(ExecutionState &state,
                                 ref<Expr> address,
                                 KInstruction *target) {
@@ -188,22 +210,21 @@ void LocalExecutor::executeFree(ExecutionState &state,
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
-  bool result = false;
-  if (e->getWidth() == Context::get().getPointerWidth()) {
+  Expr::Width width = Context::get().getPointerWidth();
+  if (e->getWidth() == width) {
+
+    ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
+    ref<Expr> eqMax = NotOptimizedExpr::create(EqExpr::create(e, max));
+
+    bool result = false;
     solver->setTimeout(coreSolverTimeout);
-    auto range = solver->getRange(state, e);
-    solver->setTimeout(0);
-    ref<Expr> low = range.first;
-    ref<Expr> high = range.second;
-
-    if (low->getKind() == Expr::Kind::Constant && high->getKind() == Expr::Kind::Constant) {
-
-      uint64_t clow = cast<ConstantExpr>(low)->getZExtValue();
-      uint64_t chigh = cast<ConstantExpr>(high)->getZExtValue();
-      result = ((clow == 0) && (chigh == UINT64_MAX));
+    if (solver->mayBeTrue(state, eqMax, result)) {
+      solver->setTimeout(0);
+      return result;
     }
+    solver->setTimeout(0);
   }
-  return result;
+  return false;
 }
 
 bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
@@ -243,7 +264,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
         solver->setTimeout(0);
         state.pc = state.prevPC;
-        terminateStateEarly(state, "Failed to resolve read memory offset.");
+        terminateState(state);
       }
       addConstraint(state, mc);
 
@@ -279,6 +300,10 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       Type *subtype = type->getPointerElementType()->getPointerElementType();
       MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                         '*' + mo->name, 0, lazyAllocationCount);
+
+//      WObjectPair wop;
+//      allocSymbolic(*sp.second, subtype, target->inst, MemKind::lazy, '*' + mo->name, wop, 0, lazyAllocationCount);
+//      MemoryObject *newMO = wop.first;
       bindObjectInState(*sp.second, newMO);
 
       ref<ConstantExpr> ptr = newMO->getBaseExpr();
@@ -336,7 +361,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
         solver->setTimeout(0);
         state.pc = state.prevPC;
-        terminateStateEarly(state, "Failed to resolve write memory offset.");
+        terminateState(state);
       }
       addConstraint(state, mc);
 
@@ -398,22 +423,6 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
 }
 
 MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
-                                         size_t size,
-                                         const llvm::Value *allocSite,
-                                         MemKind kind,
-                                         std::string name,
-                                         size_t align) {
-
-  MemoryObject *mo = memory->allocate(size, kind, allocSite, align);
-  if (mo == nullptr) {
-    klee_error("Could not allocate memory for symbolic allocation");
-  } else {
-    mo->name = name;
-  }
-  return mo;
-}
-
-MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          llvm::Type *type,
                                          const llvm::Value *allocSite,
                                          MemKind kind,
@@ -425,25 +434,34 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  return allocMemory(state, size, allocSite, kind, name, align);
+  MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic allocation");
+  } else {
+    mo->name = name;
+    mo->count = count;
+  }
+  return mo;
 }
 
-bool LocalExecutor::allocSymbolic(ExecutionState &state,
-                                  size_t size,
-                                  const llvm::Value *allocSite,
-                                  MemKind kind,
-                                  std::string name,
-                                  WObjectPair &wop,
-                                  size_t align) {
+bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
+                                      const MemoryObject *origMO,
+                                      const llvm::Value *allocSite,
+                                      MemKind kind,
+                                      std::string name,
+                                      WObjectPair &wop) {
 
-  MemoryObject *mo = allocMemory(state, size, allocSite, kind, name, align);
-  if (mo != nullptr) {
-    ObjectState *os = makeSymbolic(state, mo);
-    wop.first = mo;
-    wop.second = os;
-    return true;
+  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, kind, allocSite, origMO->align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic duplication");
+    return false;
   }
-  return false;
+  mo->name = name;
+  mo->count = origMO->count;
+  ObjectState *os = makeSymbolic(state, mo);
+  wop.first = mo;
+  wop.second = os;
+  return true;
 }
 
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
@@ -455,6 +473,8 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   size_t align,
                                   unsigned count) {
 
+  wop.first = nullptr;
+  wop.second = nullptr;
   MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
@@ -471,6 +491,19 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
+void LocalExecutor::unconstrainGlobals(ExecutionState &state) {
+
+
+  Module *m = kmodule->module;
+  for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+    MemoryObject *mo = globalObjects.find(v)->second;
+    std::string name = mo->name;
+    if (name.find('.') == std::string::npos) {
+      makeSymbolic(state, mo);
+    }
+  }
+}
 
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
@@ -506,12 +539,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-  outs().flush();
-  outs() << name;
-  outs().flush();
-
-  m2m_pathsRemaining = kf->m2m_paths;
-  unsigned num_m2m_paths = m2m_pathsRemaining.size();
   ExecutionState *state = new ExecutionState(kf, name);
 
   if (pathWriter)
@@ -521,8 +548,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
-
-  initializeGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
@@ -544,11 +569,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     bindArgument(kf, index, *state, e);
   }
 
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = nullptr;
+  run(kf, *state);
 
   // hack to clear memory objects
   delete memory;
@@ -561,25 +582,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
-
-  if (num_m2m_paths > 0) {
-    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
-    outs() << " of " << num_m2m_paths << " m2m paths covered";
-
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
-
-      bool first = true;
-      outs() << "\n  [";
-      for (const unsigned &marker : path) {
-        if (!first) outs() << ", ";
-        first = false;
-        outs() << marker;
-      }
-      outs() << "]";
-    }
-  }
-  outs() << "\n";
-  outs().flush();
 
   if (statsTracker)
     statsTracker->done();
@@ -598,6 +600,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   MemoryObject *argvMO = nullptr;
   KFunction *kf = kmodule->functionMap[f];
+  LLVMContext &ctx = kmodule->module->getContext();
   assert(kf && "main not found in this compilation unit");
 
   std::string name = f->getName();
@@ -609,7 +612,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
   int envc;
   for (envc=0; envp[envc]; ++envc) ;
-  
+
   unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
@@ -618,7 +621,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
       memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                       MemKind::param, first, 8);
+                       Type::getInt8Ty(ctx), MemKind::param, first, 8);
       
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
@@ -661,7 +664,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
         int j, len = strlen(s);
         
         MemoryObject *arg =
-        memory->allocate(len + 1, MemKind::param, state->pc->inst, 8);
+        memory->allocate(len + 1, Type::getInt8Ty(ctx), MemKind::param, state->pc->inst, 8);
         if (!arg)
           klee_error("Could not allocate memory for function arguments");
         ObjectState *os = bindObjectInState(*state, arg);
@@ -674,13 +677,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     }
   }
   
-  initializeGlobals(*state);
-  
-  processTree = new PTree(state);
-  state->ptreeNode = processTree->root;
-  run(*state);
-  delete processTree;
-  processTree = 0;
+  run(kf, *state);
   
   // hack to clear memory objects
   delete memory;
@@ -698,22 +695,35 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     statsTracker->done();
 }
   
-void LocalExecutor::run(ExecutionState &initialState) {
+void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
+  initializeGlobals(initialState);
+  unconstrainGlobals(initialState);
   bindModuleConstants();
+
+  processTree = new PTree(&initialState);
+  initialState.ptreeNode = processTree->root;
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
-  
+
+  outs() << initialState.name;
+  outs().flush();
+
+  m2m_pathsRemaining = kf->m2m_paths;
+  unsigned num_m2m_paths = m2m_pathsRemaining.size();
+  initialState.maxLoopIteration = maxLoopIteration;
+  initialState.lazyAllocationCount = lazyAllocationCount;
+
   states.insert(&initialState);
   
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(0, newStates, std::vector<ExecutionState *>());
   
-  while (!states.empty() && !haltExecution) {
+  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
     ExecutionState &state = searcher->selectState();
     KInstruction *ki = state.pc;
     stepInstruction(state);
@@ -728,7 +738,33 @@ void LocalExecutor::run(ExecutionState &initialState) {
   delete searcher;
   searcher = 0;
 
-  doDumpStates();
+  forkCounter.clear();
+  for (ExecutionState *state : states) {
+    terminateState(*state);
+  }
+  updateStates(nullptr);
+
+  delete processTree;
+  processTree = 0;
+
+  if (num_m2m_paths > 0) {
+    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
+    outs() << " of " << num_m2m_paths << " m2m paths covered";
+
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+
+      bool first = true;
+      outs() << "\n  [";
+      for (const unsigned &marker : path) {
+        if (!first) outs() << ", ";
+        first = false;
+        outs() << marker;
+      }
+      outs() << "]";
+    }
+  }
+  outs() << "\n";
+  outs().flush();
 }
 
 void LocalExecutor::updateStates(ExecutionState *current) {
@@ -753,6 +789,107 @@ void LocalExecutor::updateStates(ExecutionState *current) {
 }
 
 
+ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
+
+  ref<ConstantExpr> result;
+
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e)) {
+    result = CE;
+  } else {
+
+    solver->setTimeout(coreSolverTimeout);
+    if (solver->getValue(state, e, result)) {
+
+      bool isTrue;
+      if (solver->mustBeTrue(state, EqExpr::create(e, result), isTrue)) {
+        if (!isTrue) {
+          state.addConstraint(NotOptimizedExpr::create(EqExpr::create(e, result)));
+        }
+      } else {
+        klee_error("solver failure");
+      }
+    } else {
+      klee_error("solver failure");
+    }
+    solver->setTimeout(0);
+  }
+
+  return result;
+}
+
+bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
+
+  bool result = false;
+  if (isa<ConstantExpr>(e)) {
+    result = true;
+  } else {
+
+    ref<ConstantExpr> value;
+    solver->setTimeout(coreSolverTimeout);
+    if (solver->getValue(state, e, value)) {
+
+      bool isTrue = false;
+      if (solver->mustBeTrue(state, EqExpr::create(e, value), isTrue)) {
+        result = isTrue;
+      }
+    }
+    solver->setTimeout(0);
+  }
+  return result;
+}
+
+
+void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
+
+  // if src and dst bbs have the same parent, then this is a branch
+  // update the loop frame
+  if (dst->getParent() == src->getParent()) {
+    StackFrame &sf = state.stack.back();
+    KFunction *kf = sf.kf;
+
+    if (kf->isLoopHeader(dst)) {
+      if (kf->isInLoop(dst, src)) {
+
+        // completed a cycle
+        assert(!sf.loopFrames.empty() && "cycled an empty loop");
+        ++sf.loopFrames.back().counter;
+
+      } else {
+        // this is a new loop
+        sf.loopFrames.push_back(LoopFrame(dst, getNextLoopSignature()));
+      }
+    } else if (!sf.loopFrames.empty()) {
+
+      LoopFrame *lf = &sf.loopFrames.back();
+      const BasicBlock *hdr = lf->hdr;
+      if (!kf->isInLoop(hdr, dst)) {
+
+        // just left the loop
+        sf.loopFrames.pop_back();
+      }
+    }
+  }
+  Executor::transferToBasicBlock(dst, src, state);
+}
+
+unsigned LocalExecutor::numStatesInLoop(unsigned loopSig) const {
+
+  unsigned counter = 0;
+  for (const ExecutionState *state : states) {
+    if (!state->stack.empty()) {
+      const StackFrame &sf = state->stack.back();
+      if (!sf.loopFrames.empty()) {
+        const LoopFrame &lf = sf.loopFrames.back();
+        if (lf.loopSignature == loopSig) {
+          ++counter;
+        }
+      }
+    }
+  }
+  return counter;
+}
+
+
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
@@ -761,20 +898,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
-      const KFunction *kf = state.stack.back().kf;
+      KFunction *kf = state.stack.back().kf;
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);
         transferToBasicBlock(dst, src, state);
 
-        if (kf->isBackedge(src, dst)) {
-          StackFrame &sf = state.stack.back();
-          if (sf.containsEdge(src, dst)) {
-            terminateState(state);
-          } else {
-            sf.addEdge(src, dst);
-          }
-        }
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
         assert(bi->getCondition() == bi->getOperand(0) &&
@@ -790,18 +919,58 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           statsTracker->markBranchVisited(branches.first, branches.second);
 
         ExecutionState *states[2] = { branches.first, branches.second };
+        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
+
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(dst, src, *states[index]);
 
-            if (kf->isBackedge(src, dst)) {
-
+            if (bothSatisfyable) {
               StackFrame &sf = states[index]->stack.back();
-              if (sf.containsEdge(src, dst)) {
-                terminateState(*states[index]);
-              } else {
-                sf.addEdge(src, dst);
+              if (!sf.loopFrames.empty()) {
+                LoopFrame &lf = sf.loopFrames.back();
+                ++forkCounter[lf.hdr];
+                if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
+
+#ifdef NEVER
+                  static unsigned reportedStates;
+                  static unsigned reportedInLoop;
+                  static unsigned reportedCounter;
+
+                  unsigned numStates = this->states.size();
+                  unsigned numInLoop = numStatesInLoop(lf.loopSignature);
+
+                  if (numStates > reportedStates || numInLoop > reportedInLoop || lf.counter > reportedCounter) {
+                    outs() << "states : " << numStates << ", " << numInLoop << ", " << lf.counter <<  "\n";
+                    reportedStates = numStates;
+                    reportedInLoop = numInLoop;
+                    reportedCounter = lf.counter;
+                  }
+
+                  if (mapLoopStateExceeded[lf.loopSignature] || (numStatesInLoop(lf.loopSignature) > 32)) {
+
+                    reportedStates = reportedInLoop = reportedCounter = 0;
+
+                    mapLoopStateExceeded[lf.loopSignature] = true;
+                    for (ExecutionState *es : this->states) {
+                      if (!es->stack.empty()) {
+                        const StackFrame &sf = es->stack.back();
+                        if (!sf.loopFrames.empty()) {
+                          const LoopFrame &lf2 = sf.loopFrames.back();
+                          if (lf2.loopSignature == lf.loopSignature && lf.counter > 1) {
+                            terminateState(*es);
+                          }
+                        }
+                      }
+                    }
+#endif
+                  if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > 16){
+//                    outs() << forkCounter[lf.hdr] << "\n";
+                    // finally consider terminating the state.
+                    terminateState(*states[index]);
+                  }
+                }
               }
             }
           }
@@ -812,18 +981,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::Invoke:
     case Instruction::Call: {
-      const CallInst *ci = cast<CallInst>(i);
-      Function *fn = ci->getCalledFunction();
-      if (fn == nullptr) {
 
-        klee_warning("mystery CallInst failure");
+      const CallSite cs(i);
+      Function *fn = getTargetFunction(cs.getCalledValue(), state);
 
-        // RLR TODO: why????
-        CallSite cs(i);
-        Value *fp = cs.getCalledValue();
-        fn = getTargetFunction(fp, state);
+      // if this function does not return, (exit, abort, zopc_exit, etc)
+      // then this state has completed
+      if (fn->hasFnAttribute(Attribute::NoReturn)) {
+        terminateStateOnExit(state);
+        return;
       }
-      std::string fnName = fn->getName();
 
       // if this is a special function, let
       // the standard executor handle it
@@ -832,13 +999,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
+      std::string fnName = fn->getName();
+
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&
           (fn->arg_size() == 2) &&
           (fn->getReturnType()->isVoidTy())) {
 
-        const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-        const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+        const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+        const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
         if ((arg0 != nullptr) && (arg1 != nullptr)) {
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
@@ -851,36 +1020,56 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 
-      // RLR TODO: unconstrain global variables?
-
       // consider the arguments pushed for the call, rather than
       // args expected by the target
-      unsigned numArgs = ci->getNumOperands() - 1;
+      unsigned numArgs = cs.arg_size();
       for (unsigned index = 0; index < numArgs; ++index) {
-        const Value *v = ci->getArgOperand(index);
-        Type *type = v->getType();
+        const Value *v = cs.getArgument(index);
+        Type *argType = v->getType();
 
-        if (countLoadIndirection(type) > 0) {
+        if ((countLoadIndirection(argType) > 0) &&
+            !kmodule->functionMap[fn]->isConst(index)) {
 
-          // RLR TODO: check for const (not available to LLVM IR)
-          ref<Expr> address = eval(ki, index + 1, state).value;
-          Expr::Width width = address.get()->getWidth();
+#define _DEBUG
+#ifdef _DEBUG
+          std::string str;
+          llvm::raw_string_ostream rso(str);
+          argType->print(rso);
+          str = rso.str();
+#endif
+
+          ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
+          Expr::Width width = address->getWidth();
           assert(width == Context::get().getPointerWidth());
 
           ObjectPair op;
           if (resolveMO(state, address, op)) {
             const MemoryObject *orgMO = op.first;
             const ObjectState *orgOS = op.second;
-            unsigned size = orgMO->size;
-            ObjectState *wos = state.addressSpace.getWriteable(orgMO, orgOS);
+            ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
 
+            Type *eleType = argType->getPointerElementType();
+            unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
+            unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
+            unsigned count = (orgMO->size - offset) / eleSize;
+
+            // unconstrain from address to end of the memory block
             WObjectPair wop;
-            if (!allocSymbolic(state, size, v, MemKind::output, fullName(fnName, counter, std::to_string(index - 1)), wop, orgMO->align)) {
+            if (!allocSymbolic(state,
+                               eleType,
+                               v,
+                               MemKind::output,
+                               fullName(fnName, counter,
+                               std::to_string(index + 1)),
+                               wop,
+                               0,
+                               count)) {
               klee_error("failed to allocate ptr argument");
             }
+
             ObjectState *newOS = wop.second;
-            for (unsigned offset = 0; offset < size; ++offset) {
-              wos->write(offset, newOS->read8(offset));
+            for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
+              argOS->write(idx, newOS->read8(idx));
             }
           }
         }
@@ -891,13 +1080,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (!ty->isVoidTy()) {
 
         WObjectPair wop;
-        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "return"), wop)) {
+        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "0"), wop)) {
           klee_error("failed to allocate called function parameter");
         }
         Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
         ref<Expr> retExpr = wop.second->read(0, width);
         bindLocal(ki, state, retExpr);
 
+        // need return value lazy init to occur here, otherwise, the allocation
+        // gets the wrong name.
         if (ty->isPointerTy()) {
 
           // two possible returns for a pointer type, nullptr and a valid object
@@ -912,32 +1103,55 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // constrain the ptr to point to it.
           if (sp.second != nullptr) {
 
+            MemKind kind = MemKind::lazy;
+            unsigned count = lazyAllocationCount;
+
+            // special handling for zopc_malloc. argument contains the allocation size
+            if (fnName == "zopc_malloc") {
+              kind = MemKind::heap;
+              ref<Expr> size = eval(ki, 1, *sp.second).value;
+              size = sp.second->constraints.simplifyExpr(size);
+
+              if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
+                count = (unsigned) CE->getZExtValue();
+              } else {
+                ref<ConstantExpr> value;
+                bool success = solver->getValue(*sp.second, size, value);
+                if (!success) {
+                  terminateState(*sp.second);
+                  return;
+                }
+                count = (unsigned) value->getZExtValue();
+                sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(size, value)));
+              }
+            }
             Type *subtype = ty->getPointerElementType();
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, MemKind::lazy, fullName(fnName, counter, "*return"), 0, lazyAllocationCount);
+
+//            WObjectPair wop;
+//            allocSymbolic(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), wop, 0, count);
+//            MemoryObject *newMO = wop.first;
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
             bindObjectInState(*sp.second, newMO);
 
             ref<ConstantExpr> ptr = newMO->getBaseExpr();
-            ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(retExpr, ptr));
-            sp.second->addConstraint(eq);
+            sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
           }
         }
       }
       break;
     }
 
-      // Memory instructions...
+    // Memory instructions...
       
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
 
-      unsigned elementSize = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
-      ref<Expr> size = Expr::createPointer(elementSize);
+      unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
       if (ai->isArrayAllocation()) {
-        ref<Expr> count = eval(ki, 0, state).value;
-        count = Expr::createZExtToPointerWidth(count);
-        size = MulExpr::create(size, count);
+        assert("resolve array allocation");
       }
-      executeAlloc(state, size, MemKind::alloca, ki);
+
+      executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki);
       break;
     }
 
@@ -972,12 +1186,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         if (AssumeInboundPointers) {
           bool inBounds;
-          if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
+          if (!(solver->mayBeTrue(state, mc, inBounds) && inBounds)) {
             solver->setTimeout(0);
             state.pc = state.prevPC;
-            terminateStateEarly(state, "gep optimistic offset failure.");
+            terminateState(state);
+          } else {
+            addConstraint(state, mc);
           }
-          addConstraint(state, mc);
         } else {
           klee_error("non-optimistic not supported at this time");
         }
@@ -987,7 +1202,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // invalid memory access
         terminateState(state);
       }
-
       break;
     }
 
@@ -1018,16 +1232,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     default:
       Executor::executeInstruction(state, ki);
       break;
-    }
   }
+}
   
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
-  
+
   unsigned counter = 0;
 
   while (type->isPointerTy()) {
-    counter++;
     type = type->getPointerElementType();
+    ++counter;
   }
   return counter;
 }
@@ -1037,8 +1251,7 @@ Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       InterpreterHandler *ih) {
   return new LocalExecutor(ctx, opts, ih);
 }
-  
-  
+
   
 }
 

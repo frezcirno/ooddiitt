@@ -1,4 +1,4 @@
-# How to build KLEE
+cd ..# How to build KLEE
 
 This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building KLEE and its dependencies.
 
@@ -158,7 +158,10 @@ cmake -G "Ninja" \
  -DUSE_CXX11=ON \
  -DENABLE_TCMALLOC=ON \
  -DENABLE_SOLVER_STP=ON \
+ -DSTP_DIR="${KLEE_DIR}/lib/cmake/STP" \
  -DENABLE_SOLVER_Z3=ON \
+ -DZ3_INCLUDE_DIRS="${KLEE_DIR}/include" \
+ -DZ3_LIBRARIES="${KLEE_DIR}/lib/libz3.so" \
  -DENABLE_POSIX_RUNTIME=ON \
  -DENABLE_KLEE_UCLIBC=ON \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
@@ -168,6 +171,7 @@ cmake -G "Ninja" \
  ..
 
 ```
+
 
 Final installed build in /usr/local/stow/klee. Activate by `sudo stow --dir=/usr/local/stow klee`
 
@@ -281,7 +285,7 @@ mkdir build_release
 cd build_release
 
 cmake -G "Ninja" \
- -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
  -DCMAKE_BUILD_TYPE:STRING='Release' \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \

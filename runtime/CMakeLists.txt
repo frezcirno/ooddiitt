@@ -57,7 +57,7 @@ configure_file("Makefile.cmake.bitcode.rules" "Makefile.cmake.bitcode.rules" COP
 # Copy over makefiles for libraries
 set(BITCODE_LIBRARIES "Intrinsic" "Intrinsic-32" "Intrinsic-64" "klee-libc")
 if (ENABLE_POSIX_RUNTIME)
-  list(APPEND BITCODE_LIBRARIES "POSIX")
+  list(APPEND BITCODE_LIBRARIES "POSIX" "POSIX-32" "POSIX-64")
 endif()
 foreach (bl ${BITCODE_LIBRARIES})
   configure_file("${bl}/Makefile.cmake.bitcode"
@@ -141,12 +141,16 @@ if (USE_RUNTIME_BINARY_TYPE_HACK)
 else()
   list(APPEND RUNTIME_FILES_TO_INSTALL
     "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimeIntrinsic.bca"
+    "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic-32.bc"
+    "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic-64.bc"
     "${KLEE_RUNTIME_DIRECTORY}/libklee-libc.bca")
 endif()
 
 if (ENABLE_POSIX_RUNTIME)
   list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX.bca")
+    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX.bca"
+    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX-32.bca"
+    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX-64.bca")
 endif()
 
 install(FILES

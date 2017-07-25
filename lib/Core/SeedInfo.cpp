@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "SeedInfo.h"
 #include "TimingSolver.h"
 

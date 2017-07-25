@@ -10,7 +10,7 @@
 #ifndef KLEE_MEMORY_H
 #define KLEE_MEMORY_H
 
-#include "Context.h"
+#include "../../../../lib/Core/Context.h"
 #include "klee/Expr.h"
 
 #include "llvm/ADT/StringExtras.h"
@@ -50,8 +50,9 @@ public:
   size_t align;
   mutable std::string name;
 
-
   MemKind kind;
+  const llvm::Type *type;
+  unsigned count;
 
   /// true if created by us.
   bool fake_object;
@@ -84,13 +85,15 @@ public:
       size(0),
       name("hack"),
       kind(MemKind::fixed),
+      type(nullptr),
+      count(0),
       parent(NULL),
       allocSite(0) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
-               MemKind _kind, const llvm::Value *_allocSite,
-               MemoryManager *_parent)
+               const llvm::Type *type, MemKind _kind,
+               const llvm::Value *_allocSite, MemoryManager *_parent)
     : refCount(0), 
       id(counter++),
       address(_address),
@@ -98,6 +101,8 @@ public:
       align(_align),
       name(""),
       kind(_kind),
+      type(type),
+      count(0),
       fake_object(false),
       isUserSpecified(false),
       parent(_parent), 
@@ -113,6 +118,12 @@ public:
   bool isOutput() const { return kind == MemKind::output; }
   bool isLazy() const   { return kind == MemKind::lazy; }
   bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca); }
+
+  const char *getKindAsStr() const
+    {
+      static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
+      return kindStrings[kind];
+    };
 
   ~MemoryObject();
 

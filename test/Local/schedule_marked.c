@@ -31,6 +31,11 @@ typedef struct list { /* doubly linked list */
 
 void schedule(void);
 
+Ele *new_ele(int new_num);
+List *new_list(void);
+List *append_ele(List *a_list, Ele *a_ele);
+List *del_ele(List *d_list, Ele *d_ele);
+
 /*-----------------------------------------------------------------------------
   new_ele
      alloates a new element with value as num.
@@ -85,6 +90,7 @@ List *append_ele(List *a_list, Ele *a_ele) {
   a_list->mem_count++;
   return (MARK(3, 1), (a_list));
 }
+
 
 /*-----------------------------------------------------------------------------
   find_nth
@@ -402,3 +408,4 @@ and ratio is in           0.0..1.0
  processes exit from the system.
 
 */
+

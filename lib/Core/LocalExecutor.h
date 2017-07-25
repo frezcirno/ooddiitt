@@ -16,8 +16,9 @@
 #define KLEE_LOCAL_EXECUTOR_H
 
 #include "Executor.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "llvm/Analysis/Dominators.h"
+#include "tuple"
 
 namespace klee {
 
@@ -46,8 +47,10 @@ public:
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
 
+  virtual void setMaxLoopIteration(unsigned max) { maxLoopIteration = max; }
+
 protected:
-  virtual void run(ExecutionState &initialState);
+  virtual void run(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
@@ -56,6 +59,14 @@ protected:
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
 
   bool resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
+
+  void executeAlloc(ExecutionState &state,
+                    unsigned size,
+                    unsigned count,
+                    const llvm::Type *type,
+                    MemKind kind,
+                    KInstruction *target);
+
 
   virtual void executeFree(ExecutionState &state,
                            ref<Expr> address,
@@ -75,13 +86,6 @@ protected:
                             const MemoryObject *mo);
 
   MemoryObject *allocMemory(ExecutionState &state,
-                            size_t size,
-                            const llvm::Value *allocSite,
-                            MemKind kind,
-                            std::string name,
-                            size_t align = 0);
-
-  MemoryObject *allocMemory(ExecutionState &state,
                             llvm::Type *type,
                             const llvm::Value *allocSite,
                             MemKind kind,
@@ -89,13 +93,12 @@ protected:
                             size_t align = 0,
                             unsigned count = 1);
 
-  bool allocSymbolic(ExecutionState &state,
-                     size_t size,
-                     const llvm::Value *allocSite,
-                     MemKind kind,
-                     std::string name,
-                     WObjectPair &wop,
-                     size_t align = 0);
+  bool duplicateSymbolic(ExecutionState &state,
+                         const MemoryObject *mo,
+                         const llvm::Value *allocSite,
+                         MemKind kind,
+                         std::string name,
+                         WObjectPair &wop);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,
@@ -106,13 +109,18 @@ protected:
                      size_t align = 0,
                      unsigned count = 1);
 
-  unsigned countLoadIndirection(const llvm::Type* type) const;
-  
-  bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
+  void unconstrainGlobals(ExecutionState &state);
 
+  unsigned countLoadIndirection(const llvm::Type* type) const;
+  bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
+  ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
+  bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
   virtual void updateStates(ExecutionState *current);
+  virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
+  unsigned getNextLoopSignature() { return ++nextLoopSignature; }
+  unsigned numStatesInLoop(unsigned loopSig) const;
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
@@ -121,11 +129,13 @@ protected:
 #endif
 
   unsigned lazyAllocationCount;
+  unsigned maxLoopIteration;
   m2m_paths_t m2m_pathsRemaining;
-  std::map<llvm::Function*,llvm::DominatorTree*> domTrees;
-//  bool symbolicLocalVars;
+  unsigned nextLoopSignature;
+  std::map<const llvm::BasicBlock*, unsigned> forkCounter;
 };
-  
+
+
 } // End klee namespace
 
 #endif

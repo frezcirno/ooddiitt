@@ -16,7 +16,7 @@
 
 #include "klee/Expr.h"
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Function.h"
 #else
@@ -56,7 +56,7 @@ StackFrame::StackFrame(const StackFrame &s)
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
-    edgesTaken(s.edgesTaken),
+    loopFrames(s.loopFrames),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -83,7 +83,10 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     forkDisabled(false),
     ptreeNode(0),
     name(name),
-    isProcessed(false) {
+    isProcessed(false),
+    lazyAllocationCount(0),
+    maxLoopIteration(0)
+{
   pushFrame(0, kf);
 }
 
@@ -130,7 +133,10 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     markers(state.markers),
-    isProcessed(state.isProcessed) {
+    isProcessed(state.isProcessed),
+    lazyAllocationCount(state.lazyAllocationCount),
+    maxLoopIteration(state.maxLoopIteration)
+{
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
 }

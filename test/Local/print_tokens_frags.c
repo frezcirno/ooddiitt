@@ -20,35 +20,20 @@ void skip(character_stream stream_ptr);
 int constant(int state, char token_str[], int token_ind);
 int next_state();
 void get_actual_token(char token_str[], int token_ind);
-
-int print_token(token token_ptr);
 void unget_char(int ch, character_stream stream_ptr);
-
-/* ********************************************************************
-   Function name : get_token
-   Input         : token_stream
-   Output        : token
-   Exceptions    : none.
-   Description   : This function returns the next token from the
-                   token_stream.The type of token is integer and specifies
-                   only the type of the token. DFA is used for finding the
-                   next token. cu_state is initialized to zero and charcter
-                   are read until the the is the final state and it
-                   returns the token type.
-* ******************************************************************* */
+int print_token(token token_ptr);
 
 token get_token(token_stream tstream_ptr) {
   MARK(7, 34);
-
   char token_str[80]; /* This buffer stores the current token */
   int token_ind;      /* Index to the token_str  */
   token token_ptr;
   char ch;
   int cu_state, next_st, token_found;
 
-//  token_ptr = (token)(malloc(sizeof(struct token_type)));
-//  ch = get_char(tstream_ptr->ch_stream);
-//  cu_state = token_ind = token_found = 0;
+  token_ptr = (token)(malloc(sizeof(struct token_type)));
+  ch = get_char(tstream_ptr->ch_stream);
+  cu_state = token_ind = token_found = 0;
   while ((MARK(7, 33), !token_found)) {
     if ((mark(7, 32), token_ind < 80)) { /* ADDED ERROR CHECK - hf */
       (mark(7, 31), token_str[token_ind++] = ch);
@@ -118,23 +103,12 @@ token get_token(token_stream tstream_ptr) {
   return (MARK(7, 1), NULL);
 }
 
-/* **********************************************************************
-   Function name : skip
-   Input         : character_stream
-   Output        : void.
-   Exceptions    : none.
-   Description   : This function skips the comment part of the program.
-                   It takes charcter_stream as input and reads character
-                   until it finds new line character or
-                   end_of_character_stream.
- * ******************************************************************* */
 
 void skip(character_stream stream_ptr) {
   MARK(13, 7);
-
   char c;
 
-  while ((c = (MARK(13, 6), get_char(stream_ptr)) != '\n') &&
+  while ((c = (MARK(13, 6), get_char(stream_ptr))) != '\n' &&
          !(mark(13, 5), is_end_of_character_stream(stream_ptr)))
     ; /* Skip the characters until EOF or EOL found. */
   if ((mark(13, 3), c == EOF)) {
@@ -145,29 +119,3 @@ void skip(character_stream stream_ptr) {
   return;
 }
 
-
-/* **********************************************************************
-   Function name : get_actual_token
-   Input         : token string and token id.
-   Output        : void.
-   Exceptions    : none.
-   Description   : This function prints the actual token in the case of
-                   identifier,numeric,string and character. It removes
-                   the leading and trailing  spaces and prints the token.
- * ****************************************************************** */
-
-void get_actual_token(char token_str[], int token_ind) {
-  MARK(18, 14);
-
-  int ind, start;
-
-  for (; ; )
-    if (!(mark(18, 8), isspace(token_str[ind]))) {
-      break;
-    }
-  for ((mark(18, 5), start = 0); (MARK(18, 4), ind <= token_ind); (mark(18, 2), ++start), ++ind)   {
-    (mark(18, 3), token_str[start] = token_str[ind]);
-  }
-  MARK(18, 1);
-  return;
-}

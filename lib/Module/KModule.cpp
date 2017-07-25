@@ -58,8 +58,6 @@
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
-#include <sstream>
-
 using namespace llvm;
 using namespace klee;
 
@@ -350,14 +348,24 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   // this to be linked in, it makes low level debugging much more
   // annoying.
 
+
   SmallString<128> LibPath(opts.LibraryDir);
-  llvm::sys::path::append(LibPath,
+  std::string intrinsicLib = "kleeRuntimeIntrinsic";
+  Expr::Width width = targetData->getPointerSizeInBits();
+
+  if (width == Expr::Int32) {
+    intrinsicLib += "-32";
+  } else if (width == Expr::Int64) {
+    intrinsicLib += "-64";
+  }
+
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,3)
-      "kleeRuntimeIntrinsic.bc"
+  intrinsicLib += ".bc";
 #else
-      "libkleeRuntimeIntrinsic.bca"
+  intrinsicLib += ".bca";
 #endif
-    );
+
+  llvm::sys::path::append(LibPath,intrinsicLib);
   module = linkWithLibrary(module, LibPath.str());
 
   // Add internal functions which are not used to check if instructions
@@ -508,12 +516,11 @@ void KModule::prepareMarkers() {
         const Instruction *i = &(*iit);
         if (i->getOpcode() == Instruction::Call) {
 
-          // RLR TODO: eval this for callsite instead of CallInst
-          const CallInst *ci = cast<CallInst>(i);
+          const CallSite cs(const_cast<Instruction*>(i));
 
-          // check if this is a call to either marker
-          Function *called = ci->getCalledFunction();
+          Function *called = getTargetFunction(cs.getCalledValue());
           if (called != nullptr) {
+
             std::string calledName = called->getName();
 
             // check the name, number of arguments, and the return type
@@ -522,8 +529,8 @@ void KModule::prepareMarkers() {
                 (called->getReturnType()->isVoidTy())) {
 
               // extract the two literal arguments
-              const Constant *arg0 = dyn_cast<Constant>(ci->getArgOperand(0));
-              const Constant *arg1 = dyn_cast<Constant>(ci->getArgOperand(1));
+              const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+              const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
               if ((arg0 != nullptr) && (arg1 != nullptr)) {
                 fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
                 unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
@@ -557,17 +564,70 @@ void KModule::prepareMarkers() {
       // and find all simple paths for cycles
       // beginning with each loop header
       bb_paths_t paths;
-      for (const auto hdr : kf->loopHeaders) {
-        kf->addAllSimpleCycles(hdr, paths);
+      for (const auto pr : kf->loopInfo) {
+        kf->addAllSimpleCycles(pr.first, paths);
+      }
+
+      // create a list of bbs that belong to each cycle found above
+      for (const auto path : paths) {
+
+        const BasicBlock *hdr = path.front();
+
+        assert(kf->isLoopHeader(hdr));
+
+        KLoopInfo &info = kf->loopInfo[hdr];
+        for (const BasicBlock *bb : path) {
+          info.bbs.insert(bb);
+        }
+      }
+
+      // iterate over each loop and each basic block to
+      // find the exit nodes
+      for (auto pr : kf->loopInfo) {
+
+        const BasicBlock *hdr = pr.first;
+        KLoopInfo &info = kf->loopInfo[hdr];
+
+        for (const BasicBlock *bb : info.bbs) {
+          BasicBlocks successors;
+          kf->getSuccessorBBs(bb, successors);
+
+          // if any successor is not in loop, then
+          // it is an exit node
+          for (const auto succ : successors) {
+            if (!kf->isInLoop(hdr, succ)) {
+              info.exits.insert(bb);
+              break;
+            }
+          }
+        }
       }
 
       // find all simple paths from entry to exit
       kf->addAllSimplePaths(paths);
 
-      // convert to marker-to-marker paths
       kf->setM2MPaths(paths);
     }
   }
+}
+
+Function *KModule::getTargetFunction(Value *value) const {
+
+  Constant *c = dyn_cast<Constant>(value);
+
+  while (c != nullptr) {
+
+    if (GlobalValue *gv = dyn_cast<GlobalValue>(c)) {
+      return dyn_cast<Function>(gv);
+    } else if (llvm::ConstantExpr *ce = dyn_cast<llvm::ConstantExpr>(c)) {
+      if (ce->getOpcode() == Instruction::BitCast) {
+        c = ce->getOperand(0);
+      } else {
+        return nullptr;
+      }
+    }
+  }
+  return nullptr;
 }
 
 KConstant* KModule::getKConstant(Constant *c) {
@@ -700,7 +760,7 @@ KFunction::~KFunction() {
 void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
-  std::vector<const BasicBlock*> path;
+  bb_path_t path;
 
   recurseAllSimplePaths(&function->getEntryBlock(), visited, path, paths);
 }
@@ -734,7 +794,7 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
 void KFunction::addAllSimpleCycles(const BasicBlock *bb, bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
-  std::vector<const BasicBlock*> path;
+  bb_path_t path;
 
   recurseAllSimpleCycles(bb, bb, visited, path, paths);
 }
@@ -824,8 +884,8 @@ void KFunction::findLoopHeaders() {
     getSuccessorBBs(&bb, successors);
     for (const BasicBlock *succ : successors) {
       if (domTree.dominates(succ, &bb)) {
-        loopHeaders.insert(succ);
-        backedges.insert(CFGEdge(&bb, succ));
+        KLoopInfo &info = loopInfo[succ];
+        (void) info;
       }
     }
   }
@@ -841,3 +901,26 @@ void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) c
 }
 
 
+bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
+
+  assert(isLoopHeader(hdr));
+
+  const auto &pr = loopInfo.find(hdr);
+  if (pr != loopInfo.end()) {
+    const KLoopInfo &info = pr->second;
+    return info.bbs.find(bb) != info.bbs.end();
+  }
+  return false;
+}
+
+bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
+
+  assert(isLoopHeader(hdr));
+
+  const auto &pr = loopInfo.find(hdr);
+  if (pr != loopInfo.end()) {
+    const KLoopInfo &info = pr->second;
+    return info.exits.find(bb) != info.exits.end();
+  }
+  return false;
+}

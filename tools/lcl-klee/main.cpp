@@ -22,6 +22,7 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/Internal/System/Memory.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
@@ -66,7 +67,10 @@ namespace {
   InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
 
   cl::opt<bool>
-  EvalUshers("eval-ushers", cl::init(false),  cl::desc("This option should be removed after evaluation"));
+  EvalUshers("eval-ushers", cl::init(false), cl::desc("This option should be removed after evaluation"));
+
+  cl::opt<unsigned>
+  MaxLoopIteration("max-loop-iteration", cl::init(1), cl::desc("The maximum number of times to iteration through a loop"));
 
   cl::opt<std::string>
   EntryPoint("entry-point",
@@ -214,6 +218,8 @@ public:
   void processTestCase(ExecutionState  &state,
                        const char *errorMessage,
                        const char *errorSuffix);
+
+  std::string toDataString(const std::vector<unsigned char> &data) const;
 
   std::string getOutputFilename(const std::string &filename);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
@@ -372,6 +378,21 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
 }
 
 
+
+std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
+
+  std::stringstream bytes;
+  for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+
+    unsigned char hi = (unsigned char) (*itrData >> 4);
+    unsigned char low = (unsigned char) (*itrData & 0x0F);
+    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+    bytes << hi << low;
+  }
+  return bytes.str();
+}
+
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
 void KleeHandler::processTestCase(ExecutionState &state,
                                   const char *errorMessage,
@@ -382,7 +403,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
   }
 
   if (!NoOutput) {
-    std::vector< std::pair<std::string, std::vector<unsigned char> > > out;
+    std::vector<SymbolicSolution> out;
     bool success = m_interpreter->getSymbolicSolution(state, out);
 
     if (!success)
@@ -405,6 +426,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["entryFn"] = state.name;
         root["testID"] = id;
         root["argC"] = m_argc;
+        root["lazyAllocationCount"] = state.lazyAllocationCount;
+        root["maxLoopIteration"] = state.maxLoopIteration;
 
         std::stringstream args;
         for (int index = 0; index < m_argc; ++index) {
@@ -421,25 +444,70 @@ void KleeHandler::processTestCase(ExecutionState &state,
         Json::Value &objects = root["objects"] = Json::arrayValue;
         for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
-          auto test = *itrObj;
-          std::string name = test.first;
+          auto &test = *itrObj;
+          assert(test.first->type != nullptr);
+
+          std::string name = test.first->name;
+          const llvm::Type *type = test.first->type;
           std::vector<unsigned char> &data = test.second;
 
           Json::Value obj = Json::objectValue;
           obj["name"] = name;
+          obj["kind"] = test.first->getKindAsStr();
+          obj["count"] = test.first->count;
 
-          std::stringstream bytes;
-          for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+          std::string str;
+          llvm::raw_string_ostream rso(str);
+          type->print(rso);
+          obj["type"] = rso.str();
 
-            unsigned char hi = (unsigned char) (*itrData >> 4);
-            unsigned char low = (unsigned char) (*itrData & 0x0F);
-            hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-            low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-            bytes << hi << low;
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
           }
-          obj["data"] = bytes.str();
+          obj["addr"] = toDataString(addr);
+          obj["data"] = toDataString(data);
 
           objects.append(obj);
+        }
+
+        // dump details of the state address space
+        root["addressSpace"] = Json::arrayValue;
+        Json::Value &addrSpace = root["addressSpace"];
+
+        std::vector<const MemoryObject*> listMOs;
+        state.addressSpace.getMemoryObjects(listMOs);
+        for (const MemoryObject *mo : listMOs) {
+
+          Json::Value obj = Json::objectValue;
+          obj["id"] = mo->id;
+          obj["name"] = mo->name;
+          obj["kind"] = mo->getKindAsStr();
+          obj["count"] = mo->count;
+          obj["size"] = mo->size;
+
+          if (mo->type != nullptr) {
+            std::string str;
+            llvm::raw_string_ostream rso(str);
+            mo->type->print(rso);
+            obj["type"] = rso.str();
+          } else {
+            obj["type"] = "";
+          }
+
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
+          }
+          obj["addr"] = toDataString(addr);
+
+          addrSpace.append(obj);
         }
 
         // write the constructed json object to file
@@ -1287,7 +1355,17 @@ int main(int argc, char **argv, char **envp) {
 
   if (WithPOSIXRuntime) {
     SmallString<128> Path(Opts.LibraryDir);
-    llvm::sys::path::append(Path, "libkleeRuntimePOSIX.bca");
+
+    std::string posixLib = "libkleeRuntimePOSIX";
+    Module::PointerSize width = mainModule->getPointerSize();
+    if (width == Module::PointerSize::Pointer32) {
+      posixLib += "-32";
+    } else if (width == Module::PointerSize::Pointer64) {
+      posixLib += "-64";
+    }
+    posixLib += ".bca";
+
+    llvm::sys::path::append(Path, posixLib);
     klee_message("NOTE: Using model: %s", Path.c_str());
     mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
     assert(mainModule && "unable to link with simple model");
@@ -1349,6 +1427,7 @@ int main(int argc, char **argv, char **envp) {
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  theInterpreter->setMaxLoopIteration(MaxLoopIteration);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
@@ -1375,9 +1454,8 @@ int main(int argc, char **argv, char **envp) {
   }
 
   if (mainFn != nullptr) {
-
-    // RLR TODO: restore this
-    //theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+//    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
+    theInterpreter->runFunctionUnconstrained(mainFn);
   }
 
   // run each function other than main as unconstrained

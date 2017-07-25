@@ -9,7 +9,7 @@
 
 #include "AddressSpace.h"
 #include "CoreStats.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "TimingSolver.h"
 
 #include "klee/Expr.h"
@@ -334,6 +334,16 @@ bool AddressSpace::copyInConcretes() {
   }
 
   return true;
+}
+
+void AddressSpace::getMemoryObjects(std::vector<const MemoryObject*> &listMOs) const {
+
+  listMOs.clear();
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    listMOs.push_back(mo);
+  }
 }
 
 /***/
