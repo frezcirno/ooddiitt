@@ -498,16 +498,18 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
-void LocalExecutor::unconstrainGlobals(ExecutionState &state) {
-
+void LocalExecutor::unconstrainGlobals(ExecutionState &state, KFunction *kf) {
 
   Module *m = kmodule->module;
+  std::string fnName = kf->function->getName();
   for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
-    if (name.find('.') == std::string::npos) {
-      makeSymbolic(state, mo);
+    if (progInfo->isGlobalInput(fnName, name)) {
+      if (name.find('.') == std::string::npos) {
+        makeSymbolic(state, mo);
+      }
     }
   }
 }
@@ -705,7 +707,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
 void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
   initializeGlobals(initialState);
-  unconstrainGlobals(initialState);
+  unconstrainGlobals(initialState, kf);
   bindModuleConstants();
 
   processTree = new PTree(&initialState);

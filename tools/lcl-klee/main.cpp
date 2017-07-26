@@ -1202,6 +1202,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   Json::Value::Members fns = fnsRoot.getMemberNames();
   for (const auto fn : fns) {
 
+    // find the constant function params
     Json::Value &fnRoot = fnsRoot[fn];
     Json::Value &params = fnRoot["params"];
     if (params.isArray()) {
@@ -1213,6 +1214,17 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
           if (type.isMember("isConst") && type["isConst"].asBool()) {
             progInfo.setConstParam(fn, index);
           }
+        }
+      }
+    }
+
+    // find the referenced global variables
+    Json::Value &globals = fnRoot["globalRefs"];
+    if (globals.isArray()) {
+      for (unsigned index = 0, end = globals.size(); index < end; ++index) {
+        Json::Value &global = globals[index];
+        if (global["isInput"].asBool()) {
+          progInfo.setGlobalInput(fn, global["name"].asString());
         }
       }
     }
