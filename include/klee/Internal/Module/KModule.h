@@ -78,8 +78,10 @@ namespace klee {
 
     // marker info
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
+    std::map<unsigned, const llvm::BasicBlock*> mapBBlocks;
     std::set<unsigned> majorMarkers;
     marker_paths_t m2m_paths;
+    std::vector<const llvm::BasicBlock*> sortedBBlocks;
 
   private:
     KFunction(const KFunction&);
@@ -192,6 +194,7 @@ namespace klee {
                  InterpreterHandler *ihandler);
 
     void prepareMarkers();
+    void constructSortedBBlocks(std::vector<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);

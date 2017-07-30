@@ -494,6 +494,33 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   }
 }
 
+void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
+                                     const BasicBlock *entry) {
+
+  std::set<const BasicBlock*> visited;
+  std::deque<const BasicBlock*> worklist;
+
+  sortedList.clear();
+
+  visited.insert(entry);
+  worklist.push_back(entry);
+
+  while (!worklist.empty()) {
+
+    const BasicBlock *bb = worklist.front();
+    worklist.pop_front();
+    sortedList.push_back(bb);
+
+    const TerminatorInst *tinst = bb->getTerminator();
+    for (unsigned index = 0, end = tinst->getNumSuccessors(); index < end; ++index) {
+      const BasicBlock *next = tinst->getSuccessor(index);
+      if (visited.count(next) == 0) {
+        visited.insert(next);
+        worklist.push_back(next);
+      }
+    }
+  }
+}
 
 void KModule::prepareMarkers() {
 
@@ -503,6 +530,12 @@ void KModule::prepareMarkers() {
     const Function *fn = kf->function;
     std::string fnName = fn->getName();
     unsigned fnID = 0;
+
+    // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
+    if (!fn->empty()) {
+      constructSortedBBlocks(kf->sortedBBlocks, &fn->front());
+      assert(fn->size() == kf->sortedBBlocks.size());
+    }
 
     // now step through each of the functions basic blocks
     for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
@@ -548,6 +581,9 @@ void KModule::prepareMarkers() {
       }
       if (bbIDs.size() > 0) {
         kf->mapMarkers[&bb] = bbIDs;
+        for (unsigned id : bbIDs) {
+          kf->mapBBlocks[id] = &bb;
+        }
         if (isMajor) {
           kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
         }
