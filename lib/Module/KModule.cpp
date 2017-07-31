@@ -827,6 +827,18 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   visited.erase(bb);
 }
 
+unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
+
+  unsigned index = 0;
+  for (const BasicBlock *block : sortedBBlocks) {
+    if (block == bb) {
+      return index;
+    }
+    ++index;
+  }
+  return UINT_MAX;
+}
+
 void KFunction::addAllSimpleCycles(const BasicBlock *bb, bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
@@ -936,6 +948,20 @@ void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) c
   }
 }
 
+
+const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
+
+  const llvm::BasicBlock *result = nullptr;
+  for (const auto pair : loopInfo) {
+
+    const BasicBlocks &bbs = pair.second.bbs;
+    if (bb != pair.first && bbs.count(bb) > 0) {
+      assert(result == nullptr);
+      result = pair.first;
+    }
+  }
+  return result;
+}
 
 bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 

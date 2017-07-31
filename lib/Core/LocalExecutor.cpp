@@ -165,7 +165,8 @@ void LocalExecutor::executeAlloc(ExecutionState &state,
                                  unsigned count,
                                  const llvm::Type *type,
                                  MemKind kind,
-                                 KInstruction *target) {
+                                 KInstruction *target,
+                                 bool symbolic) {
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
   MemoryObject *mo =
@@ -179,6 +180,10 @@ void LocalExecutor::executeAlloc(ExecutionState &state,
     mo->count = count;
     ObjectState *os = bindObjectInState(state, mo);
     os->initializeToRandom();
+    if (symbolic) {
+      makeSymbolic(state, mo);
+    }
+
     bindLocal(target, state, mo->getBaseExpr());
   }
 }
@@ -706,61 +711,24 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
 void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
-  initializeGlobals(initialState);
-  unconstrainGlobals(initialState, kf);
-  bindModuleConstants();
-
-  processTree = new PTree(&initialState);
-  initialState.ptreeNode = processTree->root;
-
-  // Delay init till now so that ticks don't accrue during
-  // optimization and such.
-  initTimers();
-
   outs() << initialState.name;
   outs().flush();
 
-  m2m_pathsRemaining = kf->m2m_paths;
-  unsigned num_m2m_paths = m2m_pathsRemaining.size();
+  // prepare a generic initial state
+  initializeGlobals(initialState);
+  unconstrainGlobals(initialState, kf);
+  bindModuleConstants();
   initialState.maxLoopIteration = maxLoopIteration;
   initialState.lazyAllocationCount = lazyAllocationCount;
 
-  states.insert(&initialState);
-  
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-  
-  std::vector<ExecutionState *> newStates(states.begin(), states.end());
-  searcher->update(0, newStates, std::vector<ExecutionState *>());
-  
-  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
-    ExecutionState &state = searcher->selectState();
-    KInstruction *ki = state.pc;
-    stepInstruction(state);
-
-    executeInstruction(state, ki);
-
-    processTimers(&state, 0);
-    checkMemoryUsage();
-    updateStates(&state);
-  }
-  
-  delete searcher;
-  searcher = 0;
-
-  forkCounter.clear();
-  for (ExecutionState *state : states) {
-    terminateState(*state);
-  }
-  updateStates(nullptr);
-
-  delete processTree;
-  processTree = 0;
+  unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
+  runPaths(kf, initialState, kf->m2m_paths);
 
   if (num_m2m_paths > 0) {
-    outs() << ": " << num_m2m_paths - m2m_pathsRemaining.size();
+    outs() << ": " << num_m2m_paths - m2m_pathsUnreachable.size();
     outs() << " of " << num_m2m_paths << " m2m paths covered";
 
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
+    for (const m2m_path_t &path : m2m_pathsUnreachable) {
 
       bool first = true;
       outs() << "\n  [";
@@ -774,6 +742,124 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   }
   outs() << "\n";
   outs().flush();
+}
+
+
+void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
+
+
+  // Delay init till now so that ticks don't accrue during
+  // optimization and such.
+  initTimers();
+
+  m2m_pathsRemaining = paths;
+  m2m_pathsUnreachable.clear();
+
+  while (!m2m_pathsRemaining.empty()) {
+
+    // select starting bb at head of a remaining path
+    // closest to fn entry
+    std::set<const BasicBlock*> heads;
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+      heads.insert(kf->mapBBlocks[path.front() % 1000]);
+    }
+
+    unsigned closest = UINT_MAX;
+    const BasicBlock *start = nullptr;
+    for (const BasicBlock* bb : heads) {
+      unsigned distance = kf->getBBIndex(bb);
+      if (distance < closest) {
+        start = bb;
+        closest = distance;
+      }
+    }
+
+    assert(start != nullptr);
+    runFrom(kf, initialState, start);
+
+    // remove any m2m-paths starting with this basic block
+    for (const m2m_path_t &path : m2m_pathsRemaining) {
+
+      assert(!path.empty());
+      unsigned headID = path.front() % 1000;
+      if (kf->mapBBlocks[headID] == start) {
+        m2m_pathsUnreachable.insert(path);
+        m2m_pathsRemaining.erase(path);
+      }
+    }
+  }
+}
+
+void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
+
+  // set new initial program counter
+  ExecutionState *initState = new ExecutionState(initial);
+
+  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(start)];
+  initState->pc = &kf->instructions[entry];
+
+  if (start != &kf->function->getEntryBlock()) {
+
+    // record starting marker
+    initState->startingMarker = kf->mapMarkers[start].front();
+
+    // declare local variables symbolic
+    prepareLocalSymbolics(kf, *initState);
+
+    // if jumping into the interior of a loop, start a loop frame
+    std::vector<const BasicBlock*> hdrs;
+    const BasicBlock *curr = nullptr;
+    if (kf->isLoopHeader(start)) {
+      curr = start;
+    } else {
+      curr = kf->findLoop(start);
+    }
+
+    while (curr != nullptr) {
+      hdrs.push_back(curr);
+      curr = kf->findLoop(curr);
+    }
+
+    // create loop frames in reverse order
+    StackFrame &sf = initState->stack.back();
+    for (auto itr = hdrs.rbegin(), end = hdrs.rend(); itr != end; ++itr) {
+      sf.loopFrames.push_back(LoopFrame(*itr, getNextLoopSignature()));
+    }
+  }
+
+  processTree = new PTree(initState);
+  initState->ptreeNode = processTree->root;
+
+  states.insert(initState);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+
+  std::vector<ExecutionState *> newStates(states.begin(), states.end());
+  searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
+
+  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
+    ExecutionState &state = searcher->selectState();
+    KInstruction *ki = state.pc;
+    stepInstruction(state);
+
+    executeInstruction(state, ki);
+
+    processTimers(&state, 0);
+    checkMemoryUsage();
+    updateStates(&state);
+  }
+
+  forkCounter.clear();
+  for (ExecutionState *state : states) {
+    terminateState(*state);
+  }
+  updateStates(nullptr);
+  assert(states.empty());
+
+  delete searcher;
+  searcher = nullptr;
+
+  delete processTree;
+  processTree = nullptr;
 }
 
 void LocalExecutor::updateStates(ExecutionState *current) {
@@ -796,7 +882,6 @@ void LocalExecutor::updateStates(ExecutionState *current) {
 
   Executor::updateStates(current);
 }
-
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
@@ -898,6 +983,29 @@ unsigned LocalExecutor::numStatesInLoop(unsigned loopSig) const {
   return counter;
 }
 
+void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) {
+
+  // iterate over the entry block and execute allocas
+  Function *fn = kf->function;
+  if (fn->size() > 0) {
+
+    KInstIterator pc = kf->instructions;
+    const Instruction *end = fn->getEntryBlock().getTerminator();
+    const Instruction *cur = nullptr;
+    while (cur != end) {
+      KInstruction *ki = pc;
+      ++pc;
+      cur = ki->inst;
+      if (const AllocaInst *ai = dyn_cast<AllocaInst>(cur)) {
+        unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
+        if (ai->isArrayAllocation()) {
+          assert("resolve array allocation");
+        }
+        executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, true);
+      }
+    }
+  }
+}
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;

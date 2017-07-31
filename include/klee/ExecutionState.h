@@ -167,6 +167,7 @@ public:
   bool isProcessed;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
+  unsigned startingMarker;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

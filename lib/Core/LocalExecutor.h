@@ -53,6 +53,9 @@ public:
 
 protected:
   virtual void run(KFunction *kf, ExecutionState &initialState);
+  void runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths);
+  void runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
+  void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
@@ -67,7 +70,8 @@ protected:
                     unsigned count,
                     const llvm::Type *type,
                     MemKind kind,
-                    KInstruction *target);
+                    KInstruction *target,
+                    bool symbolic = false);
 
 
   virtual void executeFree(ExecutionState &state,
@@ -134,6 +138,7 @@ protected:
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   m2m_paths_t m2m_pathsRemaining;
+  m2m_paths_t m2m_pathsUnreachable;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;

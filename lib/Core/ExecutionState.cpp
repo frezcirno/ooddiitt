@@ -85,7 +85,8 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     name(name),
     isProcessed(false),
     lazyAllocationCount(0),
-    maxLoopIteration(0)
+    maxLoopIteration(0),
+    startingMarker(0)
 {
   pushFrame(0, kf);
 }
@@ -135,7 +136,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     markers(state.markers),
     isProcessed(state.isProcessed),
     lazyAllocationCount(state.lazyAllocationCount),
-    maxLoopIteration(state.maxLoopIteration)
+    maxLoopIteration(state.maxLoopIteration),
+    startingMarker(state.startingMarker)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;

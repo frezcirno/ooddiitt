@@ -108,11 +108,13 @@ namespace klee {
     void findLoopHeaders();
     bool isLoopHeader(const llvm::BasicBlock *bb) const { return (loopInfo.find(bb) != loopInfo.end()); }
     bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
+    const llvm::BasicBlock *findLoop(const llvm::BasicBlock *bb) const;
     bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &bb_paths);
+    unsigned getBBIndex(const llvm::BasicBlock *bb);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
   };
 
