@@ -436,6 +436,11 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["maxLoopIteration"] = state.maxLoopIteration;
         root["startingMarker"] = state.startingMarker;
 
+        // store the path condition
+        std::string constraints;
+        m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
+        root["pathCondition"] = constraints;
+
         std::stringstream args;
         for (int index = 0; index < m_argc; ++index) {
           if (index > 0) args << ' ';

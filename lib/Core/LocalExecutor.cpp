@@ -1005,6 +1005,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
   Function *fn = kf->function;
   if (fn->size() > 0) {
 
+    unsigned numArgs = fn->arg_size();
     KInstIterator pc = kf->instructions;
     const Instruction *end = fn->getEntryBlock().getTerminator();
     const Instruction *cur = nullptr;
@@ -1018,6 +1019,17 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
           assert("resolve array allocation");
         }
         executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, true);
+      } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
+
+        // the first numArg store operations setup the arguments
+        if (numArgs > 0) {
+          const Value *v = si->getValueOperand();
+          assert(v->hasName());
+          ref<Expr> base = eval(ki, 1, state).value;
+          ref<Expr> value = eval(ki, 0, state).value;
+          executeWriteMemoryOperation(state, base, value, v->getName());
+          --numArgs;
+        }
       }
     }
   }
