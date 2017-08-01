@@ -408,7 +408,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     klee_error("EXITING ON ERROR:\n%s\n", errorMessage);
   }
 
-  if (!NoOutput) {
+  if (!NoOutput && m_interpreter->generateTestCase(state)) {
     std::vector<SymbolicSolution> out;
     bool success = m_interpreter->getSymbolicSolution(state, out);
 

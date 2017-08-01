@@ -883,6 +883,22 @@ void LocalExecutor::updateStates(ExecutionState *current) {
   Executor::updateStates(current);
 }
 
+bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
+
+  const m2m_path_t &trace = state.markers;
+  for (auto itr2 = m2m_pathsRemaining.begin(), end2 = m2m_pathsRemaining.end(); itr2 != end2;) {
+    const m2m_path_t &path = *itr2;
+    auto found = std::search(begin(trace), end(trace), begin(path), end(path));
+    if (found == end(trace)) {
+      ++itr2;
+    } else {
+      // matches a remaining path, so keep the test case
+      return true;
+    }
+  }
+  return false;
+}
+
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
   ref<ConstantExpr> result;

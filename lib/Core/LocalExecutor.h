@@ -50,6 +50,7 @@ public:
   virtual void runFunctionUnconstrained(llvm::Function *f);
 
   virtual void setMaxLoopIteration(unsigned max) { maxLoopIteration = max; }
+  virtual bool generateTestCase(const ExecutionState &state) const;
 
 protected:
   virtual void run(KFunction *kf, ExecutionState &initialState);

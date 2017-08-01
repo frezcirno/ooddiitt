@@ -143,10 +143,9 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f)  { };
-  virtual void setMaxLoopIteration(unsigned max)            { };
-
-//  virtual void runFragmentUnconstrained(llvm::Function *f, const m2m_paths_t &paths)  { };
+  virtual void runFunctionUnconstrained(llvm::Function *f)          { };
+  virtual void setMaxLoopIteration(unsigned max)                    { };
+  virtual bool generateTestCase(const ExecutionState &state) const  { return true; }
 
   /*** Runtime options ***/
 
