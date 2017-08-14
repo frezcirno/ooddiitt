@@ -831,7 +831,8 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
 
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
@@ -1064,7 +1065,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           statsTracker->markBranchVisited(branches.first, branches.second);
 
         ExecutionState *states[2] = { branches.first, branches.second };
-        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
+//        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
+        bool bothSatisfyable = true;
 
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
@@ -1078,38 +1080,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 ++forkCounter[lf.hdr];
                 if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
 
-#ifdef NEVER
-                  static unsigned reportedStates;
-                  static unsigned reportedInLoop;
-                  static unsigned reportedCounter;
-
-                  unsigned numStates = this->states.size();
-                  unsigned numInLoop = numStatesInLoop(lf.loopSignature);
-
-                  if (numStates > reportedStates || numInLoop > reportedInLoop || lf.counter > reportedCounter) {
-                    outs() << "states : " << numStates << ", " << numInLoop << ", " << lf.counter <<  "\n";
-                    reportedStates = numStates;
-                    reportedInLoop = numInLoop;
-                    reportedCounter = lf.counter;
-                  }
-
-                  if (mapLoopStateExceeded[lf.loopSignature] || (numStatesInLoop(lf.loopSignature) > 32)) {
-
-                    reportedStates = reportedInLoop = reportedCounter = 0;
-
-                    mapLoopStateExceeded[lf.loopSignature] = true;
-                    for (ExecutionState *es : this->states) {
-                      if (!es->stack.empty()) {
-                        const StackFrame &sf = es->stack.back();
-                        if (!sf.loopFrames.empty()) {
-                          const LoopFrame &lf2 = sf.loopFrames.back();
-                          if (lf2.loopSignature == lf.loopSignature && lf.counter > 1) {
-                            terminateState(*es);
-                          }
-                        }
-                      }
-                    }
-#endif
                   if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > 16){
 //                    outs() << forkCounter[lf.hdr] << "\n";
                     // finally consider terminating the state.
