@@ -93,7 +93,6 @@ cd ..\..
 ```
 git clone https://github.com/stp/stp.git
 cd stp
-git checkout stp-2.2.0
 mkdir build_release
 cd build_release
 cmake -G "Ninja" \
@@ -115,10 +114,15 @@ cd ../..
 ```
 git clone https://github.com/Z3Prover/z3.git
 cd z3
-python2 scripts/mk_make.py - --prefix=${KLEE_DIR}
-cd build
-make -j `nproc`
-make install
+mkdir build_release
+cd build_release
+cmake -G Ninja \
+ -DCMAKE_BUILD_TYPE="Release" 
+ -DCMAKE_INSTALL_PREFIX='/usr/local/stow/klee' 
+ ..
+
+ninja
+ninja install
 cd ../..
 ```
 
