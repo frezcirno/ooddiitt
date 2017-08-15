@@ -434,6 +434,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["argC"] = m_argc;
         root["lazyAllocationCount"] = state.lazyAllocationCount;
         root["maxLoopIteration"] = state.maxLoopIteration;
+        root["maxLoopFork"] = state.maxLoopFork;
+        root["maxLazyDepth"] = state.maxLazyDepth;
         root["startingMarker"] = state.startingMarker;
 
         // store the path condition

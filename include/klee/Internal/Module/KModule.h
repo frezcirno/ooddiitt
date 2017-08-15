@@ -50,11 +50,12 @@ namespace klee {
   typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
   struct KLoopInfo {
-    const llvm::BasicBlock *backedgeSrc;
+//    const llvm::BasicBlock *backedgeSrc;
+    std::set<const llvm::BasicBlock*> srcs;
     std::set<const llvm::BasicBlock*> bbs;
     std::set<const llvm::BasicBlock*> exits;
     KLoopInfo()                   { }
-    KLoopInfo(const KLoopInfo &s) { backedgeSrc = s.backedgeSrc; bbs = s.bbs; exits = s.exits; }
+    KLoopInfo(const KLoopInfo &s) { srcs = s.srcs; bbs = s.bbs; exits = s.exits; }
   };
 
   struct KFunction {
@@ -114,11 +115,11 @@ namespace klee {
     void findLoops();
     bool isLoopHeader(const llvm::BasicBlock *bb) const { return (loopInfo.find(bb) != loopInfo.end()); }
     bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
-    const llvm::BasicBlock *findLoop(const llvm::BasicBlock *bb) const;
+    void findContainingLoops(const llvm::BasicBlock *bb, std::vector<const llvm::BasicBlock*> &hdrs);
     bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
-    void addLoopBodyBBs(const llvm::BasicBlock *hdr, KLoopInfo &info);
+    void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &bb_paths);

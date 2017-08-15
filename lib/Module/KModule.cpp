@@ -855,14 +855,14 @@ KFunction::~KFunction() {
 }
 
 
-void KFunction::addLoopBodyBBs(const llvm::BasicBlock *hdr, KLoopInfo &info) {
+void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLoopInfo &info) {
 
   // insert hdr in body
   info.bbs.insert(hdr);
 
   // start with the source of loop backedge
   BasicBlocks worklist;
-  worklist.insert(info.backedgeSrc);
+  worklist.insert(src);
 
   while (!worklist.empty()) {
 
@@ -873,8 +873,8 @@ void KFunction::addLoopBodyBBs(const llvm::BasicBlock *hdr, KLoopInfo &info) {
 
     // if item is not already in the body,
     // item preds to worklist, and item to body
-    if (info.bbs.count(bb) == 0) {
-      info.bbs.insert(bb);
+    auto result = info.bbs.insert(bb);
+    if (result.second) {
 
       BasicBlocks preds;
       getPredecessorBBs(bb, preds);
@@ -1092,8 +1092,8 @@ void KFunction::findLoops() {
     for (const BasicBlock *succ : successors) {
       if (domTree.dominates(succ, &bb)) {
         KLoopInfo &info = loopInfo[succ];
-        info.backedgeSrc = &bb;
-        addLoopBodyBBs(succ, info);
+        info.srcs.insert(&bb);
+        addLoopBodyBBs(succ, &bb, info);
       }
     }
   }
@@ -1116,7 +1116,37 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
   }
 }
 
+void KFunction::findContainingLoops(const llvm::BasicBlock *bb, std::vector<const BasicBlock*> &hdrs) {
 
+  hdrs.clear();
+
+  BasicBlocks allLoops;
+  for (const auto pair : loopInfo) {
+    if (pair.second.bbs.count(pair.first) > 0) {
+      allLoops.insert(pair.first);
+    }
+  }
+
+  while (!allLoops.empty()) {
+
+    unsigned max_size = 0;
+    const BasicBlock *max_hdr = nullptr;
+    for (auto hdr : allLoops) {
+      KLoopInfo &info = loopInfo[hdr];
+      unsigned size = (unsigned) info.bbs.size();
+      if (size > max_size) {
+        max_size = size;
+        max_hdr = hdr;
+      }
+    }
+    assert(max_hdr != nullptr);
+    hdrs.push_back(max_hdr);
+    allLoops.erase(max_hdr);
+  }
+}
+
+// RLR TODO: remove
+#ifdef NEVER
 const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
 
   const llvm::BasicBlock *result = nullptr;
@@ -1130,6 +1160,7 @@ const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
   }
   return result;
 }
+#endif
 
 bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 

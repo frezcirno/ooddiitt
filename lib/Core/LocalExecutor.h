@@ -138,6 +138,8 @@ protected:
 
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
+  unsigned maxLoopForks;
+  unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsUnreachable;
   unsigned nextLoopSignature;

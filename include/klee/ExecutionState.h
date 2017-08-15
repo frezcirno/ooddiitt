@@ -169,6 +169,8 @@ public:
   bool isProcessed;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
+  unsigned maxLoopFork;
+  unsigned maxLazyDepth;
   unsigned startingMarker;
   unsigned long stateSignature;
   std::deque<unsigned> trace;

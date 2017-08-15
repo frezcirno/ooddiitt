@@ -65,8 +65,6 @@
 #include "llvm/IR/CallSite.h"
 #endif
 
-#include <iostream>
-
 using namespace llvm;
 
 namespace klee {
@@ -85,6 +83,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   Executor(ctx, opts, ih),
   lazyAllocationCount(16),
   maxLoopIteration(1),
+  maxLoopForks(16),
+  maxLazyDepth(2),
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(pi)  {
   assert(pi != nullptr);
@@ -296,28 +296,40 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     // this is an unconstrained ptr-ptr. this could be either a null ptr or
     // allocate something behind the pointer
 
+    // count current depth of lazy allocations
+    unsigned depth = 0;
+    for (unsigned end = (unsigned) mo->name.size();
+         depth < end && mo->name.at(depth) == '*';
+         ++depth);
+
     ref<ConstantExpr> null = Expr::createPointer(0);
     ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(e, null));
-    StatePair sp = fork(state, eqNull, false);
 
-    // in the true case, ptr is null, so nothing further to do
+    if (depth >= maxLazyDepth) {
 
-    // in the false case, allocate new memory for the ptr and
-    // constrain the ptr to point to it.
-    if (sp.second != nullptr) {
+      // too deep. no more forking for this pointer.
+      state.addConstraint(eqNull);
 
-      Type *subtype = type->getPointerElementType()->getPointerElementType();
-      MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                        '*' + mo->name, 0, lazyAllocationCount);
+    } else {
 
-//      WObjectPair wop;
-//      allocSymbolic(*sp.second, subtype, target->inst, MemKind::lazy, '*' + mo->name, wop, 0, lazyAllocationCount);
-//      MemoryObject *newMO = wop.first;
-      bindObjectInState(*sp.second, newMO);
+      StatePair sp = fork(state, eqNull, false);
 
-      ref<ConstantExpr> ptr = newMO->getBaseExpr();
-      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-      sp.second->addConstraint(eq);
+      // in the true case, ptr is null, so nothing further to do
+
+      // in the false case, allocate new memory for the ptr and
+      // constrain the ptr to point to it.
+      if (sp.second != nullptr) {
+
+        Type *subtype = type->getPointerElementType()->getPointerElementType();
+        MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                          '*' + mo->name, 0, lazyAllocationCount);
+
+        bindObjectInState(*sp.second, newMO);
+
+        ref<ConstantExpr> ptr = newMO->getBaseExpr();
+        ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+        sp.second->addConstraint(eq);
+      }
     }
   }
   return true;
@@ -511,10 +523,8 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, KFunction *kf) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
-    if (progInfo->isGlobalInput(fnName, name)) {
-      if (name.find('.') == std::string::npos) {
-        makeSymbolic(state, mo);
-      }
+    if ((name.at(0) != '.') && progInfo->isGlobalInput(fnName, name)) {
+      makeSymbolic(state, mo);
     }
   }
 }
@@ -711,7 +721,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   
 void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
-  outs() << initialState.name;
+  outs() << initialState.name << ":\n";
   outs().flush();
 
   // prepare a generic initial state
@@ -725,22 +735,27 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   runPaths(kf, initialState, kf->m2m_paths);
 
   if (num_m2m_paths > 0) {
-    outs() << ": " << num_m2m_paths - m2m_pathsUnreachable.size();
+    outs() << "    " << num_m2m_paths - m2m_pathsUnreachable.size();
     outs() << " of " << num_m2m_paths << " m2m paths covered";
 
-    for (const m2m_path_t &path : m2m_pathsUnreachable) {
+    if (m2m_pathsUnreachable.empty()) {
+      outs() << "\n";
+    } else {
+      outs() << ", missing:\n";
 
-      bool first = true;
-      outs() << "\n  [";
-      for (const unsigned &marker : path) {
-        if (!first) outs() << ", ";
-        first = false;
-        outs() << marker;
+      for (const m2m_path_t &path : m2m_pathsUnreachable) {
+
+        bool first = true;
+        outs() << "      [";
+        for (const unsigned &marker : path) {
+          if (!first) outs() << ", ";
+          first = false;
+          outs() << marker;
+        }
+        outs() << "]\n";
       }
-      outs() << "]";
     }
   }
-  outs() << "\n";
   outs().flush();
 }
 
@@ -774,6 +789,14 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
       }
     }
 
+    outs() << "  Starting from: ";
+    if (start == &kf->function->getEntryBlock()) {
+      outs() << "entry";
+    } else {
+      outs() << kf->mapMarkers[start].front();
+    }
+    outs() << "\n";
+
     assert(start != nullptr);
     runFrom(kf, initialState, start);
 
@@ -806,23 +829,13 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
     // declare local variables symbolic
     prepareLocalSymbolics(kf, *initState);
 
-    // if jumping into the interior of a loop, start a loop frame
+    // if jumping into the interior of a loop, push required loop frames
     std::vector<const BasicBlock*> hdrs;
-    const BasicBlock *curr = nullptr;
-    if (kf->isLoopHeader(start)) {
-      curr = start;
-    } else {
-      curr = kf->findLoop(start);
-    }
+    kf->findContainingLoops(start, hdrs);
 
-    while (curr != nullptr) {
-      hdrs.push_back(curr);
-      curr = kf->findLoop(curr);
-    }
-
-    // create loop frames in reverse order
+    // create loop frames in order
     StackFrame &sf = initState->stack.back();
-    for (auto itr = hdrs.rbegin(), end = hdrs.rend(); itr != end; ++itr) {
+    for (auto itr = hdrs.begin(), end = hdrs.end(); itr != end; ++itr) {
       sf.loopFrames.push_back(LoopFrame(*itr, getNextLoopSignature()));
     }
   }
@@ -831,25 +844,41 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+  // RLR TODO: restore BFS
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
 
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
+  // RLR TODO: cleanup
   unsigned long currState = 0;
+//  bool emit_trace = false;
 
   while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
     ExecutionState &state = searcher->selectState();
 
-    if (currState != state.stateSignature) {
-      currState = state.stateSignature;
-      outs() << "executing state at " << currState << "\n";
-      outs() << "total states = " << states.size() << "\n";
-    }
+//    if (currState != state.stateSignature) {
+//      currState = state.stateSignature;
+//      outs() << "executing state #" << currState << "\n";
+//      outs() << "total states  = " << states.size() << "\n";
+//    }
 
     KInstruction *ki = state.pc;
+// RLR TODO: remove
+#ifdef NEVER
     state.trace.push_back(ki->info->assemblyLine);
+    if (emit_trace) {
+      emit_trace = false;
+      std::ofstream trace;
+      trace.open("trace.txt");
+      if (trace.is_open()) {
+        for (unsigned line : state.trace) {
+          trace << line << "\n";
+        }
+      }
+    }
+#endif
     stepInstruction(state);
 
     executeInstruction(state, ki);
@@ -1089,8 +1118,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 ++forkCounter[lf.hdr];
                 if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
 
-                  if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > 16){
-//                    outs() << forkCounter[lf.hdr] << "\n";
+                  if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > maxLoopForks){
+
                     // finally consider terminating the state.
                     terminateState(*states[index]);
                   }
@@ -1243,9 +1272,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             }
             Type *subtype = ty->getPointerElementType();
 
-//            WObjectPair wop;
-//            allocSymbolic(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), wop, 0, count);
-//            MemoryObject *newMO = wop.first;
             MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
             bindObjectInState(*sp.second, newMO);
 
