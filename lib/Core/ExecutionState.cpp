@@ -89,10 +89,14 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     startingMarker(0)
 {
   pushFrame(0, kf);
+  stateSignature = ++lastUsedStateSignature;
 }
 
+unsigned long ExecutionState::lastUsedStateSignature = 0;
+
 ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
-    : constraints(assumptions), queryCost(0.), ptreeNode(0) {}
+    : constraints(assumptions), queryCost(0.), ptreeNode(0) { }
+
 
 ExecutionState::~ExecutionState() {
   for (unsigned int i=0; i<symbolics.size(); i++)
@@ -137,10 +141,13 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     isProcessed(state.isProcessed),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
-    startingMarker(state.startingMarker)
+    startingMarker(state.startingMarker),
+    trace(state.trace)
 {
-  for (unsigned int i=0; i<symbolics.size(); i++)
+  for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
+  }
+  stateSignature = ++lastUsedStateSignature;
 }
 
 ExecutionState *ExecutionState::branch() {

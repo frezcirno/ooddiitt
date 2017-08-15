@@ -90,6 +90,8 @@ private:
   ExecutionState &operator=(const ExecutionState &);
 
   std::map<std::string, std::string> fnAliases;
+  static unsigned long lastUsedStateSignature;
+
 
 public:
   // Execution - Control Flow specific
@@ -168,6 +170,8 @@ public:
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   unsigned startingMarker;
+  unsigned long stateSignature;
+  std::deque<unsigned> trace;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

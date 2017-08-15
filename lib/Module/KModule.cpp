@@ -528,13 +528,15 @@ void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
 
 void KModule::prepareMarkers() {
 
+  outs() << "analyzing functions ... ";
+  outs().flush();
+
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
     std::string fnName = fn->getName();
     // RLR TODO: remove
-    outs() << "analyzing " << fnName << "\n";
     unsigned fnID = 0;
 
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
@@ -704,6 +706,7 @@ void KModule::prepareMarkers() {
 #endif
     }
   }
+  outs() << "done\n";
 }
 
 Function *KModule::getTargetFunction(Value *value) const {

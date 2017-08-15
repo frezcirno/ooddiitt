@@ -837,9 +837,19 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
+  unsigned long currState = 0;
+
   while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
     ExecutionState &state = searcher->selectState();
+
+    if (currState != state.stateSignature) {
+      currState = state.stateSignature;
+      outs() << "executing state at " << currState << "\n";
+      outs() << "total states = " << states.size() << "\n";
+    }
+
     KInstruction *ki = state.pc;
+    state.trace.push_back(ki->info->assemblyLine);
     stepInstruction(state);
 
     executeInstruction(state, ki);
@@ -1065,8 +1075,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           statsTracker->markBranchVisited(branches.first, branches.second);
 
         ExecutionState *states[2] = { branches.first, branches.second };
-//        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
-        bool bothSatisfyable = true;
+        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
 
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
