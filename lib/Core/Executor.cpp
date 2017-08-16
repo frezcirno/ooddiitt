@@ -315,10 +315,17 @@ namespace {
             cl::desc("Refuse to fork when above this amount of memory (in MB, default=2000)"),
             cl::init(2000));
 
+// RLR TODO: restore default
+//  cl::opt<bool>
+//  MaxMemoryInhibit("max-memory-inhibit",
+//            cl::desc("Inhibit forking at memory cap (vs. random terminate) (default=on)"),
+//            cl::init(true));
+
   cl::opt<bool>
   MaxMemoryInhibit("max-memory-inhibit",
-            cl::desc("Inhibit forking at memory cap (vs. random terminate) (default=on)"),
-            cl::init(true));
+                     cl::desc("Inhibit forking at memory cap (vs. random terminate) (default=on)"),
+                     cl::init(false));
+
 }
 
 

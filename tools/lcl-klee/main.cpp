@@ -59,7 +59,6 @@
 #include <iterator>
 #include <sstream>
 
-
 using namespace llvm;
 using namespace klee;
 
@@ -78,7 +77,12 @@ namespace {
            cl::desc("json formated info from static analysis"),
            cl::init(""));
 
-cl::opt<std::string>
+  cl::opt<std::string>
+  SEMaxTime("se-max-time",
+              cl::init(""),
+              cl::desc("Maximum amount of time for any single symbolic execution (min = 10s)"));
+
+  cl::opt<std::string>
   EntryPoint("entry-point",
              cl::desc("Consider the function with the given name as the entrypoint"),
              cl::init("main"));
@@ -1247,6 +1251,28 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
 
+  unsigned seMaxTime = 0;
+  if (SEMaxTime.size() > 0) {
+
+    unsigned multiplier = 1;
+    char last = SEMaxTime.back();
+    if (isalpha(last)) {
+      SEMaxTime.pop_back();
+      if (last == 'm') {
+        multiplier = 60;
+      } else if (last == 'h') {
+        multiplier = 60 * 60;
+      } else if (last != 's') {
+        errs() << "invalid se-max-time specified\n";
+        exit(1);
+      }
+    }
+    seMaxTime = multiplier * atoi(SEMaxTime.c_str());
+    if (seMaxTime > 0) {
+      seMaxTime = seMaxTime > 10 ? seMaxTime : 10;
+    }
+  }
+
   if (Watchdog) {
     if (MaxTime==0) {
       klee_error("--watchdog used without --max-time");
@@ -1489,7 +1515,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
   theInterpreter->setMaxLoopIteration(MaxLoopIteration);
   handler->setInterpreter(theInterpreter);
 

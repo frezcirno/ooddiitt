@@ -79,14 +79,17 @@ cl::opt<bool>
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
-                             ProgInfo *pi) :
+                             ProgInfo *pi,
+                             unsigned tm) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(16),
   maxLoopIteration(1),
   maxLoopForks(16),
   maxLazyDepth(2),
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
-  progInfo(pi)  {
+  progInfo(pi),
+  seMaxTime(tm),
+  maxStatesInLoop(10000) {
   assert(pi != nullptr);
 }
 
@@ -523,7 +526,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, KFunction *kf) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
-    if ((name.at(0) != '.') && progInfo->isGlobalInput(fnName, name)) {
+    if ((name.size() > 0) && (name.at(0) != '.') && progInfo->isGlobalInput(fnName, name)) {
       makeSymbolic(state, mo);
     }
   }
@@ -815,6 +818,9 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
 void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
 
+  const uint64_t stats_granularity = 1000;
+  uint64_t stats_counter = stats_granularity;
+
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
 
@@ -855,6 +861,11 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   unsigned long currState = 0;
 //  bool emit_trace = false;
 
+  struct timespec tm;
+  clock_gettime(CLOCK_MONOTONIC, &tm);
+  uint64_t startTime = (uint64_t) tm.tv_sec;
+  uint64_t stopTime = seMaxTime == 0 ? UINT64_MAX : startTime + seMaxTime;
+
   while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
     ExecutionState &state = searcher->selectState();
 
@@ -880,12 +891,24 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
     }
 #endif
     stepInstruction(state);
-
     executeInstruction(state, ki);
 
     processTimers(&state, 0);
-    checkMemoryUsage();
     updateStates(&state);
+
+    if (--stats_counter == 0) {
+      stats_counter = stats_granularity;
+
+      // check for exceeding maximum time
+      clock_gettime(CLOCK_MONOTONIC, &tm);
+      if ((uint64_t) tm.tv_sec > stopTime) {
+        errs() << "max time elapsed, halting execution\n";
+        haltExecution = true;
+      }
+      checkMemoryUsage(kf);
+    } else {
+      checkMemoryUsage();
+    }
   }
 
   forkCounter.clear();
@@ -900,6 +923,72 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
 
   delete processTree;
   processTree = nullptr;
+}
+
+void LocalExecutor::checkMemoryUsage(KFunction *kf) {
+
+  Executor::checkMemoryUsage();
+
+  if (kf != nullptr) {
+    for (const auto pair : kf->loopInfo) {
+      const BasicBlock *hdr = pair.first;
+      unsigned num = numStatesInLoop(hdr);
+      if (num > maxStatesInLoop) {
+        termStatesInLoop(hdr);
+        outs() << "terminated " << num << " states in loop: " << (uint64_t) hdr << "\n";
+      }
+    }
+  }
+}
+
+void LocalExecutor::termStatesInLoop(const BasicBlock *hdr) {
+
+  for (ExecutionState *state : states) {
+    if (!state->stack.empty()) {
+      const StackFrame &sf = state->stack.back();
+      if (!sf.loopFrames.empty()) {
+        const LoopFrame &lf = sf.loopFrames.back();
+        if (lf.hdr == hdr) {
+          terminateState(*state);
+        }
+      }
+    }
+  }
+}
+
+
+unsigned LocalExecutor::numStatesInLoop(const BasicBlock *hdr) const {
+
+  unsigned counter = 0;
+  for (const ExecutionState *state : states) {
+    if (!state->stack.empty()) {
+      const StackFrame &sf = state->stack.back();
+      if (!sf.loopFrames.empty()) {
+        const LoopFrame &lf = sf.loopFrames.back();
+        if (lf.hdr == hdr) {
+          ++counter;
+        }
+      }
+    }
+  }
+  return counter;
+}
+
+unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
+
+  unsigned counter = 0;
+  for (const ExecutionState *state : states) {
+    if (!state->stack.empty()) {
+      const StackFrame &sf = state->stack.back();
+      if (!sf.loopFrames.empty()) {
+        const LoopFrame &lf = sf.loopFrames.back();
+        if (lf.loopSignature == loopSig) {
+          ++counter;
+        }
+      }
+    }
+  }
+  return counter;
 }
 
 void LocalExecutor::updateStates(ExecutionState *current) {
@@ -1022,23 +1111,6 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
   Executor::transferToBasicBlock(dst, src, state);
 }
 
-unsigned LocalExecutor::numStatesInLoop(unsigned loopSig) const {
-
-  unsigned counter = 0;
-  for (const ExecutionState *state : states) {
-    if (!state->stack.empty()) {
-      const StackFrame &sf = state->stack.back();
-      if (!sf.loopFrames.empty()) {
-        const LoopFrame &lf = sf.loopFrames.back();
-        if (lf.loopSignature == loopSig) {
-          ++counter;
-        }
-      }
-    }
-  }
-  return counter;
-}
-
 void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) {
 
   // iterate over the entry block and execute allocas
@@ -1137,10 +1209,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       const CallSite cs(i);
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
+      std::string fnName = fn->getName();
 
       // if this function does not return, (exit, abort, zopc_exit, etc)
       // then this state has completed
-      if (fn->hasFnAttribute(Attribute::NoReturn)) {
+      if (fn->hasFnAttribute(Attribute::NoReturn) || fnName == "zopc_exit") {
         terminateStateOnExit(state);
         return;
       }
@@ -1151,8 +1224,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         Executor::executeInstruction(state, ki);
         return;
       }
-
-      std::string fnName = fn->getName();
 
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&
@@ -1391,8 +1462,9 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
                                       InterpreterHandler *ih,
-                                      ProgInfo *progInfo) {
-  return new LocalExecutor(ctx, opts, ih, progInfo);
+                                      ProgInfo *progInfo,
+                                      unsigned seMaxTime) {
+  return new LocalExecutor(ctx, opts, ih, progInfo, seMaxTime);
 }
 
   

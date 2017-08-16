@@ -430,7 +430,7 @@ protected:
   void initTimers();
   void processTimers(ExecutionState *current,
                      double maxInstTime);
-  void checkMemoryUsage();
+  virtual void checkMemoryUsage();
   void printDebugInstructions(ExecutionState &state);
   void doDumpStates();
 
