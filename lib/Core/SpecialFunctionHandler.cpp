@@ -746,21 +746,8 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
 void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_mark_global");
+  assert(false && "klee_mark_global not supported");
 
-  // RLR TODO: remove this
-#ifdef NEVER
-  Executor::ExactResolutionList rl;
-  executor.resolveExact(state, arguments[0], rl, "mark_global");
-  
-  for (Executor::ExactResolutionList::iterator it = rl.begin(), 
-         ie = rl.end(); it != ie; ++it) {
-    const MemoryObject *mo = it->first.first;
-    assert(!mo->isLocal);
-    mo->isGlobal = true;
-  }
-#endif
 }
 
 void SpecialFunctionHandler::handleAddOverflow(ExecutionState &state,
