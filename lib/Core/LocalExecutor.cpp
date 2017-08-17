@@ -935,7 +935,7 @@ void LocalExecutor::checkMemoryUsage(KFunction *kf) {
       unsigned num = numStatesInLoop(hdr);
       if (num > maxStatesInLoop) {
         termStatesInLoop(hdr);
-        outs() << "terminated " << num << " states in loop: " << (uint64_t) hdr << "\n";
+        outs() << "terminated " << num << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
       }
     }
   }
