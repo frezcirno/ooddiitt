@@ -86,7 +86,7 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     isProcessed(false),
     lazyAllocationCount(0),
     maxLoopIteration(0),
-    maxLoopFork(0),
+    maxLoopForks(0),
     maxLazyDepth(0),
     startingMarker(0)
 {
@@ -143,9 +143,10 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     isProcessed(state.isProcessed),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
-    maxLoopFork(state.maxLoopFork),
+    maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
     startingMarker(state.startingMarker),
+    localAllocas(state.localAllocas),
     trace(state.trace)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {

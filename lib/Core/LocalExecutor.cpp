@@ -733,6 +733,8 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   bindModuleConstants();
   initialState.maxLoopIteration = maxLoopIteration;
   initialState.lazyAllocationCount = lazyAllocationCount;
+  initialState.maxLazyDepth = maxLazyDepth;
+  initialState.maxLoopForks = maxLoopForks;
 
   unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
   runPaths(kf, initialState, kf->m2m_paths);
@@ -1131,6 +1133,10 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
           assert("resolve array allocation");
         }
         executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, true);
+
+        if (ai->hasName()) {
+          state.localAllocas.insert(ai->getName());
+        }
       } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
 
         // the first numArg store operations setup the arguments

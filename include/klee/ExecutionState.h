@@ -169,10 +169,11 @@ public:
   bool isProcessed;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
-  unsigned maxLoopFork;
+  unsigned maxLoopForks;
   unsigned maxLazyDepth;
   unsigned startingMarker;
   unsigned long stateSignature;
+  std::set<std::string> localAllocas;
   std::deque<unsigned> trace;
 
   std::string getFnAlias(std::string fn);
