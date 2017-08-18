@@ -1134,9 +1134,6 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         }
         executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, true);
 
-        if (ai->hasName()) {
-          state.localAllocas.insert(ai->getName());
-        }
       } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
 
         // the first numArg store operations setup the arguments

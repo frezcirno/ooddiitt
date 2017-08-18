@@ -146,7 +146,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
     startingMarker(state.startingMarker),
-    localAllocas(state.localAllocas),
     trace(state.trace)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {

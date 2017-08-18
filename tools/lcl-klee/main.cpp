@@ -441,10 +441,6 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["maxLoopForks"] = state.maxLoopForks;
         root["maxLazyDepth"] = state.maxLazyDepth;
         root["startingMarker"] = state.startingMarker;
-        Json::Value &lcls = root["localAllocas"] = Json::arrayValue;
-        for (auto var : state.localAllocas) {
-          lcls.append(var);
-        }
 
         // store the path condition
         std::string constraints;

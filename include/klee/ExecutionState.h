@@ -173,7 +173,6 @@ public:
   unsigned maxLazyDepth;
   unsigned startingMarker;
   unsigned long stateSignature;
-  std::set<std::string> localAllocas;
   std::deque<unsigned> trace;
 
   std::string getFnAlias(std::string fn);
