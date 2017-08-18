@@ -108,7 +108,8 @@ public:
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
                                   InterpreterHandler *ih,
-                                  ProgInfo *progInfo);
+                                  ProgInfo *progInfo,
+                                  unsigned seMaxTime);
 
   /// Register the module to be executed.  
   ///

@@ -30,13 +30,15 @@ public:
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
-                             ProgInfo *progInfo)
-    { return new klee::LocalExecutor(ctx, opts, ih, progInfo); }
+                             ProgInfo *progInfo,
+                             unsigned seMaxTime)
+    { return new klee::LocalExecutor(ctx, opts, ih, progInfo, seMaxTime); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie,
-                ProgInfo *progInfo);
+                ProgInfo *progInfo,
+                unsigned tm);
 
   virtual ~LocalExecutor();
 
@@ -128,7 +130,10 @@ protected:
   virtual void updateStates(ExecutionState *current);
   virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
-  unsigned numStatesInLoop(unsigned loopSig) const;
+  virtual void checkMemoryUsage(KFunction *kf = nullptr);
+  unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
+  void termStatesInLoop(const llvm::BasicBlock *hdr);
+  unsigned numStatesWithLoopSig(unsigned loopSig) const;
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
@@ -138,11 +143,15 @@ protected:
 
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
+  unsigned maxLoopForks;
+  unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsUnreachable;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
+  unsigned seMaxTime;
+  unsigned maxStatesInLoop;
 };
 
 

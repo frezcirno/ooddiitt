@@ -50,10 +50,12 @@ namespace klee {
   typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
   struct KLoopInfo {
+//    const llvm::BasicBlock *backedgeSrc;
+    std::set<const llvm::BasicBlock*> srcs;
     std::set<const llvm::BasicBlock*> bbs;
     std::set<const llvm::BasicBlock*> exits;
     KLoopInfo()                   { }
-    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; exits = s.exits; }
+    KLoopInfo(const KLoopInfo &s) { srcs = s.srcs; bbs = s.bbs; exits = s.exits; }
   };
 
   struct KFunction {
@@ -97,6 +99,11 @@ namespace klee {
                                 std::set<const llvm::BasicBlock*> &visited,
                                 bb_path_t &path,
                                 bb_paths_t &paths) const;
+
+    void recurseM2MPaths(const BasicBlocks &majorMarkers,
+                         const llvm::BasicBlock *bb,
+                         BasicBlocks &visited,
+                         bb_path_t &path);
     
     void translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const;
 
@@ -105,15 +112,19 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-    void findLoopHeaders();
+    void findLoops();
     bool isLoopHeader(const llvm::BasicBlock *bb) const { return (loopInfo.find(bb) != loopInfo.end()); }
     bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
-    const llvm::BasicBlock *findLoop(const llvm::BasicBlock *bb) const;
+    void findContainingLoops(const llvm::BasicBlock *bb, std::vector<const llvm::BasicBlock*> &hdrs);
     bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
+    void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
+    void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
     void addAllSimplePaths(bb_paths_t &paths) const;
     void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
     void setM2MPaths(const bb_paths_t &bb_paths);
+    void addM2MPaths(const BasicBlocks &majorMarkers);
+    void addM2MPath(const llvm::BasicBlock *bb);
     unsigned getBBIndex(const llvm::BasicBlock *bb);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
   };

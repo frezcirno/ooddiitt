@@ -58,6 +58,10 @@
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
+// RLR TODO: remove this
+#include <iostream>
+#include <fstream>
+
 using namespace llvm;
 using namespace klee;
 
@@ -524,11 +528,15 @@ void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
 
 void KModule::prepareMarkers() {
 
+  outs() << "analyzing functions ... ";
+  outs().flush();
+
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
     std::string fnName = fn->getName();
+    // RLR TODO: remove
     unsigned fnID = 0;
 
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
@@ -538,6 +546,7 @@ void KModule::prepareMarkers() {
     }
 
     // now step through each of the functions basic blocks
+    std::set<const BasicBlock *>majorMarkerList;
     for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
       const BasicBlock &bb = *bbit;
 
@@ -585,6 +594,7 @@ void KModule::prepareMarkers() {
           kf->mapBBlocks[id] = &bb;
         }
         if (isMajor) {
+          majorMarkerList.insert(&bb);
           kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
         }
       }
@@ -595,15 +605,24 @@ void KModule::prepareMarkers() {
     if (kf->fnID != 0) {
 
       // find all (possibly nested) loop headers
-      kf->findLoopHeaders();
+      kf->findLoops();
+      for (const auto pr : kf->loopInfo) {
+        if (majorMarkerList.count(pr.first) == 0) {
+          errs() << "loop header not marked:" << kf->mapMarkers[pr.first].front() << "\n";
+        }
+      }
 
       // and find all simple paths for cycles
       // beginning with each loop header
+      // RLR TODO: remove
+
+#ifdef NEVER
+
       bb_paths_t paths;
-      for (const auto pr : kf->loopInfo) {
+      for (auto pr : kf->loopInfo) {
+        pr.second.bbs.clear();
         kf->addAllSimpleCycles(pr.first, paths);
       }
-
       // create a list of bbs that belong to each cycle found above
       for (const auto path : paths) {
 
@@ -616,7 +635,7 @@ void KModule::prepareMarkers() {
           info.bbs.insert(bb);
         }
       }
-
+#endif
       // iterate over each loop and each basic block to
       // find the exit nodes
       for (auto pr : kf->loopInfo) {
@@ -639,12 +658,55 @@ void KModule::prepareMarkers() {
         }
       }
 
-      // find all simple paths from entry to exit
-      kf->addAllSimplePaths(paths);
+      if (fn->size() > 1) {
+        kf->addM2MPaths(majorMarkerList);
+      } else {
+        kf->addM2MPath(&fn->getEntryBlock());
+      }
 
-      kf->setM2MPaths(paths);
+      // RLR TODO: remove
+      // find all simple paths from entry to exit
+//      kf->addAllSimplePaths(paths);
+
+//      kf->setM2MPaths(paths);
+
+#if NEVER
+      std::string filename = fnName + "1.txt";
+      std::ofstream dump;
+      dump.open(filename);
+      if (dump.is_open()) {
+
+        for (auto path : kf->m2m_paths) {
+          dump << "[";
+          unsigned counter = 0;
+          for (auto marker : path) {
+            if (counter++ > 0) {
+              dump << ", ";
+            }
+            dump << marker;
+          }
+          dump << "]\n";
+        }
+        for (auto pr : kf->loopInfo) {
+
+          dump << "loop header: ";
+          std::vector<unsigned> &list = kf->mapMarkers[pr.first];
+          unsigned counter = 0;
+          for (auto mark : list) {
+            if (counter++ > 0) {
+              dump << ", ";
+            }
+            dump << mark;
+          }
+          dump << "\n";
+
+          dump << "loop body: " << pr.second.bbs.size() << "\n\n";
+        }
+      }
+#endif
     }
   }
+  outs() << "done\n";
 }
 
 Function *KModule::getTargetFunction(Value *value) const {
@@ -792,7 +854,97 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-// RLR TODO: this could use some commentary...
+
+void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLoopInfo &info) {
+
+  // insert hdr in body
+  info.bbs.insert(hdr);
+
+  // start with the source of loop backedge
+  BasicBlocks worklist;
+  worklist.insert(src);
+
+  while (!worklist.empty()) {
+
+    // select an item from the worklist
+    auto itr = worklist.begin();
+    const BasicBlock *bb = *itr;
+    worklist.erase(itr);
+
+    // if item is not already in the body,
+    // item preds to worklist, and item to body
+    auto result = info.bbs.insert(bb);
+    if (result.second) {
+
+      BasicBlocks preds;
+      getPredecessorBBs(bb, preds);
+      for (auto pred : preds) {
+        worklist.insert(pred);
+      }
+    }
+  }
+}
+
+void KFunction::addM2MPath(const BasicBlock *bb) {
+
+  bb_path_t path;
+  m2m_path_t m2m_path;
+  path.push_back(bb);
+  translateBBPath2MarkerPath(path, m2m_path);
+  m2m_paths.insert(m2m_path);
+}
+
+void KFunction::addM2MPaths(const BasicBlocks &majorMarkers) {
+
+  for (auto src : majorMarkers) {
+    BasicBlocks visited;
+    bb_path_t path;
+    recurseM2MPaths(majorMarkers, src, visited, path);
+  }
+}
+
+void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
+                                const BasicBlock *bb,
+                                BasicBlocks &visited,
+                                bb_path_t &path) {
+
+  visited.insert(bb);
+  path.push_back(bb);
+
+
+  BasicBlocks successors;
+  getSuccessorBBs(bb, successors);
+  // if bb has no successors, then we also have a path
+  if (successors.empty()) {
+
+    if (path.size() > 1) {
+      marker_path_t m2m_path;
+      translateBBPath2MarkerPath(path, m2m_path);
+      m2m_paths.insert(m2m_path);
+    }
+  } else {
+    for (auto succ : successors) {
+      if (majorMarkers.count(succ) > 0) {
+        // then path is a m2m path
+        path.push_back(succ);
+        marker_path_t m2m_path;
+        translateBBPath2MarkerPath(path, m2m_path);
+        m2m_paths.insert(m2m_path);
+        path.pop_back();
+
+      } else if (visited.count(succ) == 0) {
+        recurseM2MPaths(majorMarkers, succ, visited, path);
+      }
+    }
+  }
+
+  path.pop_back();
+  visited.erase(bb);
+
+}
+
+//#ifdef NEVER
+// RLR TODO: remove
 void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
@@ -826,6 +978,7 @@ void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
   path.pop_back();
   visited.erase(bb);
 }
+//#endif
 
 unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
 
@@ -839,6 +992,8 @@ unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
   return UINT_MAX;
 }
 
+// RLR TODO: remove
+//#ifdef NEVER
 void KFunction::addAllSimpleCycles(const BasicBlock *bb, bb_paths_t &paths) const {
 
   std::set<const BasicBlock*> visited;
@@ -874,7 +1029,7 @@ void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
   path.pop_back();
   visited.erase(bb);
 }
-
+//#endif
 
 void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
 
@@ -890,6 +1045,9 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
     }
   }
 }
+
+// RLR TODO: remove
+//#ifdef NEVER
 
 void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
 
@@ -921,8 +1079,9 @@ void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
     }
   }
 }
+//#endif
 
-void KFunction::findLoopHeaders() {
+void KFunction::findLoops() {
 
   domTree.runOnFunction(*function);
 
@@ -933,7 +1092,8 @@ void KFunction::findLoopHeaders() {
     for (const BasicBlock *succ : successors) {
       if (domTree.dominates(succ, &bb)) {
         KLoopInfo &info = loopInfo[succ];
-        (void) info;
+        info.srcs.insert(&bb);
+        addLoopBodyBBs(succ, &bb, info);
       }
     }
   }
@@ -942,13 +1102,51 @@ void KFunction::findLoopHeaders() {
 void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) const {
 
   successors.clear();
-  const TerminatorInst *tinst = bb->getTerminator();
-  for (unsigned index = 0, num_succ = tinst->getNumSuccessors(); index < num_succ; ++index) {
-    successors.insert(tinst->getSuccessor(index));
+  for (auto itr = succ_begin(bb), end = succ_end(bb); itr != end; ++itr) {
+    successors.insert(*itr);
   }
 }
 
 
+void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const {
+
+  predecessors.clear();
+  for (auto itr = pred_begin(bb), end = pred_end(bb); itr != end; ++itr) {
+    predecessors.insert(*itr);
+  }
+}
+
+void KFunction::findContainingLoops(const llvm::BasicBlock *bb, std::vector<const BasicBlock*> &hdrs) {
+
+  hdrs.clear();
+
+  BasicBlocks allLoops;
+  for (const auto pair : loopInfo) {
+    if (pair.second.bbs.count(pair.first) > 0) {
+      allLoops.insert(pair.first);
+    }
+  }
+
+  while (!allLoops.empty()) {
+
+    unsigned max_size = 0;
+    const BasicBlock *max_hdr = nullptr;
+    for (auto hdr : allLoops) {
+      KLoopInfo &info = loopInfo[hdr];
+      unsigned size = (unsigned) info.bbs.size();
+      if (size > max_size) {
+        max_size = size;
+        max_hdr = hdr;
+      }
+    }
+    assert(max_hdr != nullptr);
+    hdrs.push_back(max_hdr);
+    allLoops.erase(max_hdr);
+  }
+}
+
+// RLR TODO: remove
+#ifdef NEVER
 const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
 
   const llvm::BasicBlock *result = nullptr;
@@ -962,6 +1160,7 @@ const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
   }
   return result;
 }
+#endif
 
 bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 

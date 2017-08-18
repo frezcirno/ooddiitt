@@ -59,7 +59,6 @@
 #include <iterator>
 #include <sstream>
 
-
 using namespace llvm;
 using namespace klee;
 
@@ -78,7 +77,12 @@ namespace {
            cl::desc("json formated info from static analysis"),
            cl::init(""));
 
-cl::opt<std::string>
+  cl::opt<std::string>
+  SEMaxTime("se-max-time",
+              cl::init(""),
+              cl::desc("Maximum amount of time for any single symbolic execution (min = 10s)"));
+
+  cl::opt<std::string>
   EntryPoint("entry-point",
              cl::desc("Consider the function with the given name as the entrypoint"),
              cl::init("main"));
@@ -434,6 +438,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["argC"] = m_argc;
         root["lazyAllocationCount"] = state.lazyAllocationCount;
         root["maxLoopIteration"] = state.maxLoopIteration;
+        root["maxLoopForks"] = state.maxLoopForks;
+        root["maxLazyDepth"] = state.maxLazyDepth;
         root["startingMarker"] = state.startingMarker;
 
         // store the path condition
@@ -1245,6 +1251,28 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
 
+  unsigned seMaxTime = 0;
+  if (SEMaxTime.size() > 0) {
+
+    unsigned multiplier = 1;
+    char last = SEMaxTime.back();
+    if (isalpha(last)) {
+      SEMaxTime.pop_back();
+      if (last == 'm') {
+        multiplier = 60;
+      } else if (last == 'h') {
+        multiplier = 60 * 60;
+      } else if (last != 's') {
+        errs() << "invalid se-max-time specified\n";
+        exit(1);
+      }
+    }
+    seMaxTime = multiplier * atoi(SEMaxTime.c_str());
+    if (seMaxTime > 0) {
+      seMaxTime = seMaxTime > 10 ? seMaxTime : 10;
+    }
+  }
+
   if (Watchdog) {
     if (MaxTime==0) {
       klee_error("--watchdog used without --max-time");
@@ -1443,6 +1471,7 @@ int main(int argc, char **argv, char **envp) {
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
   Function *mainFn = mainModule->getFunction(EntryPoint);
+  (void) mainFn;
 
   // FIXME: Change me to std types.
   int pArgc;
@@ -1487,7 +1516,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
   theInterpreter->setMaxLoopIteration(MaxLoopIteration);
   handler->setInterpreter(theInterpreter);
 
@@ -1514,127 +1543,10 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  if (mainFn != nullptr) {
-//    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
-    theInterpreter->runFunctionUnconstrained(mainFn);
-  }
-
   // run each function other than main as unconstrained
   for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
     Function *fn = *itr;
-    if (fn != mainFn) {
-
-      if (!EvalUshers) {
-        theInterpreter->runFunctionUnconstrained(fn);
-      } else {
-
-#ifdef NEVER
-        // RLR TODO: hijacked for now
-
-        std::string fnName = fn->getName();
-        m2m_paths_t paths;
-        if (fnName == "skip") {
-          m2m_path_t p0 = {13006, 13003, 13002};
-          paths.insert(p0);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "get_actual_token") {
-          m2m_path_t p0 = {18008, 18005, 18004};
-          paths.insert(p0);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "get_token") {
-          m2m_path_t p0 = {7033, 7001};
-          m2m_path_t p1 = {7033, 7032, 7030, 7029, 7027, 7025, 7004, 7003};
-          m2m_path_t p2 = {7033, 7032, 7030, 7029, 7027, 7025, 7004, 7005};
-          m2m_path_t p3 = {7033, 7032, 7030, 7029, 7027, 7025, 7004, 7006};
-          m2m_path_t p4 = {7033, 7032, 7030, 7029, 7027, 7025, 7004, 7008};
-          m2m_path_t p5 = {7033, 7032, 7030, 7029, 7027, 7025, 7004, 7018};
-          m2m_path_t p6 = {7033, 7032, 7030, 7029, 7027, 7025, 7024};
-          m2m_path_t p7 = {7033, 7032, 7030, 7029, 7027, 7026};
-          m2m_path_t p8 = {7033, 7032, 7030, 7029, 7028};
-
-          paths.insert(p0);
-          paths.insert(p1);
-          paths.insert(p2);
-          paths.insert(p3);
-          paths.insert(p4);
-          paths.insert(p5);
-          paths.insert(p6);
-          paths.insert(p7);
-          paths.insert(p8);
-
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "schedule") {
-          m2m_path_t p0 = {9005, 9001};
-          paths.insert(p0);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "makepat") {
-
-          m2m_path_t p0 = {9011, 9010, 9029};
-          m2m_path_t p1 = {9012, 9010, 9009, 9029};
-          m2m_path_t p2 = {9012, 9010, 9029};
-          m2m_path_t p3 = {9014, 9012};
-          m2m_path_t p4 = {9014, 9013, 9010, 9009, 9029};
-          m2m_path_t p5 = {9019, 9010, 9029};
-          m2m_path_t p6 = {9022, 9010, 9029};
-          m2m_path_t p7 = {9025, 9010, 9029};
-          m2m_path_t p8 = {9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9016, 9015, 9011};
-          m2m_path_t p9 = {9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9016, 9015, 9014};
-          m2m_path_t p10 = {9029, 9028, 9027, 9026, 9024, 9021, 9020, 9018, 9017};
-          m2m_path_t p11 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9011};
-          m2m_path_t p12 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9015, 9011};
-          m2m_path_t p13 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9016, 9015, 9014};
-          m2m_path_t p14 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9018, 9017};
-          m2m_path_t p15 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9011};
-          m2m_path_t p16 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9015, 9011};
-          m2m_path_t p17 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9016, 9015, 9014};
-          m2m_path_t p18 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9018, 9017};
-          m2m_path_t p19 = {9029, 9028, 9027, 9026, 9024, 9023, 9021, 9020, 9019};
-
-          paths.insert(p0);
-          paths.insert(p1);
-          paths.insert(p2);
-          paths.insert(p3);
-          paths.insert(p4);
-          paths.insert(p5);
-          paths.insert(p6);
-          paths.insert(p7);
-          paths.insert(p8);
-          paths.insert(p9);
-          paths.insert(p10);
-          paths.insert(p11);
-          paths.insert(p12);
-          paths.insert(p13);
-          paths.insert(p14);
-          paths.insert(p15);
-          paths.insert(p16);
-          paths.insert(p17);
-          paths.insert(p18);
-          paths.insert(p19);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "makesub") {
-
-          m2m_path_t p0 = {11013, 11006, 11005, 11001};
-          m2m_path_t p1 = {11013, 11012, 11006, 11004};
-
-          paths.insert(p0);
-          paths.insert(p1);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        } else if (fnName == "subline") {
-
-          m2m_path_t p0 = {18007, 18006, 18004};
-          m2m_path_t p1 = {18009, 18006, 18005, 18004};
-          m2m_path_t p2 = {18009, 18008, 18006, 18004};
-          m2m_path_t p3 = {18009, 18008, 18006, 18005, 18003, 18010};
-
-          paths.insert(p0);
-          paths.insert(p1);
-          paths.insert(p2);
-          paths.insert(p3);
-          theInterpreter->runFragmentUnconstrained(fn, paths);
-        }
-#endif
-      }
-    }
+    theInterpreter->runFunctionUnconstrained(fn);
   }
 
   t[1] = time(NULL);
