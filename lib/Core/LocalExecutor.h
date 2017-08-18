@@ -126,6 +126,7 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
+  virtual void terminateState(ExecutionState &state);
 
   virtual void updateStates(ExecutionState *current);
   virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
@@ -147,6 +148,7 @@ protected:
   unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsUnreachable;
+  std::map<m2m_path_t,ExecutionState*> m2m_pathsFromTerminated;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;

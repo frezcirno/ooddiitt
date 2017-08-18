@@ -172,6 +172,7 @@ public:
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   unsigned startingMarker;
+  unsigned endingMarker;
   unsigned long stateSignature;
   std::deque<unsigned> trace;
 

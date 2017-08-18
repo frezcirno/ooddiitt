@@ -411,11 +411,6 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
 
-  // RLR TODO: clean up ushers after eval
-  assert(mo->name != "usher");
-  assert(mo->name != "*usher");
-  assert(mo->name != "**usher");
-
   ObjectState *wos = nullptr;
   const ObjectState *os = state.addressSpace.findObject(mo);
   if (os != nullptr) {
@@ -774,6 +769,7 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
   m2m_pathsRemaining = paths;
   m2m_pathsUnreachable.clear();
+  m2m_pathsFromTerminated.clear();
 
   while (!m2m_pathsRemaining.empty()) {
 
@@ -805,10 +801,20 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
     assert(start != nullptr);
     runFrom(kf, initialState, start);
 
-    // remove any m2m-paths starting with this basic block
     for (const m2m_path_t &path : m2m_pathsRemaining) {
 
       assert(!path.empty());
+
+      // check to see if a terminated state will cover
+      // one of the remaining m2m blocks
+      auto pair = m2m_pathsFromTerminated.find(path);
+      if (pair != m2m_pathsFromTerminated.end()) {
+
+        interpreterHandler->processTestCase(*(pair->second), 0, 0);
+        m2m_pathsRemaining.erase(path);
+      }
+
+      // remove any m2m-paths starting with the start basic block
       unsigned headID = path.front() % 1000;
       if (kf->mapBBlocks[headID] == start) {
         m2m_pathsUnreachable.insert(path);
@@ -925,6 +931,12 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
 
   delete processTree;
   processTree = nullptr;
+}
+
+
+void LocalExecutor::terminateState(ExecutionState &state) {
+
+  Executor::terminateState(state);
 }
 
 void LocalExecutor::checkMemoryUsage(KFunction *kf) {

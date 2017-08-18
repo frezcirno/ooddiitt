@@ -88,7 +88,8 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
-    startingMarker(0)
+    startingMarker(0),
+    endingMarker(0)
 {
   pushFrame(0, kf);
   stateSignature = ++lastUsedStateSignature;
@@ -146,6 +147,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
     startingMarker(state.startingMarker),
+    endingMarker(state.endingMarker),
     trace(state.trace)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {

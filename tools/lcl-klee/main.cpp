@@ -441,6 +441,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         root["maxLoopForks"] = state.maxLoopForks;
         root["maxLazyDepth"] = state.maxLazyDepth;
         root["startingMarker"] = state.startingMarker;
+        root["endingMarker"] = state.endingMarker;
 
         // store the path condition
         std::string constraints;
