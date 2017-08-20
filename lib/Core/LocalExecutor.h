@@ -136,8 +136,15 @@ protected:
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   void termStatesInLoop(const llvm::BasicBlock *hdr);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
-  bool coversMissingPath(const ExecutionState *state, bool extends) const;
-  void removeCoveredPaths(const ExecutionState *state);
+  bool coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const;
+  bool coversRemainingPath(const ExecutionState *state, bool extends) const {
+    return coversPath(m2m_pathsRemaining, state, extends);
+  }
+  bool coversUnreachablePath(const ExecutionState *state, bool extends) const {
+    return coversPath(m2m_pathsUnreachable, state, extends);
+  }
+
+  void removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state);
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)

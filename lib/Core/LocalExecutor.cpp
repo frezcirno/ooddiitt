@@ -734,6 +734,18 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
   runPaths(kf, initialState, kf->m2m_paths);
 
+  // check to see if a terminated state will cover
+  // one of the unreachable m2m blocks
+  for (auto state : m2m_pathsTerminatedStates) {
+    if (coversUnreachablePath(state, true)) {
+      state->endingMarker = state->markers.back();
+      interpreterHandler->processTestCase(*state);
+      removeCoveredPaths(m2m_pathsUnreachable, state);
+    }
+    delete state;
+  }
+  m2m_pathsTerminatedStates.clear();
+
   if (num_m2m_paths > 0) {
     outs() << "    " << num_m2m_paths - m2m_pathsUnreachable.size();
     outs() << " of " << num_m2m_paths << " m2m paths covered";
@@ -800,16 +812,6 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
     assert(start != nullptr);
     runFrom(kf, initialState, start);
-
-    // check to see if a terminated state will cover
-    // one of the remaining m2m blocks
-//    for (auto state : m2m_pathsTerminatedStates) {
-//      if (coversMissingPath(state, true)) {
-//        m2m_pathsTerminatedStates.erase(state);
-//        interpreterHandler->processTestCase(*state);
-//        removeCoveredPaths(state);
-//      }
-//    }
 
     for (const m2m_path_t &path : m2m_pathsRemaining) {
 
@@ -1029,16 +1031,16 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
+void LocalExecutor::removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state) {
 
   const m2m_path_t &trace = state->markers;
-  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
+  for (auto itr = paths.begin(), end = paths.end(); itr != end;) {
     const m2m_path_t &path = *itr;
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
     if (found == trace.end()) {
       ++itr;
     } else {
-      itr = m2m_pathsRemaining.erase(itr);
+      itr = paths.erase(itr);
     }
   }
 }
@@ -1048,17 +1050,17 @@ void LocalExecutor::updateStates(ExecutionState *current) {
 
   for (auto state : removedStates) {
     if (state->isProcessed) {
-      removeCoveredPaths(state);
+      removeCoveredPaths(m2m_pathsRemaining, state);
     }
   }
   Executor::updateStates(current);
 }
 
-bool LocalExecutor::coversMissingPath(const ExecutionState *state, bool extends) const {
+bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const {
 
   const m2m_path_t &trace = state->markers;
   unsigned trace_length = (unsigned) trace.size();
-  for (const auto &path : m2m_pathsRemaining) {
+  for (const auto &path : paths) {
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
     if (found != trace.end()) {
       if (extends) {
@@ -1078,7 +1080,7 @@ bool LocalExecutor::coversMissingPath(const ExecutionState *state, bool extends)
 }
 
 bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
-  return coversMissingPath(&state, false);
+  return coversRemainingPath(&state, false) || coversUnreachablePath(&state, true);
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
