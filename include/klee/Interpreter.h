@@ -49,8 +49,8 @@ public:
   virtual void incPathsExplored() = 0;
 
   virtual void processTestCase(ExecutionState &state,
-                               const char *err, 
-                               const char *suffix) = 0;
+                               const char *err = nullptr,
+                               const char *suffix = nullptr) = 0;
 };
 
 class Interpreter {

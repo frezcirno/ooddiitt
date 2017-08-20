@@ -226,8 +226,8 @@ public:
   void setInterpreter(Interpreter *i);
 
   void processTestCase(ExecutionState  &state,
-                       const char *errorMessage,
-                       const char *errorSuffix);
+                       const char *errorMessage = nullptr,
+                       const char *errorSuffix = nullptr);
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 

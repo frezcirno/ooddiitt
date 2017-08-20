@@ -1,0 +1,83 @@
+{
+	"functions" : 
+	{
+		"bar" : 
+		{
+			"callTargets" : 
+			[
+				"MARK"
+			],
+			"entry" : 1,
+			"exit" : 
+			[
+				13
+			],
+			"fnID" : 1,
+			"globalRefs" : [],
+			"isVariadic" : false,
+			"location" : 
+			{
+				"colBegin" : 1,
+				"colEnd" : 52,
+				"file" : "state-gen.c",
+				"lineBegin" : 4,
+				"lineEnd" : 4
+			},
+			"marks" : 
+			[
+				1,
+				13
+			],
+			"params" : [],
+			"type" : 
+			{
+				"isConst" : false,
+				"text" : "int",
+				"typeClass" : "Builtin"
+			}
+		},
+		"foo" : 
+		{
+			"callTargets" : 
+			[
+				"MARK",
+				"bar",
+				"mark"
+			],
+			"entry" : 7,
+			"exit" : 
+			[
+				1
+			],
+			"fnID" : 2,
+			"globalRefs" : [],
+			"isVariadic" : false,
+			"location" : 
+			{
+				"colBegin" : 1,
+				"colEnd" : 1,
+				"file" : "state-gen.c",
+				"lineBegin" : 6,
+				"lineEnd" : 20
+			},
+			"marks" : 
+			[
+				7,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6
+			],
+			"params" : [],
+			"type" : 
+			{
+				"isConst" : false,
+				"text" : "void",
+				"typeClass" : "Builtin"
+			}
+		}
+	},
+	"globals" : {}
+}

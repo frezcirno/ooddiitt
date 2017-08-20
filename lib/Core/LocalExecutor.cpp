@@ -769,7 +769,7 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
   m2m_pathsRemaining = paths;
   m2m_pathsUnreachable.clear();
-  m2m_pathsFromTerminated.clear();
+  m2m_pathsCoveredByTerminated.clear();
 
   while (!m2m_pathsRemaining.empty()) {
 
@@ -801,18 +801,19 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
     assert(start != nullptr);
     runFrom(kf, initialState, start);
 
+    // check to see if a terminated state will cover
+    // one of the remaining m2m blocks
+//    for (auto state : m2m_pathsTerminatedStates) {
+//      if (coversMissingPath(state, true)) {
+//        m2m_pathsTerminatedStates.erase(state);
+//        interpreterHandler->processTestCase(*state);
+//        removeCoveredPaths(state);
+//      }
+//    }
+
     for (const m2m_path_t &path : m2m_pathsRemaining) {
 
       assert(!path.empty());
-
-      // check to see if a terminated state will cover
-      // one of the remaining m2m blocks
-      auto pair = m2m_pathsFromTerminated.find(path);
-      if (pair != m2m_pathsFromTerminated.end()) {
-
-        interpreterHandler->processTestCase(*(pair->second), 0, 0);
-        m2m_pathsRemaining.erase(path);
-      }
 
       // remove any m2m-paths starting with the start basic block
       unsigned headID = path.front() % 1000;
@@ -936,6 +937,29 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
 
 void LocalExecutor::terminateState(ExecutionState &state) {
 
+  if (!state.isProcessed) {
+    // did not generate a test case.  if it covers an remaining path
+    // save it for possible generation later
+
+    const m2m_path_t &trace = state.markers;
+    unsigned trace_length = (unsigned) trace.size();
+    for (const auto &path : m2m_pathsRemaining) {
+      auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+      if (found != trace.end()) {
+        unsigned path_length = (unsigned) path.size();
+        unsigned offset = (unsigned) (found - trace.begin());
+        if (trace_length - offset > path_length) {
+
+          // this state did cover past an remained path
+          if (m2m_pathsCoveredByTerminated.count(path) == 0) {
+            m2m_pathsCoveredByTerminated.insert(path);
+            m2m_pathsTerminatedStates.insert(new ExecutionState(state));
+          }
+        }
+      }
+    }
+  }
+
   Executor::terminateState(state);
 }
 
@@ -1005,41 +1029,56 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::updateStates(ExecutionState *current) {
+void LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
 
-  for (auto itr1 = removedStates.begin(), end1 = removedStates.end(); itr1 != end1; ++itr1) {
-    ExecutionState *state = *itr1;
-    if (state->isProcessed) {
-      const m2m_path_t &trace = state->markers;
-      for (auto itr2 = m2m_pathsRemaining.begin(), end2 = m2m_pathsRemaining.end(); itr2 != end2;) {
-        const m2m_path_t &path = *itr2;
-        auto found = std::search(begin(trace), end(trace), begin(path), end(path));
-        if (found == end(trace)) {
-          ++itr2;
-        } else {
-          itr2 = m2m_pathsRemaining.erase(itr2);
-        }
-      }
+  const m2m_path_t &trace = state->markers;
+  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
+    const m2m_path_t &path = *itr;
+    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+    if (found == trace.end()) {
+      ++itr;
+    } else {
+      itr = m2m_pathsRemaining.erase(itr);
     }
   }
+}
 
+
+void LocalExecutor::updateStates(ExecutionState *current) {
+
+  for (auto state : removedStates) {
+    if (state->isProcessed) {
+      removeCoveredPaths(state);
+    }
+  }
   Executor::updateStates(current);
 }
 
-bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
+bool LocalExecutor::coversMissingPath(const ExecutionState *state, bool extends) const {
 
-  const m2m_path_t &trace = state.markers;
-  for (auto itr2 = m2m_pathsRemaining.begin(), end2 = m2m_pathsRemaining.end(); itr2 != end2;) {
-    const m2m_path_t &path = *itr2;
-    auto found = std::search(begin(trace), end(trace), begin(path), end(path));
-    if (found == end(trace)) {
-      ++itr2;
-    } else {
-      // matches a remaining path, so keep the test case
-      return true;
+  const m2m_path_t &trace = state->markers;
+  unsigned trace_length = (unsigned) trace.size();
+  for (const auto &path : m2m_pathsRemaining) {
+    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+    if (found != trace.end()) {
+      if (extends) {
+        unsigned path_length = (unsigned) path.size();
+        unsigned offset = (unsigned) (found - trace.begin());
+        if (trace_length - offset > path_length) {
+          return true;
+        }
+      } else {
+
+        // matches a remaining path, so keep the test case
+        return true;
+      }
     }
   }
   return false;
+}
+
+bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
+  return coversMissingPath(&state, false);
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {

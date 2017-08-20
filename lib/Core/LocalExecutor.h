@@ -23,6 +23,7 @@
 namespace klee {
 
 typedef std::pair<MemoryObject*,ObjectState*> WObjectPair;
+typedef std::set<ExecutionState*> ExecutionStates;
 
 class LocalExecutor : public Executor {
 
@@ -135,6 +136,8 @@ protected:
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   void termStatesInLoop(const llvm::BasicBlock *hdr);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
+  bool coversMissingPath(const ExecutionState *state, bool extends) const;
+  void removeCoveredPaths(const ExecutionState *state);
 
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
@@ -148,7 +151,8 @@ protected:
   unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsUnreachable;
-  std::map<m2m_path_t,ExecutionState*> m2m_pathsFromTerminated;
+  ExecutionStates m2m_pathsTerminatedStates;
+  m2m_paths_t m2m_pathsCoveredByTerminated;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
