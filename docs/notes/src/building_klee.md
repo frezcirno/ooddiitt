@@ -117,9 +117,9 @@ cd z3
 mkdir build_release
 cd build_release
 cmake -G Ninja \
- -DCMAKE_BUILD_TYPE="Release" 
- -DCMAKE_INSTALL_PREFIX='/usr/local/stow/klee' 
- -DCMAKE_INSTALL_LIBDIR='lib'
+ -DCMAKE_BUILD_TYPE="Release" \
+ -DCMAKE_INSTALL_PREFIX='/usr/local/stow/klee' \
+ -DCMAKE_INSTALL_LIBDIR='lib' \
  ..
 
 ninja
