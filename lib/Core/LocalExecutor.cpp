@@ -785,6 +785,8 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
   while (!m2m_pathsRemaining.empty()) {
 
+    haltExecution = false;
+
     // select starting bb at head of a remaining path
     // closest to fn entry
     std::set<const BasicBlock*> heads;
