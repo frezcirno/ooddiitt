@@ -31,6 +31,8 @@ klee
 
 ##Fedora 25 (with stow)
 
+###Notes:  some areas to update: need 32bit dev libraries, curses, anaconda interferes with cmake for opt-klee, run ldconfig after installing new dynamic libs.
+
 ###Step 1: Install required tools for the build
 
 ~~~
