@@ -31,6 +31,8 @@ klee
 
 ##Fedora 25 (with stow)
 
+###Notes:  some areas to update: need 32bit dev libraries, curses, anaconda interferes with cmake for opt-klee, run ldconfig after installing new dynamic libs.
+
 ###Step 1: Install required tools for the build
 
 ~~~
@@ -117,9 +119,9 @@ cd z3
 mkdir build_release
 cd build_release
 cmake -G Ninja \
- -DCMAKE_BUILD_TYPE="Release" 
- -DCMAKE_INSTALL_PREFIX='/usr/local/stow/klee' 
- -DCMAKE_INSTALL_LIBDIR='lib'
+ -DCMAKE_BUILD_TYPE="Release" \
+ -DCMAKE_INSTALL_PREFIX='/usr/local/stow/klee' \
+ -DCMAKE_INSTALL_LIBDIR='lib' \
  ..
 
 ninja
