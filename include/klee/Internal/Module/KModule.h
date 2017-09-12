@@ -179,13 +179,6 @@ namespace klee {
     bool isInternalFunction(const llvm::Function *fn)
       { return internalFunctions.find(fn) != internalFunctions.end(); }
 
-    // these functions will not be represented symbolically
-    void addConcreteFunction(const llvm::Function *fn)
-      { concreteFunctions.insert(fn); }
-    void addConcreteFunction(std::string fnName);
-    bool isConcreteFunction(const llvm::Function *fn)
-      { return concreteFunctions.find(fn) != concreteFunctions.end(); }
-
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
   private:

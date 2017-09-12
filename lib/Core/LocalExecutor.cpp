@@ -580,14 +580,24 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     Type *argType = arg.getType();
     size_t argAlign = arg.getParamAlignment();
 
-    // RLR TODO: affirm that this is a fundamental type?
-    WObjectPair wop;
-    if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
-      klee_error("failed to allocate function parameter");
-    }
+    // do not unconstrain ushers
+    ref<Expr> e;
+    StructType *st;
+    if ((argType->isPointerTy()) &&
+        (st = dyn_cast<StructType>(argType->getPointerElementType())) &&
+        (st->getName().str() == "struct.usher_t")) {
 
-    Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
-    ref<Expr> e = wop.second->read(0, width);
+      e = Expr::createPointer(0);
+    } else {
+
+      // RLR TODO: affirm that this is a fundamental type?
+      WObjectPair wop;
+      if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
+        klee_error("failed to allocate function parameter");
+      }
+      Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
+      e = wop.second->read(0, width);
+    }
     bindArgument(kf, index, *state, e);
   }
 
@@ -784,6 +794,8 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
   m2m_pathsCoveredByTerminated.clear();
 
   while (!m2m_pathsRemaining.empty()) {
+
+    haltExecution = false;
 
     // select starting bb at head of a remaining path
     // closest to fn entry
@@ -1276,7 +1288,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if this is a special function, let
       // the standard executor handle it
-      if (specialFunctionHandler->isSpecial(fn) || kmodule->isConcreteFunction(fn)) {
+      if (specialFunctionHandler->isSpecial(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }
@@ -1297,6 +1309,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       }
 
+      // if this is a call to guide, just return 2nd argument
+      if ((fnName == "guide" && (cs.arg_size() == 2))) {
+        ref<Expr> retExpr = eval(ki, 2, state).value;
+        bindLocal(ki, state, retExpr);
+        return;
+      }
+
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 
@@ -1309,6 +1328,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         if ((countLoadIndirection(argType) > 0) &&
             !progInfo->isConstParam(fnName, index)) {
+
+          // do not unconstrain ushers
+          StructType *st;
+          if ((st = dyn_cast<StructType>(argType->getPointerElementType())) &&
+              (st->getName().str() == "struct.usher_t")) {
+            continue;
+          }
 
           ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
           Expr::Width width = address->getWidth();
@@ -1381,7 +1407,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             // special handling for zopc_malloc. argument contains the allocation size
             if (fnName == "zopc_malloc") {
               kind = MemKind::heap;
-              ref<Expr> size = eval(ki, 1, *sp.second).value;
+              ref<Expr> size = eval(ki, numArgs, *sp.second).value;
               size = sp.second->constraints.simplifyExpr(size);
 
               if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {

@@ -241,15 +241,7 @@ void KModule::addInternalFunction(std::string functionName){
   }
   KLEE_DEBUG(klee_message("Added function %s.",functionName));
   internalFunctions.insert(internalFunction);
-  concreteFunctions.insert(internalFunction);
 }
-
-void KModule::addConcreteFunction(std::string fnName) {
-
-  const llvm::Function *fn = module->getFunction(fnName);
-  if (fn != nullptr) addConcreteFunction(fn);
-}
-
 
 void KModule::prepare(const Interpreter::ModuleOptions &opts,
                       InterpreterHandler *ih) {
@@ -535,8 +527,6 @@ void KModule::prepareMarkers() {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
-    std::string fnName = fn->getName();
-    // RLR TODO: remove
     unsigned fnID = 0;
 
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
@@ -582,7 +572,7 @@ void KModule::prepareMarkers() {
                   isMajor = true;
                 }
               }
-            } else if (!isConcreteFunction(called)) {
+            } else if (!((calledName == "guide") && (called->arg_size() == 2))) {
               isMajor = true;
             }
           }
