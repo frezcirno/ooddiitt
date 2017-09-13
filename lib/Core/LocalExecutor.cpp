@@ -805,12 +805,22 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
     }
 
     unsigned closest = UINT_MAX;
-    const BasicBlock *start = nullptr;
+    const BasicBlock *original_start = nullptr;
     for (const BasicBlock* bb : heads) {
       unsigned distance = kf->getBBIndex(bb);
       if (distance < closest) {
-        start = bb;
+        original_start = bb;
         closest = distance;
+      }
+    }
+
+    const BasicBlock *start = original_start;
+    while (!start->empty()) {
+      const Instruction *i = &(*start->begin());
+      if (const PHINode *pn = dyn_cast<PHINode>(i)) {
+        start = pn->getIncomingBlock(0);
+      } else {
+        break;
       }
     }
 
@@ -831,7 +841,7 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
       // remove any m2m-paths starting with the start basic block
       unsigned headID = path.front() % 1000;
-      if (kf->mapBBlocks[headID] == start) {
+      if (kf->mapBBlocks[headID] == original_start) {
         m2m_pathsUnreachable.insert(path);
         m2m_pathsRemaining.erase(path);
       }
@@ -873,15 +883,13 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  // RLR TODO: restore BFS
   searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
 
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
   // RLR TODO: cleanup
-  unsigned long currState = 0;
+//  unsigned long currState = 0;
 //  bool emit_trace = false;
 
   struct timespec tm;
@@ -925,7 +933,7 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
       // check for exceeding maximum time
       clock_gettime(CLOCK_MONOTONIC, &tm);
       if ((uint64_t) tm.tv_sec > stopTime) {
-        errs() << "max time elapsed, halting execution\n";
+        errs() << "    * max time elapsed, halting execution\n";
         haltExecution = true;
       }
       checkMemoryUsage(kf);
