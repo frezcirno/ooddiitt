@@ -569,10 +569,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-
-  // RLR TODO: remove
-  if (name != "tcp_receive") return;
-
   ExecutionState *state = new ExecutionState(kf, name);
 
   if (pathWriter)
