@@ -28,6 +28,9 @@ typedef std::set<ExecutionState*> ExecutionStates;
 class LocalExecutor : public Executor {
 
 public:
+
+  enum HaltReason {OK, TimeOut, InvalidExpr };
+
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
@@ -58,7 +61,8 @@ public:
 protected:
   virtual void run(KFunction *kf, ExecutionState &initialState);
   void runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths);
-  void runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
+  HaltReason runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
+  void markUnreachable(const std::vector<unsigned> &ids);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
@@ -82,7 +86,7 @@ protected:
                            ref<Expr> address,
                            KInstruction *target = 0);
 
-  bool executeReadMemoryOperation(ExecutionState &state,
+    bool executeReadMemoryOperation(ExecutionState &state,
                                   ref<Expr> address,
                                   const llvm::Type *type,
                                   KInstruction *target);
@@ -128,7 +132,7 @@ protected:
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
   virtual void terminateState(ExecutionState &state);
-
+  virtual const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const;
   virtual void updateStates(ExecutionState *current);
   virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }

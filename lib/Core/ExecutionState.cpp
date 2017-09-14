@@ -73,6 +73,7 @@ StackFrame::~StackFrame() {
 ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     pc(kf->instructions),
     prevPC(pc),
+    incomingBBIndex(INVALID_BB_INDEX),
 
     queryCost(0.), 
     weight(1),
