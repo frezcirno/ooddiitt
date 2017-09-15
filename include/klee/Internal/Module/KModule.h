@@ -50,7 +50,6 @@ namespace klee {
   typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
   struct KLoopInfo {
-//    const llvm::BasicBlock *backedgeSrc;
     std::set<const llvm::BasicBlock*> srcs;
     std::set<const llvm::BasicBlock*> bbs;
     std::set<const llvm::BasicBlock*> exits;

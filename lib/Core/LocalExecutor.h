@@ -107,14 +107,6 @@ protected:
                             size_t align = 0,
                             unsigned count = 1);
 
-// RLR TODO: remove this
-//  bool duplicateSymbolic(ExecutionState &state,
-//                         const MemoryObject *mo,
-//                         const llvm::Value *allocSite,
-//                         MemKind kind,
-//                         std::string name,
-//                         WObjectPair &wop);
-
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,
                      const llvm::Value *allocSite,

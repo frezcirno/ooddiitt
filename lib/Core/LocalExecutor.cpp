@@ -471,29 +471,6 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   return mo;
 }
 
-// RLR TODO: remove this
-#ifdef NEVER
-bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
-                                      const MemoryObject *origMO,
-                                      const llvm::Value *allocSite,
-                                      MemKind kind,
-                                      std::string name,
-                                      WObjectPair &wop) {
-
-  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, kind, allocSite, origMO->align);
-  if (mo == nullptr) {
-    klee_error("Could not allocate memory for symbolic duplication");
-    return false;
-  }
-  mo->name = name;
-  mo->count = origMO->count;
-  ObjectState *os = makeSymbolic(state, mo);
-  wop.first = mo;
-  wop.second = os;
-  return true;
-}
-#endif
-
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
                                   const llvm::Value *allocSite,
@@ -921,10 +898,6 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
-  // RLR TODO: cleanup
-//  unsigned long currState = 0;
-//  bool emit_trace = false;
-
   struct timespec tm;
   clock_gettime(CLOCK_MONOTONIC, &tm);
   uint64_t startTime = (uint64_t) tm.tv_sec;
@@ -934,27 +907,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution && (halt == HaltReason::OK)) {
     ExecutionState &state = searcher->selectState();
 
-//    if (currState != state.stateSignature) {
-//      currState = state.stateSignature;
-//      outs() << "executing state #" << currState << "\n";
-//      outs() << "total states  = " << states.size() << "\n";
-//    }
-
     KInstruction *ki = state.pc;
-// RLR TODO: remove
-#ifdef NEVER
-    state.trace.push_back(ki->info->assemblyLine);
-    if (emit_trace) {
-      emit_trace = false;
-      std::ofstream trace;
-      trace.open("trace.txt");
-      if (trace.is_open()) {
-        for (unsigned line : state.trace) {
-          trace << line << "\n";
-        }
-      }
-    }
-#endif
     stepInstruction(state);
     try {
       executeInstruction(state, ki);
