@@ -1421,14 +1421,27 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
                 count = (unsigned) CE->getZExtValue();
               } else {
-                ref<ConstantExpr> value;
-                bool success = solver->getValue(*sp.second, size, value);
-                if (!success) {
+
+                // select a smallest size that might be true
+                Expr::Width w = size->getWidth();
+                ref<ConstantExpr> min_size;
+                bool result = false;
+                for (unsigned try_size = 16; !result && try_size <= 64536; try_size *= 2) {
+                  min_size = ConstantExpr::create(try_size, w);
+                  bool success = solver->mayBeTrue(state, UltExpr::create(size, min_size), result);
+                  assert(success && "FIXME: Unhandled solver failure");
+                }
+                if (result) {
+                  sp.second->addConstraint(UltExpr::create(size, min_size));
+                  bool success = solver->getValue(*sp.second, size, min_size);
+                  assert(success && "FIXME: solver just said mayBeTrue");
+                  sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(size, min_size)));
+                  count = (unsigned) min_size->getZExtValue();
+                } else {
+                  // too big of an allocation
                   terminateState(*sp.second);
                   return;
                 }
-                count = (unsigned) value->getZExtValue();
-                sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(size, value)));
               }
             }
             Type *subtype = ty->getPointerElementType();
