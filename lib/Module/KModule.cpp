@@ -58,10 +58,6 @@
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
-// RLR TODO: remove this
-#include <iostream>
-#include <fstream>
-
 using namespace llvm;
 using namespace klee;
 
@@ -532,7 +528,7 @@ void KModule::prepareMarkers() {
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
     if (!fn->empty()) {
       constructSortedBBlocks(kf->sortedBBlocks, &fn->front());
-      assert(fn->size() == kf->sortedBBlocks.size());
+//      assert(fn->size() == kf->sortedBBlocks.size());
     }
 
     // now step through each of the functions basic blocks
@@ -602,30 +598,6 @@ void KModule::prepareMarkers() {
         }
       }
 
-      // and find all simple paths for cycles
-      // beginning with each loop header
-      // RLR TODO: remove
-
-#ifdef NEVER
-
-      bb_paths_t paths;
-      for (auto pr : kf->loopInfo) {
-        pr.second.bbs.clear();
-        kf->addAllSimpleCycles(pr.first, paths);
-      }
-      // create a list of bbs that belong to each cycle found above
-      for (const auto path : paths) {
-
-        const BasicBlock *hdr = path.front();
-
-        assert(kf->isLoopHeader(hdr));
-
-        KLoopInfo &info = kf->loopInfo[hdr];
-        for (const BasicBlock *bb : path) {
-          info.bbs.insert(bb);
-        }
-      }
-#endif
       // iterate over each loop and each basic block to
       // find the exit nodes
       for (auto pr : kf->loopInfo) {
@@ -648,52 +620,14 @@ void KModule::prepareMarkers() {
         }
       }
 
+      if (fn->getName().str() == "lwip_strnicmp") {
+        outs() << "break here\n";
+      }
       if (fn->size() > 1) {
         kf->addM2MPaths(majorMarkerList);
       } else {
         kf->addM2MPath(&fn->getEntryBlock());
       }
-
-      // RLR TODO: remove
-      // find all simple paths from entry to exit
-//      kf->addAllSimplePaths(paths);
-
-//      kf->setM2MPaths(paths);
-
-#if NEVER
-      std::string filename = fnName + "1.txt";
-      std::ofstream dump;
-      dump.open(filename);
-      if (dump.is_open()) {
-
-        for (auto path : kf->m2m_paths) {
-          dump << "[";
-          unsigned counter = 0;
-          for (auto marker : path) {
-            if (counter++ > 0) {
-              dump << ", ";
-            }
-            dump << marker;
-          }
-          dump << "]\n";
-        }
-        for (auto pr : kf->loopInfo) {
-
-          dump << "loop header: ";
-          std::vector<unsigned> &list = kf->mapMarkers[pr.first];
-          unsigned counter = 0;
-          for (auto mark : list) {
-            if (counter++ > 0) {
-              dump << ", ";
-            }
-            dump << mark;
-          }
-          dump << "\n";
-
-          dump << "loop body: " << pr.second.bbs.size() << "\n\n";
-        }
-      }
-#endif
     }
   }
   outs() << "done\n";
@@ -907,9 +841,9 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
   // if bb has no successors, then we also have a path
   if (successors.empty()) {
 
-    if (path.size() > 1) {
-      marker_path_t m2m_path;
-      translateBBPath2MarkerPath(path, m2m_path);
+    marker_path_t m2m_path;
+    translateBBPath2MarkerPath(path, m2m_path);
+    if (m2m_path.size() > 1) {
       m2m_paths.insert(m2m_path);
     }
   } else {
@@ -919,7 +853,9 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
         path.push_back(succ);
         marker_path_t m2m_path;
         translateBBPath2MarkerPath(path, m2m_path);
-        m2m_paths.insert(m2m_path);
+        if (m2m_path.size() > 1) {
+          m2m_paths.insert(m2m_path);
+        }
         path.pop_back();
 
       } else if (visited.count(succ) == 0) {
@@ -933,43 +869,6 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
 
 }
 
-//#ifdef NEVER
-// RLR TODO: remove
-void KFunction::addAllSimplePaths(bb_paths_t &paths) const {
-
-  std::set<const BasicBlock*> visited;
-  bb_path_t path;
-
-  recurseAllSimplePaths(&function->getEntryBlock(), visited, path, paths);
-}
-
-void KFunction::recurseAllSimplePaths(const BasicBlock *bb,
-                                      std::set<const BasicBlock*> &visited,
-                                      bb_path_t &path,
-                                      bb_paths_t &paths) const {
-  visited.insert(bb);
-  path.push_back(bb);
-
-  BasicBlocks successors;
-  getSuccessorBBs(bb, successors);
-
-  // if bb has no successors, then we have a path
-  if (successors.empty()) {
-    paths.insert(path);
-  } else {
-    for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
-      const BasicBlock *succ = *itr;
-      if (visited.find(succ) == visited.end()) {
-        recurseAllSimplePaths(succ, visited, path, paths);
-      }
-    }
-  }
-
-  path.pop_back();
-  visited.erase(bb);
-}
-//#endif
-
 unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
 
   unsigned index = 0;
@@ -981,45 +880,6 @@ unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
   }
   return UINT_MAX;
 }
-
-// RLR TODO: remove
-//#ifdef NEVER
-void KFunction::addAllSimpleCycles(const BasicBlock *bb, bb_paths_t &paths) const {
-
-  std::set<const BasicBlock*> visited;
-  bb_path_t path;
-
-  recurseAllSimpleCycles(bb, bb, visited, path, paths);
-}
-
-void KFunction::recurseAllSimpleCycles(const BasicBlock *bb,
-                                       const BasicBlock *dst,
-                                       std::set<const BasicBlock*> &visited,
-                                       bb_path_t &path,
-                                       bb_paths_t &paths) const {
-
-  visited.insert(bb);
-  path.push_back(bb);
-
-  if (domTree.dominates(dst, bb)) {
-    BasicBlocks successors;
-    getSuccessorBBs(bb, successors);
-    for (auto itr = successors.begin(), end = successors.end(); itr != end; ++itr) {
-      const BasicBlock *succ = *itr;
-
-      if (succ == dst) {
-        path.push_back(dst);
-        paths.insert(path);
-        path.pop_back();
-      } else if (visited.find(succ) == visited.end()) {
-        recurseAllSimpleCycles(succ, dst, visited, path, paths);
-      }
-    }
-  }
-  path.pop_back();
-  visited.erase(bb);
-}
-//#endif
 
 void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
 
@@ -1036,40 +896,6 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
   }
 }
 
-// RLR TODO: remove
-//#ifdef NEVER
-
-void KFunction::setM2MPaths(const bb_paths_t &bb_paths) {
-
-
-  m2m_paths.clear();
-
-  // for each bb path, translate to marker path
-  for (auto itr1 = bb_paths.begin(), end1 = bb_paths.end(); itr1 != end1; ++itr1) {
-
-    const bb_path_t &bb_path = *itr1;
-    marker_path_t marker_path;
-
-    translateBBPath2MarkerPath(bb_path, marker_path);
-    assert(marker_path.size() > 0 && isMajorMarker(marker_path.front()) && "Invalid marker path");
-
-    marker_path_t m2m_path;
-    for (auto itr2 = marker_path.begin(), end2 = marker_path.end(); itr2 != end2; ++itr2) {
-
-      unsigned marker = *itr2;
-      m2m_path.push_back(marker);
-      if (isMajorMarker(marker) && (itr2 != marker_path.begin())) {
-        m2m_paths.insert(m2m_path);
-        m2m_path.clear();
-        m2m_path.push_back(marker);
-      }
-    }
-    if (m2m_path.size() > 0 && !isMajorMarker(m2m_path.back())) {
-      m2m_paths.insert(m2m_path);
-    }
-  }
-}
-//#endif
 
 void KFunction::findLoops() {
 
@@ -1134,23 +960,6 @@ void KFunction::findContainingLoops(const llvm::BasicBlock *bb, std::vector<cons
     allLoops.erase(max_hdr);
   }
 }
-
-// RLR TODO: remove
-#ifdef NEVER
-const llvm::BasicBlock *KFunction::findLoop(const llvm::BasicBlock *bb) const {
-
-  const llvm::BasicBlock *result = nullptr;
-  for (const auto pair : loopInfo) {
-
-    const BasicBlocks &bbs = pair.second.bbs;
-    if (bb != pair.first && bbs.count(bb) > 0) {
-      assert(result == nullptr);
-      result = pair.first;
-    }
-  }
-  return result;
-}
-#endif
 
 bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 

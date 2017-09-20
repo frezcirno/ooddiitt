@@ -330,8 +330,8 @@ protected:
   // Used for testing.
   ref<Expr> replaceReadWithSymbolic(ExecutionState &state, ref<Expr> e);
 
-  const Cell& eval(KInstruction *ki, unsigned index, 
-                   ExecutionState &state) const;
+  virtual const Cell& eval(KInstruction *ki, unsigned index,
+                           ExecutionState &state) const;
 
   Cell& getArgumentCell(ExecutionState &state,
                         KFunction *kf,

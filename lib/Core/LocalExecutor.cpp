@@ -71,6 +71,14 @@ namespace klee {
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
+class bad_expression : public std::runtime_error
+{
+public:
+  bad_expression() : std::runtime_error("null expression") {}
+  bad_expression(const char *msg) : std::runtime_error(msg) {}
+};
+
+
 cl::opt<bool>
   AssumeInboundPointers("assume-inbound-pointers",
                         cl::init(true),
@@ -463,29 +471,6 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   return mo;
 }
 
-// RLR TODO: remove this
-#ifdef NEVER
-bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
-                                      const MemoryObject *origMO,
-                                      const llvm::Value *allocSite,
-                                      MemKind kind,
-                                      std::string name,
-                                      WObjectPair &wop) {
-
-  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, kind, allocSite, origMO->align);
-  if (mo == nullptr) {
-    klee_error("Could not allocate memory for symbolic duplication");
-    return false;
-  }
-  mo->name = name;
-  mo->count = origMO->count;
-  ObjectState *os = makeSymbolic(state, mo);
-  wop.first = mo;
-  wop.second = os;
-  return true;
-}
-#endif
-
 bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
                                   const llvm::Value *allocSite,
@@ -781,6 +766,24 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   outs().flush();
 }
 
+void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
+
+  // remove any m2m-paths starting with an id for startBB
+  for (unsigned id : ids) {
+
+    // consider each remaining path
+    for (auto itr = m2m_pathsRemaining.cbegin(), end = m2m_pathsRemaining.cend(); itr != end; ) {
+
+      assert(!itr->empty());
+      if (id == itr->front() % 1000) {
+        m2m_pathsUnreachable.insert(*itr);
+        itr = m2m_pathsRemaining.erase(itr);
+      } else {
+        ++itr;
+      }
+    }
+  }
+}
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
 
@@ -792,10 +795,9 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
   m2m_pathsRemaining = paths;
   m2m_pathsUnreachable.clear();
   m2m_pathsCoveredByTerminated.clear();
+  BasicBlocks priorStartingBBs;
 
-  while (!m2m_pathsRemaining.empty()) {
-
-    haltExecution = false;
+  while (!m2m_pathsRemaining.empty() && !haltExecution) {
 
     // select starting bb at head of a remaining path
     // closest to fn entry
@@ -805,51 +807,59 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
     }
 
     unsigned closest = UINT_MAX;
-    const BasicBlock *original_start = nullptr;
+    const BasicBlock *startBB = nullptr;
     for (const BasicBlock* bb : heads) {
       unsigned distance = kf->getBBIndex(bb);
       if (distance < closest) {
-        original_start = bb;
+        startBB = bb;
         closest = distance;
       }
     }
 
-    const BasicBlock *start = original_start;
-    while (!start->empty()) {
-      const Instruction *i = &(*start->begin());
-      if (const PHINode *pn = dyn_cast<PHINode>(i)) {
-        start = pn->getIncomingBlock(0);
+    const BasicBlock *adj_startBB = startBB;
+      // already started from this BB once before
+
+    std::deque<const BasicBlock*> worklist;
+    while (adj_startBB != nullptr && (priorStartingBBs.count(adj_startBB) > 0)) {
+
+      BasicBlocks preds;
+      kf->getPredecessorBBs(adj_startBB, preds);
+      for (const BasicBlock *pred : preds) {
+        worklist.push_back(pred);
+      }
+
+      if (!worklist.empty()) {
+        adj_startBB = worklist.front();
+        worklist.pop_front();
       } else {
-        break;
+        adj_startBB = nullptr;
       }
     }
 
-    outs() << "  Starting from: ";
-    if (start == &kf->function->getEntryBlock()) {
-      outs() << "entry";
+    if (adj_startBB != nullptr) {
+      outs() << "  Starting from: ";
+      if (adj_startBB == &kf->function->getEntryBlock()) {
+        outs() << "entry\n";
+      } else {
+        outs() << kf->mapMarkers[adj_startBB].front() << "\n";
+      }
+      priorStartingBBs.insert(adj_startBB);
+      if (runFrom(kf, initialState, adj_startBB) != HaltReason::InvalidExpr) {
+
+        // ok or timeout.  in either case,
+        // paths starting at startBB are unreachable.
+        // remove any m2m-paths starting with an id for startBB
+        markUnreachable(kf->mapMarkers[startBB]);
+      }
     } else {
-      outs() << kf->mapMarkers[start].front();
-    }
-    outs() << "\n";
-
-    assert(start != nullptr);
-    runFrom(kf, initialState, start);
-
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
-
-      assert(!path.empty());
-
-      // remove any m2m-paths starting with the start basic block
-      unsigned headID = path.front() % 1000;
-      if (kf->mapBBlocks[headID] == original_start) {
-        m2m_pathsUnreachable.insert(path);
-        m2m_pathsRemaining.erase(path);
-      }
+      // unable to find an alternative starting point for startBB
+      // therefore, these paths must be unreachable
+      markUnreachable(kf->mapMarkers[startBB]);
     }
   }
 }
 
-void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
+LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
 
   const uint64_t stats_granularity = 1000;
   uint64_t stats_counter = stats_granularity;
@@ -888,41 +898,23 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
-  // RLR TODO: cleanup
-//  unsigned long currState = 0;
-//  bool emit_trace = false;
-
   struct timespec tm;
   clock_gettime(CLOCK_MONOTONIC, &tm);
   uint64_t startTime = (uint64_t) tm.tv_sec;
   uint64_t stopTime = seMaxTime == 0 ? UINT64_MAX : startTime + seMaxTime;
+  HaltReason halt = HaltReason::OK;
 
-  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution) {
+  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution && (halt == HaltReason::OK)) {
     ExecutionState &state = searcher->selectState();
 
-//    if (currState != state.stateSignature) {
-//      currState = state.stateSignature;
-//      outs() << "executing state #" << currState << "\n";
-//      outs() << "total states  = " << states.size() << "\n";
-//    }
-
     KInstruction *ki = state.pc;
-// RLR TODO: remove
-#ifdef NEVER
-    state.trace.push_back(ki->info->assemblyLine);
-    if (emit_trace) {
-      emit_trace = false;
-      std::ofstream trace;
-      trace.open("trace.txt");
-      if (trace.is_open()) {
-        for (unsigned line : state.trace) {
-          trace << line << "\n";
-        }
-      }
-    }
-#endif
     stepInstruction(state);
-    executeInstruction(state, ki);
+    try {
+      executeInstruction(state, ki);
+    } catch (bad_expression &e) {
+      halt = HaltReason::InvalidExpr;
+      errs() << "    * uninitialized expression, halting execution\n";
+    }
 
     processTimers(&state, 0);
     updateStates(&state);
@@ -934,7 +926,7 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
       clock_gettime(CLOCK_MONOTONIC, &tm);
       if ((uint64_t) tm.tv_sec > stopTime) {
         errs() << "    * max time elapsed, halting execution\n";
-        haltExecution = true;
+        halt = HaltReason::TimeOut;
       }
       checkMemoryUsage(kf);
     } else {
@@ -954,6 +946,8 @@ void LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicB
 
   delete processTree;
   processTree = nullptr;
+
+  return halt;
 }
 
 
@@ -1227,6 +1221,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
       // Control flow
+
+    case Instruction::PHI: {
+      if (state.incomingBBIndex == INVALID_BB_INDEX) {
+        throw bad_expression();
+      }
+      Executor::executeInstruction(state, ki);
+      break;
+    }
 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
@@ -1550,7 +1552,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
   }
 }
-  
+
+
+const Cell& LocalExecutor::eval(KInstruction *ki, unsigned index, ExecutionState &state) const {
+
+  const Cell& result = Executor::eval(ki, index, state);
+  if (result.value.isNull()) {
+    throw bad_expression();
+  }
+  return result;
+}
+
+
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
 
   unsigned counter = 0;

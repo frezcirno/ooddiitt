@@ -25,6 +25,7 @@
 #include <vector>
 
 #define INVALID_LOOP_SIGNATURE   (0)
+#define INVALID_BB_INDEX  ((unsigned) -1)
 
 namespace klee {
 class Array;
