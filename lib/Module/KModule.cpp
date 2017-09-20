@@ -620,9 +620,6 @@ void KModule::prepareMarkers() {
         }
       }
 
-      if (fn->getName().str() == "lwip_strnicmp") {
-        outs() << "break here\n";
-      }
       if (fn->size() > 1) {
         kf->addM2MPaths(majorMarkerList);
       } else {
