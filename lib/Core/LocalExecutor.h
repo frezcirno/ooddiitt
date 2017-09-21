@@ -116,6 +116,13 @@ protected:
                      size_t align = 0,
                      unsigned count = 1);
 
+
+  bool duplicateSymbolic(ExecutionState &state,
+                         const MemoryObject *mo,
+                         const llvm::Value *allocSite,
+                         std::string name,
+                         WObjectPair &wop);
+
   void unconstrainGlobals(ExecutionState &state, KFunction *kf);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;

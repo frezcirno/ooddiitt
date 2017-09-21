@@ -492,6 +492,26 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
   return false;
 }
 
+
+bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
+                                      const MemoryObject *origMO,
+                                      const llvm::Value *allocSite,
+                                      std::string name,
+                                      WObjectPair &wop) {
+
+  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, origMO->kind, allocSite, origMO->align);
+  if (mo == nullptr) {
+    klee_error("Could not allocate memory for symbolic duplication");
+    return false;
+  }
+  mo->name = name;
+  mo->count = origMO->count;
+  ObjectState *os = makeSymbolic(state, mo);
+  wop.first = mo;
+  wop.second = os;
+  return true;
+}
+
 bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const {
 
   const auto &allocas = state.stack.back().allocas;
@@ -1367,8 +1387,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                                eleType,
                                v,
                                MemKind::output,
-                               fullName(fnName, counter,
-                               std::to_string(index + 1)),
+                               fullName(fnName, counter, std::to_string(index + 1)),
                                wop,
                                0,
                                count)) {
@@ -1379,6 +1398,26 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
               argOS->write(idx, newOS->read8(idx));
             }
+          }
+        }
+      }
+
+      // unconstrain global variables
+      Module *m = kmodule->module;
+      for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
+        const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+        MemoryObject *mo = globalObjects.find(v)->second;
+        std::string varName = mo->name;
+        if ((varName.size() > 0) && (varName.at(0) != '.')) {
+
+          const ObjectState *os = state.addressSpace.findObject(mo);
+          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+
+          WObjectPair wop;
+          duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
+
+          for (unsigned idx = 0, end = mo->size; idx < end; ++idx) {
+            wos->write(idx, wop.second->read8(idx));
           }
         }
       }
