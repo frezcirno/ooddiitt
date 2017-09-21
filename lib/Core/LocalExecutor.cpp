@@ -1408,7 +1408,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
         MemoryObject *mo = globalObjects.find(v)->second;
         std::string varName = mo->name;
-        if ((varName.size() > 0) && (varName.at(0) != '.')) {
+        if ((varName.size() > 0) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
 
           const ObjectState *os = state.addressSpace.findObject(mo);
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
