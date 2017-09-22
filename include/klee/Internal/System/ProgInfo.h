@@ -22,8 +22,8 @@ class ProgInfoFunction : private boost::noncopyable {
 public:
   ProgInfoFunction()  { }
 
-  bool isConstParam(unsigned index) const  { return constParams.count(index) > 0; }
-  void setConstParam(unsigned index)       { constParams.insert(index); }
+  bool isConstParam(unsigned index) const    { return constParams.count(index) > 0; }
+  void setConstParam(unsigned index)         { constParams.insert(index); }
 
   bool isGlobalInput(std::string name) const { return globalInputs.count(name) > 0; }
   void setGlobalInput(std::string name)      { globalInputs.insert(name); }
@@ -39,11 +39,11 @@ class ProgInfo : private boost::noncopyable {
 public:
   ProgInfo()    { }
 
-  bool isConstParam(std::string fn, unsigned index)   { return fnInfo[fn].isConstParam(index); }
-  void setConstParam(std::string fn, unsigned index)  { fnInfo[fn].setConstParam(index); }
+  bool isConstParam(std::string fn, unsigned index)        { return fnInfo[fn].isConstParam(index); }
+  void setConstParam(std::string fn, unsigned index)       { fnInfo[fn].setConstParam(index); }
 
-  bool isGlobalInput(std::string fn, std::string name)   { return fnInfo[fn].isGlobalInput(name); }
-  void setGlobalInput(std::string fn, std::string name)  { fnInfo[fn].setGlobalInput(name); }
+  bool isGlobalInput(std::string fn, std::string name)     { return fnInfo[fn].isGlobalInput(name); }
+  void setGlobalInput(std::string fn, std::string name)    { fnInfo[fn].setGlobalInput(name); }
 
 private:
   std::map<std::string,ProgInfoFunction> fnInfo;

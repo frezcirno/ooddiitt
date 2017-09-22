@@ -28,6 +28,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/TypeFinder.h"
 #else
 #include "llvm/Instructions.h"
 #include "llvm/LLVMContext.h"
@@ -436,6 +437,37 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
       }
     }
     delete os;
+  }
+
+  // RLR TODO: insert option
+  if (true) {
+
+    llvm::raw_fd_ostream *f = ih->openOutputFile("structs.json");
+
+    llvm::TypeFinder typeFinder;
+    typeFinder.run(*module, false);
+
+    *f << "{\n";
+    unsigned counter = 0;
+    for (auto type : typeFinder) {
+      std::string str;
+      llvm::raw_string_ostream rso(str);
+      type->print(rso);
+      rso.str();
+      size_t offset = str.find_first_of('=');
+      if (offset != std::string::npos) {
+
+        std::string name = str.substr(0, offset - 1);
+        std::string layout = str.substr(offset + 1);
+
+        if (counter++ > 0) {
+          *f << ",\n";
+        }
+        *f << "  \"" << name << "\": " << layout << "\"";
+      }
+    }
+    *f << "\n}\n";
+    delete f;
   }
 
   if (OutputModule) {
