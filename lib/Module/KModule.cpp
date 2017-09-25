@@ -86,6 +86,11 @@ namespace {
                cl::desc("Write the bitcode for the final transformed module"),
                cl::init(false));
 
+  cl::opt<bool>
+  OutputStructs("output-structs",
+               cl::desc("Write the layout of structures in the transformed module"),
+               cl::init(false));
+
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple", 
@@ -439,8 +444,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     delete os;
   }
 
-  // RLR TODO: insert option
-  if (true) {
+  if (OutputStructs) {
 
     llvm::raw_fd_ostream *f = ih->openOutputFile("structs.json");
 
@@ -452,9 +456,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     for (auto type : typeFinder) {
       std::string str;
       llvm::raw_string_ostream rso(str);
-      type->print(rso);
-      rso.str();
-      size_t offset = str.find_first_of('=');
+      rso << type;
+      size_t offset = rso.str().find_first_of('=');
       if (offset != std::string::npos) {
 
         std::string name = str.substr(0, offset - 1);
