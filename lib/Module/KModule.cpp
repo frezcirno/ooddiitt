@@ -456,7 +456,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     for (auto type : typeFinder) {
       std::string str;
       llvm::raw_string_ostream rso(str);
-      rso << type;
+      type->print(rso);
       size_t offset = rso.str().find_first_of('=');
       if (offset != std::string::npos) {
 
@@ -466,7 +466,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
         if (counter++ > 0) {
           *f << ",\n";
         }
-        *f << "  \"" << name << "\": " << layout << "\"";
+        *f << "  \"" << name << "\": \"" << layout << "\"";
       }
     }
     *f << "\n}\n";

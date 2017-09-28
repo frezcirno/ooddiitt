@@ -477,7 +477,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
           std::string str;
           llvm::raw_string_ostream rso(str);
-          rso << type;
+          type->print(rso);
           obj["type"] = rso.str();
 
           // scale to 32 or 64 bits
