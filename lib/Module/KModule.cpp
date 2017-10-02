@@ -951,7 +951,10 @@ void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) c
 
   successors.clear();
   for (auto itr = succ_begin(bb), end = succ_end(bb); itr != end; ++itr) {
-    successors.insert(*itr);
+    const BasicBlock *succ = *itr;
+    if (succ != nullptr) {
+      successors.insert(*itr);
+    }
   }
 }
 
@@ -960,7 +963,10 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
 
   predecessors.clear();
   for (auto itr = pred_begin(bb), end = pred_end(bb); itr != end; ++itr) {
-    predecessors.insert(*itr);
+    const BasicBlock *pred = *itr;
+    if (pred != nullptr) {
+      predecessors.insert(*itr);
+    }
   }
 }
 
