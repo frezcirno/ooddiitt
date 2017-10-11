@@ -51,6 +51,9 @@ public:
   virtual void processTestCase(ExecutionState &state,
                                const char *err = nullptr,
                                const char *suffix = nullptr) = 0;
+
+  virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
+
 };
 
 class Interpreter {

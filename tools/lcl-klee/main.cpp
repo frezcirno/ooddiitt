@@ -236,6 +236,8 @@ public:
   std::string getTestFilename(const std::string &suffix, unsigned id);
   llvm::raw_fd_ostream *openTestFile(const std::string &suffix, unsigned id);
 
+  std::string getTypeName(const Type *Ty) const;
+
   // load a .path file
   static void loadPathFile(std::string name,
                            std::vector<bool> &buffer);
@@ -333,6 +335,62 @@ KleeHandler::~KleeHandler() {
   delete m_infoFile;
 }
 
+std::string KleeHandler::getTypeName(const Type *Ty) const {
+
+  switch (Ty->getTypeID()) {
+  case Type::VoidTyID: return "void";
+  case Type::HalfTyID: return "half";
+  case Type::FloatTyID: return "float";
+  case Type::DoubleTyID: return "double";
+  case Type::X86_FP80TyID: return "x86_fp80";
+  case Type::FP128TyID: return "fp128";
+  case Type::PPC_FP128TyID: return "ppc_fp128";
+  case Type::LabelTyID: return "label";
+  case Type::MetadataTyID: return "metadata";
+  case Type::X86_MMXTyID: return "x86_mmx";
+  case Type::IntegerTyID: {
+    std::stringstream ss;
+    ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
+    return ss.str();
+  }
+  case Type::FunctionTyID: return "function";
+  case Type::StructTyID: {
+    const StructType *STy = cast<StructType>(Ty);
+    return STy->getName().str();
+  }
+  case Type::PointerTyID: {
+
+    std::stringstream ss;
+    const PointerType *PTy = cast<PointerType>(Ty);
+    ss << getTypeName(PTy->getElementType());
+    ss << '*';
+    return ss.str();
+  }
+  case Type::ArrayTyID: {
+
+    std::stringstream ss;
+    const ArrayType *ATy = cast<ArrayType>(Ty);
+    ss << '[' << ATy->getNumElements() << " x ";
+    ss << getTypeName(ATy->getElementType());
+    ss << ']';
+    return ss.str();
+  }
+  case Type::VectorTyID: {
+    std::stringstream ss;
+    const VectorType *VTy = cast<VectorType>(Ty);
+    ss << '<' << VTy->getNumElements() << " x ";
+    ss << getTypeName(VTy->getElementType());
+    ss << '>';
+    return ss.str();
+  }
+  default: {
+
+  }
+  }
+  return "";
+}
+
+
 void KleeHandler::setInterpreter(Interpreter *i) {
   m_interpreter = i;
 
@@ -386,8 +444,6 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
                                                 unsigned id) {
   return openOutputFile(getTestFilename(suffix, id));
 }
-
-
 
 std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
 
@@ -474,11 +530,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
           obj["name"] = name;
           obj["kind"] = test.first->getKindAsStr();
           obj["count"] = test.first->count;
-
-          std::string str;
-          llvm::raw_string_ostream rso(str);
-          type->print(rso);
-          obj["type"] = rso.str();
+          obj["type"] = getTypeName(type);
 
           // scale to 32 or 64 bits
           unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -509,10 +561,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
           obj["size"] = mo->size;
 
           if (mo->type != nullptr) {
-            std::string str;
-            llvm::raw_string_ostream rso(str);
-            mo->type->print(rso);
-            obj["type"] = rso.str();
+            obj["type"] = getTypeName(mo->type);
           } else {
             obj["type"] = "";
           }

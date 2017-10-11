@@ -451,24 +451,46 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     llvm::TypeFinder typeFinder;
     typeFinder.run(*module, false);
 
-    *f << "{\n";
-    unsigned counter = 0;
+    *f << "{";
+    unsigned struct_cnt = 0;
     for (auto type : typeFinder) {
-      std::string str;
-      llvm::raw_string_ostream rso(str);
-      type->print(rso);
-      size_t offset = rso.str().find_first_of('=');
-      if (offset != std::string::npos) {
 
-        std::string name = str.substr(0, offset - 1);
-        std::string layout = str.substr(offset + 1);
+      if (StructType *st = dyn_cast<StructType>(type)) {
 
-        if (counter++ > 0) {
-          *f << ",\n";
+        if (st->hasName()) {
+          std::string name = st->getName();
+          if (struct_cnt++ > 0)
+            *f << ",";
+
+          *f << "\n  \"" << name << "\": {\n    \"size\": ";
+
+          const StructLayout *targetStruct = targetData->getStructLayout(st);
+          uint64_t size = targetStruct->getSizeInBytes();
+
+          *f << size << ",\n    \"types\": [";
+          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+            if (idx > 0) *f << ", ";
+            *f << "\"" << ih->getTypeName(st->getElementType(idx)) << "\"";
+          }
+          *f << "],\n";
+
+          *f << "    \"offsets\": [";
+          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+            if (idx > 0) *f << ", ";
+            *f << targetStruct->getElementOffset(idx);
+          }
+          *f << "],\n";
+
+          *f << "    \"sizes\": [";
+          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+            if (idx > 0) *f << ", ";
+            *f << targetData->getTypeSizeInBits(st->getElementType(idx)) / 8;
+          }
+          *f << "]\n  }";
         }
-        *f << "  \"" << name << "\": \"" << layout << "\"";
       }
     }
+
     *f << "\n}\n";
     delete f;
   }
