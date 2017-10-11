@@ -1286,7 +1286,10 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       for (unsigned index = 0, end = globals.size(); index < end; ++index) {
         Json::Value &global = globals[index];
         if (global["isInput"].asBool()) {
-          progInfo.setGlobalInput(fn, global["name"].asString());
+          std::string name = global["name"].asString();
+          if (!root["globals"][name]["type"]["isConst"].asBool()) {
+            progInfo.setGlobalInput(fn, name);
+          }
         }
       }
     }
