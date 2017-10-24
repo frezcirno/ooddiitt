@@ -913,7 +913,9 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+  // RLR TODO: debug
+//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
 
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
@@ -1559,6 +1561,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // invalid memory access
         terminateState(state);
       }
+
+      // RLR TODO: debug
+      InspectSymbolicSolutions(&state);
       break;
     }
 
@@ -1589,6 +1594,33 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     default:
       Executor::executeInstruction(state, ki);
       break;
+  }
+}
+
+
+void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
+
+  std::vector<SymbolicSolution> out;
+  bool success = Executor::getSymbolicSolution(*state, out);
+  if (success) {
+
+    for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
+
+      auto &test = *itrObj;
+      assert(test.first->type != nullptr);
+
+      std::string name = test.first->name;
+      const llvm::Type *type = test.first->type;
+      std::vector<unsigned char> &data = test.second;
+
+      // scale to 32 or 64 bits
+      unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+      std::vector<unsigned char> addr;
+      unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+      for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+        addr.push_back(*addrBytes);
+      }
+    }
   }
 }
 

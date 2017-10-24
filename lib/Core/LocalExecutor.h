@@ -149,6 +149,8 @@ protected:
 
   void removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state);
 
+  void InspectSymbolicSolutions(const ExecutionState *state);
+
 #ifdef NEVER
   // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
   uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
