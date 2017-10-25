@@ -1027,7 +1027,7 @@ void externalsAndGlobalsCheck(const Module *m) {
                                  !dontCare.count(ext))) {
 
       // RLR TODO: perhaps define undefined variables (if we can
-      // determine the type)
+      // determine the type and initial values)
 //      if (unsafe.count(ext)) {
 //        foundUnsafe.insert(*it);
 //      } else {

@@ -675,18 +675,14 @@ void Executor::initializeGlobals(ExecutionState &state) {
   }
 
   // once all objects are allocated, do the actual initialization
-  for (Module::const_global_iterator i = m->global_begin(),
-         e = m->global_end();
-       i != e; ++i) {
-    if (i->hasInitializer()) {
-      const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+  for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
+    if (v->hasInitializer()) {
       MemoryObject *mo = globalObjects.find(v)->second;
       const ObjectState *os = state.addressSpace.findObject(mo);
       assert(os);
       ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-
-      initializeGlobalObject(state, wos, i->getInitializer(), 0);
-      // if(i->isConstant()) os->setReadOnly(true);
+      initializeGlobalObject(state, wos, v->getInitializer(), 0);
     }
   }
 }

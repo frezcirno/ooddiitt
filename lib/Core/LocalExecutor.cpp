@@ -298,9 +298,6 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     if (!isLocallyAllocated(state, mo)) {
       if (mo->kind != klee::MemKind::lazy) {
         outs() << "*** Not converting " << mo->getKindAsStr() << ":" << mo->name << " to symbolic\n";
-        // RLR TODO: this is wrong!!!
-
-//        os = makeSymbolic(state, mo);
       } else {
         os = makeSymbolic(state, mo);
       }
@@ -583,6 +580,15 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
 
+  // prepare a generic initial state
+  initializeGlobals(*state);
+  unconstrainGlobals(*state, kf);
+  bindModuleConstants();
+  state->maxLoopIteration = maxLoopIteration;
+  state->lazyAllocationCount = lazyAllocationCount;
+  state->maxLazyDepth = maxLazyDepth;
+  state->maxLoopForks = maxLoopForks;
+
   // create parameter values
   unsigned index = 0;
   for (Function::const_arg_iterator ai = f->arg_begin(), ae = f->arg_end(); ai != ae; ++ai, ++index) {
@@ -749,13 +755,13 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   }
 
   // prepare a generic initial state
-  initializeGlobals(initialState);
-  unconstrainGlobals(initialState, kf);
-  bindModuleConstants();
-  initialState.maxLoopIteration = maxLoopIteration;
-  initialState.lazyAllocationCount = lazyAllocationCount;
-  initialState.maxLazyDepth = maxLazyDepth;
-  initialState.maxLoopForks = maxLoopForks;
+//  initializeGlobals(initialState);
+//  unconstrainGlobals(initialState, kf);
+//  bindModuleConstants();
+//  initialState.maxLoopIteration = maxLoopIteration;
+//  initialState.lazyAllocationCount = lazyAllocationCount;
+//  initialState.maxLazyDepth = maxLazyDepth;
+//  initialState.maxLoopForks = maxLoopForks;
 
   unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
   runPaths(kf, initialState, kf->m2m_paths);
@@ -924,7 +930,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  // RLR TODO: debug
+  // RLR TODO: debug - restore BFS
 //  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
 
@@ -1572,9 +1578,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // invalid memory access
         terminateState(state);
       }
-
-      // RLR TODO: debug
-      InspectSymbolicSolutions(&state);
       break;
     }
 
@@ -1617,17 +1620,19 @@ void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
 
     for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
-      auto &test = *itrObj;
-      assert(test.first->type != nullptr);
+      auto &sym = *itrObj;
+      assert(sym.first->type != nullptr);
 
-      std::string name = test.first->name;
-      const llvm::Type *type = test.first->type;
-      std::vector<unsigned char> &data = test.second;
+      std::string name = sym.first->name;
+      const llvm::Type *type = sym.first->type;
+      std::vector<unsigned char> &data = sym.second;
+      (void) type;
+      (void) data;
 
       // scale to 32 or 64 bits
       unsigned ptr_width = (Context::get().getPointerWidth() / 8);
       std::vector<unsigned char> addr;
-      unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+      unsigned char *addrBytes = ((unsigned char *) &(sym.first->address));
       for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
         addr.push_back(*addrBytes);
       }
