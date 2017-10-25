@@ -296,7 +296,14 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
   if (!state.isSymbolic(mo)) {
     if (!isLocallyAllocated(state, mo)) {
-      os = makeSymbolic(state, mo);
+      if (mo->kind != klee::MemKind::lazy) {
+        outs() << "*** Not converting " << mo->getKindAsStr() << ":" << mo->name << " to symbolic\n";
+        // RLR TODO: this is wrong!!!
+
+//        os = makeSymbolic(state, mo);
+      } else {
+        os = makeSymbolic(state, mo);
+      }
     }
   }
 
@@ -736,6 +743,10 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
   outs() << initialState.name << ":\n";
   outs().flush();
+
+  if (initialState.name == "next_state") {
+    outs() << "break here\n";
+  }
 
   // prepare a generic initial state
   initializeGlobals(initialState);
