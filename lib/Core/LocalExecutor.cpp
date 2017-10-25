@@ -554,10 +554,12 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
 }
 
 void LocalExecutor::bindModuleConstants() {
-  kmodule->constantTable = new Cell[kmodule->constants.size()];
-  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-    Cell &c = kmodule->constantTable[i];
-    c.value = evalConstant(kmodule->constants[i]);
+  if (kmodule->constantTable == nullptr) {
+    kmodule->constantTable = new Cell[kmodule->constants.size()];
+    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+      Cell &c = kmodule->constantTable[i];
+      c.value = evalConstant(kmodule->constants[i]);
+    }
   }
 }
 
