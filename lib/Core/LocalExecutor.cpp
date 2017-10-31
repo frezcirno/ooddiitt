@@ -97,12 +97,18 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(pi),
   seMaxTime(tm),
-  maxStatesInLoop(10000) {
+  maxStatesInLoop(10000),
+  germinalState(nullptr) {
   assert(pi != nullptr);
 }
 
 LocalExecutor::~LocalExecutor() {
 
+  delete germinalState;
+
+  if (statsTracker) {
+    statsTracker->done();
+  }
 }
 
 #ifdef NEVER
@@ -522,43 +528,60 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
-void LocalExecutor::unconstrainGlobals(ExecutionState &state, KFunction *kf) {
+void LocalExecutor::initializeGlobalValues(ExecutionState &state) {
 
-  Module *m = kmodule->module;
-  std::string fnName = kf->function->getName();
-  for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
+  for (Module::const_global_iterator itr = kmodule->module->global_begin(),
+       end = kmodule->module->global_end();
+       itr != end;
+       ++itr) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
-    if ((name.size() > 0) && (name.at(0) != '.') && progInfo->isGlobalInput(fnName, name)) {
+    if ((name.size() > 0) && (name.at(0) != '.') && progInfo->isGlobalInput(state.name, name)) {
       makeSymbolic(state, mo);
+    } else if (v->hasInitializer()) {
+      assert(state.isConcrete(mo));
+      const ObjectState *os = state.addressSpace.findObject(mo);
+      assert(os != nullptr);
+      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+      initializeGlobalObject(state, wos, v->getInitializer(), 0);
     }
   }
 }
 
 const Module *LocalExecutor::setModule(llvm::Module *module,
                                        const ModuleOptions &opts) {
-  const Module *result = Executor::setModule(module, opts);
 
+  assert(kmodule == nullptr);
+  const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers();
 
-  for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
-               ie = kmodule->functions.end(); it != ie; ++it) {
-    KFunction *kf = *it;
+  // prepare a generic initial state
+  germinalState = new ExecutionState();
+  germinalState->maxLoopIteration = maxLoopIteration;
+  germinalState->lazyAllocationCount = lazyAllocationCount;
+  germinalState->maxLazyDepth = maxLazyDepth;
+  germinalState->maxLoopForks = maxLoopForks;
 
-    for (unsigned i = 0; i < kf->numInstructions; ++i) {
-      bindInstructionConstants(kf->instructions[i]);
-    }
-  }
+  initializeGlobals(*germinalState);
+  bindModuleConstants();
   return result;
 }
 
 void LocalExecutor::bindModuleConstants() {
-  if (kmodule->constantTable == nullptr) {
-    kmodule->constantTable = new Cell[kmodule->constants.size()];
-    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-      Cell &c = kmodule->constantTable[i];
-      c.value = evalConstant(kmodule->constants[i]);
+
+  assert(kmodule->constantTable == nullptr);
+  kmodule->constantTable = new Cell[kmodule->constants.size()];
+  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+    Cell &c = kmodule->constantTable[i];
+    c.value = evalConstant(kmodule->constants[i]);
+  }
+
+  for (std::vector<KFunction *>::iterator it = kmodule->functions.begin(),
+           ie = kmodule->functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+    for (unsigned i = 0; i < kf->numInstructions; ++i) {
+      bindInstructionConstants(kf->instructions[i]);
     }
   }
 }
@@ -572,7 +595,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-  ExecutionState *state = new ExecutionState(kf, name);
+  ExecutionState *state = new ExecutionState(*germinalState, kf, name);
 
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -582,14 +605,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
 
-  // prepare a generic initial state
-  initializeGlobals(*state);
-  unconstrainGlobals(*state, kf);
-  bindModuleConstants();
-  state->maxLoopIteration = maxLoopIteration;
-  state->lazyAllocationCount = lazyAllocationCount;
-  state->maxLazyDepth = maxLazyDepth;
-  state->maxLoopForks = maxLoopForks;
+  initializeGlobalValues(*state);
 
   // create parameter values
   unsigned index = 0;
@@ -622,30 +638,19 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   run(kf, *state);
-
-  // hack to clear memory objects
-  delete memory;
-  memory = new MemoryManager(NULL);
-
-  // clean up global objects
-  // RLR TODO: no real need to destroy the globals
-  // and set them up again on next function. just need to
-  // re-initialize
-  legalFunctions.clear();
-  globalObjects.clear();
-  globalAddresses.clear();
-
-  if (statsTracker)
-    statsTracker->done();
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f,
                                       int argc,
                                       char **argv,
                                       char **envp) {
-  
+
+  assert(false && "calls to runFunctionAsMain deprecated");
+
+#ifdef NEVER
+
   std::vector<ref<Expr> > arguments;
-  
+
   // force deterministic initialization of memory objects
 //  srand(1);
 //  srandom(1);
@@ -736,15 +741,14 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   memory = new MemoryManager(NULL);
 
   // clean up global objects
-  // RLR TODO: no real need to destroy the globals
-  // and set them up again on next function. just need to
-  // re-initialize
   legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
   
   if (statsTracker)
     statsTracker->done();
+
+#endif
 }
   
 void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
@@ -932,10 +936,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  // RLR TODO: debug - restore BFS
-//  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
-
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 

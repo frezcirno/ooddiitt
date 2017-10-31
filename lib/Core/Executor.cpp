@@ -2593,8 +2593,11 @@ void Executor::updateStates(ExecutionState *current) {
 
 template <typename TypeIt>
 void Executor::computeOffsets(KGEPInstruction *kgepi, TypeIt ib, TypeIt ie) {
-  ref<ConstantExpr> constantOffset =
-    ConstantExpr::alloc(0, Context::get().getPointerWidth());
+
+  // reset kgepi from potential priors
+  kgepi->offset = 0;
+  kgepi->indices.clear();
+  ref<ConstantExpr> constantOffset = ConstantExpr::alloc(0, Context::get().getPointerWidth());
   uint64_t index = 1;
   for (TypeIt ii = ib; ii != ie; ++ii) {
     if (LLVM_TYPE_Q StructType *st = dyn_cast<StructType>(*ii)) {
@@ -3523,6 +3526,8 @@ void Executor::runFunctionAsMain(Function *f,
 				 char **envp) {
   std::vector<ref<Expr> > arguments;
 
+#ifdef NEVER
+
   // force deterministic initialization of memory objects
   srand(1);
   srandom(1);
@@ -3622,6 +3627,7 @@ void Executor::runFunctionAsMain(Function *f,
 
   if (statsTracker)
     statsTracker->done();
+#endif
 }
 
 unsigned Executor::getPathStreamID(const ExecutionState &state) {

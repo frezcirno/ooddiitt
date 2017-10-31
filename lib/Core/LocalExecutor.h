@@ -123,8 +123,7 @@ protected:
                          std::string name,
                          WObjectPair &wop);
 
-  void unconstrainGlobals(ExecutionState &state, KFunction *kf);
-
+  void initializeGlobalValues(ExecutionState &state);
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
@@ -170,6 +169,8 @@ protected:
   ProgInfo *progInfo;
   unsigned seMaxTime;
   unsigned maxStatesInLoop;
+
+  ExecutionState *germinalState;
 };
 
 

@@ -69,13 +69,11 @@ StackFrame::~StackFrame() {
 }
 
 /***/
-
-ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
-    pc(kf->instructions),
+ExecutionState::ExecutionState() :
     prevPC(pc),
     incomingBBIndex(INVALID_BB_INDEX),
 
-    queryCost(0.), 
+    queryCost(0.),
     weight(1),
     depth(0),
 
@@ -83,7 +81,7 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     coveredNew(false),
     forkDisabled(false),
     ptreeNode(0),
-    name(name),
+    name("_germinal_"),
     isProcessed(false),
     lazyAllocationCount(0),
     maxLoopIteration(0),
@@ -91,7 +89,51 @@ ExecutionState::ExecutionState(KFunction *kf, const std::string &name) :
     maxLazyDepth(0),
     startingMarker(0),
     endingMarker(0)
+{ }
+
+ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
+
+    fnAliases(state.fnAliases),
+//    pc(state.pc),
+//    prevPC(state.prevPC),
+    stack(state.stack),
+    incomingBBIndex(state.incomingBBIndex),
+
+    addressSpace(state.addressSpace),
+    constraints(state.constraints),
+
+    queryCost(state.queryCost),
+    weight(state.weight),
+    depth(state.depth),
+
+    pathOS(state.pathOS),
+    symPathOS(state.symPathOS),
+
+    instsSinceCovNew(state.instsSinceCovNew),
+    coveredNew(state.coveredNew),
+    forkDisabled(state.forkDisabled),
+    coveredLines(state.coveredLines),
+    ptreeNode(state.ptreeNode),
+    symbolics(state.symbolics),
+    arrayNames(state.arrayNames),
+    callTargetCounter(state.callTargetCounter),
+//    name(state.name),
+    markers(state.markers),
+    isProcessed(state.isProcessed),
+    lazyAllocationCount(state.lazyAllocationCount),
+    maxLoopIteration(state.maxLoopIteration),
+    maxLoopForks(state.maxLoopForks),
+    maxLazyDepth(state.maxLazyDepth),
+    startingMarker(state.startingMarker),
+    endingMarker(state.endingMarker),
+    trace(state.trace)
 {
+  for (unsigned int i=0; i<symbolics.size(); i++) {
+    symbolics[i].first->refCount++;
+  }
+  pc = kf->instructions;
+  prevPC = pc;
+  name = _name;
   pushFrame(0, kf);
   stateSignature = ++lastUsedStateSignature;
 }
@@ -191,6 +233,10 @@ bool ExecutionState::isSymbolic(const MemoryObject *mo) {
     if (iter->first == mo) return true;
   }
   return false;
+}
+
+bool ExecutionState::isConcrete(const MemoryObject *mo) {
+  return !isSymbolic(mo);
 }
 
 ///

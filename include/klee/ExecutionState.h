@@ -181,11 +181,8 @@ public:
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
 
-private:
-  ExecutionState() : ptreeNode(0) {}
-
-public:
-  ExecutionState(KFunction *kf, const std::string &name);
+  ExecutionState(); // : ptreeNode(0) {}
+  ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &name);
 
   // XXX total hack, just used to make a state so solver can
   // use on structure
@@ -202,6 +199,7 @@ public:
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
+  bool isConcrete(const MemoryObject *mo);
   void addMarker(unsigned fnID, unsigned bbID);
 
   void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
