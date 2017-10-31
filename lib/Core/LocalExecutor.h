@@ -29,7 +29,8 @@ class LocalExecutor : public Executor {
 
 public:
 
-  enum HaltReason {OK, TimeOut, InvalidExpr };
+  enum class HaltReason { OK, TimeOut, InvalidExpr };
+  enum class ResolveResult { OK, NullAccess, NoObject };
 
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
@@ -71,7 +72,7 @@ protected:
 
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
 
-  bool resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
+  ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
   void executeAlloc(ExecutionState &state,
                     unsigned size,

@@ -147,7 +147,7 @@ int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
 }
 #endif
 
-bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
+LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
 
   assert(address.get()->getWidth() == Context::get().getPointerWidth());
 
@@ -156,11 +156,14 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
   if (isa<ConstantExpr>(address)) {
     ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
     if (caddress.get()->isZero()) {
-      return false;
+      return ResolveResult::NullAccess;
     }
 
     // fast path: single in-bounds resolution
-    return state.addressSpace.resolveOne(caddress, op);
+    if (state.addressSpace.resolveOne(caddress, op)) {
+      return ResolveResult::OK;
+    }
+    return ResolveResult::NoObject;
   }
 
   // not a const address, so we have to ask the solver
@@ -170,11 +173,12 @@ bool LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPa
 
     ref<ConstantExpr> caddr;
     solver->setTimeout(coreSolverTimeout);
-    result = solver->getValue(state, address, caddr);
-    result = resolveMO(state, caddr, op);
+    if (solver->getValue(state, address, caddr)) {
+        return resolveMO(state, caddr, op);
+    }
   }
   solver->setTimeout(0);
-  return result;
+  return result ? ResolveResult::OK : ResolveResult::NoObject;
 }
 
 void LocalExecutor::executeAlloc(ExecutionState &state,
@@ -217,7 +221,7 @@ void LocalExecutor::executeFree(ExecutionState &state,
   if (zeroPointer.second) { // address != 0
 
     ObjectPair op;
-    if (resolveMO(*zeroPointer.second, address, op)) {
+    if (resolveMO(*zeroPointer.second, address, op) == ResolveResult::OK) {
 
       const MemoryObject *mo = op.first;
       if (mo->isHeap()) {
@@ -259,8 +263,12 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
                                                KInstruction *target) {
 
   ObjectPair op;
-  if (!resolveMO(state, address, op)) {
-    // invalid memory read
+  ResolveResult result = resolveMO(state, address, op);
+  if (result != ResolveResult::OK) {
+    if (result == ResolveResult::NoObject) {
+      // invalid memory read
+      errs() << " *** failed to resolve MO on read ***\n";
+    }
     terminateState(state);
     return false;
   }
@@ -362,8 +370,13 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
                                                 const std::string name) {
 
   ObjectPair op;
-  if (!resolveMO(state, address, op)) {
-    // invalid memory write
+
+  ResolveResult result = resolveMO(state, address, op);
+  if (result != ResolveResult::OK) {
+    if (result == ResolveResult::NoObject) {
+      // invalid memory write
+      errs() << " *** failed to resolve MO on write ***\n";
+    }
     terminateState(state);
     return false;
   }
@@ -1393,7 +1406,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           assert(width == Context::get().getPointerWidth());
 
           ObjectPair op;
-          if (resolveMO(state, address, op)) {
+          if (resolveMO(state, address, op) == ResolveResult::OK) {
             const MemoryObject *orgMO = op.first;
             const ObjectState *orgOS = op.second;
             ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
@@ -1420,6 +1433,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
               argOS->write(idx, newOS->read8(idx));
             }
+          } else {
+//            assert(false && "failed to resolve a parameter");
           }
         }
       }
@@ -1539,7 +1554,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       ref<Expr> base = eval(ki, 0, state).value;
 
       ObjectPair op;
-      if (resolveMO(state, base, op)) {
+      ResolveResult result = resolveMO(state, base, op);
+      if (result == ResolveResult::OK) {
         const MemoryObject *mo = op.first;
 
         assert(i->getType()->isPtrOrPtrVectorTy());
@@ -1578,7 +1594,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         solver->setTimeout(0);
         bindLocal(ki, state, base);
       } else {
+
         // invalid memory access
+        if (result == ResolveResult::NoObject) {
+          errs() << " *** failed to resolve MO on GEP ***\n";
+        }
         terminateState(state);
       }
       break;
