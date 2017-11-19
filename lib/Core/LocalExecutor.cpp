@@ -84,16 +84,36 @@ cl::opt<bool>
                         cl::init(true),
                         cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
 
+cl::opt<unsigned>
+  LazyAllocationCount("lazy-allocation-count",
+                       cl::init(8),
+                       cl::desc("Number of items to lazy initialize pointer"));
+
+cl::opt<unsigned>
+    LazyAllocationDepth("lazy-allocation-depth",
+                        cl::init(2),
+                        cl::desc("Depth of items to lazy initialize pointer"));
+
+cl::opt<unsigned>
+    MaxLoopIteration("max-loop-iteration",
+                      cl::init(1),
+                      cl::desc("Number of loop iterations"));
+
+cl::opt<unsigned>
+    MaxLoopForks("max-loop-forks",
+                  cl::init(16),
+                  cl::desc("Number of forks within loop body"));
+
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
                              ProgInfo *pi,
                              unsigned tm) :
   Executor(ctx, opts, ih),
-  lazyAllocationCount(16),
-  maxLoopIteration(1),
-  maxLoopForks(16),
-  maxLazyDepth(2),
+  lazyAllocationCount(LazyAllocationCount),
+  maxLoopIteration(MaxLoopIteration),
+  maxLoopForks(MaxLoopForks),
+  maxLazyDepth(LazyAllocationDepth),
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(pi),
   seMaxTime(tm),
