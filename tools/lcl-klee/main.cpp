@@ -58,6 +58,8 @@
 #include <iomanip>
 #include <iterator>
 #include <sstream>
+#include <fcntl.h>
+#include <ext/stdio_filebuf.h>
 
 using namespace llvm;
 using namespace klee;
@@ -65,9 +67,6 @@ using namespace klee;
 namespace {
   cl::opt<std::string>
   InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
-
-  cl::opt<bool>
-  EvalUshers("eval-ushers", cl::init(false), cl::desc("This option should be removed after evaluation"));
 
   cl::opt<std::string>
   ProgramInfo("prog-info",
@@ -230,8 +229,9 @@ public:
 
   std::string getOutputFilename(const std::string &filename);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
-  std::string getTestFilename(const std::string &suffix, unsigned id);
-  llvm::raw_fd_ostream *openTestFile(const std::string &suffix, unsigned id);
+  std::string getTestFilename(const std::string &ext, unsigned id);
+  llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
+  std::ostream *openTestCaseFile();
 
   std::string getTypeName(const Type *Ty) const;
 
@@ -431,15 +431,29 @@ llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename) {
   return f;
 }
 
-std::string KleeHandler::getTestFilename(const std::string &suffix, unsigned id) {
+std::string KleeHandler::getTestFilename(const std::string &ext, unsigned id) {
   std::stringstream filename;
-  filename << "test" << std::setfill('0') << std::setw(6) << id << '.' << suffix;
+  filename << "test" << std::setfill('0') << std::setw(6) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &suffix,
+llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
                                                 unsigned id) {
-  return openOutputFile(getTestFilename(suffix, id));
+  return openOutputFile(getTestFilename(ext, id));
+}
+
+std::ostream *KleeHandler::openTestCaseFile() {
+
+  int fd = -1;
+  while (fd < 0) {
+    std::string filename = getOutputFilename(getTestFilename("json", ++m_testIndex));
+    fd = open(filename.c_str(),
+              O_CREAT | O_EXCL | O_WRONLY,
+              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+  }
+
+  auto *buf = new __gnu_cxx::stdio_filebuf<char>(fd, std::ios::out);
+  return new std::ostream(buf);
 }
 
 std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
@@ -474,20 +488,15 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     double start_time = util::getWallTime();
 
-    unsigned id = ++m_testIndex;
-
     if (success) {
 
-      // open an output stream to serialize the json object
-      std::string outFilename = getOutputFilename(getTestFilename("json", id));
-      std::ofstream kout;
-      kout.open(outFilename);
-      if (kout.is_open()) {
+      std::ostream *kout = openTestCaseFile();
+      if (kout != nullptr) {
 
         // construct the json object representing the test case
         Json::Value root = Json::objectValue;
         root["entryFn"] = state.name;
-        root["testID"] = id;
+        root["testID"] = m_testIndex;
         root["argC"] = m_argc;
         root["lazyAllocationCount"] = state.lazyAllocationCount;
         root["maxLoopIteration"] = state.maxLoopIteration;
@@ -581,16 +590,21 @@ void KleeHandler::processTestCase(ExecutionState &state,
         builder["indentation"] = "  ";
         std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
-        writer->write(root, &kout);
-        kout << std::endl;
+        writer.get()->write(root, kout);
+        *kout << std::endl;
+
+        kout->flush();
+        auto *buf = static_cast<std::filebuf*>(kout->rdbuf());
+        delete kout;
+        delete buf;
         state.isProcessed = true;
       } else {
-        klee_warning("unable to write output test case to %s, losing it", outFilename.c_str());
+        klee_warning("unable to write output test case, losing it");
       }
     }
 
     if (errorMessage) {
-      llvm::raw_ostream *f = openTestFile(errorSuffix, id);
+      llvm::raw_ostream *f = openTestFile(errorSuffix, m_testIndex);
       *f << errorMessage;
       delete f;
     }
@@ -599,7 +613,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::vector<unsigned char> concreteBranches;
       m_pathWriter->readStream(m_interpreter->getPathStreamID(state),
                                concreteBranches);
-      llvm::raw_fd_ostream *f = openTestFile("path", id);
+      llvm::raw_fd_ostream *f = openTestFile("path", m_testIndex);
       for (std::vector<unsigned char>::iterator I = concreteBranches.begin(),
                                                 E = concreteBranches.end();
            I != E; ++I) {
@@ -611,7 +625,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if (errorMessage || WriteKQueries) {
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints,Interpreter::KQUERY);
-      llvm::raw_ostream *f = openTestFile("kquery", id);
+      llvm::raw_ostream *f = openTestFile("kquery", m_testIndex);
       *f << constraints;
       delete f;
     }
@@ -621,7 +635,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       // SMT-LIBv2 not CVC which is a bit confusing
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints, Interpreter::STP);
-      llvm::raw_ostream *f = openTestFile("cvc", id);
+      llvm::raw_ostream *f = openTestFile("cvc", m_testIndex);
       *f << constraints;
       delete f;
     }
@@ -629,7 +643,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if(WriteSMT2s) {
       std::string constraints;
         m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
-        llvm::raw_ostream *f = openTestFile("smt2", id);
+        llvm::raw_ostream *f = openTestFile("smt2", m_testIndex);
         *f << constraints;
         delete f;
     }
@@ -638,7 +652,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::vector<unsigned char> symbolicBranches;
       m_symPathWriter->readStream(m_interpreter->getSymbolicPathStreamID(state),
                                   symbolicBranches);
-      llvm::raw_fd_ostream *f = openTestFile("sym.path", id);
+      llvm::raw_fd_ostream *f = openTestFile("sym.path", m_testIndex);
       for (std::vector<unsigned char>::iterator I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
         *f << *I << "\n";
       }
@@ -648,7 +662,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if (WriteCov) {
       std::map<const std::string*, std::set<unsigned> > cov;
       m_interpreter->getCoveredLines(state, cov);
-      llvm::raw_ostream *f = openTestFile("cov", id);
+      llvm::raw_ostream *f = openTestFile("cov", m_testIndex);
       for (std::map<const std::string*, std::set<unsigned> >::iterator
              it = cov.begin(), ie = cov.end();
            it != ie; ++it) {
@@ -662,7 +676,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     if (WriteTestInfo) {
       double elapsed_time = util::getWallTime() - start_time;
-      llvm::raw_ostream *f = openTestFile("info", id);
+      llvm::raw_ostream *f = openTestFile("info", m_testIndex);
       *f << "Time to generate test case: "
          << elapsed_time << "s\n";
       delete f;
