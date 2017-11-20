@@ -55,8 +55,6 @@ public:
                                  char **argv,
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
-
-  virtual void setMaxLoopIteration(unsigned max) { maxLoopIteration = max; }
   virtual bool generateTestCase(const ExecutionState &state) const;
 
 protected:
