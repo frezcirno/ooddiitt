@@ -60,6 +60,7 @@
 #include <sstream>
 #include <fcntl.h>
 #include <ext/stdio_filebuf.h>
+#include <boost/algorithm/string/predicate.hpp>
 
 using namespace llvm;
 using namespace klee;
@@ -82,6 +83,11 @@ namespace {
   EntryPoint("entry-point",
              cl::desc("Consider the function with the given name as the entrypoint"),
              cl::init("main"));
+
+  cl::opt<std::string>
+    SingleFunction("single-function",
+                   cl::desc("only locally execute the specified function"),
+                   cl::init(""));
 
   cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
@@ -204,6 +210,8 @@ private:
   SmallString<128> m_outputDirectory;
 
   unsigned m_testIndex;  // number of tests written so far
+  unsigned fnID;
+  unsigned casesGenerated;
   unsigned m_pathsExplored; // number of paths explored so far
 
   // used for writing .ktest files
@@ -211,11 +219,11 @@ private:
   char **m_argv;
 
 public:
-  KleeHandler(int argc, char **argv);
+  KleeHandler(int argc, char **argv, unsigned fnID);
   ~KleeHandler();
 
   llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
-  unsigned getNumTestCases() { return m_testIndex; }
+  unsigned getNumTestCases() { return casesGenerated; }
   unsigned getNumPathsExplored() { return m_pathsExplored; }
   void incPathsExplored() { m_pathsExplored++; }
 
@@ -227,11 +235,14 @@ public:
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 
-  std::string getOutputFilename(const std::string &filename);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
+  std::string getOutputFilename(const std::string &filename) override;
+  std::string getOutputBasename(const std::string &filename);
+  std::string getOutputPath(const std::string &filename);
   std::string getTestFilename(const std::string &ext, unsigned id);
-  llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
+
   std::ostream *openTestCaseFile();
+  llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
+  llvm::raw_fd_ostream *openOutputFile(const std::string &filename) override;
 
   std::string getTypeName(const Type *Ty) const;
 
@@ -245,13 +256,15 @@ public:
   static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
-KleeHandler::KleeHandler(int argc, char **argv)
+KleeHandler::KleeHandler(int argc, char **argv, unsigned fnID)
   : m_interpreter(0),
     m_pathWriter(0),
     m_symPathWriter(0),
     m_infoFile(0),
     m_outputDirectory(),
-    m_testIndex(0),
+    m_testIndex(fnID * 100000),
+    fnID(fnID),
+    casesGenerated(0),
     m_pathsExplored(0),
     m_argc(argc),
     m_argv(argv) {
@@ -272,10 +285,9 @@ KleeHandler::KleeHandler(int argc, char **argv)
 
   if (dir_given) {
     // OutputDir
-    if (mkdir(directory.c_str(), 0775) < 0)
-      klee_error("cannot create \"%s\": %s", directory.c_str(), strerror(errno));
-
+    mkdir(directory.c_str(), 0775);
     m_outputDirectory = directory;
+
   } else {
     // "klee-out-<i>"
     int i = 0;
@@ -321,7 +333,7 @@ KleeHandler::KleeHandler(int argc, char **argv)
     klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
 
   // open info
-  m_infoFile = openOutputFile("info");
+  m_infoFile = openOutputFile(getOutputBasename("info.txt"));
 }
 
 KleeHandler::~KleeHandler() {
@@ -404,36 +416,56 @@ void KleeHandler::setInterpreter(Interpreter *i) {
   }
 }
 
-std::string KleeHandler::getOutputFilename(const std::string &filename) {
+std::string KleeHandler::getOutputPath(const std::string &filename) {
   SmallString<128> path = m_outputDirectory;
   sys::path::append(path,filename);
+  return path.str();
+}
+
+
+std::string KleeHandler::getOutputBasename(const std::string &filename) {
+
+  if (fnID == 0) {
+    return filename;
+  }
+
+  std::stringstream name;
+  name << std::setfill('0') << std::setw(5) << fnID << "-" << filename;
+  return name.str();
+}
+
+std::string KleeHandler::getOutputFilename(const std::string &filename) {
+
+  SmallString<128> path = m_outputDirectory;
+  sys::path::append(path, getOutputBasename(filename));
   return path.str();
 }
 
 llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename) {
   llvm::raw_fd_ostream *f;
   std::string Error;
-  std::string path = getOutputFilename(filename);
+  std::string path = getOutputPath(filename);
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
   f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
 #else
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_Binary);
+  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_Binary | llvm::sys::fs::F_Excl);
 #endif
   if (!Error.empty()) {
-    klee_warning("error opening file \"%s\".  KLEE may have run out of file "
-               "descriptors: try to increase the maximum number of open file "
-               "descriptors by using ulimit (%s).",
-               filename.c_str(), Error.c_str());
+    if (!boost::algorithm::ends_with(Error, "File exists")) {
+      klee_warning("error opening file \"%s\".  KLEE may have run out of file "
+                   "descriptors: try to increase the maximum number of open file "
+                   "descriptors by using ulimit (%s).",
+                   filename.c_str(), Error.c_str());
+    }
     delete f;
-    f = NULL;
+    f = nullptr;
   }
-
   return f;
 }
 
 std::string KleeHandler::getTestFilename(const std::string &ext, unsigned id) {
   std::stringstream filename;
-  filename << "test" << std::setfill('0') << std::setw(6) << id << '.' << ext;
+  filename << "test" << std::setfill('0') << std::setw(10) << id << '.' << ext;
   return filename.str();
 }
 
@@ -446,7 +478,7 @@ std::ostream *KleeHandler::openTestCaseFile() {
 
   int fd = -1;
   while (fd < 0) {
-    std::string filename = getOutputFilename(getTestFilename("json", ++m_testIndex));
+    std::string filename = getOutputPath(getTestFilename("json", ++m_testIndex));
     fd = open(filename.c_str(),
               O_CREAT | O_EXCL | O_WRONLY,
               S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
@@ -598,6 +630,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         delete kout;
         delete buf;
         state.isProcessed = true;
+        ++casesGenerated;
       } else {
         klee_warning("unable to write output test case, losing it");
       }
@@ -1278,6 +1311,9 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
     // find the constant function params
     Json::Value &fnRoot = fnsRoot[fn];
     Json::Value &params = fnRoot["params"];
+    unsigned id = fnRoot["fnID"].asUInt();
+    progInfo.setFnID(fn, id);
+
     if (params.isArray()) {
       for (unsigned index = 0, end = params.size(); index < end; ++index) {
 
@@ -1581,9 +1617,17 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
+  // if this is a single function execution, then
+  // append fnID to all output.
+  unsigned fnID = 0;
+  std::string single_function = SingleFunction;
+  if (!single_function.empty()) {
+    fnID = progInfo.getFnID(single_function);
+  }
+
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
-  KleeHandler *handler = new KleeHandler(pArgc, pArgv);
+  KleeHandler *handler = new KleeHandler(pArgc, pArgv, fnID);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
   handler->setInterpreter(theInterpreter);
@@ -1611,10 +1655,19 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  // run each function other than main as unconstrained
-  for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
-    Function *fn = *itr;
-    theInterpreter->runFunctionUnconstrained(fn);
+  // run each function unconstrained
+  if (single_function.empty()) {
+    for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
+      Function *fn = *itr;
+      theInterpreter->runFunctionUnconstrained(fn);
+    }
+  } else {
+    Function *fn = mainModule->getFunction(single_function);
+    if (fn != nullptr) {
+      theInterpreter->runFunctionUnconstrained(fn);
+    } else {
+      klee_error("Unable to find function: %s", single_function.c_str());
+    }
   }
 
   t[1] = time(NULL);

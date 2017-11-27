@@ -73,10 +73,6 @@ namespace {
   MergeAtExit("merge-at-exit");
     
   cl::opt<bool>
-  NoTruncateSourceLines("no-truncate-source-lines",
-                        cl::desc("Don't truncate long lines in the output source"));
-
-  cl::opt<bool>
   OutputSource("output-source",
                cl::desc("Write the assembly for the final transformed source"),
                cl::init(true));
@@ -411,94 +407,70 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   // that source browsing works.
   if (OutputSource) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll");
-    assert(os && !os->has_error() && "unable to open source output");
-
-    // We have an option for this in case the user wants a .ll they
-    // can compile.
-    if (NoTruncateSourceLines) {
-      *os << *module;
-    } else {
-      std::string string;
-      llvm::raw_string_ostream rss(string);
-      rss << *module;
-      rss.flush();
-      const char *position = string.c_str();
-
-      for (;;) {
-        const char *end = index(position, '\n');
-        if (!end) {
-          *os << position;
-          break;
-        } else {
-          unsigned count = (end - position) + 1;
-          if (count<255) {
-            os->write(position, count);
-          } else {
-            os->write(position, 254);
-            *os << "\n";
-          }
-          position = end+1;
-        }
-      }
+    if (os != nullptr) {
+        *os << *module;
+        delete os;
     }
-    delete os;
   }
 
   if (OutputStructs) {
+    llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json");
+    if (os != nullptr) {
 
-    llvm::raw_fd_ostream *f = ih->openOutputFile("structs.json");
+      llvm::TypeFinder typeFinder;
+      typeFinder.run(*module, false);
 
-    llvm::TypeFinder typeFinder;
-    typeFinder.run(*module, false);
+      *os << "{";
+      unsigned struct_cnt = 0;
+      for (auto type : typeFinder) {
 
-    *f << "{";
-    unsigned struct_cnt = 0;
-    for (auto type : typeFinder) {
+        if (StructType *st = dyn_cast<StructType>(type)) {
 
-      if (StructType *st = dyn_cast<StructType>(type)) {
+          if (st->hasName()) {
+            std::string name = st->getName();
+            if (struct_cnt++ > 0)
+              *os << ",";
 
-        if (st->hasName()) {
-          std::string name = st->getName();
-          if (struct_cnt++ > 0)
-            *f << ",";
+            *os << "\n  \"" << name << "\": {\n    \"size\": ";
 
-          *f << "\n  \"" << name << "\": {\n    \"size\": ";
+            const StructLayout *targetStruct = targetData->getStructLayout(st);
+            uint64_t size = targetStruct->getSizeInBytes();
 
-          const StructLayout *targetStruct = targetData->getStructLayout(st);
-          uint64_t size = targetStruct->getSizeInBytes();
+            *os << size << ",\n    \"types\": [";
+            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+              if (idx > 0) *os << ", ";
+              *os << "\"" << ih->getTypeName(st->getElementType(idx)) << "\"";
+            }
+            *os << "],\n";
 
-          *f << size << ",\n    \"types\": [";
-          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-            if (idx > 0) *f << ", ";
-            *f << "\"" << ih->getTypeName(st->getElementType(idx)) << "\"";
+            *os << "    \"offsets\": [";
+            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+              if (idx > 0) *os << ", ";
+              *os << targetStruct->getElementOffset(idx);
+            }
+            *os << "],\n";
+
+            *os << "    \"sizes\": [";
+            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
+              if (idx > 0) *os << ", ";
+              *os << targetData->getTypeSizeInBits(st->getElementType(idx)) / 8;
+            }
+            *os << "]\n  }";
           }
-          *f << "],\n";
-
-          *f << "    \"offsets\": [";
-          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-            if (idx > 0) *f << ", ";
-            *f << targetStruct->getElementOffset(idx);
-          }
-          *f << "],\n";
-
-          *f << "    \"sizes\": [";
-          for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-            if (idx > 0) *f << ", ";
-            *f << targetData->getTypeSizeInBits(st->getElementType(idx)) / 8;
-          }
-          *f << "]\n  }";
         }
       }
-    }
 
-    *f << "\n}\n";
-    delete f;
+      *os << "\n}\n";
+      delete os;
+    }
   }
 
   if (OutputModule) {
-    llvm::raw_fd_ostream *f = ih->openOutputFile("final.bc");
-    WriteBitcodeToFile(module, *f);
-    delete f;
+    llvm::raw_fd_ostream *os = ih->openOutputFile("final.bc");
+    if (os != nullptr) {
+      WriteBitcodeToFile(module, *os);
+      delete os;
+    }
   }
 
   kleeMergeFn = module->getFunction("klee_merge");

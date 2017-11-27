@@ -20,7 +20,7 @@ namespace klee {
 class ProgInfoFunction : private boost::noncopyable {
 
 public:
-  ProgInfoFunction()  { }
+  ProgInfoFunction() : fnID(0)  { }
 
   bool isConstParam(unsigned index) const    { return constParams.count(index) > 0; }
   void setConstParam(unsigned index)         { constParams.insert(index); }
@@ -28,9 +28,13 @@ public:
   bool isGlobalInput(std::string name) const { return globalInputs.count(name) > 0; }
   void setGlobalInput(std::string name)      { globalInputs.insert(name); }
 
+  unsigned getFnID() const                   { return fnID; }
+  void setFnID(unsigned id)                  { fnID = id; }
+
 private:
   std::set<unsigned> constParams;
   std::set<std::string> globalInputs;
+  unsigned fnID;
 };
 
 
@@ -44,6 +48,9 @@ public:
 
   bool isGlobalInput(std::string fn, std::string name)     { return fnInfo[fn].isGlobalInput(name); }
   void setGlobalInput(std::string fn, std::string name)    { fnInfo[fn].setGlobalInput(name); }
+
+  unsigned getFnID(std::string fn)                         { return fnInfo[fn].getFnID(); }
+  void setFnID(std::string fn, unsigned id)                { fnInfo[fn].setFnID(id); }
 
 private:
   std::map<std::string,ProgInfoFunction> fnInfo;
