@@ -74,6 +74,12 @@ namespace {
            cl::desc("json formated info from static analysis"),
            cl::init(""));
 
+
+  cl::opt<bool>
+  IndentJson("indent-json",
+             cl::desc("indent emitted json for readability"),
+             cl::init(false));
+
   cl::opt<std::string>
   SEMaxTime("se-max-time",
               cl::init(""),
@@ -212,6 +218,7 @@ private:
   unsigned m_testIndex;  // number of tests written so far
   unsigned fnID;
   unsigned casesGenerated;
+  std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
 
   // used for writing .ktest files
@@ -265,6 +272,7 @@ KleeHandler::KleeHandler(int argc, char **argv, unsigned fnID)
     m_testIndex(fnID * 100000),
     fnID(fnID),
     casesGenerated(0),
+    indentation(""),
     m_pathsExplored(0),
     m_argc(argc),
     m_argv(argv) {
@@ -334,6 +342,8 @@ KleeHandler::KleeHandler(int argc, char **argv, unsigned fnID)
 
   // open info
   m_infoFile = openOutputFile(getOutputBasename("info.txt"));
+
+  if (IndentJson) indentation = "  ";
 }
 
 KleeHandler::~KleeHandler() {
@@ -619,7 +629,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         // write the constructed json object to file
         Json::StreamWriterBuilder builder;
         builder["commentStyle"] = "None";
-        builder["indentation"] = "  ";
+        builder["indentation"] = indentation;
         std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
         writer.get()->write(root, kout);
