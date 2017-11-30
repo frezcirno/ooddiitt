@@ -1357,6 +1357,7 @@ int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
   // RLR TODO: debug
+  outs().SetUnbuffered();
   dup2(1, 2);
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
