@@ -44,7 +44,7 @@ public:
   virtual llvm::raw_ostream &getInfoStream() const = 0;
 
   virtual std::string getOutputFilename(const std::string &filename) = 0;
-  virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename) = 0;
+  virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
 
   virtual void incPathsExplored() = 0;
 
@@ -78,7 +78,8 @@ public:
   {
 	  STP, //.CVC (STP's native language)
 	  KQUERY, //.KQUERY files (kQuery native language)
-	  SMTLIB2 //.SMT2 files (SMTLIB version 2 files)
+	  SMTLIB2, //.SMT2 files (SMTLIB version 2 files)
+      SMTVARS  // part of SMT2 containing var declarations
   };
 
   /// InterpreterOptions - Options varying the runtime behavior during

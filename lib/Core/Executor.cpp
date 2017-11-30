@@ -3671,6 +3671,17 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
     res = info.str();
   } break;
 
+  case SMTVARS: {
+    std::string Str;
+    llvm::raw_string_ostream info(Str);
+    ExprSMTLIBPrinter printer;
+    printer.setOutput(info);
+    Query query(state.constraints, ConstantExpr::alloc(0, Expr::Bool));
+    printer.setQuery(query);
+    printer.generateVarOutput();
+    res = info.str();
+  } break;
+
   default:
     klee_warning("Executor::getConstraintLog() : Log format not supported!");
   }

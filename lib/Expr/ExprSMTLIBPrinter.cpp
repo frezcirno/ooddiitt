@@ -537,6 +537,23 @@ void ExprSMTLIBPrinter::generateOutput() {
   printExit();
 }
 
+
+void ExprSMTLIBPrinter::generateVarOutput() {
+  if (p == nullptr || query == nullptr || o == nullptr) {
+    llvm::errs() << "ExprSMTLIBPrinter::generateVarOutput() Can't print SMTLIBv2. "
+        "Output or query bad!\n";
+    return;
+  }
+
+  auto bgn = usedArrays.begin();
+  for (auto itr = usedArrays.begin(), end = usedArrays.end(); itr != end; ++itr) {
+    if (itr != bgn) {
+      *o << ",";
+    }
+    *o <<  (*itr)->name;
+  }
+}
+
 void ExprSMTLIBPrinter::printSetLogic() {
   *o << "(set-logic ";
   switch (logicToUse) {

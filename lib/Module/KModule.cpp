@@ -406,7 +406,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   // around a kcachegrind parsing bug (it puts them on new lines), so
   // that source browsing works.
   if (OutputSource) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll");
+    llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll", true);
     if (os != nullptr) {
         *os << *module;
         delete os;
@@ -414,7 +414,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   }
 
   if (OutputStructs) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json");
+    llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json", true);
     if (os != nullptr) {
 
       llvm::TypeFinder typeFinder;

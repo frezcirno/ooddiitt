@@ -249,7 +249,7 @@ public:
 
   std::ostream *openTestCaseFile();
   llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename) override;
+  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
 
   std::string getTypeName(const Type *Ty) const;
 
@@ -451,14 +451,18 @@ std::string KleeHandler::getOutputFilename(const std::string &filename) {
   return path.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename) {
+llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
   llvm::raw_fd_ostream *f;
   std::string Error;
   std::string path = getOutputPath(filename);
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
   f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
 #else
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_Binary | llvm::sys::fs::F_Excl);
+  llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
+  if (exclusive) {
+    fs_options |= llvm::sys::fs::F_Excl;
+  }
+  f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
 #endif
   if (!Error.empty()) {
     if (!boost::algorithm::ends_with(Error, "File exists")) {
@@ -549,11 +553,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
         // store the path condition
         std::string constraints;
-        m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
-        if (constraints.length() > 64535) {
-          errs() << "long contraint: " << constraints.length() << ", test id=" << m_testIndex << "\n";
-        }
-        root["pathCondition"] = constraints;
+        m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTVARS);
+        root["pathConditionVars"] = constraints;
 
         std::stringstream args;
         for (int index = 0; index < m_argc; ++index) {
