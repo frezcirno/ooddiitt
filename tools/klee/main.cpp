@@ -259,7 +259,7 @@ public:
                        const char *errorSuffix);
 
   std::string getOutputFilename(const std::string &filename);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
+  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false);
   std::string getTestFilename(const std::string &suffix, unsigned id);
   llvm::raw_fd_ostream *openTestFile(const std::string &suffix, unsigned id);
 
@@ -382,7 +382,7 @@ std::string KleeHandler::getOutputFilename(const std::string &filename) {
   return path.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename) {
+llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
   llvm::raw_fd_ostream *f;
   std::string Error;
   std::string path = getOutputFilename(filename);
