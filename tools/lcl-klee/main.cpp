@@ -550,6 +550,9 @@ void KleeHandler::processTestCase(ExecutionState &state,
         // store the path condition
         std::string constraints;
         m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
+        if (constraints.length() > 64535) {
+          errs() << "long contraint: " << constraints.length() << ", test id=" << m_testIndex << "\n";
+        }
         root["pathCondition"] = constraints;
 
         std::stringstream args;
