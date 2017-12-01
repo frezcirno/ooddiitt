@@ -597,6 +597,8 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   germinalState->maxLoopForks = maxLoopForks;
 
   initializeGlobals(*germinalState);
+
+  // RLR TODO: where are globals unconstrained on entry?
   bindModuleConstants();
   return result;
 }
@@ -793,6 +795,7 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   outs() << initialState.name << ":\n";
   outs().flush();
 
+  // RLR TODO: cleanup
   if (initialState.name == "next_state") {
     outs() << "break here\n";
   }
