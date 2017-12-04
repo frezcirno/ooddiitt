@@ -123,6 +123,8 @@ protected:
                          WObjectPair &wop);
 
   void initializeGlobalValues(ExecutionState &state);
+  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn = nullptr, unsigned counter = 0);
+
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;

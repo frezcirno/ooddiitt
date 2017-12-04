@@ -277,6 +277,34 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
   return false;
 }
 
+void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn, unsigned counter) {
+
+  Module *m = kmodule->module;
+  for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
+    MemoryObject *mo = globalObjects.find(v)->second;
+
+    std::string varName = mo->name;
+    if ((!varName.empty()) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
+
+      std::string symName = varName;
+      if (fn != nullptr) {
+        symName = fullName(fn->getName(), counter, varName);
+      }
+
+      const ObjectState *os = state.addressSpace.findObject(mo);
+      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+
+      WObjectPair wop;
+      duplicateSymbolic(state, mo, v, symName, wop);
+
+      for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
+        wos->write(idx, wop.second->read8(idx));
+      }
+    }
+  }
+}
+
 bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
                                                ref<Expr> address,
                                                const Type *type,
@@ -597,8 +625,6 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   germinalState->maxLoopForks = maxLoopForks;
 
   initializeGlobals(*germinalState);
-
-  // RLR TODO: where are globals unconstrained on entry?
   bindModuleConstants();
   return result;
 }
@@ -630,10 +656,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   }
 
   std::string name = f->getName();
-
-// RLR TODO: debug
-//  if (name != "tcp_receive") return;
-
   ExecutionState *state = new ExecutionState(*germinalState, kf, name);
 
   if (pathWriter)
@@ -645,6 +667,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->framePushed(*state, 0);
 
   initializeGlobalValues(*state);
+  unconstrainGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
@@ -794,20 +817,6 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
 
   outs() << initialState.name << ":\n";
   outs().flush();
-
-  // RLR TODO: cleanup
-  if (initialState.name == "next_state") {
-    outs() << "break here\n";
-  }
-
-  // prepare a generic initial state
-//  initializeGlobals(initialState);
-//  unconstrainGlobals(initialState, kf);
-//  bindModuleConstants();
-//  initialState.maxLoopIteration = maxLoopIteration;
-//  initialState.lazyAllocationCount = lazyAllocationCount;
-//  initialState.maxLazyDepth = maxLazyDepth;
-//  initialState.maxLoopForks = maxLoopForks;
 
   unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
   runPaths(kf, initialState, kf->m2m_paths);
@@ -1467,24 +1476,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       // unconstrain global variables
-      Module *m = kmodule->module;
-      for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
-        const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
-        MemoryObject *mo = globalObjects.find(v)->second;
-        std::string varName = mo->name;
-        if ((varName.size() > 0) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
-
-          const ObjectState *os = state.addressSpace.findObject(mo);
-          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-
-          WObjectPair wop;
-          duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
-
-          for (unsigned idx = 0, end = mo->size; idx < end; ++idx) {
-            wos->write(idx, wop.second->read8(idx));
-          }
-        }
-      }
+      unconstrainGlobals(state, fn, counter);
 
       // now get the return type
       Type *ty = fn->getReturnType();
