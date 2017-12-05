@@ -1394,11 +1394,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
-      // RLR TODO: debug
-      if (fnName == "etharp_update_arp_entry") {
-        outs() << "break here\n";
-      }
-
       // if this is a call to mark(), then log the marker to state
       if (((fnName == "MARK") || (fnName == "mark")) &&
           (fn->arg_size() == 2) &&
@@ -1472,7 +1467,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             ObjectState *newOS = wop.second;
             for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
-              argOS->write(offset + idx, newOS->read8(idx));
+              argOS->write8(offset + idx, newOS->read8(idx));
             }
           } else {
 //            assert(false && "failed to resolve a parameter");
@@ -1699,9 +1694,6 @@ const Cell& LocalExecutor::eval(KInstruction *ki, unsigned index, ExecutionState
 
 
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
-
-  // RLR TODO: DEBUG
-  std::string typeName = interpreterHandler->getTypeName(type);
 
   unsigned counter = 0;
 

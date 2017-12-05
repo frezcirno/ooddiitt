@@ -234,6 +234,10 @@ public:
   void write32(unsigned offset, uint32_t value);
   void write64(unsigned offset, uint64_t value);
 
+  ref<Expr> read8(ref<Expr> offset) const;
+  void write8(unsigned offset, ref<Expr> value);
+  void write8(ref<Expr> offset, ref<Expr> value);
+
 private:
   const UpdateList &getUpdates() const;
 
@@ -241,9 +245,6 @@ private:
 
   void makeSymbolic();
 
-  ref<Expr> read8(ref<Expr> offset) const;
-  void write8(unsigned offset, ref<Expr> value);
-  void write8(ref<Expr> offset, ref<Expr> value);
 
   void fastRangeCheckOffset(ref<Expr> offset, unsigned *base_r, 
                             unsigned *size_r) const;
