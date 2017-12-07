@@ -123,7 +123,7 @@ protected:
                          WObjectPair &wop);
 
   void initializeGlobalValues(ExecutionState &state);
-  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn = nullptr, unsigned counter = 0);
+  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn, unsigned counter);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);

@@ -287,16 +287,11 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn, unsi
     std::string varName = mo->name;
     if ((!varName.empty()) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
 
-      std::string symName = varName;
-      if (fn != nullptr) {
-        symName = fullName(fn->getName(), counter, varName);
-      }
-
       const ObjectState *os = state.addressSpace.findObject(mo);
       ObjectState *wos = state.addressSpace.getWriteable(mo, os);
 
       WObjectPair wop;
-      duplicateSymbolic(state, mo, v, symName, wop);
+      duplicateSymbolic(state, mo, v, fullName(fn->getName(), counter, varName), wop);
 
       for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
         wos->write(idx, wop.second->read8(idx));
@@ -507,8 +502,12 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   // or if that fails try adding a unique identifier.
   unsigned id = 0;
   std::string uniqueName = mo->name;
+  std::string objName = uniqueName;
   while (!state.arrayNames.insert(uniqueName).second) {
     uniqueName = mo->name + "_" + llvm::utostr(++id);
+    if (!objName.empty()) {
+      errs() << "duplicate obj names: " << objName << ", " << uniqueName << "\n";
+    }
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
 
@@ -667,7 +666,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     statsTracker->framePushed(*state, 0);
 
   initializeGlobalValues(*state);
-  unconstrainGlobals(*state);
 
   // create parameter values
   unsigned index = 0;
