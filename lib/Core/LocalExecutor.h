@@ -124,6 +124,7 @@ protected:
 
   void initializeGlobalValues(ExecutionState &state);
   void unconstrainGlobals(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  bool isUsherType(const llvm::Type *type) const;
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);

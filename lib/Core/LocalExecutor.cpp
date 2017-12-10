@@ -678,11 +678,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
 
     // do not unconstrain ushers
     ref<Expr> e;
-    StructType *st;
-    if ((argType->isPointerTy()) &&
-        (st = dyn_cast<StructType>(argType->getPointerElementType())) &&
-        (st->getName().str() == "struct.usher_t")) {
-
+    if (isUsherType(argType)) {
       e = Expr::createPointer(0);
     } else {
 
@@ -1269,6 +1265,19 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
   Executor::transferToBasicBlock(dst, src, state);
 }
 
+bool LocalExecutor::isUsherType(const llvm::Type *type) const {
+
+  if (type->isPointerTy()) {
+    Type *sub_type = type->getPointerElementType();
+    if (sub_type->isStructTy()) {
+      if (sub_type->getStructName() == "struct._usher_t") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) {
 
   // iterate over the entry block and execute allocas
@@ -1284,11 +1293,14 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
       ++pc;
       cur = ki->inst;
       if (const AllocaInst *ai = dyn_cast<AllocaInst>(cur)) {
-        unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
+        Type *alloc_type = ai->getAllocatedType();
+        unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(alloc_type);
         if (ai->isArrayAllocation()) {
           assert("resolve array allocation");
         }
-        executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, true);
+
+        bool to_symbolic = !(isUsherType(alloc_type) || ki->inst->getName().empty());
+        executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
 
       } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
 
@@ -1429,9 +1441,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             !progInfo->isConstParam(fnName, index)) {
 
           // do not unconstrain ushers
-          StructType *st;
-          if ((st = dyn_cast<StructType>(argType->getPointerElementType())) &&
-              (st->getName().str() == "struct.usher_t")) {
+          if (isUsherType(argType)) {
             continue;
           }
 
