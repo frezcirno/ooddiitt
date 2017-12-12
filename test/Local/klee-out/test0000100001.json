@@ -1,0 +1,173 @@
+{
+  "addressSpace": [
+    {
+      "addr": "28E7DA01",
+      "count": 1,
+      "id": 9,
+      "kind": "global",
+      "name": ".str2",
+      "size": 8,
+      "type": "[8 x i8]"
+    },
+    {
+      "addr": "38E7DA01",
+      "count": 1,
+      "id": 10,
+      "kind": "global",
+      "name": ".str3",
+      "size": 8,
+      "type": "[8 x i8]"
+    },
+    {
+      "addr": "48E7DA01",
+      "count": 1,
+      "id": 15,
+      "kind": "global",
+      "name": ".str28",
+      "size": 5,
+      "type": "[5 x i8]"
+    },
+    {
+      "addr": "90E7DA01",
+      "count": 1,
+      "id": 16,
+      "kind": "alloca",
+      "name": "result_e97a08b91f",
+      "size": 4,
+      "type": "i32"
+    },
+    {
+      "addr": "D022DC01",
+      "count": 1,
+      "id": 8,
+      "kind": "global",
+      "name": ".str1",
+      "size": 15,
+      "type": "[15 x i8]"
+    },
+    {
+      "addr": "8025DC01",
+      "count": 1,
+      "id": 11,
+      "kind": "global",
+      "name": ".str14",
+      "size": 16,
+      "type": "[16 x i8]"
+    },
+    {
+      "addr": "A025DC01",
+      "count": 1,
+      "id": 12,
+      "kind": "global",
+      "name": ".str25",
+      "size": 14,
+      "type": "[14 x i8]"
+    },
+    {
+      "addr": "C025DC01",
+      "count": 1,
+      "id": 14,
+      "kind": "global",
+      "name": ".str17",
+      "size": 14,
+      "type": "[14 x i8]"
+    },
+    {
+      "addr": "107DEA01",
+      "count": 1,
+      "id": 13,
+      "kind": "global",
+      "name": ".str6",
+      "size": 80,
+      "type": "[80 x i8]"
+    },
+    {
+      "addr": "20FFEA01",
+      "count": 1,
+      "id": 7,
+      "kind": "global",
+      "name": ".str",
+      "size": 89,
+      "type": "[89 x i8]"
+    },
+    {
+      "addr": "8037BFF0",
+      "count": 0,
+      "id": 3,
+      "kind": "fixed",
+      "name": "",
+      "size": 1536,
+      "type": ""
+    },
+    {
+      "addr": "803DBFF0",
+      "count": 0,
+      "id": 5,
+      "kind": "fixed",
+      "name": "",
+      "size": 1536,
+      "type": ""
+    },
+    {
+      "addr": "8047BFF0",
+      "count": 0,
+      "id": 1,
+      "kind": "fixed",
+      "name": "",
+      "size": 768,
+      "type": ""
+    },
+    {
+      "addr": "A04B56F4",
+      "count": 0,
+      "id": 0,
+      "kind": "fixed",
+      "name": "",
+      "size": 4,
+      "type": ""
+    },
+    {
+      "addr": "A84B56F4",
+      "count": 0,
+      "id": 4,
+      "kind": "fixed",
+      "name": "",
+      "size": 8,
+      "type": ""
+    },
+    {
+      "addr": "B04B56F4",
+      "count": 0,
+      "id": 6,
+      "kind": "fixed",
+      "name": "",
+      "size": 8,
+      "type": ""
+    },
+    {
+      "addr": "B84B56F4",
+      "count": 0,
+      "id": 2,
+      "kind": "fixed",
+      "name": "",
+      "size": 8,
+      "type": ""
+    }
+  ],
+  "argC": 1,
+  "argV": "'test-main.bc'",
+  "endingMarker": 0,
+  "entryFn": "bar",
+  "lazyAllocationCount": 8,
+  "markerPath": [
+    1002,
+    1001
+  ],
+  "maxLazyDepth": 2,
+  "maxLoopForks": 16,
+  "maxLoopIteration": 1,
+  "objects": [],
+  "pathConditionVars": "",
+  "startingMarker": 0,
+  "testID": 100001
+}

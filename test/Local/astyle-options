@@ -1,0 +1,9 @@
+style=google
+indent=spaces=2
+align-pointer=name
+align-reference=name
+add-brackets
+convert-tabs
+pad-oper
+pad-header
+suffix=none

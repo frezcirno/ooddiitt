@@ -1,0 +1,16 @@
+<< 00001-stderr.txt >>
+KLEE: output directory is "/home/rrutledge/projects/arktos/klee/opt-klee/test/Local/klee-out"
+KLEE: Using STP solver backend
+
+KLEE: done: total instructions = 6
+KLEE: done: completed paths = 1
+KLEE: done: generated tests = 1
+
+<< 00002-stderr.txt >>
+KLEE: output directory is "/home/rrutledge/projects/arktos/klee/opt-klee/test/Local/klee-out"
+KLEE: Using STP solver backend
+
+KLEE: done: total instructions = 180054
+KLEE: done: completed paths = 10008
+KLEE: done: generated tests = 4
+

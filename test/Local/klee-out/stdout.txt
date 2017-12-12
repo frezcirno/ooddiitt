@@ -1,0 +1,14 @@
+<< 00001-stdout.txt >>
+analyzing functions ... done
+bar:
+  Starting from: entry
+    1 of 1 m2m paths covered
+
+<< 00002-stdout.txt >>
+analyzing functions ... done
+foo:
+  Starting from: entry
+terminated 10001 states in loop: 6
+  Starting from: 6
+    5 of 5 m2m paths covered
+
