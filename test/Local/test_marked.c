@@ -1,10 +1,11 @@
+
 #include "mark.h"
 
 int bar() {
   {
     MARK(1, 2);
-    int result_e97a08b91f = 0;
-    return (MARK(1, 1), (result_e97a08b91f));
+    int result_82dcf109c9 = 0;
+    return (MARK(1, 1), (result_82dcf109c9));
   };
 }
 

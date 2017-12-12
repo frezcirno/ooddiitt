@@ -819,7 +819,7 @@ void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
   // one of the unreachable m2m blocks
   for (auto state : m2m_pathsTerminatedStates) {
     if (coversUnreachablePath(state, true)) {
-      state->endingMarker = state->markers.back();
+      state->endingMarker = (state->markers.back()) % 1000;
       interpreterHandler->processTestCase(*state);
       removeCoveredPaths(m2m_pathsUnreachable, state);
     }
@@ -1399,7 +1399,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if this is a special function, let
       // the standard executor handle it
-      if (specialFunctionHandler->isSpecial(fn)) {
+      if (specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }

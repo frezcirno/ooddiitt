@@ -1,8 +1,8 @@
 
 int bar() {
   {
-    int result_e97a08b91f = 0;
-    return (result_e97a08b91f);
+    int result_82dcf109c9 = 0;
+    return (result_82dcf109c9);
   };
 }
 
