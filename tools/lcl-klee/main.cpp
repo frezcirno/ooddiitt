@@ -216,7 +216,6 @@ private:
   SmallString<128> m_outputDirectory;
 
   unsigned m_testIndex;  // number of tests written so far
-  unsigned fnID;
   unsigned casesGenerated;
   std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
@@ -226,7 +225,7 @@ private:
   char **m_argv;
 
 public:
-  KleeHandler(int argc, char **argv, unsigned fnID);
+  KleeHandler(int argc, char **argv);
   ~KleeHandler();
 
   llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
@@ -263,14 +262,13 @@ public:
   static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
-KleeHandler::KleeHandler(int argc, char **argv, unsigned fnID)
+KleeHandler::KleeHandler(int argc, char **argv)
   : m_interpreter(0),
     m_pathWriter(0),
     m_symPathWriter(0),
     m_infoFile(0),
     m_outputDirectory(),
-    m_testIndex(fnID * 100000),
-    fnID(fnID),
+    m_testIndex(0),
     casesGenerated(0),
     indentation(""),
     m_pathsExplored(0),
@@ -435,9 +433,8 @@ std::string KleeHandler::getOutputPath(const std::string &filename) {
 
 std::string KleeHandler::getOutputBasename(const std::string &filename) {
 
-  if (fnID == 0) {
-    return filename;
-  }
+  // RLR TODO: complete this
+  unsigned fnID = 0;
 
   std::stringstream name;
   name << std::setfill('0') << std::setw(5) << fnID << "-" << filename;
@@ -1628,15 +1625,10 @@ int main(int argc, char **argv, char **envp) {
 
   // if this is a single function execution, then
   // append fnID to all output.
-  unsigned fnID = 0;
-  std::string single_function = SingleFunction;
-  if (!single_function.empty()) {
-    fnID = progInfo.getFnID(single_function);
-  }
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
-  KleeHandler *handler = new KleeHandler(pArgc, pArgv, fnID);
+  KleeHandler *handler = new KleeHandler(pArgc, pArgv);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
   handler->setInterpreter(theInterpreter);
@@ -1665,6 +1657,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // run each function unconstrained
+  std::string single_function = SingleFunction;
   if (single_function.empty()) {
     for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
       Function *fn = *itr;
