@@ -1,0 +1,34 @@
+{
+  "functions": {
+    "foo": {
+      "callTargets": ["MARK", "mark"],
+      "entry": 4,
+      "exit": [1],
+      "fnID": 1,
+      "globalRefs": [],
+      "isVariadic": false,
+      "localVars": [],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "ternary_marked.c",
+        "lineBegin": 4,
+        "lineEnd": 11
+      },
+      "marks": [1, 4, 2, 3],
+      "params": [
+        {
+          "isInput": true,
+          "isOutput": false,
+          "name": "index",
+          "type": { "isConst": false, "text": "int", "typeClass": "Builtin" }
+        }
+      ],
+      "type": { "isConst": false, "text": "int", "typeClass": "Builtin" },
+      "m2m_paths": [[1004, 1002, 1001], [1004, 1003, 1001]],
+      "backedges": [],
+      "guideVectors": { "1": [], "2": [], "3": [], "4": [] }
+    }
+  },
+  "globals": {}
+}
