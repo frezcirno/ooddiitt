@@ -215,8 +215,10 @@ private:
 
   SmallString<128> m_outputDirectory;
 
-  unsigned m_testIndex;  // number of tests written so far
+  std::map<unsigned, unsigned> mapNextIDs;
   unsigned casesGenerated;
+  unsigned outputPrefix;
+  ProgInfo &progInfo;
   std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
 
@@ -225,7 +227,7 @@ private:
   char **m_argv;
 
 public:
-  KleeHandler(int argc, char **argv);
+  KleeHandler(int argc, char **argv, unsigned op, ProgInfo &pi);
   ~KleeHandler();
 
   llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
@@ -246,7 +248,7 @@ public:
   std::string getOutputPath(const std::string &filename);
   std::string getTestFilename(const std::string &ext, unsigned id);
 
-  std::ostream *openTestCaseFile();
+  std::ostream *openTestCaseFile(unsigned testID);
   llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
 
@@ -262,14 +264,15 @@ public:
   static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
-KleeHandler::KleeHandler(int argc, char **argv)
+KleeHandler::KleeHandler(int argc, char **argv, unsigned op, ProgInfo &pi)
   : m_interpreter(0),
     m_pathWriter(0),
     m_symPathWriter(0),
     m_infoFile(0),
     m_outputDirectory(),
-    m_testIndex(0),
     casesGenerated(0),
+    outputPrefix(op),
+    progInfo(pi),
     indentation(""),
     m_pathsExplored(0),
     m_argc(argc),
@@ -433,11 +436,12 @@ std::string KleeHandler::getOutputPath(const std::string &filename) {
 
 std::string KleeHandler::getOutputBasename(const std::string &filename) {
 
-  // RLR TODO: complete this
-  unsigned fnID = 0;
+  if (outputPrefix == 0) {
+    return filename;
+  }
 
   std::stringstream name;
-  name << std::setfill('0') << std::setw(5) << fnID << "-" << filename;
+  name << std::setfill('0') << std::setw(5) << outputPrefix << "-" << filename;
   return name.str();
 }
 
@@ -485,11 +489,11 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
   return openOutputFile(getTestFilename(ext, id));
 }
 
-std::ostream *KleeHandler::openTestCaseFile() {
+std::ostream *KleeHandler::openTestCaseFile(unsigned testID) {
 
   int fd = -1;
   while (fd < 0) {
-    std::string filename = getOutputPath(getTestFilename("json", ++m_testIndex));
+    std::string filename = getOutputPath(getTestFilename("json", testID));
     fd = open(filename.c_str(),
               O_CREAT | O_EXCL | O_WRONLY,
               S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
@@ -523,6 +527,12 @@ void KleeHandler::processTestCase(ExecutionState &state,
   }
 
   if (!NoOutput && m_interpreter->generateTestCase(state)) {
+
+    // select the next test id for this function
+    unsigned fnID = progInfo.getFnID(state.name);
+    unsigned &nextID = mapNextIDs[fnID];
+    unsigned testID = (++nextID % 100000) + (fnID * 100000);
+
     std::vector<SymbolicSolution> out;
     bool success = m_interpreter->getSymbolicSolution(state, out);
 
@@ -533,13 +543,13 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     if (success) {
 
-      std::ostream *kout = openTestCaseFile();
+      std::ostream *kout = openTestCaseFile(testID);
       if (kout != nullptr) {
 
         // construct the json object representing the test case
         Json::Value root = Json::objectValue;
         root["entryFn"] = state.name;
-        root["testID"] = m_testIndex;
+        root["testID"] = testID;
         root["argC"] = m_argc;
         root["lazyAllocationCount"] = state.lazyAllocationCount;
         root["maxLoopIteration"] = state.maxLoopIteration;
@@ -648,7 +658,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     }
 
     if (errorMessage) {
-      llvm::raw_ostream *f = openTestFile(errorSuffix, m_testIndex);
+      llvm::raw_ostream *f = openTestFile(errorSuffix, testID);
       *f << errorMessage;
       delete f;
     }
@@ -657,7 +667,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::vector<unsigned char> concreteBranches;
       m_pathWriter->readStream(m_interpreter->getPathStreamID(state),
                                concreteBranches);
-      llvm::raw_fd_ostream *f = openTestFile("path", m_testIndex);
+      llvm::raw_fd_ostream *f = openTestFile("path", testID);
       for (std::vector<unsigned char>::iterator I = concreteBranches.begin(),
                                                 E = concreteBranches.end();
            I != E; ++I) {
@@ -669,7 +679,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if (errorMessage || WriteKQueries) {
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints,Interpreter::KQUERY);
-      llvm::raw_ostream *f = openTestFile("kquery", m_testIndex);
+      llvm::raw_ostream *f = openTestFile("kquery", testID);
       *f << constraints;
       delete f;
     }
@@ -679,7 +689,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       // SMT-LIBv2 not CVC which is a bit confusing
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints, Interpreter::STP);
-      llvm::raw_ostream *f = openTestFile("cvc", m_testIndex);
+      llvm::raw_ostream *f = openTestFile("cvc", testID);
       *f << constraints;
       delete f;
     }
@@ -687,7 +697,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if(WriteSMT2s) {
       std::string constraints;
         m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
-        llvm::raw_ostream *f = openTestFile("smt2", m_testIndex);
+        llvm::raw_ostream *f = openTestFile("smt2", testID);
         *f << constraints;
         delete f;
     }
@@ -696,7 +706,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::vector<unsigned char> symbolicBranches;
       m_symPathWriter->readStream(m_interpreter->getSymbolicPathStreamID(state),
                                   symbolicBranches);
-      llvm::raw_fd_ostream *f = openTestFile("sym.path", m_testIndex);
+      llvm::raw_fd_ostream *f = openTestFile("sym.path", testID);
       for (std::vector<unsigned char>::iterator I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
         *f << *I << "\n";
       }
@@ -706,7 +716,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if (WriteCov) {
       std::map<const std::string*, std::set<unsigned> > cov;
       m_interpreter->getCoveredLines(state, cov);
-      llvm::raw_ostream *f = openTestFile("cov", m_testIndex);
+      llvm::raw_ostream *f = openTestFile("cov", testID);
       for (std::map<const std::string*, std::set<unsigned> >::iterator
              it = cov.begin(), ie = cov.end();
            it != ie; ++it) {
@@ -720,7 +730,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     if (WriteTestInfo) {
       double elapsed_time = util::getWallTime() - start_time;
-      llvm::raw_ostream *f = openTestFile("info", m_testIndex);
+      llvm::raw_ostream *f = openTestFile("info", testID);
       *f << "Time to generate test case: "
          << elapsed_time << "s\n";
       delete f;
@@ -1625,10 +1635,15 @@ int main(int argc, char **argv, char **envp) {
 
   // if this is a single function execution, then
   // append fnID to all output.
+  unsigned prefix = 0;
+  std::string single_function = SingleFunction;
+  if (!single_function.empty()) {
+    prefix = progInfo.getFnID(single_function);
+  }
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
-  KleeHandler *handler = new KleeHandler(pArgc, pArgv);
+  KleeHandler *handler = new KleeHandler(pArgc, pArgv, prefix, progInfo);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
   handler->setInterpreter(theInterpreter);
@@ -1657,7 +1672,6 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // run each function unconstrained
-  std::string single_function = SingleFunction;
   if (single_function.empty()) {
     for (auto itr = fnInModule.begin(), end = fnInModule.end(); itr != end; ++itr) {
       Function *fn = *itr;
