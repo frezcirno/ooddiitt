@@ -1073,26 +1073,31 @@ void LocalExecutor::checkMemoryUsage(KFunction *kf) {
       const BasicBlock *hdr = pair.first;
       unsigned num = numStatesInLoop(hdr);
       if (num > maxStatesInLoop) {
-        termStatesInLoop(hdr);
-        outs() << "terminated " << num << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
+        unsigned killed = decimateStatesInLoop(hdr, 99);
+        outs() << "terminated " << killed << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
       }
     }
   }
 }
 
-void LocalExecutor::termStatesInLoop(const BasicBlock *hdr) {
+unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned skip_counter) {
 
+  unsigned counter = 0;
+  unsigned killed = 0;
+  skip_counter++;
   for (ExecutionState *state : states) {
     if (!state->stack.empty()) {
       const StackFrame &sf = state->stack.back();
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
-        if (lf.hdr == hdr) {
+        if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
           terminateState(*state);
+          killed++;
         }
       }
     }
   }
+  return killed;
 }
 
 

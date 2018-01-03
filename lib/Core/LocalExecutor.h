@@ -138,7 +138,7 @@ protected:
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
   virtual void checkMemoryUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
-  void termStatesInLoop(const llvm::BasicBlock *hdr);
+  unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
   bool coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const;
   bool coversRemainingPath(const ExecutionState *state, bool extends) const {
