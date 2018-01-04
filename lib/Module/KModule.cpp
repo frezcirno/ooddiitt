@@ -230,21 +230,34 @@ static void forceImport(Module *m, const char *name, LLVM_TYPE_Q Type *retType,
 #endif
 
 
-void KModule::addInternalFunction(std::string functionName){
+void KModule::addInternalFunction(std::string functionName) {
   Function* internalFunction = module->getFunction(functionName);
   if (!internalFunction) {
     KLEE_DEBUG(klee_warning(
         "Failed to add internal function %s. Not found.", functionName));
     return ;
   }
-  KLEE_DEBUG(klee_message("Added function %s.",functionName));
-  internalFunctions.insert(internalFunction);
+  addInternalFunction(internalFunction);
+}
+
+void KModule::addInternalFunction(Function *fn) {
+  KLEE_DEBUG(klee_message("Added function %s.", fn->getName().str()));
+  internalFunctions.insert(fn);
 }
 
 void KModule::prepare(const Interpreter::ModuleOptions &opts,
                       InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
+
+  // gather a list of original module functions
+  std::set<const Function *> orig_functions;
+  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+    Function *fn = itr;
+    if (!fn->isDeclaration()) {
+      orig_functions.insert(fn);
+    }
+  }
 
   if (!MergeAtExit.empty()) {
     Function *mergeFn = module->getFunction("klee_merge");
@@ -362,14 +375,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   llvm::sys::path::append(LibPath,intrinsicLib);
   module = linkWithLibrary(module, LibPath.str());
 
-  // Add internal functions which are not used to check if instructions
-  // have been already visited
-  if (opts.CheckDivZero)
-    addInternalFunction("klee_div_zero_check");
-  if (opts.CheckOvershift)
-    addInternalFunction("klee_overshift_check");
-
-
   // Needs to happen after linking (since ctors/dtors can be modified)
   // and optimization (since global optimization can rewrite lists).
   injectStaticConstructorsAndDestructors(module);
@@ -485,8 +490,12 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
       continue;
 
     Function *fn = static_cast<Function *>(it);
+    if (orig_functions.count(fn) == 0) {
+      addInternalFunction(fn);
+    }
+
     KFunction *kf = new KFunction(fn, this);
-    
+
     for (unsigned i=0; i<kf->numInstructions; ++i) {
       KInstruction *ki = kf->instructions[i];
       ki->info = &infos->getInfo(ki->inst);

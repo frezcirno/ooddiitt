@@ -175,15 +175,13 @@ namespace klee {
 
     // Mark function with functionName as part of the KLEE runtime
     void addInternalFunction(std::string functionName);
+    void addInternalFunction(llvm::Function *fn);
     bool isInternalFunction(const llvm::Function *fn)
       { return internalFunctions.find(fn) != internalFunctions.end(); }
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
   private:
-
-    // Functions which should not be called symbolically
-    std::set<const llvm::Function*> concreteFunctions;
 
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;

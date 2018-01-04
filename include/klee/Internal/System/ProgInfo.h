@@ -28,12 +28,16 @@ public:
   bool isGlobalInput(std::string name) const { return globalInputs.count(name) > 0; }
   void setGlobalInput(std::string name)      { globalInputs.insert(name); }
 
+  bool isReachableOutput(std::string name) const  { return reachableOutputs.count(name) > 0; }
+  void setReachableOutput(std::string name)       { reachableOutputs.insert(name); }
+
   unsigned getFnID() const                   { return fnID; }
   void setFnID(unsigned id)                  { fnID = id; }
 
 private:
   std::set<unsigned> constParams;
   std::set<std::string> globalInputs;
+  std::set<std::string> reachableOutputs;
   unsigned fnID;
 };
 
@@ -48,6 +52,9 @@ public:
 
   bool isGlobalInput(std::string fn, std::string name)     { return fnInfo[fn].isGlobalInput(name); }
   void setGlobalInput(std::string fn, std::string name)    { fnInfo[fn].setGlobalInput(name); }
+
+  bool isReachableOutput(std::string fn, std::string name)  { return fnInfo[fn].isReachableOutput(name); }
+  void setReachableOutput(std::string fn, std::string name)  { fnInfo[fn].setReachableOutput(name); }
 
   unsigned getFnID(std::string fn)                         { return fnInfo[fn].getFnID(); }
   void setFnID(std::string fn, unsigned id)                { fnInfo[fn].setFnID(id); }

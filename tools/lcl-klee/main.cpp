@@ -1361,6 +1361,16 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
         }
       }
     }
+
+    // find the reachable output variables
+    Json::Value &reaching = fnRoot["reachingGlobalRefs"];
+    if (reaching.isArray()) {
+      for (unsigned index = 0, end = reaching.size(); index < end; ++index) {
+        Json::Value &name = reaching[index];
+        progInfo.setReachableOutput(fn, name.asString());
+      }
+    }
+
   }
 }
 

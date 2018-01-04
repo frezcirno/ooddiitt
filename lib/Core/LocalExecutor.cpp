@@ -285,13 +285,17 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn, unsi
     MemoryObject *mo = globalObjects.find(v)->second;
 
     std::string varName = mo->name;
-    if ((!varName.empty()) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
+    std::string fnName = fn->getName().str();
+    if ((!varName.empty()) &&
+        (varName.at(0) != '.') &&
+        progInfo->isGlobalInput(state.name, varName) &&
+        progInfo->isReachableOutput(fnName, varName)) {
 
       const ObjectState *os = state.addressSpace.findObject(mo);
       ObjectState *wos = state.addressSpace.getWriteable(mo, os);
 
       WObjectPair wop;
-      duplicateSymbolic(state, mo, v, fullName(fn->getName(), counter, varName), wop);
+      duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
 
       for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
         wos->write(idx, wop.second->read8(idx));
@@ -885,27 +889,36 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
   while (!m2m_pathsRemaining.empty() && !haltExecution) {
 
-    // select starting bb at head of a remaining path
-    // closest to fn entry
-    std::set<const BasicBlock*> heads;
-    for (const m2m_path_t &path : m2m_pathsRemaining) {
-      heads.insert(kf->mapBBlocks[path.front() % 1000]);
-    }
-
-    unsigned closest = UINT_MAX;
     const BasicBlock *startBB = nullptr;
-    for (const BasicBlock* bb : heads) {
-      unsigned distance = kf->getBBIndex(bb);
-      if (distance < closest) {
-        startBB = bb;
-        closest = distance;
+
+    // if we haven't started before, then start with the entry block
+    if (priorStartingBBs.empty()) {
+
+      startBB = &kf->function->getEntryBlock();
+
+    } else {
+
+      // select starting bb at head of a remaining path
+      // closest to fn entry
+      std::set<const BasicBlock *> heads;
+      for (const m2m_path_t &path : m2m_pathsRemaining) {
+        heads.insert(kf->mapBBlocks[path.front() % 1000]);
+      }
+
+      unsigned closest = UINT_MAX;
+      for (const BasicBlock *bb : heads) {
+        unsigned distance = kf->getBBIndex(bb);
+        if (distance < closest) {
+          startBB = bb;
+          closest = distance;
+        }
       }
     }
 
     const BasicBlock *adj_startBB = startBB;
-      // already started from this BB once before
+    // already started from this BB once before
 
-    std::deque<const BasicBlock*> worklist;
+    std::deque<const BasicBlock *> worklist;
     while (adj_startBB != nullptr && (priorStartingBBs.count(adj_startBB) > 0)) {
 
       BasicBlocks preds;
