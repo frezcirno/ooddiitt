@@ -1597,6 +1597,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::GetElementPtr: {
       KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
       ref<Expr> base = eval(ki, 0, state).value;
+      ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
 
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
@@ -1613,15 +1614,25 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           uint64_t elementSize = it->second;
           ref<Expr> index = eval(ki, it->first, state).value;
 
-          base = AddExpr::create(base,
-                                 MulExpr::create(Expr::createSExtToPointerWidth(index),
+          offset = AddExpr::create(offset,
+                                   MulExpr::create(Expr::createSExtToPointerWidth(index),
                                                  Expr::createPointer(elementSize)));
         }
-        if (kgepi->offset)
-          base = AddExpr::create(base,
-                                 Expr::createPointer(kgepi->offset));
+        if (kgepi->offset) {
+          offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
+        }
 
+        if (AssumeInboundPointers) {
+          bool answer;
+          ref<Expr> mc = UgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
+          if (solver->mustBeTrue(state, mc, answer) && !answer) {
+            state.addConstraint(mc);
+          }
+        }
+
+        base = AddExpr::create(base, offset);
         solver->setTimeout(coreSolverTimeout);
+
         ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
 
         if (AssumeInboundPointers) {
@@ -1630,7 +1641,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             state.pc = state.prevPC;
             terminateState(state);
           } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
-            addConstraint(state, mc);
+            state.addConstraint(mc);
           }
         } else {
           klee_error("non-optimistic not supported at this time");
