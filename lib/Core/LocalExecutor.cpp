@@ -1625,12 +1625,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
 
         if (AssumeInboundPointers) {
-          bool inBounds;
-          if (!(solver->mayBeTrue(state, mc, inBounds) && inBounds)) {
-            solver->setTimeout(0);
+          bool answer;
+          if (solver->mustBeFalse(state, mc, answer) && answer) {
             state.pc = state.prevPC;
             terminateState(state);
-          } else {
+          } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
             addConstraint(state, mc);
           }
         } else {

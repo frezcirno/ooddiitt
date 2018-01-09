@@ -1,8 +1,8 @@
 {
   "functions": {
-    "foo": {
-      "callTargets": ["MARK", "mark"],
-      "entry": 4,
+    "bar": {
+      "callTargets": ["MARK"],
+      "entry": 2,
       "exit": [1],
       "fnID": 1,
       "globalRefs": [],
@@ -13,9 +13,54 @@
         "colEnd": 1,
         "file": "ternary_marked.c",
         "lineBegin": 4,
-        "lineEnd": 11
+        "lineEnd": 6
       },
-      "marks": [1, 4, 2, 3],
+      "marks": [1, 2],
+      "params": [],
+      "type": { "isConst": false, "text": "int", "typeClass": "Builtin" },
+      "m2m_paths": [[1002, 1001]],
+      "backedges": [],
+      "guideVectors": { "2": [], "1": [] }
+    },
+    "foo": {
+      "callTargets": ["MARK", "bar", "mark"],
+      "entry": 10,
+      "exit": [1],
+      "fnID": 2,
+      "globalRefs": [],
+      "isVariadic": false,
+      "localVars": [
+        {
+          "name": "result",
+          "type": { "isConst": false, "text": "int", "typeClass": "Builtin" }
+        },
+        {
+          "name": "special",
+          "type": {
+            "isConst": false,
+            "number": 0,
+            "text": "int *",
+            "type": { "text": "int", "typeClass": "Builtin" },
+            "typeClass": "Pointer"
+          }
+        },
+        {
+          "name": "ignored",
+          "type": { "isConst": false, "text": "int", "typeClass": "Builtin" }
+        },
+        {
+          "name": "counter",
+          "type": { "isConst": false, "text": "int", "typeClass": "Builtin" }
+        }
+      ],
+      "location": {
+        "colBegin": 1,
+        "colEnd": 1,
+        "file": "ternary_marked.c",
+        "lineBegin": 8,
+        "lineEnd": 25
+      },
+      "marks": [1, 10, 2, 3, 4, 5, 6, 7, 8, 9],
       "params": [
         {
           "isInput": true,
@@ -25,9 +70,27 @@
         }
       ],
       "type": { "isConst": false, "text": "int", "typeClass": "Builtin" },
-      "m2m_paths": [[1004, 1002, 1001], [1004, 1003, 1001]],
-      "backedges": [],
-      "guideVectors": { "1": [], "2": [], "3": [], "4": [] }
+      "m2m_paths": [
+        [2008, 2007, 2005, 2009],
+        [2008, 2006, 2005, 2009],
+        [2009, 2008],
+        [2009, 2004, 2002, 2001],
+        [2009, 2004, 2003, 2001],
+        [2010, 2009]
+      ],
+      "backedges": [["5", "9"]],
+      "guideVectors": {
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": [],
+        "5": [],
+        "6": [],
+        "7": [],
+        "8": [],
+        "9": [],
+        "10": []
+      }
     }
   },
   "globals": {}
