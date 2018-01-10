@@ -1624,7 +1624,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         if (AssumeInboundPointers) {
           bool answer;
-          ref<Expr> mc = UgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
+          ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
           if (solver->mustBeTrue(state, mc, answer) && !answer) {
             state.addConstraint(mc);
           }
