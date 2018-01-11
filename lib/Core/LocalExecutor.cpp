@@ -1325,11 +1325,12 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         // the first numArg store operations setup the arguments
         if (numArgs > 0) {
           const Value *v = si->getValueOperand();
-          assert(v->hasName());
-          ref<Expr> base = eval(ki, 1, state).value;
-          ref<Expr> value = eval(ki, 0, state).value;
-          executeWriteMemoryOperation(state, base, value, v->getName());
-          --numArgs;
+          if (v->hasName()) {
+            ref<Expr> base = eval(ki, 1, state).value;
+            ref<Expr> value = eval(ki, 0, state).value;
+            executeWriteMemoryOperation(state, base, value, v->getName());
+            --numArgs;
+          }
         }
       }
     }
