@@ -1622,31 +1622,34 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
         }
 
-        if (AssumeInboundPointers) {
-          bool answer;
-          ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
-          if (solver->mustBeTrue(state, mc, answer) && !answer) {
-            state.addConstraint(mc);
-          }
-        }
-
         base = AddExpr::create(base, offset);
-        solver->setTimeout(coreSolverTimeout);
 
-        ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
 
         if (AssumeInboundPointers) {
           bool answer;
+
+          // index must be >= 0
+          ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
+          solver->setTimeout(coreSolverTimeout);
           if (solver->mustBeFalse(state, mc, answer) && answer) {
-            state.pc = state.prevPC;
             terminateState(state);
+            solver->setTimeout(0);
+            break;
           } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
             state.addConstraint(mc);
           }
-        } else {
-          klee_error("non-optimistic not supported at this time");
+
+          // base must point into an allocation
+          mc = mo->getBoundsCheckPointer(base, bytes);
+          if (solver->mustBeFalse(state, mc, answer) && answer) {
+            terminateState(state);
+            solver->setTimeout(0);
+            break;
+          } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
+            state.addConstraint(mc);
+          }
+          solver->setTimeout(0);
         }
-        solver->setTimeout(0);
         bindLocal(ki, state, base);
       } else {
 
