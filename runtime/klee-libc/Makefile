@@ -30,5 +30,8 @@ NO_BUILD_ARCHIVE=1
 # Add __NO_INLINE__ to prevent glibc from using inline definitions of some
 # builtins.
 C.Flags += -D__NO_INLINE__
+ifeq ($(shell uname -s), Darwin)
+  C.Flags += -isysroot $(shell xcrun --show-sdk-path)
+endif
 
 include $(LEVEL)/Makefile.common

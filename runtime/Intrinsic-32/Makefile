@@ -28,5 +28,8 @@ NO_PEDANTIC=1
 NO_BUILD_ARCHIVE=1
 
 C.Flags += -fno-builtin -m32
+ifeq ($(shell uname -s), Darwin)
+  C.Flags += -isysroot $(shell xcrun --show-sdk-path)
+endif
 
 include $(LEVEL)/Makefile.common

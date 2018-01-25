@@ -4,6 +4,7 @@ Debug/
 Debug+Asserts/
 Output/
 build_*/
+cmake-build*/
 
 cscope.*
 *~

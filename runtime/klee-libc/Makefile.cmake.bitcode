@@ -13,6 +13,9 @@ include $(LEVEL)/Makefile.cmake.bitcode.config
 # Prevent glibc from inlining some definitions
 # of builtins
 LLVMCC.Flags += -D__NO_INLINE__
+ifeq ($(shell uname -s), Darwin)
+  LLVMCC.Flags += -isysroot $(shell xcrun --show-sdk-path)
+endif	
 
 # FIXME: This is a horrible hack
 ifeq ($(USE_MODULE_INSTEAD_OF_BCA),1)
