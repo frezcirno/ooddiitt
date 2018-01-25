@@ -1026,7 +1026,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
         errs() << "    * max time elapsed, halting execution\n";
         halt = HaltReason::TimeOut;
       }
-      checkMemoryUsage(kf);
+      checkMemoryUsageFn(kf);
     } else {
       checkMemoryUsage();
     }
@@ -1077,7 +1077,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   Executor::terminateState(state);
 }
 
-void LocalExecutor::checkMemoryUsage(KFunction *kf) {
+void LocalExecutor::checkMemoryUsageFn(KFunction *kf) {
 
   Executor::checkMemoryUsage();
 

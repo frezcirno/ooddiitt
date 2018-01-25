@@ -221,7 +221,7 @@ protected:
 
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
   
-  virtual void run(ExecutionState &initialState);
+  void run(ExecutionState &initialState);
 
   // Given a concrete object in our [klee's] address space, add it to 
   // objects checked code can reference.
