@@ -1439,6 +1439,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       }
 
+      // if this is a function tag, ignore it
+      if ((fnName == "fn_tag") &&
+          (fn->arg_size() == 2) &&
+          (fn->getReturnType()->isVoidTy())) {
+        return;
+      }
+
       // if this is a call to guide, just return 2nd argument
       if ((fnName == "guide" && (cs.arg_size() == 2))) {
         ref<Expr> retExpr = eval(ki, 2, state).value;
