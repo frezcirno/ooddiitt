@@ -59,10 +59,8 @@
 #include <iterator>
 #include <sstream>
 #include <fcntl.h>
+#include <ext/stdio_filebuf.h>
 #include <boost/algorithm/string/predicate.hpp>
-//#include <ext/stdio_filebuf.h>
-//#include <boost/iostreams/device/file_descriptor.hpp>
-//#include <boost/iostreams/stream.hpp>
 
 using namespace llvm;
 using namespace klee;
@@ -232,16 +230,16 @@ public:
   KleeHandler(int argc, char **argv, unsigned op, ProgInfo &pi);
   ~KleeHandler();
 
-  llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
+  llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
   unsigned getNumTestCases() { return casesGenerated; }
   unsigned getNumPathsExplored() { return m_pathsExplored; }
-  void incPathsExplored() override { m_pathsExplored++; }
+  void incPathsExplored() { m_pathsExplored++; }
 
   void setInterpreter(Interpreter *i);
 
   void processTestCase(ExecutionState  &state,
                        const char *errorMessage = nullptr,
-                       const char *errorSuffix = nullptr) override;
+                       const char *errorSuffix = nullptr);
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 
@@ -254,7 +252,7 @@ public:
   llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
 
-  std::string getTypeName(const Type *Ty) const override;
+  std::string getTypeName(const Type *Ty) const;
 
   // load a .path file
   static void loadPathFile(std::string name,
@@ -493,8 +491,16 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
 
 std::ostream *KleeHandler::openTestCaseFile(unsigned testID) {
 
-  std::string filename = getOutputPath(getTestFilename("json", testID));
-  return new std::ofstream(filename);
+  int fd = -1;
+  while (fd < 0) {
+    std::string filename = getOutputPath(getTestFilename("json", testID));
+    fd = open(filename.c_str(),
+              O_CREAT | O_EXCL | O_WRONLY,
+              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+  }
+
+  auto *buf = new __gnu_cxx::stdio_filebuf<char>(fd, std::ios::out);
+  return new std::ostream(buf);
 }
 
 std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {

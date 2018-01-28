@@ -1026,7 +1026,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
         errs() << "    * max time elapsed, halting execution\n";
         halt = HaltReason::TimeOut;
       }
-      checkMemoryUsageFn(kf);
+      checkMemoryUsage(kf);
     } else {
       checkMemoryUsage();
     }
@@ -1077,7 +1077,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   Executor::terminateState(state);
 }
 
-void LocalExecutor::checkMemoryUsageFn(KFunction *kf) {
+void LocalExecutor::checkMemoryUsage(KFunction *kf) {
 
   Executor::checkMemoryUsage();
 
@@ -1439,10 +1439,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       }
 
-      // if this is a function tag, ignore it
+      // if this is a call to fn_tag(), just ignore it
       if ((fnName == "fn_tag") &&
           (fn->arg_size() == 2) &&
           (fn->getReturnType()->isVoidTy())) {
+
         return;
       }
 

@@ -58,7 +58,7 @@ public:
   virtual bool generateTestCase(const ExecutionState &state) const;
 
 protected:
-  void run(KFunction *kf, ExecutionState &initialState);
+  virtual void run(KFunction *kf, ExecutionState &initialState);
   void runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths);
   HaltReason runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
   void markUnreachable(const std::vector<unsigned> &ids);
@@ -136,7 +136,7 @@ protected:
   virtual void updateStates(ExecutionState *current);
   virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
-  void checkMemoryUsageFn(KFunction *kf = nullptr);
+  virtual void checkMemoryUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
