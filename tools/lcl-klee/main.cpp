@@ -59,7 +59,6 @@
 #include <iterator>
 #include <sstream>
 #include <fcntl.h>
-#include <ext/stdio_filebuf.h>
 #include <boost/algorithm/string/predicate.hpp>
 
 using namespace llvm;
@@ -491,16 +490,16 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
 
 std::ostream *KleeHandler::openTestCaseFile(unsigned testID) {
 
-  int fd = -1;
-  while (fd < 0) {
-    std::string filename = getOutputPath(getTestFilename("json", testID));
-    fd = open(filename.c_str(),
-              O_CREAT | O_EXCL | O_WRONLY,
-              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+  std::ofstream *result = nullptr;
+  std::string filename = getOutputPath(getTestFilename("json", testID));
+  result = new std::ofstream(filename);
+  if (result != nullptr) {
+    if (!result->is_open()) {
+      delete result;
+      result = nullptr;
+    }
   }
-
-  auto *buf = new __gnu_cxx::stdio_filebuf<char>(fd, std::ios::out);
-  return new std::ostream(buf);
+  return result;
 }
 
 std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
