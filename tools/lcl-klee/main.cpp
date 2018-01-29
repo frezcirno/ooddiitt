@@ -490,6 +490,21 @@ llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
 
 std::ostream *KleeHandler::openTestCaseFile(unsigned testID) {
 
+#ifdef NEVER
+  int fd = -1;
+  while (fd < 0) { 
+    std::string filename = getOutputPath(getTestFilename("json", testID)); 
+    fd = open(filename.c_str(), 
+              O_CREAT | O_EXCL | O_WRONLY, 
+              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH); 
+    if (fd < 0) {
+      outs() << " *** open failed: " << filename.c_str() << "\n";
+    }
+  }
+  auto *buf = new __gnu_cxx::stdio_filebuf<char>(fd, std::ios::out); 
+  return new std::ostream(buf);   
+#endif
+
   std::ofstream *result = nullptr;
   std::string filename = getOutputPath(getTestFilename("json", testID));
   result = new std::ofstream(filename);
@@ -646,9 +661,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         *kout << std::endl;
 
         kout->flush();
-        auto *buf = static_cast<std::filebuf*>(kout->rdbuf());
         delete kout;
-        delete buf;
         state.isProcessed = true;
         ++casesGenerated;
       } else {
