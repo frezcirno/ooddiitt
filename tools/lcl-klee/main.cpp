@@ -229,16 +229,16 @@ public:
   KleeHandler(int argc, char **argv, unsigned op, ProgInfo &pi);
   ~KleeHandler();
 
-  llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
+  llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
   unsigned getNumTestCases() { return casesGenerated; }
   unsigned getNumPathsExplored() { return m_pathsExplored; }
-  void incPathsExplored() { m_pathsExplored++; }
+  void incPathsExplored() override { m_pathsExplored++; }
 
   void setInterpreter(Interpreter *i);
 
   void processTestCase(ExecutionState  &state,
                        const char *errorMessage = nullptr,
-                       const char *errorSuffix = nullptr);
+                       const char *errorSuffix = nullptr) override;
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 
@@ -251,7 +251,7 @@ public:
   llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
 
-  std::string getTypeName(const Type *Ty) const;
+  std::string getTypeName(const Type *Ty) const override;
 
   // load a .path file
   static void loadPathFile(std::string name,

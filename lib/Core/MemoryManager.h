@@ -45,7 +45,6 @@ public:
   MemoryObject *allocateFixed(uint64_t address, uint64_t size, const llvm::Value *allocSite);
   void markFreed(MemoryObject *mo);
   ArrayCache *getArrayCache() const { return arrayCache; }
-
   void dump() const;
 
   /*

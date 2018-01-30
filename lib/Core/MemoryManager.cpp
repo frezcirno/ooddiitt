@@ -140,7 +140,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
     return 0;
 
   if ((Context::get().getPointerWidth() == Expr::Int32) && (address > UINT32_MAX)) {
-    klee_error("exhausted 32-bit memory allocation");
+    klee_error("32-bit memory allocation requires 64 bit value");
   }
 
   ++stats::allocations;

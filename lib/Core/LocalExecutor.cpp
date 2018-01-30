@@ -697,7 +697,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     bindArgument(kf, index, *state, e);
   }
 
-  run(kf, *state);
+  runFn(kf, *state);
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f,
@@ -811,7 +811,7 @@ void LocalExecutor::runFunctionAsMain(Function *f,
 #endif
 }
   
-void LocalExecutor::run(KFunction *kf, ExecutionState &initialState) {
+void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
 
   outs() << initialState.name << ":\n";
   outs().flush();
@@ -1026,7 +1026,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
         errs() << "    * max time elapsed, halting execution\n";
         halt = HaltReason::TimeOut;
       }
-      checkMemoryUsage(kf);
+      checkMemoryFnUsage(kf);
     } else {
       checkMemoryUsage();
     }
@@ -1077,7 +1077,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   Executor::terminateState(state);
 }
 
-void LocalExecutor::checkMemoryUsage(KFunction *kf) {
+void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
 
   Executor::checkMemoryUsage();
 

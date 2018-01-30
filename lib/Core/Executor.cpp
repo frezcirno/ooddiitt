@@ -547,8 +547,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
         !externalDispatcher->resolveSymbol(f->getName())) {
       addr = Expr::createPointer(0);
     } else {
-      addr = Expr::createPointer((unsigned long) (void*) f);
-      legalFunctions.insert((uint64_t) (unsigned long) (void*) f);
+      addr = Expr::createPointer((uint64_t) f);
+      legalFunctions.insert((uint64_t) f);
     }
 
     globalAddresses.insert(std::make_pair(f, addr));
