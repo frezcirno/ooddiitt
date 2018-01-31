@@ -52,8 +52,6 @@ export KLEE_DIR=/usr/local/stow/klee
 +-------------+---------------------------------------------------------+-------------------------------+
 | compiler rt | http://releases.llvm.org/3.4/compiler-rt-3.4.src.tar.gz | llvm-3.4/projects/compiler-rt |
 +-------------+---------------------------------------------------------+-------------------------------+
-| test suite  | http://releases.llvm.org/3.4/test-suite-3.4.src.tar.gz  | llvm-3.4/projects/test-suite  |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 ```
 cd llvm-3.4
@@ -100,8 +98,6 @@ cmake -G "Ninja" \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DTUNE_NATIVE:BOOL=ON \
- -DMINISAT_INCLUDE_DIR="${KLEE_DIR}/include" \
- -DMINISAT_LIBRARY="${KLEE_DIR}/lib/libminisat.so"  \
  ..
 
 ninja
@@ -161,10 +157,7 @@ cmake -G "Ninja" \
  -DUSE_CXX11=ON \
  -DENABLE_TCMALLOC=ON \
  -DENABLE_SOLVER_STP=ON \
- -DSTP_DIR="${KLEE_DIR}/lib/cmake/STP" \
  -DENABLE_SOLVER_Z3=ON \
- -DZ3_INCLUDE_DIRS="${KLEE_DIR}/include" \
- -DZ3_LIBRARIES="${KLEE_DIR}/lib/libz3.so" \
  -DENABLE_POSIX_RUNTIME=ON \
  -DENABLE_KLEE_UCLIBC=ON \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
@@ -174,7 +167,6 @@ cmake -G "Ninja" \
  ..
 
 ```
-
 
 Final installed build in /usr/local/stow/klee. Activate by `sudo stow --dir=/usr/local/stow klee`
 
@@ -203,8 +195,6 @@ export KLEE_DIR=$(brew --prefix)/Cellar/klee/1.3.0
 +-------------+---------------------------------------------------------+-------------------------------+
 | compiler rt | http://releases.llvm.org/3.4/compiler-rt-3.4.src.tar.gz | llvm-3.4/projects/compiler-rt |
 +-------------+---------------------------------------------------------+-------------------------------+
-| test suite  | http://releases.llvm.org/3.4/test-suite-3.4.src.tar.gz  | llvm-3.4/projects/test-suite  |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 ```
 cd llvm-3.4
@@ -214,7 +204,7 @@ cd cmake-build-release
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
- -DLLVM_TARGETS_TO_BUILD:STRING='host' \
+ -DLLVM_TARGETS_TO_BUILD='host' \
  ..
 
 ninja
@@ -251,7 +241,6 @@ cmake -G "Ninja" \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DTUNE_NATIVE:BOOL=ON \
- -DMINISAT_INCLUDE_DIR="${KLEE_DIR}/include" \
  ..
 
 ninja
