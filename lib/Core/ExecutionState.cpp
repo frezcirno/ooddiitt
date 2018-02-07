@@ -256,10 +256,9 @@ void ExecutionState::removeFnAlias(std::string fn) {
   fnAliases.erase(fn);
 }
 
-void ExecutionState::addMarker(unsigned fnID, unsigned bbID) {
+void ExecutionState::addMarker(char type, unsigned fnID, unsigned bbID) {
 
-  unsigned value = (fnID * 1000) + (bbID % 1000);
-  markers.push_back(value);
+  markers.push_back(Marker(type, fnID, bbID));
 }
 
 /**/

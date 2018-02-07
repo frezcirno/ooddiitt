@@ -584,9 +584,17 @@ void KleeHandler::processTestCase(ExecutionState &state,
         }
         root["argV"] = args.str();
 
+        // retain for backward compatibility
         Json::Value &path = root["markerPath"] = Json::arrayValue;
-        for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
+        m2m_path_t trace;
+        state.markers.m2m_path(trace);
+        for (auto itr = trace.begin(), end = trace.end(); itr != end; ++itr) {
           path.append(*itr);
+        }
+
+        Json::Value &pathEx = root["markerPathEx"] = Json::arrayValue;
+        for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
+          pathEx.append(itr->to_string());
         }
 
         Json::Value &objects = root["objects"] = Json::arrayValue;

@@ -18,6 +18,7 @@
 #include "../../lib/Core/AddressSpace.h"
 #include "klee/Internal/Module/KInstIterator.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/Internal/System/Marker.h"
 #include "llvm/IR/BasicBlock.h"
 
 #include <map>
@@ -166,7 +167,7 @@ public:
   std::map<std::string, unsigned> callTargetCounter;
   
   std::string name;
-  std::vector<unsigned> markers;
+  MarkerSequence markers;
   bool isProcessed;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
@@ -200,7 +201,7 @@ public:
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
   bool isConcrete(const MemoryObject *mo);
-  void addMarker(unsigned fnID, unsigned bbID);
+  void addMarker(char type, unsigned fnID, unsigned bbID);
 
   void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
 

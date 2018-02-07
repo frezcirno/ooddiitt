@@ -8,7 +8,7 @@
 #===------------------------------------------------------------------------===#
 add_executable(lcl-klee
   main.cpp jsoncpp.cpp
-)
+        ../../include/klee/Internal/System/Marker.h)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
   message(FATAL_ERROR "opt-klee requires at least LLVM version 3.4")

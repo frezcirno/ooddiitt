@@ -823,7 +823,7 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   // one of the unreachable m2m blocks
   for (auto state : m2m_pathsTerminatedStates) {
     if (coversUnreachablePath(state, true)) {
-      state->endingMarker = (state->markers.back()) % 1000;
+      state->endingMarker = state->markers.back().id;
       interpreterHandler->processTestCase(*state);
       removeCoveredPaths(m2m_pathsUnreachable, state);
     }
@@ -1055,7 +1055,8 @@ void LocalExecutor::terminateState(ExecutionState &state) {
     // did not generate a test case.  if it covers an remaining path
     // save it for possible generation later
 
-    const m2m_path_t &trace = state.markers;
+    m2m_path_t trace;
+    state.markers.m2m_path(trace);
     unsigned trace_length = (unsigned) trace.size();
     for (const auto &path : m2m_pathsRemaining) {
       auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
@@ -1150,7 +1151,8 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
 
 void LocalExecutor::removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state) {
 
-  const m2m_path_t &trace = state->markers;
+  m2m_path_t trace;
+  state->markers.m2m_path(trace);
   for (auto itr = paths.begin(), end = paths.end(); itr != end;) {
     const m2m_path_t &path = *itr;
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
@@ -1175,7 +1177,8 @@ void LocalExecutor::updateStates(ExecutionState *current) {
 
 bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const {
 
-  const m2m_path_t &trace = state->markers;
+  m2m_path_t trace;
+  state->markers.m2m_path(trace);
   unsigned trace_length = (unsigned) trace.size();
   for (const auto &path : paths) {
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
@@ -1423,10 +1426,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
-      // if this is a call to mark(), then log the marker to state
-      if (((fnName == "MARK") || (fnName == "mark")) &&
-          (fn->arg_size() == 2) &&
-          (fn->getReturnType()->isVoidTy())) {
+      // if this is a call to a mark() variant, then log the marker to state
+      // ':' is an invalid marker type
+      char marker_type = ':';
+      if (fnName == "MARK") {
+        marker_type = 'M';
+      } else if (fnName == "mark") {
+        marker_type = 'm';
+      } else if (fnName == "fn_tag") {
+        marker_type = 't';
+      }
+
+      if ((marker_type != ':') && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
 
         const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
         const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
@@ -1434,17 +1445,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
           unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
-          state.addMarker(fnID, bbID);
+          state.addMarker(marker_type, fnID, bbID);
           return;
         }
-      }
-
-      // if this is a call to fn_tag(), just ignore it
-      if ((fnName == "fn_tag") &&
-          (fn->arg_size() == 2) &&
-          (fn->getReturnType()->isVoidTy())) {
-
-        return;
       }
 
       // if this is a call to guide, just return 2nd argument
