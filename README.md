@@ -29,7 +29,11 @@ klee
 
 ##Fedora (with stow)
 
-###Notes:  some areas to update: need 32bit dev libraries, curses, anaconda interferes with cmake for opt-klee, run ldconfig after installing new dynamic libs.
+###Notes:  
+
+some areas to update: need 32bit dev libraries, curses, anaconda interferes with cmake for opt-klee, run ldconfig after installing new dynamic libs. 
+
+On fedora 27, some libs installed to lib64.  not found by ld.
 
 ###Step 1: Install required tools for the build
 
@@ -38,7 +42,7 @@ Packages to install:
 bison cmake curl flex git boost-devel perftools-devel ninja-build graphviz doxygen
 
 Set the install path:
-export KLEE_DIR=/usr/local/stow/klee
+export KLEE_DIR=/usr/local/stow/lcl-klee
 ~~~
 
 ###Step 2: LLVM
@@ -50,8 +54,8 @@ export KLEE_DIR=/usr/local/stow/klee
 +-------------+---------------------------------------------------------+-------------------------------+
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
 +-------------+---------------------------------------------------------+-------------------------------+
-| compiler rt | http://releases.llvm.org/3.4/compiler-rt-3.4.src.tar.gz | llvm-3.4/projects/compiler-rt |
-+-------------+---------------------------------------------------------+-------------------------------+
+
+edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
 
 ```
 cd llvm-3.4
@@ -61,6 +65,8 @@ cd cmake-build-release
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
+ -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs         -Wno-misleading-indentation" \
+ -DCMAKE_C_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DLLVM_TARGETS_TO_BUILD='host' \
  ..
 
@@ -76,6 +82,7 @@ git clone https://github.com/stp/minisat.git
 cd minisat
 mkdir cmake-build-release
 cd cmake-build-release
+
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
@@ -93,6 +100,7 @@ git clone https://github.com/stp/stp.git
 cd stp
 mkdir cmake-build-release
 cd cmake-build-release
+
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE="Release" \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
@@ -112,6 +120,7 @@ git clone https://github.com/Z3Prover/z3.git
 cd z3
 mkdir cmake-build-release
 cd cmake-build-release
+
 cmake -G Ninja \
  -DCMAKE_BUILD_TYPE="Release" \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
