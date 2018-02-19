@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/opt-klee.iml" filepath="$PROJECT_DIR$/.idea/opt-klee.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/lcl-klee.iml" filepath="$PROJECT_DIR$/.idea/lcl-klee.iml" />
     </modules>
   </component>
 </project>
