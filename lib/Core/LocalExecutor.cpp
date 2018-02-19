@@ -1412,6 +1412,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       std::string fnName = fn->getName();
 
+
+      if ((fnName == "abort") && (fn->arg_size() == 0) && fn->getReturnType()->isVoidTy())  {
+        terminateStateOnError(state, "aborted", TerminateReason::Abort);
+        return;
+      }
+
       // if this function does not return, (exit, abort, zopc_exit, etc)
       // then this state has completed
       if (fn->hasFnAttribute(Attribute::NoReturn) || fnName == "zopc_exit") {
