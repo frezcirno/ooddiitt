@@ -50,8 +50,8 @@ set(KLEE_VERSION_MINOR 3)
 set(KLEE_VERSION_PATCH 0)
 set(KLEE_VERSION_TWEAK 0)
 set(KLEE_VERSION "${KLEE_VERSION_MAJOR}.${KLEE_VERSION_MINOR}.${KLEE_VERSION_PATCH}.${KLEE_VERSION_TWEAK}")
-message(STATUS "KLEE version ${KLEE_VERSION}")
-set(PACKAGE_STRING "\"KLEE ${KLEE_VERSION}\"")
+message(STATUS "LCL-KLEE version ${KLEE_VERSION}")
+set(PACKAGE_STRING "\"LCL-KLEE ${KLEE_VERSION}\"")
 set(PACKAGE_URL "\"https://klee.github.io\"")
 
 ################################################################################

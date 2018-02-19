@@ -10,7 +10,7 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 ```
 klee
 ├── org-klee
-├── opt-klee
+├── lcl-klee
 ├── klee-uclibc (linux only)
 ├── llvm-3.4
 ├── minisat
@@ -31,9 +31,8 @@ klee
 
 ###Notes:  
 
-some areas to update: need 32bit dev libraries, curses, anaconda interferes with cmake for opt-klee, run ldconfig after installing new dynamic libs. 
-
-On fedora 27, some libs installed to lib64.  not found by ld.
+some areas to update: need 32bit dev libraries, curses, run ldconfig after installing new dynamic libs. 
+On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.conf.d
 
 ###Step 1: Install required tools for the build
 
@@ -65,7 +64,8 @@ cd cmake-build-release
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
- -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs         -Wno-misleading-indentation" \
+ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+ -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DCMAKE_C_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DLLVM_TARGETS_TO_BUILD='host' \
  ..
@@ -151,17 +151,18 @@ Original klee code for reference. Not required to build.
 git clone https://github.com/klee/klee.git org-klee
 ```
 
-###Step 8: opt-klee
+###Step 8: lcl-klee
 
 ```
-git clone https://github.gatech.edu/arktos/opt-klee.git
-cd opt-klee
+git clone https://github.gatech.edu/arktos/lcl-klee.git
+cd lcl-klee
 mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \
  -DUSE_CXX11=ON \
  -DENABLE_TCMALLOC=ON \
@@ -177,7 +178,7 @@ cmake -G "Ninja" \
 
 ```
 
-Final installed build in /usr/local/stow/klee. Activate by `sudo stow --dir=/usr/local/stow klee`
+Final installed build in /usr/local/stow/lcl-klee. Activate by `sudo stow --dir=/usr/local/stow lcl-klee`
 
 -----------
 
@@ -202,8 +203,6 @@ export KLEE_DIR=$(brew --prefix)/Cellar/klee/1.3.0
 +-------------+---------------------------------------------------------+-------------------------------+
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
 +-------------+---------------------------------------------------------+-------------------------------+
-| compiler rt | http://releases.llvm.org/3.4/compiler-rt-3.4.src.tar.gz | llvm-3.4/projects/compiler-rt |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 ```
 cd llvm-3.4
@@ -213,6 +212,7 @@ cd cmake-build-release
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
+ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DLLVM_TARGETS_TO_BUILD='host' \
  ..
 
@@ -281,17 +281,18 @@ cd ../..
 git clone https://github.com/klee/klee.git org-klee
 ```
 
-###Step 7: opt-klee
+###Step 7: lcl-klee
 
 ```
-git clone https://github.gatech.edu/arktos/opt-klee.git
-cd opt-klee
+git clone https://github.gatech.edu/arktos/lcl-klee.git
+cd lcl-klee
 mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE='Release' \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \
  -DCMAKE_EXE_LINKER_FLAGS="-pagezero_size 0x1000" \
  -DUSE_CXX11=ON \
