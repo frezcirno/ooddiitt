@@ -55,6 +55,8 @@ export KLEE_DIR=/usr/local/stow/lcl-klee
 +-------------+---------------------------------------------------------+-------------------------------+
 
 edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
+Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.x.x
+
 
 ```
 cd llvm-3.4
