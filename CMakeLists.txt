@@ -47,7 +47,7 @@ project(LCL_KLEE CXX C)
 ###############################################################################
 set(KLEE_VERSION_MAJOR 1)
 set(KLEE_VERSION_MINOR 3)
-set(KLEE_VERSION_PATCH 0)
+set(KLEE_VERSION_PATCH 1)
 set(KLEE_VERSION_TWEAK 0)
 set(KLEE_VERSION "${KLEE_VERSION_MAJOR}.${KLEE_VERSION_MINOR}.${KLEE_VERSION_PATCH}.${KLEE_VERSION_TWEAK}")
 message(STATUS "LCL-KLEE version ${KLEE_VERSION}")
@@ -189,6 +189,15 @@ set(KLEE_COMPONENT_CXX_DEFINES "")
 set(KLEE_COMPONENT_CXX_FLAGS "")
 set(KLEE_SOLVER_LIBRARIES "")
 set(KLEE_COMPONENT_EXTRA_LIBRARIES "")
+
+
+################################################################################
+# Find Boost
+################################################################################
+find_package(Boost REQUIRED COMPONENTS system filesystem)
+if (Boost_FOUND)
+  include_directories(SYSTEM ${Boost_INCLUDE_DIR})
+endif ()
 
 ################################################################################
 # Find LLVM
@@ -644,8 +653,11 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
   include(${CMAKE_SOURCE_DIR}/cmake/GetGitRevisionDescription.cmake)
   get_git_head_revision(_NOT_USED_KLEE_GIT_REFSPEC KLEE_GIT_SHA1HASH)
   message(STATUS "KLEE_GIT_SHA1HASH: ${KLEE_GIT_SHA1HASH}")
+  git_describe(KLEE_GIT_TAG --all)
+  message(STATUS "KLEE_GIT_TAG: ${KLEE_GIT_TAG}")
 else()
   set(KLEE_GIT_SHA1HASH "unknown")
+  set(KLEE_GIT_TAG "unknown")
 endif()
 set(AUTO_GEN_MSG "AUTOMATICALLY GENERATED. DO NOT EDIT!")
 configure_file(${CMAKE_SOURCE_DIR}/include/klee/Config/CompileTimeInfo.h.cmin

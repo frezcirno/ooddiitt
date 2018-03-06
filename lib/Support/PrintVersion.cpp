@@ -13,6 +13,7 @@
 #include "llvm/Support/CommandLine.h"
 
 #include "klee/Config/CompileTimeInfo.h"
+#include <boost/algorithm/string.hpp>
 
 void klee::printVersion()
 {
@@ -27,6 +28,17 @@ void klee::printVersion()
 #else
   llvm::outs() << "unknown\n";
 #endif
+
+  llvm::outs() << "  Build tag: ";
+#ifdef KLEE_BUILD_TAG
+  std::string tag_text = KLEE_BUILD_TAG;
+  std::vector<std::string> components;
+  boost::split(components, tag_text, [](char c){return c == '/';});
+  llvm::outs() << components.back() << "\n";
+#else
+  llvm::outs() << "unknown\n";
+#endif
+
   // Show LLVM version information
   llvm::outs() << "\n";
   llvm::cl::PrintVersionMessage();
