@@ -46,13 +46,10 @@ export KLEE_DIR=/usr/local/stow/lcl-klee
 
 ### Step 2: LLVM
 
-+-------------+---------------------------------------------------------+-------------------------------+
 | Source      | URL                                                     | Directory                     |
-+=============+=========================================================+===============================+
+|-------------|---------------------------------------------------------|-------------------------------|
 | llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
-+-------------+---------------------------------------------------------+-------------------------------+
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
 Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.x.x
