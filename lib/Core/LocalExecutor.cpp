@@ -67,6 +67,9 @@
 
 using namespace llvm;
 
+
+#define MIN_LAZY_ALLOCATION 0x400
+
 namespace klee {
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
@@ -535,6 +538,11 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
+
+  if (kind == MemKind::lazy && size < MIN_LAZY_ALLOCATION) {
+    size = MIN_LAZY_ALLOCATION;
+  }
+  
   MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
