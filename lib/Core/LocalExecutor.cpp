@@ -67,9 +67,6 @@
 
 using namespace llvm;
 
-
-#define MIN_LAZY_ALLOCATION 0x400
-
 namespace klee {
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
@@ -93,8 +90,13 @@ cl::opt<unsigned>
                        cl::desc("Number of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
+  MinLazyAllocationSize("min-lazy-allocation-size",
+                        cl::init(0x400),
+                        cl::desc("minimum size of a lazy allocation"));
+
+cl::opt<unsigned>
     LazyAllocationDepth("lazy-allocation-depth",
-                        cl::init(8),
+                        cl::init(4),
                         cl::desc("Depth of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
@@ -541,8 +543,8 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
 
-  if (kind == MemKind::lazy && size < MIN_LAZY_ALLOCATION) {
-    size = MIN_LAZY_ALLOCATION;
+  if ((kind == MemKind::lazy) && (size < MinLazyAllocationSize)) {
+    size = MinLazyAllocationSize;
   }
 
   MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
