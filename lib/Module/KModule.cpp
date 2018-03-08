@@ -566,7 +566,6 @@ void KModule::prepareMarkers() {
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
     if (!fn->empty()) {
       constructSortedBBlocks(kf->sortedBBlocks, &fn->front());
-//      assert(fn->size() == kf->sortedBBlocks.size());
     }
 
     // now step through each of the functions basic blocks
@@ -576,8 +575,9 @@ void KModule::prepareMarkers() {
 
       // look through each instruction of the bb looking for function calls
       // use reverse iterator so we find the first bbid last (single bb function will have two)
-      bool isMajor = false;
       std::vector<unsigned> bbIDs;
+      std::set<unsigned> majorIDs;
+      bool is_implicit_major = false;
       for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
         const Instruction *i = &(*iit);
         if (i->getOpcode() == Instruction::Call) {
@@ -599,25 +599,34 @@ void KModule::prepareMarkers() {
               const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
               if ((arg0 != nullptr) && (arg1 != nullptr)) {
                 fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+
                 unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
                 bbIDs.push_back(bbID);
 
                 if (calledName == "MARK") {
-                  isMajor = true;
+                  majorIDs.insert(bbID);
                 }
               }
-            } else if (!((calledName == "guide") && (called->arg_size() == 2))) {
-              isMajor = true;
+            } else if (!isInternalFunction(called)) {
+              is_implicit_major = true;
             }
           }
         }
       }
       if (bbIDs.size() > 0) {
+
+        // track the explicit major markers found
         kf->mapMarkers[&bb] = bbIDs;
         for (unsigned id : bbIDs) {
           kf->mapBBlocks[id] = &bb;
+          if (majorIDs.count(id) > 0) {
+            majorMarkerList.insert(&bb);
+            kf->majorMarkers.insert((fnID * 1000) + id);
+          }
         }
-        if (isMajor) {
+
+        // check if this is an implicit marker
+        if (majorIDs.empty() && is_implicit_major) {
           majorMarkerList.insert(&bb);
           kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
         }
@@ -876,10 +885,13 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
   // if bb has no successors, then we also have a path
   if (successors.empty()) {
 
-    marker_path_t m2m_path;
-    translateBBPath2MarkerPath(path, m2m_path);
-    if (m2m_path.size() > 1) {
-      m2m_paths.insert(m2m_path);
+    if (path.size() > 1) {
+      assert(majorMarkers.count(path.front()) > 0);
+      if (majorMarkers.count(path.back()) > 0) {
+        marker_path_t m2m_path;
+        translateBBPath2MarkerPath(path, m2m_path);
+        m2m_paths.insert(m2m_path);
+      }
     }
   } else {
     for (auto succ : successors) {

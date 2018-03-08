@@ -94,7 +94,7 @@ cl::opt<unsigned>
 
 cl::opt<unsigned>
     LazyAllocationDepth("lazy-allocation-depth",
-                        cl::init(2),
+                        cl::init(8),
                         cl::desc("Depth of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
@@ -360,10 +360,11 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
   if (!state.isSymbolic(mo)) {
     if (!isLocallyAllocated(state, mo)) {
-      if (mo->kind != klee::MemKind::lazy) {
-        outs() << "*** Not converting " << mo->getKindAsStr() << ":" << mo->name << " to symbolic\n";
-      } else {
+      if (mo->kind == klee::MemKind::lazy) {
         os = makeSymbolic(state, mo);
+      } else {
+        // RLR TODO: consider removing
+//        outs() << "*** Not converting " << mo->getKindAsStr() << ":" << mo->name << " to symbolic\n";
       }
     }
   }
@@ -513,7 +514,8 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   while (!state.arrayNames.insert(uniqueName).second) {
     uniqueName = mo->name + "_" + llvm::utostr(++id);
     if (!objName.empty()) {
-      errs() << "duplicate obj names: " << objName << ", " << uniqueName << "\n";
+      // RLR TODO: this may be a common circumstance
+//      errs() << "duplicate obj names: " << objName << ", " << uniqueName << "\n";
     }
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
@@ -542,7 +544,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   if (kind == MemKind::lazy && size < MIN_LAZY_ALLOCATION) {
     size = MIN_LAZY_ALLOCATION;
   }
-  
+
   MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
@@ -1000,7 +1002,11 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
+#if 0 == 0
+  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+#else
   searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+#endif
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
@@ -1659,9 +1665,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
           solver->setTimeout(coreSolverTimeout);
           if (solver->mustBeFalse(state, mc, answer) && answer) {
-            terminateState(state);
-            solver->setTimeout(0);
-            break;
+            // RLR TODO: potential dead code
+//            terminateState(state);
+//            solver->setTimeout(0);
+//            break;
           } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
             state.addConstraint(mc);
           }
@@ -1669,9 +1676,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // base must point into an allocation
           mc = mo->getBoundsCheckPointer(base, bytes);
           if (solver->mustBeFalse(state, mc, answer) && answer) {
-            terminateState(state);
-            solver->setTimeout(0);
-            break;
+            // RLR TODO: potential dead code
+//            terminateState(state);
+//            solver->setTimeout(0);
+//            break;
           } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
             state.addConstraint(mc);
           }
@@ -1712,7 +1720,37 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       executeWriteMemoryOperation(state, base, value, name);
       break;
     }
-      
+
+    case Instruction::BitCast: {
+      CastInst *ci = cast<CastInst>(i);
+      Type *srcTy = ci->getSrcTy();
+      Type *destTy = ci->getDestTy();
+
+      if (srcTy->isPointerTy() && destTy->isPointerTy()) {
+        Type *srcPtd = srcTy->getPointerElementType();
+        Type *destPtd = destTy->getPointerElementType();
+        unsigned srcSize = (unsigned) kmodule->targetData->getTypeStoreSize(srcPtd);
+        unsigned destSize = (unsigned) kmodule->targetData->getTypeStoreSize(destPtd);
+
+        if (srcSize < destSize) {
+          ref<Expr> ptr = eval(ki, 0, state).value;
+
+          ObjectPair op;
+          if (resolveMO(state, ptr, op) == ResolveResult::OK) {
+
+            const MemoryObject *mo = op.first;
+            if ((mo->kind == MemKind::lazy) && (destSize > mo->size)) {
+              klee_warning("lazy init size too small for bitcast");
+            }
+          }
+        }
+      }
+
+      ref<Expr> result = eval(ki, 0, state).value;
+      bindLocal(ki, state, result);
+      break;
+    }
+
     default:
       Executor::executeInstruction(state, ki);
       break;
