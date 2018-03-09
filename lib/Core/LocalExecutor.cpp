@@ -109,6 +109,12 @@ cl::opt<unsigned>
                   cl::init(16),
                   cl::desc("Number of forks within loop body"));
 
+cl::opt<unsigned>
+    DebugValue("debug-value",
+                cl::init(0),
+                cl::desc("context specific debug value"));
+
+
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
@@ -974,6 +980,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
   const uint64_t stats_granularity = 1000;
   uint64_t stats_counter = stats_granularity;
+  unsigned debug_value = DebugValue;
 
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
@@ -1004,11 +1011,12 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-#if 0 == 0
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
-#else
-  searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-#endif
+  if (debug_value != 0) {
+    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+  } else {
+    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
+  }
+
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
@@ -1024,6 +1032,12 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
     KInstruction *ki = state.pc;
     stepInstruction(state);
     try {
+
+      // RLR TODO: debug
+      if (ki->info->assemblyLine == debug_value) {
+        errs() << "break!\n";
+      }
+
       executeInstruction(state, ki);
     } catch (bad_expression &e) {
       halt = HaltReason::InvalidExpr;
