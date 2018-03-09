@@ -47,6 +47,7 @@
 #include "klee/Internal/System/MemoryUsage.h"
 #include "klee/Internal/System/ProgInfo.h"
 #include "klee/SolverStats.h"
+#include "klee/Internal/System/debugbreak.h"
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Attributes.h"
@@ -101,7 +102,7 @@ cl::opt<unsigned>
 
 cl::opt<unsigned>
     MaxLoopIteration("max-loop-iteration",
-                      cl::init(1),
+                      cl::init(2),
                       cl::desc("Number of loop iterations"));
 
 cl::opt<unsigned>
@@ -280,6 +281,20 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     bool result = false;
     solver->setTimeout(coreSolverTimeout);
     if (solver->mayBeTrue(state, eqMax, result)) {
+
+      if (!result) {
+
+        // RLR TODO: debug
+
+        // if not max, then what?
+        ref<ConstantExpr> ce;
+        solver->getValue(state, e, ce);
+        auto pr = solver->getRange(state, e);
+
+
+//        errs() << "Here!\n";
+      }
+
       solver->setTimeout(0);
       return result;
     }
@@ -1035,7 +1050,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
       // RLR TODO: debug
       if (ki->info->assemblyLine == debug_value) {
-        errs() << "break!\n";
+        debug_break();
       }
 
       executeInstruction(state, ki);
