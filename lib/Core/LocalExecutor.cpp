@@ -102,7 +102,7 @@ cl::opt<unsigned>
 
 cl::opt<unsigned>
     MaxLoopIteration("max-loop-iteration",
-                      cl::init(2),
+                      cl::init(1),
                       cl::desc("Number of loop iterations"));
 
 cl::opt<unsigned>
@@ -338,10 +338,11 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    if (result == ResolveResult::NoObject) {
-      // invalid memory read
-      errs() << " *** failed to resolve MO on read ***\n";
-    }
+    // RLR TODO: silence noise
+//    if (result == ResolveResult::NoObject) {
+//      // invalid memory read
+//      errs() << " *** failed to resolve MO on read ***\n";
+//    }
     terminateState(state);
     return false;
   }
@@ -1027,7 +1028,8 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
   states.insert(initState);
   if (debug_value != 0) {
-    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+//    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
+    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   } else {
     searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
   }
@@ -1461,7 +1463,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // then this state has completed
       if (fn->hasFnAttribute(Attribute::NoReturn)) {
 
-        if (fnName == "zpoc_exit" || fnName == "exit") {
+        if (fnName == "zopc_exit" || fnName == "exit") {
           terminateStateOnExit(state);
         } else if (fnName == "abort") {
           terminateStateOnError(state, "aborted", TerminateReason::Abort);
@@ -1779,6 +1781,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       ref<Expr> result = eval(ki, 0, state).value;
       bindLocal(ki, state, result);
+      break;
+    }
+
+    case Instruction::ICmp: {
+      CmpInst *ci = cast<CmpInst>(i);
+      Executor::executeInstruction(state, ki);
       break;
     }
 

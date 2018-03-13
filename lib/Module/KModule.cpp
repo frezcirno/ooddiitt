@@ -59,6 +59,9 @@
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
+
+#include "llvm/IR/Instructions.h"
+
 using namespace llvm;
 using namespace klee;
 
@@ -561,6 +564,11 @@ void KModule::prepareMarkers() {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
+
+    if (isInternalFunction(fn)) {
+      continue;
+    }
+
     unsigned fnID = 0;
 
     // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
@@ -609,6 +617,27 @@ void KModule::prepareMarkers() {
               }
             } else if (!isInternalFunction(called)) {
               is_implicit_major = true;
+            }
+          }
+        } else if (i->getOpcode() == Instruction::ICmp) {
+
+          const CmpInst *ci = cast<CmpInst>(i);
+          const Value *arg0 = ci->getOperand(0);
+          const Value *arg1 = ci->getOperand(1);
+          if (arg0->getType()->isPointerTy()) {
+            if (ci->isEquality()) {
+              const Constant *carg0 = dyn_cast<Constant>(arg0);
+              const Constant *carg1 = dyn_cast<Constant>(arg1);
+              if ((carg0 == nullptr) && (carg1 == nullptr)) {
+                errs() << "Variable pointer equality comparison in " << fn->getName().str() << "\n";
+              } else {
+                if (((carg0 != nullptr) && !carg0->isNullValue()) ||
+                    ((carg1 != nullptr) && !carg1->isNullValue())) {
+                  errs() << "Pointer equality comparison to non-null constant in " << fn->getName().str() << "\n";
+                }
+              }
+            } else {
+              errs() << "Pointer relational comparison in " << fn->getName().str() << "\n";
             }
           }
         }
