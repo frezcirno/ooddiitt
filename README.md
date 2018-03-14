@@ -38,7 +38,7 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 
 ~~~
 Packages to install:
-bison cmake curl flex git boost-devel perftools-devel ninja-build graphviz doxygen
+bison cmake curl flex git boost-devel gperftools-devel ninja-build graphviz doxygen
 
 Set the install path:
 export KLEE_DIR=/usr/local/stow/lcl-klee
@@ -52,7 +52,7 @@ export KLEE_DIR=/usr/local/stow/lcl-klee
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
 
 edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
-Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.x.x
+Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.0.0
 
 
 ```
