@@ -86,8 +86,8 @@ namespace {
                cl::init(false));
 
   cl::opt<bool>
-  OutputStructs("output-structs",
-               cl::desc("Write the layout of structures in the transformed module"),
+  OutputStatic("output-static",
+               cl::desc("Write the results of static analysis of thetransformed module"),
                cl::init(false));
 
   cl::opt<SwitchImplType>
@@ -413,7 +413,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   // Write out the .ll assembly file. We truncate long lines to work
   // around a kcachegrind parsing bug (it puts them on new lines), so
   // that source browsing works.
-  if (OutputSource) {
+  if (OutputSource || OutputStatic) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll", true);
     if (os != nullptr) {
         *os << *module;
@@ -421,7 +421,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     }
   }
 
-  if (OutputStructs) {
+  if (OutputStatic) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json", true);
     if (os != nullptr) {
 
@@ -555,15 +555,20 @@ void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
   }
 }
 
-void KModule::prepareMarkers() {
+void KModule::prepareMarkers(InterpreterHandler *ih) {
 
   outs() << "analyzing functions ... ";
   outs().flush();
+
+  std::set<const Function *> fns_ptr_relation;
+  std::set<const Function *> fns_ptr_equality;
+  std::set<const Function *> fns_ptr_equal_non_null_const;
 
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
+    std::string fn_name = fn->getName().str();
 
     if (isInternalFunction(fn)) {
       continue;
@@ -619,25 +624,26 @@ void KModule::prepareMarkers() {
               is_implicit_major = true;
             }
           }
-        } else if (i->getOpcode() == Instruction::ICmp) {
+        } else if (OutputStatic && i->getOpcode() == Instruction::ICmp) {
 
           const CmpInst *ci = cast<CmpInst>(i);
           const Value *arg0 = ci->getOperand(0);
           const Value *arg1 = ci->getOperand(1);
+
           if (arg0->getType()->isPointerTy()) {
             if (ci->isEquality()) {
               const Constant *carg0 = dyn_cast<Constant>(arg0);
               const Constant *carg1 = dyn_cast<Constant>(arg1);
               if ((carg0 == nullptr) && (carg1 == nullptr)) {
-                errs() << "Variable pointer equality comparison in " << fn->getName().str() << "\n";
+                fns_ptr_equality.insert(fn);
               } else {
                 if (((carg0 != nullptr) && !carg0->isNullValue()) ||
                     ((carg1 != nullptr) && !carg1->isNullValue())) {
-                  errs() << "Pointer equality comparison to non-null constant in " << fn->getName().str() << "\n";
+                  fns_ptr_equal_non_null_const.insert(fn);
                 }
               }
             } else {
-              errs() << "Pointer relational comparison in " << fn->getName().str() << "\n";
+              fns_ptr_relation.insert(fn);
             }
           }
         }
@@ -704,6 +710,51 @@ void KModule::prepareMarkers() {
     }
   }
   outs() << "done\n";
+
+  if (OutputStatic) {
+
+    llvm::raw_fd_ostream *os = ih->openOutputFile("ptr_relations.json", true);
+    if (os != nullptr) {
+
+      unsigned counter = 0;
+
+      *os << "{\n";
+
+      EmitFunctionSet(os, "ptr_equality", fns_ptr_equality, counter);
+      EmitFunctionSet(os, "ptr_relation", fns_ptr_relation, counter);
+      EmitFunctionSet(os, "ptr_equal_non_null", fns_ptr_equal_non_null_const, counter);
+
+      if (counter > 0) {
+        *os << "\n";
+      }
+      *os << "}\n";
+      delete os;
+    }
+  }
+}
+
+void KModule::EmitFunctionSet(llvm::raw_fd_ostream *os,
+                              std::string key,
+                              std::set<const Function*> fns,
+                              unsigned &counter_keys) {
+
+  if (!fns.empty()) {
+    if (counter_keys > 0) {
+      *os << ",\n";
+    }
+    counter_keys += 1;
+
+    unsigned counter_elements = 0;
+    *os << "  \"" << key << "\": [\n";
+    for (auto fn : fns) {
+      if (counter_elements > 0) {
+        *os << ",\n";
+      }
+      *os << "    \"" << fn->getName().str() << "\"";
+      counter_elements += 1;
+    }
+    *os << "\n  ]";
+  }
 }
 
 Function *KModule::getTargetFunction(Value *value) const {

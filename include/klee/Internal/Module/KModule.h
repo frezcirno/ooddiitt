@@ -196,7 +196,8 @@ namespace klee {
     void prepare(const Interpreter::ModuleOptions &opts, 
                  InterpreterHandler *ihandler);
 
-    void prepareMarkers();
+    void prepareMarkers(InterpreterHandler *ih);
+    void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
     void constructSortedBBlocks(std::vector<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry);
 
     /// Return an id for the given constant, creating a new one if necessary.

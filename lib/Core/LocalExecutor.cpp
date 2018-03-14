@@ -652,7 +652,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
 
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
-  kmodule->prepareMarkers();
+  kmodule->prepareMarkers(interpreterHandler);
 
   // prepare a generic initial state
   germinalState = new ExecutionState();
@@ -1785,7 +1785,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 
     case Instruction::ICmp: {
-      CmpInst *ci = cast<CmpInst>(i);
+//      CmpInst *ci = cast<CmpInst>(i);
       Executor::executeInstruction(state, ki);
       break;
     }
