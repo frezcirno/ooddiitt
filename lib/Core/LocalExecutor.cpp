@@ -373,6 +373,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         solver->setTimeout(0);
         state.pc = state.prevPC;
         terminateState(state);
+        return false;
       }
       addConstraint(state, mc);
 
@@ -424,7 +425,29 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       // constrain the ptr to point to it.
       if (sp.second != nullptr) {
 
+        // pointer may not be null
+        std::vector<const MemoryObject*> listMOs;
         Type *subtype = type->getPointerElementType()->getPointerElementType();
+
+        std::string type_desc;
+        llvm::raw_string_ostream rso(type_desc);
+        subtype->print(rso);
+        type_desc = rso.str();
+
+        // consider any existing objects in memory of the same type
+        sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
+        for (auto existing : listMOs) {
+//          std::string name = existing->name;
+//          if (name == "*group") {
+//            outs() << "break\n";
+//          }
+          ref<Expr> ptr = existing->getBaseExpr();
+          ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+          StatePair new_sp = fork(*sp.second, eq, false);
+          sp.second = new_sp.second;
+        }
+
+        // finally, try with a new object
         MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                           '*' + mo->name, 0, lazyAllocationCount);
 
@@ -492,6 +515,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
         solver->setTimeout(0);
         state.pc = state.prevPC;
         terminateState(state);
+        return false;
       }
       addConstraint(state, mc);
 
@@ -1027,13 +1051,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   initState->ptreeNode = processTree->root;
 
   states.insert(initState);
-  if (debug_value != 0) {
-//    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::DFS);
-    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-  } else {
-    searcher = constructUserSearcher(*this, Searcher::CoreSearchType::BFS);
-  }
-
+  searcher = constructUserSearcher(*this);
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 

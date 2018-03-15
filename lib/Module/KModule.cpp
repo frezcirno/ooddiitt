@@ -563,6 +563,8 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
   std::set<const Function *> fns_ptr_relation;
   std::set<const Function *> fns_ptr_equality;
   std::set<const Function *> fns_ptr_equal_non_null_const;
+  std::set<const Function *> fns_ptr_to_int;
+  std::set<const Function *> fns_int_to_ptr;
 
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
@@ -593,7 +595,8 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
       bool is_implicit_major = false;
       for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
         const Instruction *i = &(*iit);
-        if (i->getOpcode() == Instruction::Call) {
+        unsigned opcode = i->getOpcode();
+        if (opcode == Instruction::Call) {
 
           const CallSite cs(const_cast<Instruction*>(i));
 
@@ -624,27 +627,33 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
               is_implicit_major = true;
             }
           }
-        } else if (OutputStatic && i->getOpcode() == Instruction::ICmp) {
+        } else if (OutputStatic) {
+          if (opcode == Instruction::ICmp) {
 
-          const CmpInst *ci = cast<CmpInst>(i);
-          const Value *arg0 = ci->getOperand(0);
-          const Value *arg1 = ci->getOperand(1);
+            const CmpInst *ci = cast<CmpInst>(i);
+            const Value *arg0 = ci->getOperand(0);
+            const Value *arg1 = ci->getOperand(1);
 
-          if (arg0->getType()->isPointerTy()) {
-            if (ci->isEquality()) {
-              const Constant *carg0 = dyn_cast<Constant>(arg0);
-              const Constant *carg1 = dyn_cast<Constant>(arg1);
-              if ((carg0 == nullptr) && (carg1 == nullptr)) {
-                fns_ptr_equality.insert(fn);
-              } else {
-                if (((carg0 != nullptr) && !carg0->isNullValue()) ||
-                    ((carg1 != nullptr) && !carg1->isNullValue())) {
-                  fns_ptr_equal_non_null_const.insert(fn);
+            if (arg0->getType()->isPointerTy()) {
+              if (ci->isEquality()) {
+                const Constant *carg0 = dyn_cast<Constant>(arg0);
+                const Constant *carg1 = dyn_cast<Constant>(arg1);
+                if ((carg0 == nullptr) && (carg1 == nullptr)) {
+                  fns_ptr_equality.insert(fn);
+                } else {
+                  if (((carg0 != nullptr) && !carg0->isNullValue()) ||
+                      ((carg1 != nullptr) && !carg1->isNullValue())) {
+                    fns_ptr_equal_non_null_const.insert(fn);
+                  }
                 }
+              } else {
+                fns_ptr_relation.insert(fn);
               }
-            } else {
-              fns_ptr_relation.insert(fn);
             }
+          } else if (opcode == Instruction::PtrToInt) {
+            fns_ptr_to_int.insert(fn);
+          } else if(opcode == Instruction::IntToPtr) {
+            fns_int_to_ptr.insert(fn);
           }
         }
       }
@@ -723,6 +732,8 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
       EmitFunctionSet(os, "ptr_equality", fns_ptr_equality, counter);
       EmitFunctionSet(os, "ptr_relation", fns_ptr_relation, counter);
       EmitFunctionSet(os, "ptr_equal_non_null", fns_ptr_equal_non_null_const, counter);
+      EmitFunctionSet(os, "ptr_to_int", fns_ptr_to_int, counter);
+      EmitFunctionSet(os, "ptr_int_to_ptr", fns_int_to_ptr, counter);
 
       if (counter > 0) {
         *os << "\n";
