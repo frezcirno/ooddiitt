@@ -58,12 +58,19 @@
 #include "llvm/IR/Instruction.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
-
+#include <getopt.h>
 
 #include "llvm/IR/Instructions.h"
 
 using namespace llvm;
 using namespace klee;
+using std::vector;
+using std::map;
+using std::set;
+using std::deque;
+using std::string;
+using std::pair;
+using std::make_pair;
 
 namespace {
   enum SwitchImplType {
@@ -72,7 +79,7 @@ namespace {
     eSwitchTypeInternal
   };
 
-  cl::list<std::string>
+  cl::list<string>
   MergeAtExit("merge-at-exit");
     
   cl::opt<bool>
@@ -113,20 +120,21 @@ KModule::KModule(Module *_module)
 #else
     targetData(new DataLayout(module)),
 #endif
-    kleeMergeFn(0),
-    infos(0),
-    constantTable(0) {
+    kleeMergeFn(nullptr),
+    infos(nullptr),
+    constantTable(nullptr),
+    entry_point(nullptr) {
 }
 
 KModule::~KModule() {
   delete[] constantTable;
   delete infos;
 
-  for (std::vector<KFunction*>::iterator it = functions.begin(), 
+  for (vector<KFunction*>::iterator it = functions.begin(),
          ie = functions.end(); it != ie; ++it)
     delete *it;
 
-  for (std::map<llvm::Constant*, KConstant*>::iterator it=constantMap.begin(),
+  for (map<llvm::Constant*, KConstant*>::iterator it=constantMap.begin(),
       itE=constantMap.end(); it!=itE;++it)
     delete it->second;
 
@@ -137,17 +145,17 @@ KModule::~KModule() {
 /***/
 
 namespace llvm {
-extern void Optimize(Module *, const std::string &EntryPoint);
+extern void Optimize(Module *, const string &EntryPoint);
 }
 
 // what a hack
 static Function *getStubFunctionForCtorList(Module *m,
                                             GlobalVariable *gv, 
-                                            std::string name) {
+                                            string name) {
   assert(!gv->isDeclaration() && !gv->hasInternalLinkage() &&
          "do not support old LLVM style constructor/destructor lists");
   
-  std::vector<LLVM_TYPE_Q Type*> nullary;
+  vector<LLVM_TYPE_Q Type*> nullary;
 
   Function *fn = Function::Create(FunctionType::get(Type::getVoidTy(m->getContext()),
 						    nullary, false),
@@ -222,7 +230,7 @@ static void forceImport(Module *m, const char *name, LLVM_TYPE_Q Type *retType,
     va_list ap;
 
     va_start(ap, retType);
-    std::vector<LLVM_TYPE_Q Type *> argTypes;
+    vector<LLVM_TYPE_Q Type *> argTypes;
     while (LLVM_TYPE_Q Type *t = va_arg(ap, LLVM_TYPE_Q Type*))
       argTypes.push_back(t);
     va_end(ap);
@@ -233,7 +241,7 @@ static void forceImport(Module *m, const char *name, LLVM_TYPE_Q Type *retType,
 #endif
 
 
-void KModule::addInternalFunction(std::string functionName) {
+void KModule::addInternalFunction(string functionName) {
   Function* internalFunction = module->getFunction(functionName);
   if (!internalFunction) {
     KLEE_DEBUG(klee_warning(
@@ -254,7 +262,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   LLVMContext &ctx = module->getContext();
 
   // gather a list of original module functions
-  std::set<const Function *> orig_functions;
+  set<const Function *> orig_functions;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
     if (!fn->isDeclaration()) {
@@ -267,15 +275,15 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     if (!mergeFn) {
       LLVM_TYPE_Q llvm::FunctionType *Ty = 
         FunctionType::get(Type::getVoidTy(ctx),
-                          std::vector<LLVM_TYPE_Q Type*>(), false);
+                          vector<LLVM_TYPE_Q Type*>(), false);
       mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage,
 				 "klee_merge",
 				 module);
     }
 
-    for (cl::list<std::string>::iterator it = MergeAtExit.begin(), 
+    for (cl::list<string>::iterator it = MergeAtExit.begin(),
            ie = MergeAtExit.end(); it != ie; ++it) {
-      std::string &name = *it;
+      string &name = *it;
       Function *f = module->getFunction(name);
       if (!f) {
         klee_error("cannot insert merge-at-exit for: %s (cannot find)",
@@ -360,7 +368,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
 
 
   SmallString<128> LibPath(opts.LibraryDir);
-  std::string intrinsicLib = "kleeRuntimeIntrinsic";
+  string intrinsicLib = "kleeRuntimeIntrinsic";
   Expr::Width width = targetData->getPointerSizeInBits();
 
   if (width == Expr::Int32) {
@@ -435,7 +443,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
         if (StructType *st = dyn_cast<StructType>(type)) {
 
           if (st->hasName()) {
-            std::string name = st->getName();
+            string name = st->getName();
             if (struct_cnt++ > 0)
               *os << ",";
 
@@ -505,12 +513,12 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     }
 
     functions.push_back(kf);
-    functionMap.insert(std::make_pair(fn, kf));
+    functionMap.insert(make_pair(fn, kf));
   }
 
   /* Compute various interesting properties */
 
-  for (std::vector<KFunction*>::iterator it = functions.begin(), 
+  for (vector<KFunction*>::iterator it = functions.begin(),
          ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     if (functionEscapes(kf->function))
@@ -519,7 +527,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
 
   if (DebugPrintEscapingFunctions && !escapingFunctions.empty()) {
     llvm::errs() << "KLEE: escaping functions: [";
-    for (std::set<Function*>::iterator it = escapingFunctions.begin(), 
+    for (set<Function*>::iterator it = escapingFunctions.begin(),
          ie = escapingFunctions.end(); it != ie; ++it) {
       llvm::errs() << (*it)->getName() << ", ";
     }
@@ -527,11 +535,11 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   }
 }
 
-void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
+void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList,
                                      const BasicBlock *entry) {
 
-  std::set<const BasicBlock*> visited;
-  std::deque<const BasicBlock*> worklist;
+  set<const BasicBlock*> visited;
+  deque<const BasicBlock*> worklist;
 
   sortedList.clear();
 
@@ -555,22 +563,25 @@ void KModule::constructSortedBBlocks(std::vector<const BasicBlock*> &sortedList,
   }
 }
 
-void KModule::prepareMarkers(InterpreterHandler *ih) {
+void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
 
   outs() << "analyzing functions ... ";
   outs().flush();
 
-  std::set<const Function *> fns_ptr_relation;
-  std::set<const Function *> fns_ptr_equality;
-  std::set<const Function *> fns_ptr_equal_non_null_const;
-  std::set<const Function *> fns_ptr_to_int;
-  std::set<const Function *> fns_int_to_ptr;
+  set<const Function *> fns_ptr_relation;
+  set<const Function *> fns_ptr_equality;
+  set<const Function *> fns_ptr_equal_non_null_const;
+  set<const Function *> fns_ptr_to_int;
+  set<const Function *> fns_int_to_ptr;
 
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
-    std::string fn_name = fn->getName().str();
+    string fn_name = fn->getName().str();
+    if (fn_name == entry_name) {
+      entry_point = kf;
+    }
 
     if (isInternalFunction(fn)) {
       continue;
@@ -584,14 +595,14 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
     }
 
     // now step through each of the functions basic blocks
-    std::set<const BasicBlock *>majorMarkerList;
+    set<const BasicBlock *>majorMarkerList;
     for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
       const BasicBlock &bb = *bbit;
 
       // look through each instruction of the bb looking for function calls
       // use reverse iterator so we find the first bbid last (single bb function will have two)
-      std::vector<unsigned> bbIDs;
-      std::set<unsigned> majorIDs;
+      vector<unsigned> bbIDs;
+      set<unsigned> majorIDs;
       bool is_implicit_major = false;
       for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
         const Instruction *i = &(*iit);
@@ -603,7 +614,7 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
           Function *called = getTargetFunction(cs.getCalledValue());
           if (called != nullptr) {
 
-            std::string calledName = called->getName();
+            string calledName = called->getName();
 
             // check the name, number of arguments, and the return type
             if (((calledName == "MARK") || (calledName == "mark")) &&
@@ -722,6 +733,7 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
 
   if (OutputStatic) {
 
+    // save a json formatted record of found pointer relations
     llvm::raw_fd_ostream *os = ih->openOutputFile("ptr_relations.json", true);
     if (os != nullptr) {
 
@@ -741,12 +753,51 @@ void KModule::prepareMarkers(InterpreterHandler *ih) {
       *os << "}\n";
       delete os;
     }
+
+    // save a json formatted record of bb distance from program start to each bb (identified by marker)
+    if ((entry_point != nullptr) && !entry_point->sortedBBlocks.empty()) {
+
+      map<const BasicBlock *, unsigned> mapDistance;
+      calcMarkerDistances(entry_point, mapDistance);
+
+      // save to json output file
+    }
+  }
+}
+
+void KModule::calcMarkerDistances(const KFunction *entry, std::map<const llvm::BasicBlock*,unsigned> &mapDist) {
+
+  assert(entry != nullptr);
+  mapDist.clear();
+
+  if (!entry->sortedBBlocks.empty()) {
+
+    // RLR TODO: need an answer to this
+#if 0 == 1
+    // BFS through the inter-procedural CFG starting at main
+    const BasicBlock *entryBB = entry->sortedBBlocks.front();
+    const Instruction *i = &entryBB->front();
+
+    deque<const BasicBlock*> worklist;
+    set<const BasicBlock*> visited;
+    vector<pair<const KFunction*,const Instruction*> > fn_stack;
+    unsigned distance = 0;
+
+    worklist.push_back(entryBB);
+    fn_stack.push_back(make_pair(entry, i));
+
+    while (!worklist.empty()) {
+      const BasicBlock *bb = worklist.front();
+      worklist.pop_front();
+      visited.insert(bb);
+    }
+#endif
   }
 }
 
 void KModule::EmitFunctionSet(llvm::raw_fd_ostream *os,
-                              std::string key,
-                              std::set<const Function*> fns,
+                              string key,
+                              set<const Function*> fns,
                               unsigned &counter_keys) {
 
   if (!fns.empty()) {
@@ -788,10 +839,10 @@ Function *KModule::getTargetFunction(Value *value) const {
 }
 
 KConstant* KModule::getKConstant(Constant *c) {
-  std::map<llvm::Constant*, KConstant*>::iterator it = constantMap.find(c);
+  map<llvm::Constant*, KConstant*>::iterator it = constantMap.find(c);
   if (it != constantMap.end())
     return it->second;
-  return NULL;
+  return nullptr;
 }
 
 unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
@@ -801,7 +852,7 @@ unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
 
   unsigned id = constants.size();
   kc = new KConstant(c, id, ki);
-  constantMap.insert(std::make_pair(c, kc));
+  constantMap.insert(make_pair(c, kc));
   constants.push_back(c);
   return id;
 }
@@ -817,7 +868,7 @@ KConstant::KConstant(llvm::Constant* _ct, unsigned _id, KInstruction* _ki) {
 /***/
 
 static int getOperandNum(Value *v,
-                         std::map<Instruction*, unsigned> &registerMap,
+                         map<Instruction*, unsigned> &registerMap,
                          KModule *km,
                          KInstruction *ki) {
   if (Instruction *inst = dyn_cast<Instruction>(v)) {
@@ -851,7 +902,7 @@ KFunction::KFunction(llvm::Function *_function,
 
   instructions = new KInstruction*[numInstructions];
 
-  std::map<Instruction*, unsigned> registerMap;
+  map<Instruction*, unsigned> registerMap;
 
   // The first arg_size() registers are reserved for formals.
   unsigned rnum = numArgs;
@@ -1076,7 +1127,7 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
   }
 }
 
-void KFunction::findContainingLoops(const llvm::BasicBlock *bb, std::vector<const BasicBlock*> &hdrs) {
+void KFunction::findContainingLoops(const llvm::BasicBlock *bb, vector<const BasicBlock*> &hdrs) {
 
   hdrs.clear();
 

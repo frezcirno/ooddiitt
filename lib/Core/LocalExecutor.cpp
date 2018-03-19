@@ -437,14 +437,12 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         // consider any existing objects in memory of the same type
         sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
         for (auto existing : listMOs) {
-//          std::string name = existing->name;
-//          if (name == "*group") {
-//            outs() << "break\n";
-//          }
-          ref<Expr> ptr = existing->getBaseExpr();
-          ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-          StatePair new_sp = fork(*sp.second, eq, false);
-          sp.second = new_sp.second;
+          if (existing->kind == MemKind::lazy) {
+            ref<Expr> ptr = existing->getBaseExpr();
+            ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+            StatePair new_sp = fork(*sp.second, eq, false);
+            sp.second = new_sp.second;
+          }
         }
 
         // finally, try with a new object
@@ -676,7 +674,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
 
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
-  kmodule->prepareMarkers(interpreterHandler);
+  kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
 
   // prepare a generic initial state
   germinalState = new ExecutionState();
