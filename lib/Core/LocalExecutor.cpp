@@ -287,9 +287,9 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
         // RLR TODO: debug
 
         // if not max, then what?
-        ref<ConstantExpr> ce;
-        solver->getValue(state, e, ce);
-        auto pr = solver->getRange(state, e);
+//        ref<ConstantExpr> ce;
+//        solver->getValue(state, e, ce);
+//        auto pr = solver->getRange(state, e);
 
 
 //        errs() << "Here!\n";
