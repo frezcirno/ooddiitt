@@ -87,6 +87,7 @@ ExecutionState::ExecutionState() :
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
+    exited(false),
     startingMarker(0),
     endingMarker(0)
 { }
@@ -124,6 +125,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    exited(state.exited),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace)
@@ -189,6 +191,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    exited(state.exited),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace)

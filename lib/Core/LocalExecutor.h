@@ -61,7 +61,6 @@ protected:
   void runFn(KFunction *kf, ExecutionState &initialState);
   void runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths);
   HaltReason runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
-  void markUnreachable(const std::vector<unsigned> &ids);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
@@ -131,24 +130,26 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
-  virtual void terminateState(ExecutionState &state);
+  void terminateState(ExecutionState &state) override;
+  void terminateStateOnExit(ExecutionState &state) override;
   virtual const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const;
-  virtual void updateStates(ExecutionState *current);
-  virtual void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
+  void updateStates(ExecutionState *current) override;
+  void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
   void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
-  bool coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const;
-  bool coversRemainingPath(const ExecutionState *state, bool extends) const {
-    return coversPath(m2m_pathsRemaining, state, extends);
-  }
-  bool coversUnreachablePath(const ExecutionState *state, bool extends) const {
-    return coversPath(m2m_pathsUnreachable, state, extends);
-  }
-
-  void removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state);
+  bool coversPath(const m2m_paths_t &paths, const ExecutionState *state) const;
+//  bool coversRemainingPath(const ExecutionState *state, bool extends) const {
+//    return coversPath(m2m_pathsRemaining, state, extends);
+//  }
+//  bool coversUnreachablePath(const ExecutionState *state, bool extends) const {
+//    return coversPath(m2m_pathsUnreachable, state, extends);
+//  }
+//
+//  void markUnreachable(const std::vector<unsigned> &ids);
+  void updateCoveredPaths(const ExecutionState *state);
 
   void InspectSymbolicSolutions(const ExecutionState *state);
 
@@ -163,9 +164,10 @@ protected:
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
-  m2m_paths_t m2m_pathsUnreachable;
-  ExecutionStates m2m_pathsTerminatedStates;
-  m2m_paths_t m2m_pathsCoveredByTerminated;
+  m2m_paths_t m2m_pathsCovered;
+//  m2m_paths_t m2m_pathsUnreachable;
+  ExecutionStates stowedStates;
+//  m2m_paths_t m2m_pathsCoveredByTerminated;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;

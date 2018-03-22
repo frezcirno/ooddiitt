@@ -173,6 +173,7 @@ public:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
+  bool exited;
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;

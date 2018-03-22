@@ -872,46 +872,50 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   outs() << initialState.name << ":\n";
   outs().flush();
 
-  unsigned num_m2m_paths = (unsigned) kf->m2m_paths.size();
+  m2m_pathsRemaining = kf->m2m_paths;
+  m2m_pathsCovered.clear();
   runPaths(kf, initialState, kf->m2m_paths);
 
   // check to see if a terminated state will cover
   // one of the unreachable m2m blocks
-  for (auto state : m2m_pathsTerminatedStates) {
-    if (coversUnreachablePath(state, true)) {
+  for (auto state : stowedStates) {
+    if (coversPath(m2m_pathsRemaining, state)) {
+
       state->endingMarker = state->markers.back().id;
       interpreterHandler->processTestCase(*state);
-      removeCoveredPaths(m2m_pathsUnreachable, state);
+      updateCoveredPaths(state);
     }
     delete state;
   }
-  m2m_pathsTerminatedStates.clear();
+  stowedStates.clear();
 
-  if (num_m2m_paths > 0) {
-    outs() << "    " << num_m2m_paths - m2m_pathsUnreachable.size();
-    outs() << " of " << num_m2m_paths << " m2m paths covered";
+  assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
+  outs() << "    " << m2m_pathsCovered.size();
+  outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
 
-    if (m2m_pathsUnreachable.empty()) {
-      outs() << "\n";
-    } else {
-      outs() << ", missing:\n";
+#if 0 == 1
+  if (m2m_pathsUnreachable.empty()) {
+    outs() << "\n";
+  } else {
+    outs() << ", missing:\n";
 
-      for (const m2m_path_t &path : m2m_pathsUnreachable) {
+    for (const m2m_path_t &path : m2m_pathsUnreachable) {
 
-        bool first = true;
-        outs() << "      [";
-        for (const unsigned &marker : path) {
-          if (!first) outs() << ", ";
-          first = false;
-          outs() << marker;
-        }
-        outs() << "]\n";
+      bool first = true;
+      outs() << "      [";
+      for (const unsigned &marker : path) {
+        if (!first) outs() << ", ";
+        first = false;
+        outs() << marker;
       }
+      outs() << "]\n";
     }
   }
+#endif
   outs().flush();
 }
 
+#if 0 == 1
 void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
 
   // remove any m2m-paths starting with an id for startBB
@@ -930,6 +934,7 @@ void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
     }
   }
 }
+#endif
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
 
@@ -938,79 +943,20 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
   // optimization and such.
   initTimers();
 
-  m2m_pathsRemaining = paths;
-  m2m_pathsUnreachable.clear();
-  m2m_pathsCoveredByTerminated.clear();
-  BasicBlocks priorStartingBBs;
+  // reverse the worklist so we are poping from back
+  std::vector<const llvm::BasicBlock*> worklist = kf->sortedBBlocks;
+  std::reverse(worklist.begin(), worklist.end());
 
-  while (!m2m_pathsRemaining.empty() && !haltExecution) {
+  while (!m2m_pathsRemaining.empty() && !worklist.empty() && !haltExecution) {
 
-    const BasicBlock *startBB = nullptr;
-
-    // if we haven't started before, then start with the entry block
-    if (priorStartingBBs.empty()) {
-
-      startBB = &kf->function->getEntryBlock();
-
-    } else {
-
-      // select starting bb at head of a remaining path
-      // closest to fn entry
-      std::set<const BasicBlock *> heads;
-      for (const m2m_path_t &path : m2m_pathsRemaining) {
-        heads.insert(kf->mapBBlocks[path.front() % 1000]);
-      }
-
-      unsigned closest = UINT_MAX;
-      for (const BasicBlock *bb : heads) {
-        unsigned distance = kf->getBBIndex(bb);
-        if (distance < closest) {
-          startBB = bb;
-          closest = distance;
-        }
-      }
+    const BasicBlock *startBB = worklist.back();
+    worklist.pop_back();
+    if (startBB != &kf->function->getEntryBlock()) {
+      outs() << "    starting from: " << kf->mapMarkers[startBB].front() << "\n";
     }
 
-    const BasicBlock *adj_startBB = startBB;
-    // already started from this BB once before
-
-    std::deque<const BasicBlock *> worklist;
-    while (adj_startBB != nullptr && (priorStartingBBs.count(adj_startBB) > 0)) {
-
-      BasicBlocks preds;
-      kf->getPredecessorBBs(adj_startBB, preds);
-      for (const BasicBlock *pred : preds) {
-        worklist.push_back(pred);
-      }
-
-      if (!worklist.empty()) {
-        adj_startBB = worklist.front();
-        worklist.pop_front();
-      } else {
-        adj_startBB = nullptr;
-      }
-    }
-
-    if (adj_startBB != nullptr) {
-      outs() << "  Starting from: ";
-      if (adj_startBB == &kf->function->getEntryBlock()) {
-        outs() << "entry\n";
-      } else {
-        outs() << kf->mapMarkers[adj_startBB].front() << "\n";
-      }
-      priorStartingBBs.insert(adj_startBB);
-      if (runFrom(kf, initialState, adj_startBB) != HaltReason::InvalidExpr) {
-
-        // ok or timeout.  in either case,
-        // paths starting at startBB are unreachable.
-        // remove any m2m-paths starting with an id for startBB
-        markUnreachable(kf->mapMarkers[startBB]);
-      }
-    } else {
-      // unable to find an alternative starting point for startBB
-      // therefore, these paths must be unreachable
-      markUnreachable(kf->mapMarkers[startBB]);
-    }
+    // RLR TODO: only if a remaining path is reachable
+    runFrom(kf, initialState, startBB);
   }
 }
 
@@ -1114,31 +1060,15 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-  if (!state.isProcessed) {
-    // did not generate a test case.  if it covers an remaining path
-    // save it for possible generation later
-
-    m2m_path_t trace;
-    state.markers.m2m_path(trace);
-    unsigned trace_length = (unsigned) trace.size();
-    for (const auto &path : m2m_pathsRemaining) {
-      auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-      if (found != trace.end()) {
-        unsigned path_length = (unsigned) path.size();
-        unsigned offset = (unsigned) (found - trace.begin());
-        if (trace_length - offset > path_length) {
-
-          // this state did cover past an remained path
-          if (m2m_pathsCoveredByTerminated.count(path) == 0) {
-            m2m_pathsCoveredByTerminated.insert(path);
-            m2m_pathsTerminatedStates.insert(new ExecutionState(state));
-          }
-        }
-      }
-    }
+  if ((!state.exited) && coversPath(m2m_pathsRemaining, &state)) {
+    stowedStates.insert(new ExecutionState(state));
   }
-
   Executor::terminateState(state);
+}
+
+void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
+  state.exited = true;
+  Executor::terminateStateOnExit(state);
 }
 
 void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
@@ -1212,58 +1142,48 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::removeCoveredPaths(m2m_paths_t &paths, const ExecutionState *state) {
+void LocalExecutor::updateCoveredPaths(const ExecutionState *state) {
 
   m2m_path_t trace;
   state->markers.m2m_path(trace);
-  for (auto itr = paths.begin(), end = paths.end(); itr != end;) {
+  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
     const m2m_path_t &path = *itr;
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
     if (found == trace.end()) {
       ++itr;
     } else {
-      itr = paths.erase(itr);
+      m2m_pathsCovered.insert(path);
+      itr = m2m_pathsRemaining.erase(itr);
     }
   }
 }
-
 
 void LocalExecutor::updateStates(ExecutionState *current) {
 
   for (auto state : removedStates) {
     if (state->isProcessed) {
-      removeCoveredPaths(m2m_pathsRemaining, state);
+      updateCoveredPaths(state);
     }
   }
   Executor::updateStates(current);
 }
 
-bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *state, bool extends) const {
+bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *state) const {
 
   m2m_path_t trace;
   state->markers.m2m_path(trace);
-  unsigned trace_length = (unsigned) trace.size();
   for (const auto &path : paths) {
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
     if (found != trace.end()) {
-      if (extends) {
-        unsigned path_length = (unsigned) path.size();
-        unsigned offset = (unsigned) (found - trace.begin());
-        if (trace_length - offset > path_length) {
-          return true;
-        }
-      } else {
-
-        // matches a remaining path, so keep the test case
-        return true;
-      }
+      // the trace contains a matching path
+      return true;
     }
   }
   return false;
 }
 
 bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
-  return coversRemainingPath(&state, false) || coversUnreachablePath(&state, true);
+  return coversPath(m2m_pathsRemaining, &state);
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
