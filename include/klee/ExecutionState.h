@@ -178,6 +178,7 @@ public:
   unsigned endingMarker;
   unsigned long stateSignature;
   std::deque<unsigned> trace;
+  bool areSubfunctionsStubbed;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

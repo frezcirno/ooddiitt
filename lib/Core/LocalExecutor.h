@@ -121,7 +121,7 @@ protected:
                          std::string name,
                          WObjectPair &wop);
 
-  void initializeGlobalValues(ExecutionState &state);
+  void initializeGlobalValues(ExecutionState &state, llvm::Function *fn);
   void unconstrainGlobals(ExecutionState &state, llvm::Function *fn, unsigned counter);
   bool isUsherType(const llvm::Type *type) const;
 
@@ -165,15 +165,12 @@ protected:
   unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsCovered;
-//  m2m_paths_t m2m_pathsUnreachable;
   ExecutionStates stowedStates;
-//  m2m_paths_t m2m_pathsCoveredByTerminated;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
   unsigned seMaxTime;
   unsigned maxStatesInLoop;
-
   ExecutionState *germinalState;
 };
 

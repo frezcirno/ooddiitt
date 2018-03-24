@@ -261,6 +261,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
     executor.addTimer(new UpdateReachableTimer(this), UncoveredUpdateInterval);
   }
 
+  // RLR TODO: why?
   if (OutputIStats) {
     istatsFile = executor.interpreterHandler->openOutputFile("run.istats");
     assert(istatsFile && "unable to open istats file");

@@ -18,7 +18,7 @@ set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(lcl-klee ${KLEE_LIBS})
+target_link_libraries(lcl-klee ${KLEE_LIBS} ${Boost_LIBRARIES})
 
 install(TARGETS lcl-klee RUNTIME DESTINATION bin)
 

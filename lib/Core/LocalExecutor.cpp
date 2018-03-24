@@ -648,7 +648,7 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
-void LocalExecutor::initializeGlobalValues(ExecutionState &state) {
+void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) {
 
   for (Module::const_global_iterator itr = kmodule->module->global_begin(),
        end = kmodule->module->global_end();
@@ -657,7 +657,7 @@ void LocalExecutor::initializeGlobalValues(ExecutionState &state) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string name = mo->name;
-    if ((name.size() > 0) && (name.at(0) != '.') && progInfo->isGlobalInput(state.name, name)) {
+    if ((name.size() > 0) && (name.at(0) != '.') && (fn == nullptr || progInfo->isGlobalInput(fn->getName().str(), name))) {
       makeSymbolic(state, mo);
     } else if (v->hasInitializer()) {
       assert(state.isConcrete(mo));
@@ -676,12 +676,20 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
 
+// RLR TODO: not sure why I included this
+//  if ((statsTracker == nullptr) && (!opts.StubSubFunctions)) {
+//    statsTracker = new StatsTracker(*this,
+//                                    interpreterHandler->getOutputFilename("assembly.ll"),
+//                                    true);
+//  }
+
   // prepare a generic initial state
   germinalState = new ExecutionState();
   germinalState->maxLoopIteration = maxLoopIteration;
   germinalState->lazyAllocationCount = lazyAllocationCount;
   germinalState->maxLazyDepth = maxLazyDepth;
   germinalState->maxLoopForks = maxLoopForks;
+  germinalState->areSubfunctionsStubbed = kmodule->stubSubfunctions();
 
   initializeGlobals(*germinalState);
   bindModuleConstants();
@@ -725,7 +733,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   if (statsTracker)
     statsTracker->framePushed(*state, 0);
 
-  initializeGlobalValues(*state);
+  initializeGlobalValues(*state, f);
 
   // create parameter values
   unsigned index = 0;
@@ -756,14 +764,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
   runFn(kf, *state);
 }
 
-void LocalExecutor::runFunctionAsMain(Function *f,
-                                      int argc,
-                                      char **argv,
-                                      char **envp) {
+void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
 
-  assert(false && "calls to runFunctionAsMain deprecated");
-
-#ifdef NEVER
 
   std::vector<ref<Expr> > arguments;
 
@@ -811,16 +813,17 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     }
   }
   
-  ExecutionState *state = new ExecutionState(kf, name);
+  ExecutionState *state = new ExecutionState(*germinalState, kf, name);
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
   if (symPathWriter)
     state->symPathOS = symPathWriter->open();
-
   if (statsTracker)
-    statsTracker->framePushed(*state, 0);
-  
+    statsTracker->framePushed(*state, nullptr);
+
+  initializeGlobalValues(*state, nullptr);
+
   assert(arguments.size() == f->arg_size() && "wrong number of arguments");
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
     bindArgument(kf, i, *state, arguments[i]);
@@ -850,11 +853,11 @@ void LocalExecutor::runFunctionAsMain(Function *f,
     }
   }
   
-  run(kf, *state);
+  runFn(kf, *state);
   
   // hack to clear memory objects
   delete memory;
-  memory = new MemoryManager(NULL);
+  memory = new MemoryManager(nullptr);
 
   // clean up global objects
   legalFunctions.clear();
@@ -864,35 +867,43 @@ void LocalExecutor::runFunctionAsMain(Function *f,
   if (statsTracker)
     statsTracker->done();
 
-#endif
 }
   
 void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
 
-  outs() << initialState.name << ":\n";
+  Function *fn = kf->function;
+  outs() << fn->getName().str() << ":\n";
   outs().flush();
 
-  m2m_pathsRemaining = kf->m2m_paths;
-  m2m_pathsCovered.clear();
-  runPaths(kf, initialState, kf->m2m_paths);
+  // Delay init till now so that ticks don't accrue during
+  // optimization and such.
+  initTimers();
 
-  // check to see if a terminated state will cover
-  // one of the unreachable m2m blocks
-  for (auto state : stowedStates) {
-    if (coversPath(m2m_pathsRemaining, state)) {
+  if (!kmodule->stubSubfunctions()) {
+    runFrom(kf, initialState, &fn->getEntryBlock());
+  } else {
 
-      state->endingMarker = state->markers.back().id;
-      interpreterHandler->processTestCase(*state);
-      updateCoveredPaths(state);
+    m2m_pathsRemaining = kf->m2m_paths;
+    m2m_pathsCovered.clear();
+    runPaths(kf, initialState, kf->m2m_paths);
+
+    // check to see if a terminated state will cover
+    // one of the unreachable m2m blocks
+    for (auto state : stowedStates) {
+      if (coversPath(m2m_pathsRemaining, state)) {
+
+        state->endingMarker = state->markers.back().id;
+        interpreterHandler->processTestCase(*state);
+        updateCoveredPaths(state);
+      }
+      delete state;
     }
-    delete state;
+    stowedStates.clear();
+
+    assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
+    outs() << "    " << m2m_pathsCovered.size();
+    outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
   }
-  stowedStates.clear();
-
-  assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
-  outs() << "    " << m2m_pathsCovered.size();
-  outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
-
 #if 0 == 1
   if (m2m_pathsUnreachable.empty()) {
     outs() << "\n";
@@ -938,10 +949,7 @@ void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
 
-
-  // Delay init till now so that ticks don't accrue during
-  // optimization and such.
-  initTimers();
+  // RLR TODO: this is old
 
   // reverse the worklist so we are poping from back
   std::vector<const llvm::BasicBlock*> worklist = kf->sortedBBlocks;
@@ -1005,7 +1013,11 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   uint64_t stopTime = seMaxTime == 0 ? UINT64_MAX : startTime + seMaxTime;
   HaltReason halt = HaltReason::OK;
 
-  while (!states.empty() && !m2m_pathsRemaining.empty() && !haltExecution && (halt == HaltReason::OK)) {
+  while (!states.empty()) {
+
+    if (haltExecution || halt != HaltReason::OK) break;
+    if (kmodule->stubSubfunctions() && m2m_pathsRemaining.empty()) break;
+
     ExecutionState &state = searcher->selectState();
 
     KInstruction *ki = state.pc;
@@ -1183,7 +1195,9 @@ bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *s
 }
 
 bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
-  return coversPath(m2m_pathsRemaining, &state);
+  // this is also old
+//  return coversPath(m2m_pathsRemaining, &state);
+  return true;
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
@@ -1409,13 +1423,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
-      // if this is a special function, let
-      // the standard executor handle it
-      if (specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
-        Executor::executeInstruction(state, ki);
-        return;
-      }
-
       // if this is a call to a mark() variant, then log the marker to state
       // ':' is an invalid marker type
       char marker_type = ':';
@@ -1440,12 +1447,26 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       }
 
+      // RLR TODO: removed guide
+#if 0 == 1
       // if this is a call to guide, just return 2nd argument
       if ((fnName == "guide" && (cs.arg_size() == 2))) {
         ref<Expr> retExpr = eval(ki, 2, state).value;
         bindLocal(ki, state, retExpr);
         return;
       }
+#endif
+
+      // if subfunctions are not stubbed, this is a special function, or
+      // this is an internal klee fuction, then let the standard executor handle it
+      if ((!kmodule->stubSubfunctions()) ||
+          specialFunctionHandler->isSpecial(fn) ||
+          kmodule->isInternalFunction(fn)) {
+        Executor::executeInstruction(state, ki);
+        return;
+      }
+
+      // will be simulating a stubbed subfunction.
 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;

@@ -185,6 +185,7 @@ namespace klee {
 
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;
+    bool stub_subfns;
     KFunction *entry_point;
 
   public:
@@ -204,6 +205,7 @@ namespace klee {
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
+    bool stubSubfunctions() const     { return stub_subfns; }
   };
 } // End klee namespace
 

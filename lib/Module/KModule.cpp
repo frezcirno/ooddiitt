@@ -123,6 +123,7 @@ KModule::KModule(Module *_module)
     kleeMergeFn(nullptr),
     infos(nullptr),
     constantTable(nullptr),
+    stub_subfns(false),
     entry_point(nullptr) {
 }
 
@@ -260,6 +261,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
                       InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
+  stub_subfns = opts.StubSubfunctions;
 
   // gather a list of original module functions
   set<const Function *> orig_functions;

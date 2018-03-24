@@ -1,12 +1,12 @@
-#How to build lcl-klee
+# How to build lcl-klee
 
 This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building lcl-klee and its dependencies.
 
 ----------
 
-##Introduction
+## Introduction
 
-###The resulting directory structure:
+### The resulting directory structure:
 ```
 klee
 ├── org-klee
@@ -18,7 +18,7 @@ klee
 └── z3
 ```
 
-##Usefull Links:
+## Usefull Links:
 
 * [The official (but buggy) installation manual](https://klee.github.io/build-llvm34/)
 * [Build LLVM on your own](http://www.llvm.org/docs/GettingStarted.html#getting-started-quickly-a-summary)
@@ -27,35 +27,32 @@ klee
 * [STP installation manual with build options](https://github.com/stp/stp/blob/master/INSTALL.md)
 * [metaSMT-Support for KLEE](http://srg.doc.ic.ac.uk/projects/klee-multisolver/getting-started.html)
 
-##Fedora (with stow)
+## Fedora (with stow)
 
-###Notes:  
+### Notes:  
 
 some areas to update: need 32bit dev libraries, curses, run ldconfig after installing new dynamic libs. 
 On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.conf.d
 
-###Step 1: Install required tools for the build
+### Step 1: Install required tools for the build
 
 ~~~
 Packages to install:
-bison cmake curl flex git boost-devel perftools-devel ninja-build graphviz doxygen
+bison cmake curl flex git boost-devel gperftools-devel ninja-build graphviz doxygen
 
 Set the install path:
 export KLEE_DIR=/usr/local/stow/lcl-klee
 ~~~
 
-###Step 2: LLVM
+### Step 2: LLVM
 
-+-------------+---------------------------------------------------------+-------------------------------+
 | Source      | URL                                                     | Directory                     |
-+=============+=========================================================+===============================+
+|-------------|---------------------------------------------------------|-------------------------------|
 | llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
-+-------------+---------------------------------------------------------+-------------------------------+
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
-Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.x.x
+Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.0.0
 
 
 ```
@@ -77,7 +74,7 @@ ninja install
 cd ..\..
 ```
 
-###Step 3: Minisat
+### Step 3: Minisat
 
 ```
 git clone https://github.com/stp/minisat.git
@@ -95,7 +92,7 @@ ninja install
 cd ..\..
 ```
 
-###Step 4: STP
+### Step 4: STP
 
 ```
 git clone https://github.com/stp/stp.git
@@ -115,7 +112,7 @@ ninja install
 cd ../..
 ```
 
-###Step 5: Z3
+### Step 5: Z3
 
 ```
 git clone https://github.com/Z3Prover/z3.git
@@ -135,7 +132,7 @@ cd ../..
 
 Installation places a new shared object library in /usr/local/lib. Need to run `sudo ldconfig` so the os can find it.
 
-###Step 6: uclibc and the POSIX environment model
+### Step 6: uclibc and the POSIX environment model
 
 ```
 git clone https://github.com/klee/klee-uclibc.git
@@ -145,7 +142,7 @@ make -j `nproc`
 cd ..
 ```
 
-###Step 7: org-klee
+### Step 7: org-klee
 
 Original klee code for reference. Not required to build.
 
@@ -153,7 +150,7 @@ Original klee code for reference. Not required to build.
 git clone https://github.com/klee/klee.git org-klee
 ```
 
-###Step 8: lcl-klee
+### Step 8: lcl-klee
 
 ```
 git clone https://github.gatech.edu/arktos/lcl-klee.git
@@ -184,9 +181,9 @@ Final installed build in /usr/local/stow/lcl-klee. Activate by `sudo stow --dir=
 
 -----------
 
-##MacOS (with homebrew)
+## MacOS (with homebrew)
 
-###Step 1: Install required tools for the build
+### Step 1: Install required tools for the build
 
 ~~~
 Packages to install (via home brew):
@@ -196,15 +193,12 @@ Set the install path:
 export KLEE_DIR=$(brew --prefix)/Cellar/klee/1.3.0
 ~~~
 
-###Step 2: LLVM
+### Step 2: LLVM
 
-+-------------+---------------------------------------------------------+-------------------------------+
 | Source      | URL                                                     | Directory                     |
-+=============+=========================================================+===============================+
+|-------------|---------------------------------------------------------|-------------------------------|
 | llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
-+-------------+---------------------------------------------------------+-------------------------------+
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
-+-------------+---------------------------------------------------------+-------------------------------+
 
 ```
 cd llvm-3.4
@@ -223,7 +217,7 @@ ninja install
 cd ..\..
 ```
 
-###Step 3: Minisat
+### Step 3: Minisat
 
 ```
 git clone https://github.com/stp/minisat.git
@@ -240,7 +234,7 @@ ninja install
 cd ..\..
 ```
 
-###Step 4: STP
+### Step 4: STP
 
 ```
 git clone https://github.com/stp/stp.git
@@ -259,7 +253,7 @@ ninja install
 cd ../..
 ```
 
-###Step 5: Z3
+### Step 5: Z3
 
 ```
 git clone https://github.com/Z3Prover/z3.git
@@ -277,13 +271,13 @@ cd ../..
 
 ```
 
-###Step 6: org-klee
+### Step 6: org-klee
 
 ```
 git clone https://github.com/klee/klee.git org-klee
 ```
 
-###Step 7: lcl-klee
+### Step 7: lcl-klee
 
 ```
 git clone https://github.gatech.edu/arktos/lcl-klee.git

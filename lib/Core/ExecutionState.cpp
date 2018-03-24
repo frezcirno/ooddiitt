@@ -89,7 +89,8 @@ ExecutionState::ExecutionState() :
     maxLazyDepth(0),
     exited(false),
     startingMarker(0),
-    endingMarker(0)
+    endingMarker(0),
+    areSubfunctionsStubbed(false)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -128,7 +129,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     exited(state.exited),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
-    trace(state.trace)
+    trace(state.trace),
+    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -194,7 +196,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     exited(state.exited),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
-    trace(state.trace)
+    trace(state.trace),
+    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

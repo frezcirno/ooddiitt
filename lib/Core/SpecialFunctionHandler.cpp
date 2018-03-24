@@ -746,8 +746,8 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
 void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
-  assert(false && "klee_mark_global not supported");
-
+  // RLR TODO: what should this do?
+//  assert(false && "klee_mark_global not supported");
 }
 
 void SpecialFunctionHandler::handleAddOverflow(ExecutionState &state,

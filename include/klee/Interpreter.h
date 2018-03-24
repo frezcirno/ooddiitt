@@ -66,12 +66,14 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
+    bool StubSubfunctions;
 
     ModuleOptions(const std::string &_LibraryDir,
                   const std::string &_EntryPoint, bool _Optimize,
-                  bool _CheckDivZero, bool _CheckOvershift)
+                  bool _CheckDivZero, bool _CheckOvershift, bool _StubSubfunctions)
         : LibraryDir(_LibraryDir), EntryPoint(_EntryPoint), Optimize(_Optimize),
-          CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift) {}
+          CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift),
+          StubSubfunctions(_StubSubfunctions) {}
   };
 
   enum LogType
