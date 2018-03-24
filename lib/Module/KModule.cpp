@@ -1072,6 +1072,34 @@ unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
   return UINT_MAX;
 }
 
+bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
+
+  // setup for BFS traversal of CFG
+  std::set<const llvm::BasicBlock*> visited;
+  std::deque<const llvm::BasicBlock*> worklist;
+  worklist.push_front(bb);
+
+  while (!worklist.empty()) {
+
+    const llvm::BasicBlock *current = worklist.front();
+    worklist.pop_front();
+
+    visited.insert(current);
+    if (blocks.count(current) > 0) {
+      return true;
+    }
+
+    BasicBlocks succs;
+    getSuccessorBBs(current, succs);
+    for (auto succ : succs) {
+      if (visited.count(succ) == 0) {
+        worklist.push_back(succ);
+      }
+    }
+  }
+  return false;
+}
+
 void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
 
   for (auto itr = bb_path.begin(), end = bb_path.end(); itr != end; ++itr) {

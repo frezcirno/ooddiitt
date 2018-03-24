@@ -141,6 +141,8 @@ protected:
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
   bool coversPath(const m2m_paths_t &paths, const ExecutionState *state) const;
+  void getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const;
+  bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
 //  bool coversRemainingPath(const ExecutionState *state, bool extends) const {
 //    return coversPath(m2m_pathsRemaining, state, extends);
 //  }
@@ -166,6 +168,7 @@ protected:
   m2m_paths_t m2m_pathsRemaining;
   m2m_paths_t m2m_pathsCovered;
   ExecutionStates stowedStates;
+  m2m_paths_t m2m_pathsCoveredByStowed;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;

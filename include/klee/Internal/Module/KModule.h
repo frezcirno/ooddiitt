@@ -126,6 +126,7 @@ namespace klee {
     void addM2MPath(const llvm::BasicBlock *bb);
     unsigned getBBIndex(const llvm::BasicBlock *bb);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
 
 

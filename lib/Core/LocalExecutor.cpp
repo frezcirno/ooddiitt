@@ -949,21 +949,23 @@ void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
 
-  // RLR TODO: this is old
-
-  // reverse the worklist so we are poping from back
-  std::vector<const llvm::BasicBlock*> worklist = kf->sortedBBlocks;
-  std::reverse(worklist.begin(), worklist.end());
+  // create a worklist of basicblocks sorted by distance from entry
+  std::deque<const llvm::BasicBlock*> worklist;
+  for (auto bb : kf->sortedBBlocks) {
+    worklist.push_back(bb);
+  }
 
   while (!m2m_pathsRemaining.empty() && !worklist.empty() && !haltExecution) {
 
-    const BasicBlock *startBB = worklist.back();
-    worklist.pop_back();
+    const BasicBlock *startBB = worklist.front();
+    worklist.pop_front();
+
     if (startBB != &kf->function->getEntryBlock()) {
+      if (!reachesRemainingPath(kf, startBB)) {
+        continue;
+      }
       outs() << "    starting from: " << kf->mapMarkers[startBB].front() << "\n";
     }
-
-    // RLR TODO: only if a remaining path is reachable
     runFrom(kf, initialState, startBB);
   }
 }
@@ -1072,8 +1074,19 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-  if ((!state.exited) && coversPath(m2m_pathsRemaining, &state)) {
-    stowedStates.insert(new ExecutionState(state));
+  if (!state.exited) {
+    m2m_paths_t covered;
+    getCoveredPaths(m2m_pathsRemaining, &state, covered);
+    bool stowed = false;
+    for (auto path : covered) {
+      if (m2m_pathsCoveredByStowed.count(path) == 0) {
+        if (!stowed) {
+          stowedStates.insert(new ExecutionState(state));
+          stowed = true;
+        }
+        m2m_pathsCoveredByStowed.insert(path);
+      }
+    }
   }
   Executor::terminateState(state);
 }
@@ -1194,10 +1207,36 @@ bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *s
   return false;
 }
 
+bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const {
+
+  // construct a set of m2m path headers
+  std::set<const BasicBlock*> path_headers;
+  for (auto path : m2m_pathsRemaining) {
+    assert(!path.empty());
+    unsigned head = path.front() % 1000;
+    path_headers.insert(kf->mapBBlocks[head]);
+  }
+  assert(path_headers.count(nullptr) == 0);
+  return kf->reachesAnyOf(bb, path_headers);
+}
+
+void LocalExecutor::getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const {
+
+  covered.clear();
+  m2m_path_t trace;
+  state->markers.m2m_path(trace);
+  for (const auto &path : paths) {
+    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+    if (found != trace.end()) {
+      // the trace contains a matching path
+      covered.insert(trace);
+    }
+  }
+}
+
 bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
-  // this is also old
-//  return coversPath(m2m_pathsRemaining, &state);
-  return true;
+  // RLR TODO: validate this
+  return coversPath(m2m_pathsRemaining, &state);
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
