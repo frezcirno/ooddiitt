@@ -86,13 +86,13 @@ namespace {
 
   cl::opt<std::string>
   EntryPoint("entry-point",
-             cl::desc("Consider the function with the given name as the entrypoint"),
-             cl::init("main"));
+             cl::desc("Start local symbolic execution at entrypoint"),
+             cl::init(""));
 
   cl::opt<std::string>
-  EntryFunction("entry-function",
-                cl::desc("only locally execute the specified function"),
-                cl::init(""));
+  UserMain("user-main",
+           cl::desc("Consider the function with the given name as the main point"),
+           cl::init("main"));
 
   cl::opt<bool>
   StubSubFunctions("stub-subfunctions",
@@ -184,20 +184,22 @@ namespace {
                cl::desc("Inject checks for overshift"),
                cl::init(true));
 
+#if 0 == 1
   cl::opt<std::string>
   OutputDir("output-dir",
             cl::desc("Directory to write results in (defaults to klee-out-N)"),
             cl::init(""));
+#endif
 
-  cl::opt<bool>
+  cl::opt<std::string>
   OutputCreate("output-create",
                cl::desc("recreate output directory (if it exists)"),
-               cl::init(false));
+               cl::init(""));
 
-  cl::opt<bool>
+  cl::opt<std::string>
   OutputAppend("output-append",
-               cl::desc("add to existing output directory (if it exists)"),
-               cl::init(false));
+               cl::desc("add to existing output directory (fail if does not exist)"),
+               cl::init(""));
 
   cl::list<std::string>
   LinkLibraries("link-llvm-lib",
@@ -227,7 +229,8 @@ private:
   TreeStreamWriter *m_pathWriter, *m_symPathWriter;
   llvm::raw_ostream *m_infoFile;
 
-  SmallString<128> m_outputDirectory;
+  bool create_output_dir;
+  SmallString<128> outputDirectory;
 
   unsigned casesGenerated;
   unsigned nextTestCaseID;
@@ -243,6 +246,7 @@ public:
   KleeHandler(int argc, char **argv, ProgInfo &pi);
   ~KleeHandler();
 
+  bool createOutputDir() const { return create_output_dir; }
   llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
   unsigned getNumTestCases() { return casesGenerated; }
   unsigned getNumPathsExplored() { return m_pathsExplored; }
@@ -280,7 +284,8 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     m_pathWriter(0),
     m_symPathWriter(0),
     m_infoFile(0),
-    m_outputDirectory(),
+    create_output_dir(false),
+    outputDirectory(),
     casesGenerated(0),
     nextTestCaseID(1),
     progInfo(pi),
@@ -290,20 +295,27 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     m_argv(argv) {
 
   // create output directory (OutputDir or "klee-out")
-  m_outputDirectory = OutputDir;
-  if (m_outputDirectory.empty()) {
-    m_outputDirectory = "klee-out";
+  outputDirectory = "klee-out";
+  if (!OutputCreate.empty()) {
+    create_output_dir = true;
+    outputDirectory = OutputCreate;
+  } else if (!OutputAppend.empty()) {
+    outputDirectory = OutputAppend;
   }
 
-  // error if output directory already exists
-  boost::filesystem::path p(m_outputDirectory.str());
-  if (boost::filesystem::exists(p)) {
-    if (OutputCreate) {
-      boost::filesystem::remove_all(p);
-      boost::filesystem::create_directories(p);
-    } else if (OutputAppend) {
+  boost::filesystem::path p(outputDirectory.str());
+  if (create_output_dir) {
+    // create an empty directory
+    boost::filesystem::remove_all(p);
+    boost::filesystem::create_directories(p);
+  } else {
 
-      // find the next test id
+    // error if the directory does not exist
+    if (!boost::filesystem::exists(p)) {
+      klee_error("append output directory does not exist");
+    } else {
+
+      // find the next available test id
       bool done = false;
       while (!done) {
 
@@ -316,15 +328,10 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
           done = true;
         }
       }
-
-    } else {
-      klee_error("output directory already exists");
     }
-  } else {
-    boost::filesystem::create_directories(p);
   }
 
-  klee_message("output directory is \"%s\"", m_outputDirectory.c_str());
+  klee_message("output directory is \"%s\"", outputDirectory.c_str());
 
   // open warnings.txt
   std::string file_path = getOutputFilename("warnings.txt");
@@ -423,7 +430,7 @@ void KleeHandler::setInterpreter(Interpreter *i) {
 
 std::string KleeHandler::getOutputFilename(const std::string &filename) {
 
-  SmallString<128> path = m_outputDirectory;
+  SmallString<128> path = outputDirectory;
   sys::path::append(path, filename);
   return path.str();
 }
@@ -502,7 +509,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
     klee_error("EXITING ON ERROR:\n%s\n", errorMessage);
   }
 
-  if (!NoOutput && m_interpreter->generateTestCase(state)) {
+  if (!NoOutput) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
@@ -832,9 +839,9 @@ static int initEnv(Module *mainModule) {
     oldArgv->replaceAllUsesWith(nArgv)
   */
 
-  Function *mainFn = mainModule->getFunction(EntryPoint);
+  Function *mainFn = mainModule->getFunction(UserMain);
   if (!mainFn) {
-    klee_error("'%s' function not found in module.", EntryPoint.c_str());
+    klee_error("'%s' function not found in module.", UserMain.c_str());
   }
 
   if (mainFn->arg_size() < 2) {
@@ -1268,7 +1275,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // also an implicit cooperation in that runFunctionAsMain sets up
   // the environment arguments to what uclibc expects (following
   // argv), since it does not explicitly take an envp argument.
-  Function *userMainFn = mainModule->getFunction(EntryPoint);
+  Function *userMainFn = mainModule->getFunction(UserMain);
   assert(userMainFn && "unable to get user main");
   Function *uclibcMainFn = mainModule->getFunction("__uClibc_main");
   assert(uclibcMainFn && "unable to get uclibc main");
@@ -1282,7 +1289,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   fArgs.push_back(ft->getParamType(2)); // argv
   Function *stub = Function::Create(FunctionType::get(Type::getInt32Ty(ctx), fArgs, false),
                                     GlobalVariable::ExternalLinkage,
-                                    EntryPoint,
+                                    UserMain,
                                     mainModule);
   BasicBlock *bb = BasicBlock::Create(ctx, "entry", stub);
 
@@ -1543,11 +1550,12 @@ int main(int argc, char **argv, char **envp) {
 
   std::string LibraryDir = KleeHandler::getRunTimeLibraryPath(argv[0]);
   Interpreter::ModuleOptions Opts(LibraryDir.c_str(),
-                                  EntryPoint,
+                                  UserMain,
                                   OptimizeModule,
                                   CheckDivZero,
                                   CheckOvershift,
-                                  StubSubFunctions);
+                                  StubSubFunctions,
+                                  false);
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -1596,7 +1604,7 @@ int main(int argc, char **argv, char **envp) {
   }
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
-  Function *mainFn = mainModule->getFunction(EntryPoint);
+  Function *mainFn = mainModule->getFunction(UserMain);
 
   // FIXME: Change me to std types.
   int pArgc;
@@ -1637,11 +1645,15 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo);
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo, seMaxTime);
+  Interpreter::InterpreterOptions IOpts;
+  IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
+  IOpts.seMaxTime = seMaxTime;
+  IOpts.createOutputDir = handler->createOutputDir();
+  Opts.OutputStaticAnalysis = handler->createOutputDir();
+
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
@@ -1668,14 +1680,14 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // select program entry point
-  if (EntryFunction.empty()) {
+  if (EntryPoint.empty()) {
     theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   } else {
-    Function *entryFn = mainModule->getFunction(EntryFunction);
+    Function *entryFn = mainModule->getFunction(EntryPoint);
     if (entryFn != nullptr) {
       theInterpreter->runFunctionUnconstrained(entryFn);
     } else {
-      klee_error("Unable to find function: %s", EntryFunction.c_str());
+      klee_error("Unable to find function: %s", EntryPoint.c_str());
     }
   }
 

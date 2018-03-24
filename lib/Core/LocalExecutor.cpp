@@ -119,8 +119,7 @@ cl::opt<unsigned>
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
-                             ProgInfo *pi,
-                             unsigned tm) :
+                             ProgInfo *pi) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(LazyAllocationCount),
   maxLoopIteration(MaxLoopIteration),
@@ -128,7 +127,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   maxLazyDepth(LazyAllocationDepth),
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(pi),
-  seMaxTime(tm),
+  seMaxTime(opts.seMaxTime),
   maxStatesInLoop(10000),
   germinalState(nullptr) {
   assert(pi != nullptr);
@@ -879,13 +878,14 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   // optimization and such.
   initTimers();
 
+  m2m_pathsRemaining = kf->m2m_paths;
+  m2m_pathsCovered.clear();
+
   if (!kmodule->stubSubfunctions()) {
     runFrom(kf, initialState, &fn->getEntryBlock());
   } else {
 
-    m2m_pathsRemaining = kf->m2m_paths;
-    m2m_pathsCovered.clear();
-    runPaths(kf, initialState, kf->m2m_paths);
+    runPaths(kf, initialState);
 
     // check to see if a terminated state will cover
     // one of the unreachable m2m blocks
@@ -899,11 +899,11 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
       delete state;
     }
     stowedStates.clear();
-
-    assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
-    outs() << "    " << m2m_pathsCovered.size();
-    outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
   }
+
+  assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
+  outs() << "    " << m2m_pathsCovered.size();
+  outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
 #if 0 == 1
   if (m2m_pathsUnreachable.empty()) {
     outs() << "\n";
@@ -947,7 +947,7 @@ void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
 }
 #endif
 
-void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths) {
+void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState) {
 
   // create a worklist of basicblocks sorted by distance from entry
   std::deque<const llvm::BasicBlock*> worklist;
@@ -972,7 +972,7 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState, m2m_pa
 
 LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
 
-  const uint64_t stats_granularity = 1000;
+  const uint64_t stats_granularity = 100;
   uint64_t stats_counter = stats_granularity;
   unsigned debug_value = DebugValue;
 
@@ -1074,9 +1074,15 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
 
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-  if (!state.exited) {
-    m2m_paths_t covered;
-    getCoveredPaths(m2m_pathsRemaining, &state, covered);
+  // get a set of paths covered by this state before termination
+  m2m_paths_t covered;
+  getCoveredPaths(m2m_pathsRemaining, &state, covered);
+
+  if (state.exited) {
+    if (!covered.empty()) {
+      interpreterHandler->processTestCase(state, nullptr, nullptr);
+    }
+  } else {
     bool stowed = false;
     for (auto path : covered) {
       if (m2m_pathsCoveredByStowed.count(path) == 0) {
@@ -1093,7 +1099,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
 
 void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
   state.exited = true;
-  Executor::terminateStateOnExit(state);
+  terminateState(state);
 }
 
 void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
@@ -1229,14 +1235,9 @@ void LocalExecutor::getCoveredPaths(const m2m_paths_t &paths, const ExecutionSta
     auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
     if (found != trace.end()) {
       // the trace contains a matching path
-      covered.insert(trace);
+      covered.insert(path);
     }
   }
-}
-
-bool LocalExecutor::generateTestCase(const ExecutionState &state) const {
-  // RLR TODO: validate this
-  return coversPath(m2m_pathsRemaining, &state);
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
@@ -1846,9 +1847,8 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
                                       InterpreterHandler *ih,
-                                      ProgInfo *progInfo,
-                                      unsigned seMaxTime) {
-  return new LocalExecutor(ctx, opts, ih, progInfo, seMaxTime);
+                                      ProgInfo *progInfo) {
+  return new LocalExecutor(ctx, opts, ih, progInfo);
 }
 
   

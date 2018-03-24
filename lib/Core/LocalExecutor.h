@@ -37,13 +37,12 @@ public:
                              InterpreterHandler *ih,
                              ProgInfo *progInfo,
                              unsigned seMaxTime)
-    { return new klee::LocalExecutor(ctx, opts, ih, progInfo, seMaxTime); }
+    { return new klee::LocalExecutor(ctx, opts, ih, progInfo); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie,
-                ProgInfo *progInfo,
-                unsigned tm);
+                ProgInfo *progInfo);
 
   virtual ~LocalExecutor();
 
@@ -55,11 +54,10 @@ public:
                                  char **argv,
                                  char **envp);
   virtual void runFunctionUnconstrained(llvm::Function *f);
-  virtual bool generateTestCase(const ExecutionState &state) const;
 
 protected:
   void runFn(KFunction *kf, ExecutionState &initialState);
-  void runPaths(KFunction *kf, ExecutionState &initialState, m2m_paths_t &paths);
+  void runPaths(KFunction *kf, ExecutionState &initialState);
   HaltReason runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
 

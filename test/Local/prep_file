@@ -45,13 +45,19 @@ ensure_binary ${CLANG}
 ensure_binary ${CLANG3}
 ensure_binary ${CLANG_FORMAT}
 
+rm -rf *.i ${TARGET}_cil.c ${TARGET}_decil.c ${TARGET}_return.c ${TARGET}_marked.c cfgs dots ${TARGET}.json ${TARGET}.bc
 
-# cleanup
-rm -rf ${TARGET}_return.c ${TARGET}_marked.c cfgs dots ${TARGET}.json *.bc
+export CIL_MACHINE="short=2,2 int=4,4 long=4,4 long_long=8,4 pointer=4,4 alignof_enum=4 float=4,4 double=8,4 long_double=12,4 void=1 bool=1,1 fun=1,1 alignof_string=1 max_alignment=16 size_t=unsigned_int wchar_t=int char_signed=true const_string_literals=true big_endian=false __thread_is_keyword=true __builtin_va_list=true underscore_name=false"
 
+cilly --envmachine --save-temps --noPrintLn --noInsertImplicitCasts -o /dev/null -c "${TARGET}.c"
+rm *.i
+prename "s/.cil.c/_cil.c/" *.c
+
+decilify "${TARGET}_cil.c" > "${TARGET}_decil.c"
+${CLANG_FORMAT} -style=file -i "${TARGET}_decil.c"
 
 # refactor return statements
-zopper -refactor-returns "${TARGET}.c" -- ${CFLAGS} > "${TARGET}_return.c"
+zopper -refactor-returns "${TARGET}_decil.c" -- ${CFLAGS} > "${TARGET}_return.c"
 ${CLANG_FORMAT} -i -style='LLVM' "${TARGET}_return.c"
 
 # insert markers
@@ -69,4 +75,4 @@ chk-info --info=${TARGET}.json || exit 1;
 cfg-analyze --input=cfgs --info=${TARGET}.json
 cfg-dot --input=cfgs --output=dots
 
-${CLANG3} -emit-llvm -g -c ${CFLAGS} "${TARGET}_marked.c"
+${CLANG3} -emit-llvm -g -c ${CFLAGS} -o "${TARGET}.bc" "${TARGET}_marked.c"

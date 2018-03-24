@@ -85,7 +85,7 @@ namespace {
   cl::opt<bool>
   OutputSource("output-source",
                cl::desc("Write the assembly for the final transformed source"),
-               cl::init(true));
+               cl::init(false));
 
   cl::opt<bool>
   OutputModule("output-module",
@@ -94,7 +94,7 @@ namespace {
 
   cl::opt<bool>
   OutputStatic("output-static",
-               cl::desc("Write the results of static analysis of thetransformed module"),
+               cl::desc("Write the results of static analysis of the transformed module"),
                cl::init(false));
 
   cl::opt<SwitchImplType>
@@ -113,7 +113,7 @@ namespace {
                               cl::desc("Print functions whose address is taken."));
 }
 
-KModule::KModule(Module *_module) 
+KModule::KModule(Module *_module)
   : module(_module),
 #if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
     targetData(new TargetData(module)),
@@ -124,8 +124,7 @@ KModule::KModule(Module *_module)
     infos(nullptr),
     constantTable(nullptr),
     stub_subfns(false),
-    entry_point(nullptr) {
-}
+    entry_point(nullptr) {}
 
 KModule::~KModule() {
   delete[] constantTable;
@@ -257,11 +256,13 @@ void KModule::addInternalFunction(Function *fn) {
   internalFunctions.insert(fn);
 }
 
-void KModule::prepare(const Interpreter::ModuleOptions &opts,
-                      InterpreterHandler *ih) {
+void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
   stub_subfns = opts.StubSubfunctions;
+  if (opts.OutputStaticAnalysis) {
+    OutputStatic = true;
+  }
 
   // gather a list of original module functions
   set<const Function *> orig_functions;
