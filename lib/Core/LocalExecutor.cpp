@@ -178,6 +178,29 @@ int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
 }
 #endif
 
+bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
+
+
+  std::vector<SymbolicSolution> out1;
+  getSymbolicSolution(state, out1);
+
+  bool result;
+  solver->setTimeout(coreSolverTimeout);
+  bool success = solver->mayBeTrue(state, e, result);
+  solver->setTimeout(0);
+  if (success && result) {
+    state.addConstraint(e);
+
+    // RLR TODO: debug
+    std::vector<SymbolicSolution> out2;
+    getSymbolicSolution(state, out2);
+
+    return true;
+  }
+  terminateState(state);
+  return false;
+}
+
 LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op) {
 
   assert(address.get()->getWidth() == Context::get().getPointerWidth());
@@ -375,15 +398,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
-      bool inBounds;
-      if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
-        solver->setTimeout(0);
-        state.pc = state.prevPC;
-        terminateState(state);
+      if (!addConstraintOrTerminate(state, mc)) {
         return false;
       }
-      addConstraint(state, mc);
-
     } else {
       klee_error("non-optimistic not supported at this time");
     }
@@ -420,7 +437,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     if (depth >= maxLazyDepth) {
 
       // too deep. no more forking for this pointer.
-      state.addConstraint(eqNull);
+      addConstraintOrTerminate(state, eqNull);
 
     } else {
 
@@ -463,7 +480,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
           ref<ConstantExpr> ptr = newMO->getBaseExpr();
           ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-          sp.second->addConstraint(eq);
+          addConstraintOrTerminate(*sp.second, eq);
         }
       }
     }
@@ -519,32 +536,30 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
-      bool inBounds;
-      if (!solver->mayBeTrue(state, mc, inBounds) || !inBounds) {
-        solver->setTimeout(0);
-        state.pc = state.prevPC;
-        terminateState(state);
+      if (!addConstraintOrTerminate(state, mc)) {
         return false;
       }
-      addConstraint(state, mc);
-
     } else {
       klee_error("non-optimistic not supported at this time");
     }
     solver->setTimeout(0);
   }
   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+  wos->write(offsetExpr, value);
+#if 0 == 1
   if (!isa<ConstantExpr>(offsetExpr)) {
 
     ref<ConstantExpr> cex;
     if (solver->getValue(state, offsetExpr, cex)) {
       ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
-      addConstraint(state, eq);
-      wos->write(cex, value);
+      if (addConstraintOrTerminate(state, eq)) {
+        wos->write(cex, value);
+      }
     }
   } else {
     wos->write(offsetExpr, value);
   }
+#endif
   return true;
 }
 
@@ -592,6 +607,8 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          std::string name,
                                          size_t align,
                                          unsigned count) {
+
+  assert(type->isFirstClassType() && "tried to allocate non-first class type");
 
   if (align == 0) {
     align = kmodule->targetData->getPrefTypeAlignment(type);
@@ -1084,7 +1101,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   m2m_paths_t covered;
   getCoveredPaths(m2m_pathsRemaining, &state, covered);
 
-  if (state.exited) {
+  if (state.generate_test_case) {
     if (!covered.empty()) {
       interpreterHandler->processTestCase(state, nullptr, nullptr);
     }
@@ -1104,7 +1121,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
 }
 
 void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
-  state.exited = true;
+  state.generate_test_case = true;
   terminateState(state);
 }
 
@@ -1253,24 +1270,17 @@ ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<E
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e)) {
     result = CE;
   } else {
-
     solver->setTimeout(coreSolverTimeout);
     if (solver->getValue(state, e, result)) {
 
-      bool isTrue;
-      if (solver->mustBeTrue(state, EqExpr::create(e, result), isTrue)) {
-        if (!isTrue) {
-          state.addConstraint(NotOptimizedExpr::create(EqExpr::create(e, result)));
-        }
-      } else {
-        klee_error("solver failure");
+      bool answer;
+      ref<Expr> eq = EqExpr::create(e, result);
+      if (solver->mustBeTrue(state, eq, answer) && !answer) {
+        state.addConstraint(eq);
       }
-    } else {
-      klee_error("solver failure");
     }
     solver->setTimeout(0);
   }
-
   return result;
 }
 
@@ -1285,9 +1295,10 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
     solver->setTimeout(coreSolverTimeout);
     if (solver->getValue(state, e, value)) {
 
-      bool isTrue = false;
-      if (solver->mustBeTrue(state, EqExpr::create(e, value), isTrue)) {
-        result = isTrue;
+      bool answer;
+      ref<Expr> eq = EqExpr::create(e, value);
+      if (solver->mustBeTrue(state, EqExpr::create(e, value), answer)) {
+        result = answer;
       }
     }
     solver->setTimeout(0);
@@ -1631,11 +1642,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             }
             Type *subtype = ty->getPointerElementType();
 
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
-            bindObjectInState(*sp.second, newMO);
+            if (subtype->isFirstClassType()) {
+              MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
+              bindObjectInState(*sp.second, newMO);
 
-            ref<ConstantExpr> ptr = newMO->getBaseExpr();
-            sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
+              ref<ConstantExpr> ptr = newMO->getBaseExpr();
+              sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
+            } else {
+              errs() << "Not a first class type!\n";
+            }
+
           }
         }
       }
@@ -1690,6 +1706,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (AssumeInboundPointers) {
           bool answer;
 
+// RLR TODO: don't think this is necessary
+#if 0 == 1
           // index must be >= 0
           ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
           solver->setTimeout(coreSolverTimeout);
@@ -1701,16 +1719,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
             state.addConstraint(mc);
           }
-
+#endif
           // base must point into an allocation
-          mc = mo->getBoundsCheckPointer(base, bytes);
-          if (solver->mustBeFalse(state, mc, answer) && answer) {
-            // RLR TODO: potential dead code
-//            terminateState(state);
-//            solver->setTimeout(0);
-//            break;
-          } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
-            state.addConstraint(mc);
+          solver->setTimeout(coreSolverTimeout);
+          ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
+
+          if (solver->mustBeTrue(state, mc, answer) && !answer) {
+            if (solver->mayBeTrue(state, mc, answer) && answer) {
+              state.addConstraint(mc);
+            }
           }
           solver->setTimeout(0);
         }

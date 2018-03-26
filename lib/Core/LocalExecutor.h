@@ -82,7 +82,7 @@ protected:
                            ref<Expr> address,
                            KInstruction *target = 0);
 
-    bool executeReadMemoryOperation(ExecutionState &state,
+  bool executeReadMemoryOperation(ExecutionState &state,
                                   ref<Expr> address,
                                   const llvm::Type *type,
                                   KInstruction *target);
@@ -141,15 +141,8 @@ protected:
   bool coversPath(const m2m_paths_t &paths, const ExecutionState *state) const;
   void getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const;
   bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
-//  bool coversRemainingPath(const ExecutionState *state, bool extends) const {
-//    return coversPath(m2m_pathsRemaining, state, extends);
-//  }
-//  bool coversUnreachablePath(const ExecutionState *state, bool extends) const {
-//    return coversPath(m2m_pathsUnreachable, state, extends);
-//  }
-//
-//  void markUnreachable(const std::vector<unsigned> &ids);
   void updateCoveredPaths(const ExecutionState *state);
+  bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
 
   void InspectSymbolicSolutions(const ExecutionState *state);
 

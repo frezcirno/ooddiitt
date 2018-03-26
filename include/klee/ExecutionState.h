@@ -173,7 +173,7 @@ public:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
-  bool exited;
+  bool generate_test_case;
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;

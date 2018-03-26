@@ -513,137 +513,134 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-
     std::vector<SymbolicSolution> out;
-    bool success = m_interpreter->getSymbolicSolution(state, out);
 
-    if (!success)
-      klee_warning("unable to get symbolic solution, losing test case");
+    if (state.generate_test_case) {
+      if (!m_interpreter->getSymbolicSolution(state, out)) {
+        klee_warning("unable to get symbolic solution, losing test case");
+      }
+    }
 
     double start_time = util::getWallTime();
+    std::ostream *kout = openTestCaseFile(testID);
+    if (kout != nullptr) {
 
-    if (success) {
-
-      std::ostream *kout = openTestCaseFile(testID);
-      if (kout != nullptr) {
-
-        // construct the json object representing the test case
-        Json::Value root = Json::objectValue;
-        root["entryFn"] = state.name;
-        root["testID"] = testID;
-        root["argC"] = m_argc;
-        root["lazyAllocationCount"] = state.lazyAllocationCount;
-        root["maxLoopIteration"] = state.maxLoopIteration;
-        root["maxLoopForks"] = state.maxLoopForks;
-        root["maxLazyDepth"] = state.maxLazyDepth;
-        root["startingMarker"] = state.startingMarker;
-        root["endingMarker"] = state.endingMarker;
-        root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
+      // construct the json object representing the test case
+      Json::Value root = Json::objectValue;
+      root["entryFn"] = state.name;
+      root["testID"] = testID;
+      root["argC"] = m_argc;
+      root["lazyAllocationCount"] = state.lazyAllocationCount;
+      root["maxLoopIteration"] = state.maxLoopIteration;
+      root["maxLoopForks"] = state.maxLoopForks;
+      root["maxLazyDepth"] = state.maxLazyDepth;
+      root["startingMarker"] = state.startingMarker;
+      root["endingMarker"] = state.endingMarker;
+      root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
 
 
-        // store the path condition
-        std::string constraints;
-        m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTVARS);
-        root["pathConditionVars"] = constraints;
+      // store the path condition
+      std::string constraints;
+      m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTVARS);
+      root["pathConditionVars"] = constraints;
 
-        std::stringstream args;
-        for (int index = 0; index < m_argc; ++index) {
-          if (index > 0) args << ' ';
-          args << '\'' << m_argv[index] << '\'';
-        }
-        root["argV"] = args.str();
-
-        // retain for backward compatibility
-        Json::Value &path = root["markerPath"] = Json::arrayValue;
-        m2m_path_t trace;
-        state.markers.m2m_path(trace);
-        for (auto itr = trace.begin(), end = trace.end(); itr != end; ++itr) {
-          path.append(*itr);
-        }
-
-        Json::Value &pathEx = root["markerPathEx"] = Json::arrayValue;
-        for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
-          pathEx.append(itr->to_string());
-        }
-
-        Json::Value &objects = root["objects"] = Json::arrayValue;
-        for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
-
-          auto &test = *itrObj;
-          assert(test.first->type != nullptr);
-
-          std::string name = test.first->name;
-          const llvm::Type *type = test.first->type;
-          std::vector<unsigned char> &data = test.second;
-
-          Json::Value obj = Json::objectValue;
-          obj["name"] = name;
-          obj["kind"] = test.first->getKindAsStr();
-          obj["count"] = test.first->count;
-          obj["type"] = getTypeName(type);
-
-          // scale to 32 or 64 bits
-          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-          std::vector<unsigned char> addr;
-          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
-          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-            addr.push_back(*addrBytes);
-          }
-          obj["addr"] = toDataString(addr);
-          obj["data"] = toDataString(data);
-
-          objects.append(obj);
-        }
-
-        // dump details of the state address space
-        root["addressSpace"] = Json::arrayValue;
-        Json::Value &addrSpace = root["addressSpace"];
-
-        std::vector<const MemoryObject*> listMOs;
-        state.addressSpace.getMemoryObjects(listMOs);
-        for (const MemoryObject *mo : listMOs) {
-
-          Json::Value obj = Json::objectValue;
-          obj["id"] = mo->id;
-          obj["name"] = mo->name;
-          obj["kind"] = mo->getKindAsStr();
-          obj["count"] = mo->count;
-          obj["size"] = mo->size;
-
-          if (mo->type != nullptr) {
-            obj["type"] = getTypeName(mo->type);
-          } else {
-            obj["type"] = "";
-          }
-
-          // scale to 32 or 64 bits
-          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-          std::vector<unsigned char> addr;
-          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
-          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-            addr.push_back(*addrBytes);
-          }
-          obj["addr"] = toDataString(addr);
-
-          addrSpace.append(obj);
-        }
-
-        // write the constructed json object to file
-        Json::StreamWriterBuilder builder;
-        builder["commentStyle"] = "None";
-        builder["indentation"] = indentation;
-        std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-
-        writer.get()->write(root, kout);
-        *kout << std::endl;
-
-        kout->flush();
-        delete kout;
-        state.isProcessed = true;
-        ++casesGenerated;
-      } else {
-        klee_warning("unable to write output test case, losing it");
+      std::stringstream args;
+      for (int index = 0; index < m_argc; ++index) {
+        if (index > 0) args << ' ';
+        args << '\'' << m_argv[index] << '\'';
       }
+      root["argV"] = args.str();
+
+      // retain for backward compatibility
+      Json::Value &path = root["markerPath"] = Json::arrayValue;
+      m2m_path_t trace;
+      state.markers.m2m_path(trace);
+      for (auto itr = trace.begin(), end = trace.end(); itr != end; ++itr) {
+        path.append(*itr);
+      }
+
+      Json::Value &pathEx = root["markerPathEx"] = Json::arrayValue;
+      for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
+        pathEx.append(itr->to_string());
+      }
+
+      Json::Value &objects = root["objects"] = Json::arrayValue;
+      for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
+
+        auto &test = *itrObj;
+        assert(test.first->type != nullptr);
+
+        std::string name = test.first->name;
+        const llvm::Type *type = test.first->type;
+        std::vector<unsigned char> &data = test.second;
+
+        Json::Value obj = Json::objectValue;
+        obj["name"] = name;
+        obj["kind"] = test.first->getKindAsStr();
+        obj["count"] = test.first->count;
+        obj["type"] = getTypeName(type);
+
+        // scale to 32 or 64 bits
+        unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+        std::vector<unsigned char> addr;
+        unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+        for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+          addr.push_back(*addrBytes);
+        }
+        obj["addr"] = toDataString(addr);
+        obj["data"] = toDataString(data);
+
+        objects.append(obj);
+      }
+
+      // dump details of the state address space
+      root["addressSpace"] = Json::arrayValue;
+      Json::Value &addrSpace = root["addressSpace"];
+
+      std::vector<const MemoryObject*> listMOs;
+      state.addressSpace.getMemoryObjects(listMOs);
+      for (const MemoryObject *mo : listMOs) {
+
+        Json::Value obj = Json::objectValue;
+        obj["id"] = mo->id;
+        obj["name"] = mo->name;
+        obj["kind"] = mo->getKindAsStr();
+        obj["count"] = mo->count;
+        obj["size"] = mo->size;
+
+        if (mo->type != nullptr) {
+          obj["type"] = getTypeName(mo->type);
+        } else {
+          obj["type"] = "";
+        }
+
+        // scale to 32 or 64 bits
+        unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+        std::vector<unsigned char> addr;
+        unsigned char *addrBytes = ((unsigned char *) &(mo->address));
+        for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+          addr.push_back(*addrBytes);
+        }
+        obj["addr"] = toDataString(addr);
+
+        addrSpace.append(obj);
+      }
+
+      // write the constructed json object to file
+      Json::StreamWriterBuilder builder;
+      builder["commentStyle"] = "None";
+      builder["indentation"] = indentation;
+      std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+
+      writer.get()->write(root, kout);
+      *kout << std::endl;
+
+      kout->flush();
+      delete kout;
+      state.isProcessed = true;
+      ++casesGenerated;
+    } else {
+      klee_warning("unable to write output test case, losing it");
     }
 
     if (errorMessage) {
