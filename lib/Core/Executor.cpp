@@ -3162,8 +3162,7 @@ void Executor::executeAlloc(ExecutionState &state,
     MemoryObject *mo =
         memory->allocate(CE->getZExtValue(), nullptr, kind, target->inst, allocationAlignment);
     if (!mo) {
-      bindLocal(target, state,
-                ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+      bindLocal(target, state, ConstantExpr::createPointer(0));
     } else {
 
       mo->name = target->inst->getName();
@@ -3197,70 +3196,42 @@ void Executor::executeAlloc(ExecutionState &state,
     // return argument first). This shows up in pcre when llvm
     // collapses the size expression with a select.
 
-    ref<ConstantExpr> example;
-    bool success = solver->getValue(state, size, example);
-    assert(success && "FIXME: Unhandled solver failure");
-    (void) success;
-
-    // Try and start with a small example.
-    Expr::Width W = example->getWidth();
-    while (example->Ugt(ConstantExpr::alloc(128, W))->isTrue()) {
-      ref<ConstantExpr> tmp = example->LShr(ConstantExpr::alloc(1, W));
-      bool res;
-      bool success = solver->mayBeTrue(state, EqExpr::create(tmp, size), res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (!res)
-        break;
-      example = tmp;
+    ref<ConstantExpr> csize;
+    Expr::Width W = size->getWidth();
+    if (!solver->getValue(state, size, csize)) {
+      assert(false && "FIXME: Unhandled solver failure");
     }
 
-    StatePair fixedSize = fork(state, EqExpr::create(example, size), true);
+    if (csize->getZExtValue(W) > 1024) {
 
-    if (fixedSize.second) {
-      // Check for exactly two values
-      ref<ConstantExpr> tmp;
-      bool success = solver->getValue(*fixedSize.second, size, tmp);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      bool res;
-      success = solver->mustBeTrue(*fixedSize.second,
-                                   EqExpr::create(tmp, size),
-                                   res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (res) {
-        executeAlloc(*fixedSize.second, tmp, kind,
-                     target, zeroMemory, reallocFrom);
-      } else {
-        // See if a *really* big value is possible. If so assume
-        // malloc will fail for it, so lets fork and return 0.
-        StatePair hugeSize =
-          fork(*fixedSize.second,
-               UltExpr::create(ConstantExpr::alloc(1<<31, W), size),
-               true);
-        if (hugeSize.first) {
-          klee_message("NOTE: found huge malloc, returning 0");
-          bindLocal(target, *hugeSize.first,
-                    ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+      // fairly large allocation.  see if a smaller one would do.
+      bool res = false;
+      for (unsigned trial = 16; trial <= 1024 && !res; trial <<= 1) {
+        if (!solver->mayBeTrue(state, EqExpr::create(ConstantExpr::alloc(trial, W), size), res)) {
+          assert(false && "FIXME: Unhandled solver failure");
         }
-
-        if (hugeSize.second) {
-
-          std::string Str;
-          llvm::raw_string_ostream info(Str);
-          ExprPPrinter::printOne(info, "  size expr", size);
-          info << "  concretization : " << example << "\n";
-          info << "  unbound example: " << tmp << "\n";
-          terminateStateOnError(*hugeSize.second, "concretized symbolic size",
-                                Model, NULL, info.str());
+        if (res) {
+          csize = ConstantExpr::alloc(trial, W);
         }
       }
     }
 
-    if (fixedSize.first) // can be zero when fork fails
-      executeAlloc(*fixedSize.first, example, kind,
-                   target, zeroMemory, reallocFrom);
+    // shunken or not, csize is now the size of our allocation
+    // clone off a malloc fail state
+
+    // the fail state does not constrain size, but does return null
+    ExecutionState *failState = state.branch();
+    addedStates.push_back(failState);
+    bindLocal(target, *failState, ConstantExpr::createPointer(0));
+
+    // since csize is constant, we can just alloc again
+    state.addConstraint(EqExpr::create(csize, size));
+    executeAlloc(state, csize, kind, target, zeroMemory, reallocFrom);
+
+    state.ptreeNode->data = nullptr;
+    std::pair<PTree::Node*, PTree::Node*> res = processTree->split(state.ptreeNode, &state, failState);
+    state.ptreeNode = res.first;
+    failState->ptreeNode = res.second;
   }
 }
 

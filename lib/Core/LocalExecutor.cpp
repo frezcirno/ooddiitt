@@ -310,20 +310,28 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn, unsi
     MemoryObject *mo = globalObjects.find(v)->second;
 
     std::string varName = mo->name;
-    std::string fnName = fn->getName().str();
-    if ((!varName.empty()) &&
-        (varName.at(0) != '.') &&
-        progInfo->isGlobalInput(state.name, varName) &&
-        progInfo->isReachableOutput(fnName, varName)) {
+    if ((!varName.empty()) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
 
-      const ObjectState *os = state.addressSpace.findObject(mo);
-      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+      std::string fnName = "unknown";
+      bool unconstrain = false;
+      if (fn != nullptr) {
+        fnName = fn->getName().str();
+        unconstrain = progInfo->isReachableOutput(fnName, varName);
+      } else {
+        fnName = "still_unknown";
+        unconstrain = true;
+      }
 
-      WObjectPair wop;
-      duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
+      if (unconstrain) {
+        const ObjectState *os = state.addressSpace.findObject(mo);
+        ObjectState *wos = state.addressSpace.getWriteable(mo, os);
 
-      for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
-        wos->write(idx, wop.second->read8(idx));
+        WObjectPair wop;
+        duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
+
+        for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
+          wos->write(idx, wop.second->read8(idx));
+        }
       }
     }
   }
@@ -428,31 +436,35 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         std::vector<const MemoryObject*> listMOs;
         Type *subtype = type->getPointerElementType()->getPointerElementType();
 
+        // this is just for debugging and diagnostics
         std::string type_desc;
         llvm::raw_string_ostream rso(type_desc);
         subtype->print(rso);
         type_desc = rso.str();
 
-        // consider any existing objects in memory of the same type
-        sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
-        for (auto existing : listMOs) {
-          if (existing->kind == MemKind::lazy) {
-            ref<Expr> ptr = existing->getBaseExpr();
-            ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-            StatePair new_sp = fork(*sp.second, eq, false);
-            sp.second = new_sp.second;
+        if (subtype->isFirstClassType()) {
+
+            // consider any existing objects in memory of the same type
+          sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
+          for (auto existing : listMOs) {
+            if (existing->kind == MemKind::lazy) {
+              ref<Expr> ptr = existing->getBaseExpr();
+              ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+              StatePair new_sp = fork(*sp.second, eq, false);
+              sp.second = new_sp.second;
+            }
           }
+
+          // finally, try with a new object
+          MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                            '*' + mo->name, 0, lazyAllocationCount);
+
+          bindObjectInState(*sp.second, newMO);
+
+          ref<ConstantExpr> ptr = newMO->getBaseExpr();
+          ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+          sp.second->addConstraint(eq);
         }
-
-        // finally, try with a new object
-        MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                          '*' + mo->name, 0, lazyAllocationCount);
-
-        bindObjectInState(*sp.second, newMO);
-
-        ref<ConstantExpr> ptr = newMO->getBaseExpr();
-        ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-        sp.second->addConstraint(eq);
       }
     }
   }
@@ -743,20 +755,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *f) {
     Type *argType = arg.getType();
     size_t argAlign = arg.getParamAlignment();
 
-    // do not unconstrain ushers
+    // RLR TODO: affirm that this is a fundamental type?
     ref<Expr> e;
-    if (isUsherType(argType)) {
-      e = Expr::createPointer(0);
-    } else {
-
-      // RLR TODO: affirm that this is a fundamental type?
-      WObjectPair wop;
-      if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
-        klee_error("failed to allocate function parameter");
-      }
-      Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
-      e = wop.second->read(0, width);
+    WObjectPair wop;
+    if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
+      klee_error("failed to allocate function parameter");
     }
+    Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
+    e = wop.second->read(0, width);
     bindArgument(kf, index, *state, e);
   }
 
@@ -1446,60 +1452,56 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
 
       const CallSite cs(i);
+      std::string fnName = "unknown";
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
-      std::string fnName = fn->getName();
+      if (fn != nullptr) {
+        fnName = fn->getName();
 
-      // if this function does not return, (exit, abort, zopc_exit, etc)
-      // then this state has completed
-      if (fn->hasFnAttribute(Attribute::NoReturn)) {
+        // if this function does not return, (exit, abort, zopc_exit, etc)
+        // then this state has completed
+        if (fn->hasFnAttribute(Attribute::NoReturn)) {
 
-        if (fnName == "zopc_exit" || fnName == "exit") {
-          terminateStateOnExit(state);
-        } else if (fnName == "abort") {
-          terminateStateOnError(state, "aborted", TerminateReason::Abort);
-        } else {
-          terminateStateOnError(state, "unknown exit", TerminateReason::Unhandled);
-        }
-        return;
-      }
-
-      // if this is a call to a mark() variant, then log the marker to state
-      // ':' is an invalid marker type
-      char marker_type = ':';
-      if (fnName == "MARK") {
-        marker_type = 'M';
-      } else if (fnName == "mark") {
-        marker_type = 'm';
-      } else if (fnName == "fn_tag") {
-        marker_type = 't';
-      }
-
-      if ((marker_type != ':') && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
-
-        const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
-        const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
-        if ((arg0 != nullptr) && (arg1 != nullptr)) {
-          unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-          unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-
-          state.addMarker(marker_type, fnID, bbID);
+          if (fnName == "zopc_exit" || fnName == "exit") {
+            terminateStateOnExit(state);
+          } else if (fnName == "abort") {
+            terminateStateOnError(state, "aborted", TerminateReason::Abort);
+          } else {
+            terminateStateOnError(state, "unknown exit", TerminateReason::Unhandled);
+          }
           return;
         }
-      }
 
-      // RLR TODO: removed guide
-#if 0 == 1
-      // if this is a call to guide, just return 2nd argument
-      if ((fnName == "guide" && (cs.arg_size() == 2))) {
-        ref<Expr> retExpr = eval(ki, 2, state).value;
-        bindLocal(ki, state, retExpr);
-        return;
+        // if this is a call to a mark() variant, then log the marker to state
+        // ':' is an invalid marker type
+        char marker_type = ':';
+        if (fnName == "MARK") {
+          marker_type = 'M';
+        } else if (fnName == "mark") {
+          marker_type = 'm';
+        } else if (fnName == "fn_tag") {
+          marker_type = 't';
+        }
+
+        if ((marker_type != ':') && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
+
+          const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+          const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
+          if ((arg0 != nullptr) && (arg1 != nullptr)) {
+            unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+            unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+
+            state.addMarker(marker_type, fnID, bbID);
+            return;
+          }
+        }
+      } else {
+        // RLR TODO: lookup something appropriate
+        fnName = "still_unknown";
       }
-#endif
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee fuction, then let the standard executor handle it
-      if ((!kmodule->stubSubfunctions()) ||
+      if (((fn != nullptr) && !kmodule->stubSubfunctions()) ||
           specialFunctionHandler->isSpecial(fn) ||
           kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
@@ -1518,13 +1520,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         const Value *v = cs.getArgument(index);
         Type *argType = v->getType();
 
-        if ((countLoadIndirection(argType) > 0) &&
-            !progInfo->isConstParam(fnName, index)) {
-
-          // do not unconstrain ushers
-          if (isUsherType(argType)) {
-            continue;
-          }
+        if ((countLoadIndirection(argType) > 0) && !progInfo->isConstParam(fnName, index)) {
 
           ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
           Expr::Width width = address->getWidth();
@@ -1568,7 +1564,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       unconstrainGlobals(state, fn, counter);
 
       // now get the return type
-      Type *ty = fn->getReturnType();
+      Type *ty = cs->getType();
       if (!ty->isVoidTy()) {
 
         WObjectPair wop;
