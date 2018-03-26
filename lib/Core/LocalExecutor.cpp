@@ -1497,6 +1497,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       } else {
         // RLR TODO: lookup something appropriate
         fnName = "still_unknown";
+
+        // RLR TODO: should also check to see if this is a unique ptr.
+        // do something meaningfull if so.  check for null ptr.
       }
 
       // if subfunctions are not stubbed, this is a special function, or
