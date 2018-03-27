@@ -545,21 +545,24 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     solver->setTimeout(0);
   }
   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-  wos->write(offsetExpr, value);
-#if 0 == 1
-  if (!isa<ConstantExpr>(offsetExpr)) {
 
+  // try to convert to a constant expr
+  offsetExpr = toUnique(state, offsetExpr);
+  if (!isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> cex;
     if (solver->getValue(state, offsetExpr, cex)) {
-      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
-      if (addConstraintOrTerminate(state, eq)) {
-        wos->write(cex, value);
+      ref<Expr> eq = EqExpr::create(offsetExpr, cex);
+      if (!addConstraintOrTerminate(state, eq)) {
+        return false;
       }
+      offsetExpr = cex;
+    } else {
+      terminateState(state);
+      return false;
     }
-  } else {
-    wos->write(offsetExpr, value);
   }
-#endif
+  assert(isa<ConstantExpr>(offsetExpr));
+  wos->write(offsetExpr, value);
   return true;
 }
 
