@@ -100,6 +100,11 @@ cl::opt<unsigned>
                         cl::init(4),
                         cl::desc("Depth of items to lazy initialize pointer"));
 
+cl::opt<bool>
+    LazyAllocationExt("lazy-allocation-ext",
+                        cl::init(false),
+                        cl::desc("extend lazy allocation to include existing memory objects of same type"));
+
 cl::opt<unsigned>
     MaxLoopIteration("max-loop-iteration",
                       cl::init(1),
@@ -461,14 +466,17 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
 
         if (subtype->isFirstClassType()) {
 
+          if (LazyAllocationExt) {
+
             // consider any existing objects in memory of the same type
-          sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
-          for (auto existing : listMOs) {
-            if (existing->kind == MemKind::lazy) {
-              ref<Expr> ptr = existing->getBaseExpr();
-              ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
-              StatePair new_sp = fork(*sp.second, eq, false);
-              sp.second = new_sp.second;
+            sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
+            for (auto existing : listMOs) {
+              if (existing->kind == MemKind::lazy) {
+                ref<Expr> ptr = existing->getBaseExpr();
+                ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+                StatePair new_sp = fork(*sp.second, eq, false);
+                sp.second = new_sp.second;
+              }
             }
           }
 
@@ -919,6 +927,7 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
       if (coversPath(m2m_pathsRemaining, state)) {
 
         state->endingMarker = state->markers.back().id;
+        state->generate_test_case = true;
         interpreterHandler->processTestCase(*state);
         updateCoveredPaths(state);
       }
