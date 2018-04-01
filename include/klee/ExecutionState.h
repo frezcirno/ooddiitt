@@ -205,7 +205,7 @@ public:
   bool isConcrete(const MemoryObject *mo);
   void addMarker(char type, unsigned fnID, unsigned bbID);
 
-  void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
+  void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);
   void dumpStack(llvm::raw_ostream &out) const;

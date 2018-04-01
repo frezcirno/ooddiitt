@@ -1030,6 +1030,14 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
       klee_warning("seeds patched for violating constraint");
   }
 
+  // RLR TODO: Debug
+  // verify that this condition is satisfyable
+  solver->setTimeout(coreSolverTimeout);
+  bool valid;
+  bool success = solver->mayBeTrue(state, condition, valid);
+  solver->setTimeout(0);
+  assert(success && valid);
+
   state.addConstraint(condition);
   if (ivcEnabled)
     doImpliedValueConcretization(state, condition,
@@ -3129,7 +3137,7 @@ ref<Expr> Executor::replaceReadWithSymbolic(ExecutionState &state,
   ref<Expr> res = Expr::createTempRead(array, e->getWidth());
   ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, res));
   llvm::errs() << "Making symbolic: " << eq << "\n";
-  state.addConstraint(eq);
+  addConstraint(state, eq);
   return res;
 }
 
@@ -3196,7 +3204,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
     // shunken or not, example is now the size of our allocation
     // since example is constant, we can just alloc again
-    state.addConstraint(EqExpr::create(example, size));
+    addConstraint(state, EqExpr::create(example, size));
     size = example;
   }
 

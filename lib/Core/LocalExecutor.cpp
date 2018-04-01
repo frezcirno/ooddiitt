@@ -186,6 +186,7 @@ int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
 
 
+  // RLR TODO: debug
   std::vector<SymbolicSolution> out1;
   getSymbolicSolution(state, out1);
 
@@ -194,7 +195,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
   bool success = solver->mayBeTrue(state, e, result);
   solver->setTimeout(0);
   if (success && result) {
-    state.addConstraint(e);
+    addConstraint(state, e);
 
     // RLR TODO: debug
     std::vector<SymbolicSolution> out2;
@@ -483,9 +484,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
           // finally, try with a new object
           MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                             '*' + mo->name, 0, lazyAllocationCount);
-
           bindObjectInState(*sp.second, newMO);
-
           ref<ConstantExpr> ptr = newMO->getBaseExpr();
           ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
           addConstraintOrTerminate(*sp.second, eq);
@@ -559,7 +558,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   if (!isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> cex;
     if (solver->getValue(state, offsetExpr, cex)) {
-      ref<Expr> eq = EqExpr::create(offsetExpr, cex);
+
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
       if (!addConstraintOrTerminate(state, eq)) {
         return false;
       }
@@ -1286,9 +1286,9 @@ ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<E
     if (solver->getValue(state, e, result)) {
 
       bool answer;
-      ref<Expr> eq = EqExpr::create(e, result);
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, result));
       if (solver->mustBeTrue(state, eq, answer) && !answer) {
-        state.addConstraint(eq);
+        addConstraint(state, eq);
       }
     }
     solver->setTimeout(0);
@@ -1308,8 +1308,8 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
     if (solver->getValue(state, e, value)) {
 
       bool answer;
-      ref<Expr> eq = EqExpr::create(e, value);
-      if (solver->mustBeTrue(state, EqExpr::create(e, value), answer)) {
+      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, value));
+      if (solver->mustBeTrue(state, eq, answer)) {
         result = answer;
       }
     }
@@ -1640,10 +1640,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   assert(success && "FIXME: Unhandled solver failure");
                 }
                 if (result) {
-                  sp.second->addConstraint(UltExpr::create(size, min_size));
+                  addConstraint(*sp.second, UltExpr::create(size, min_size));
                   bool success = solver->getValue(*sp.second, size, min_size);
                   assert(success && "FIXME: solver just said mayBeTrue");
-                  sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(size, min_size)));
+                  addConstraint(*sp.second, NotOptimizedExpr::create(EqExpr::create(size, min_size)));
                   count = (unsigned) min_size->getZExtValue();
                 } else {
                   // too big of an allocation
@@ -1659,7 +1659,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               bindObjectInState(*sp.second, newMO);
 
               ref<ConstantExpr> ptr = newMO->getBaseExpr();
-              sp.second->addConstraint(NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
+              addConstraint(*sp.second, NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
             } else {
               errs() << "Not a first class type!\n";
             }
@@ -1738,7 +1738,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
           if (solver->mustBeTrue(state, mc, answer) && !answer) {
             if (solver->mayBeTrue(state, mc, answer) && answer) {
-              state.addConstraint(mc);
+              addConstraint(state, mc);
             }
           }
           solver->setTimeout(0);
