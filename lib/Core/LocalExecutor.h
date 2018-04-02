@@ -35,8 +35,7 @@ public:
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih,
-                             ProgInfo *progInfo,
-                             unsigned seMaxTime)
+                             ProgInfo *progInfo)
     { return new klee::LocalExecutor(ctx, opts, ih, progInfo); }
   
   LocalExecutor(llvm::LLVMContext &ctx,

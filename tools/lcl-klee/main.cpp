@@ -74,7 +74,7 @@ namespace {
            cl::desc("json formated info from static analysis"),
            cl::init(""));
 
-  cl::opt<bool>
+cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
              cl::init(false));
@@ -234,7 +234,6 @@ private:
 
   unsigned casesGenerated;
   unsigned nextTestCaseID;
-  ProgInfo &progInfo;
   std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
 
@@ -288,7 +287,6 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     outputDirectory(),
     casesGenerated(0),
     nextTestCaseID(1),
-    progInfo(pi),
     indentation(""),
     m_pathsExplored(0),
     m_argc(argc),
@@ -350,6 +348,8 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
 }
 
 KleeHandler::~KleeHandler() {
+  // RLR TODO: save out current kmodInfo contents
+
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
   fclose(klee_warning_file);
@@ -1501,8 +1501,7 @@ int main(int argc, char **argv, char **envp) {
     }
   }
   if (!mainModule)
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ErrorMsg.c_str());
+    klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
 #else
   auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
   if (!Buffer)
