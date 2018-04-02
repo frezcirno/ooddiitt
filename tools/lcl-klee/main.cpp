@@ -268,6 +268,8 @@ public:
 
   std::string getTypeName(const Type *Ty) const override;
 
+  bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) override;
+
   // load a .path file
   static void loadPathFile(std::string name,
                            std::vector<bool> &buffer);
@@ -538,7 +540,6 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["endingMarker"] = state.endingMarker;
       root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
 
-
       // store the path condition
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTVARS);
@@ -803,6 +804,60 @@ std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
                        libDir.c_str() << "\n");
   return libDir.str();
 }
+
+bool KleeHandler::getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) {
+
+  InterpreterHandler::getRemainingPaths(paths);
+
+  bool result = false;
+
+  // try to retrieve remaining paths from klee output directory
+  std::ifstream infile(getOutputFilename("remaining_paths.json"));
+  if (infile.is_open()) {
+
+    Json::Value root;
+    infile >> root;
+    infile.close();
+
+    if (root.isObject()) {
+
+      result = true;
+
+      // iterate over each function object
+      for (Json::ValueConstIterator itrFn = root.begin(), endFn = root.end(); result && itrFn != endFn; ++itrFn) {
+        Json::Value fn_value = *itrFn;
+        std::string fn_name = itrFn.key().asString();
+        m2m_paths_t &fn_paths = paths[fn_name];
+        if (fn_value.isArray()) {
+          for (Json::ValueConstIterator itrPath = fn_value.begin(), endPath = fn_value.end(); result && itrPath != endPath; ++itrPath) {
+            m2m_path_t fn_path;
+            Json::Value path_value = *itrPath;
+            if (path_value.isArray()) {
+              for (Json::ValueConstIterator itrMark = path_value.begin(), endMark = path_value.end(); result && itrMark != endMark; ++itrMark) {
+                Json::Value mark_value = *itrMark;
+                if (mark_value.isUInt()) {
+                  fn_path.push_back(mark_value.asUInt());
+                } else {
+                  result = false;
+                }
+              }
+              fn_paths.insert(fn_path);
+            } else {
+              result = false;
+            }
+          }
+        } else {
+          result = false;
+        }
+      }
+    }
+  }
+  if (!result) {
+    paths.clear();
+  }
+  return result;
+}
+
 
 //===----------------------------------------------------------------------===//
 // main Driver function

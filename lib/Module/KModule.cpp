@@ -577,6 +577,10 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
   set<const Function *> fns_ptr_to_int;
   set<const Function *> fns_int_to_ptr;
 
+  // try to load remaining m2m paths
+  map<string,m2m_paths_t> remaining_paths;
+  bool remaining_loaded = ih->getRemainingPaths(remaining_paths);
+
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
@@ -725,10 +729,16 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
         }
       }
 
-      if (fn->size() > 1) {
-        kf->addM2MPaths(majorMarkerList);
+      // use the loaded remaining paths, if found
+      // otherwise, generate our own
+      if (remaining_loaded) {
+        kf->m2m_paths = remaining_paths[fn_name];
       } else {
-        kf->addM2MPath(&fn->getEntryBlock());
+        if (fn->size() > 1) {
+          kf->addM2MPaths(majorMarkerList);
+        } else {
+          kf->addM2MPath(&fn->getEntryBlock());
+        }
       }
     }
   }

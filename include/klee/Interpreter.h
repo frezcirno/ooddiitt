@@ -53,6 +53,7 @@ public:
                                const char *suffix = nullptr) = 0;
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
+  virtual bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) { paths.clear(); return false; }
 
 };
 
