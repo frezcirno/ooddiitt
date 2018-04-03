@@ -215,7 +215,7 @@ cl::opt<bool>
 
   cl::opt<bool>
   Watchdog("watchdog",
-           cl::desc("Use a watchdog process to enforce --max-time."),
+           cl::desc("Use a watchdog process to enforce --se-max-time."),
            cl::init(0));
 }
 
@@ -236,6 +236,7 @@ private:
   unsigned nextTestCaseID;
   std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
+  pid_t pid_watchdog;
 
   // used for writing .ktest files
   int m_argc;
@@ -269,6 +270,8 @@ public:
   std::string getTypeName(const Type *Ty) const override;
 
   bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) override;
+  bool resetWatchDogTimer() const override;
+  void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
   // load a .path file
   static void loadPathFile(std::string name,
@@ -291,6 +294,7 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     nextTestCaseID(1),
     indentation(""),
     m_pathsExplored(0),
+    pid_watchdog(0),
     m_argc(argc),
     m_argv(argv) {
 
@@ -859,6 +863,17 @@ bool KleeHandler::getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) {
 }
 
 
+bool KleeHandler::resetWatchDogTimer() const {
+
+  // signal the watchdog process
+  if (pid_watchdog != 0) {
+    kill(pid_watchdog, SIGUSR1);
+    return true;
+  }
+  return false;
+}
+
+
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
@@ -1424,6 +1439,14 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   }
 }
 
+volatile bool reset_watchdog_timer = false;
+
+static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care_either) {
+  if (signal == SIGUSR1) {
+    reset_watchdog_timer = true;
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
@@ -1454,20 +1477,36 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
+  pid_t pid_watchdog = 0;
+
   if (Watchdog) {
-    if (MaxTime==0) {
-      klee_error("--watchdog used without --max-time");
+    if (seMaxTime == 0) {
+      klee_error("--watchdog used without --se-max-time");
     }
 
     int pid = fork();
     if (pid<0) {
       klee_error("unable to fork watchdog");
     } else if (pid) {
+      reset_watchdog_timer = false;
       klee_message("KLEE: WATCHDOG: watching %d\n", pid);
       fflush(stderr);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
 
-      double nextStep = util::getWallTime() + MaxTime*1.1;
+      // catch SIGUSR1
+      struct sigaction sa;
+      memset(&sa, 0, sizeof(sa));
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = SA_NODEFER;
+      sa.sa_sigaction = handle_usr1_signal;
+      sigaction(SIGUSR1, &sa, NULL);
+
+      uint64_t incrementTime = seMaxTime * 2;
+      struct timespec tm;
+      clock_gettime(CLOCK_MONOTONIC, &tm);
+      uint64_t now = (uint64_t) tm.tv_sec;
+      uint64_t nextStep = now + incrementTime;
+
       int level = 0;
 
       // Simple stupid code...
@@ -1489,9 +1528,14 @@ int main(int argc, char **argv, char **envp) {
         } else if (res==pid && WIFEXITED(status)) {
           return WEXITSTATUS(status);
         } else {
-          double time = util::getWallTime();
 
-          if (time > nextStep) {
+          clock_gettime(CLOCK_MONOTONIC, &tm);
+          now = (uint64_t) tm.tv_sec;
+
+          if (reset_watchdog_timer) {
+            nextStep = now + incrementTime;
+            reset_watchdog_timer = false;
+          } else if (now > nextStep) {
             ++level;
 
             if (level==1) {
@@ -1511,7 +1555,9 @@ int main(int argc, char **argv, char **envp) {
 
             // Ideally this triggers a dump, which may take a while,
             // so try and give the process extra time to clean up.
-            nextStep = util::getWallTime() + std::max(15., MaxTime*.1);
+            clock_gettime(CLOCK_MONOTONIC, &tm);
+            now = (uint64_t) tm.tv_sec;
+            nextStep = now + 10;
           }
         }
       }
@@ -1521,6 +1567,8 @@ int main(int argc, char **argv, char **envp) {
   }
 
   sys::SetInterruptFunction(interrupt_handle);
+
+  pid_watchdog = getppid();
 
   // Load the bytecode...
   std::string ErrorMsg;
@@ -1697,6 +1745,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo);
+  handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;

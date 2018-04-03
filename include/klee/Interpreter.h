@@ -54,6 +54,7 @@ public:
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) { paths.clear(); return false; }
+  virtual bool resetWatchDogTimer() const { return false; }
 
 };
 

@@ -81,6 +81,11 @@ public:
 
 
 cl::opt<bool>
+    VerifyConstraints("verify-constraints",
+                      cl::init(false),
+                      cl::desc("Perform additional constraint verification before adding"));
+
+cl::opt<bool>
   AssumeInboundPointers("assume-inbound-pointers",
                         cl::init(true),
                         cl::desc("Assume pointer dereferences are inbounds. (default=on)"));
@@ -185,10 +190,10 @@ int64_t LocalExecutor::getValue(ExecutionState& state, ref<Expr> value) const {
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
 
-
-  // RLR TODO: debug
-  std::vector<SymbolicSolution> out1;
-  getSymbolicSolution(state, out1);
+  if (VerifyConstraints) {
+    std::vector<SymbolicSolution> in;
+    getSymbolicSolution(state, in);
+  }
 
   bool result;
   solver->setTimeout(coreSolverTimeout);
@@ -197,9 +202,10 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
   if (success && result) {
     addConstraint(state, e);
 
-    // RLR TODO: debug
-    std::vector<SymbolicSolution> out2;
-    getSymbolicSolution(state, out2);
+    if (VerifyConstraints) {
+      std::vector<SymbolicSolution> out;
+      getSymbolicSolution(state, out);
+    }
 
     return true;
   }
@@ -1011,6 +1017,9 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   uint64_t stats_counter = stats_granularity;
   unsigned debug_value = DebugValue;
 
+  // reset the watchdog timer
+  interpreterHandler->resetWatchDogTimer();
+
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
 
@@ -1488,6 +1497,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             terminateStateOnExit(state);
           } else if (fnName == "abort") {
             terminateStateOnError(state, "aborted", TerminateReason::Abort);
+          } else if (fnName == "__assert_fail") {
+            terminateStateOnError(state, "assertion failed", TerminateReason::Assert);
           } else {
             terminateStateOnError(state, "unknown exit", TerminateReason::Unhandled);
           }
