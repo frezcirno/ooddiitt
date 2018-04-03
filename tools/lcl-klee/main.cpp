@@ -1568,7 +1568,10 @@ int main(int argc, char **argv, char **envp) {
 
   sys::SetInterruptFunction(interrupt_handle);
 
-  pid_watchdog = getppid();
+  if (Watchdog) {
+    // then this is the forked child
+    pid_watchdog = getppid();
+  }
 
   // Load the bytecode...
   std::string ErrorMsg;
