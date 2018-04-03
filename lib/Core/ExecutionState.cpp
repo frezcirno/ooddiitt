@@ -87,8 +87,10 @@ ExecutionState::ExecutionState() :
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
+    generate_test_case(false),
     startingMarker(0),
-    endingMarker(0)
+    endingMarker(0),
+    areSubfunctionsStubbed(false)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -124,9 +126,11 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    generate_test_case(state.generate_test_case),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
-    trace(state.trace)
+    trace(state.trace),
+    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -189,9 +193,11 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    generate_test_case(state.generate_test_case),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
-    trace(state.trace)
+    trace(state.trace),
+    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

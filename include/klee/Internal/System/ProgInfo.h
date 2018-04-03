@@ -31,6 +31,9 @@ public:
   bool isReachableOutput(std::string name) const  { return reachableOutputs.count(name) > 0; }
   void setReachableOutput(std::string name)       { reachableOutputs.insert(name); }
 
+  const std::set<std::string> &getCallTargets() const { return callTargets; }
+  void addCallTarget(std::string name)                { callTargets.insert(name); }
+
   unsigned getFnID() const                   { return fnID; }
   void setFnID(unsigned id)                  { fnID = id; }
 
@@ -38,6 +41,7 @@ private:
   std::set<unsigned> constParams;
   std::set<std::string> globalInputs;
   std::set<std::string> reachableOutputs;
+  std::set<std::string> callTargets;
   unsigned fnID;
 };
 
@@ -58,6 +62,9 @@ public:
 
   unsigned getFnID(std::string fn)                         { return fnInfo[fn].getFnID(); }
   void setFnID(std::string fn, unsigned id)                { fnInfo[fn].setFnID(id); }
+
+  const std::set<std::string> &getCallTargets(std::string fn) { return fnInfo[fn].getCallTargets(); }
+  void addCallTarget(std::string fn, std::string target)      { fnInfo[fn].addCallTarget(target); }
 
 private:
   std::map<std::string,ProgInfoFunction> fnInfo;

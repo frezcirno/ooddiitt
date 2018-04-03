@@ -173,10 +173,12 @@ public:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
+  bool generate_test_case;
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;
   std::deque<unsigned> trace;
+  bool areSubfunctionsStubbed;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
@@ -203,7 +205,7 @@ public:
   bool isConcrete(const MemoryObject *mo);
   void addMarker(char type, unsigned fnID, unsigned bbID);
 
-  void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
+  void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);
   void dumpStack(llvm::raw_ostream &out) const;

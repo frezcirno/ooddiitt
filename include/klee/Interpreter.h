@@ -53,6 +53,8 @@ public:
                                const char *suffix = nullptr) = 0;
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
+  virtual bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) { paths.clear(); return false; }
+  virtual bool resetWatchDogTimer() const { return false; }
 
 };
 
@@ -66,12 +68,23 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
+    bool StubSubfunctions;
+    bool OutputStaticAnalysis;
 
     ModuleOptions(const std::string &_LibraryDir,
-                  const std::string &_EntryPoint, bool _Optimize,
-                  bool _CheckDivZero, bool _CheckOvershift)
-        : LibraryDir(_LibraryDir), EntryPoint(_EntryPoint), Optimize(_Optimize),
-          CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift) {}
+                  const std::string &_EntryPoint,
+                  bool _Optimize,
+                  bool _CheckDivZero,
+                  bool _CheckOvershift,
+                  bool _StubSubfunctions,
+                  bool _OutputStaticAnalysis)
+        : LibraryDir(_LibraryDir),
+          EntryPoint(_EntryPoint),
+          Optimize(_Optimize),
+          CheckDivZero(_CheckDivZero),
+          CheckOvershift(_CheckOvershift),
+          StubSubfunctions(_StubSubfunctions),
+          OutputStaticAnalysis(_OutputStaticAnalysis) {}
   };
 
   enum LogType
@@ -89,9 +102,13 @@ public:
     /// symbolic values. This is used to test the correctness of the
     /// symbolic execution on concrete programs.
     unsigned MakeConcreteSymbolic;
+    unsigned seMaxTime;
+    bool createOutputDir;
 
     InterpreterOptions()
-      : MakeConcreteSymbolic(false)
+      : MakeConcreteSymbolic(false),
+        seMaxTime(0),
+        createOutputDir(false)
     {}
   };
 
@@ -112,8 +129,7 @@ public:
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
                                   InterpreterHandler *ih,
-                                  ProgInfo *progInfo,
-                                  unsigned seMaxTime);
+                                  ProgInfo *progInfo);
 
   /// Register the module to be executed.  
   ///
@@ -149,7 +165,6 @@ public:
                                  char **envp) = 0;
 
   virtual void runFunctionUnconstrained(llvm::Function *f)          { };
-  virtual bool generateTestCase(const ExecutionState &state) const  { return true; }
 
   /*** Runtime options ***/
 

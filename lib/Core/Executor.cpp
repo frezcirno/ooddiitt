@@ -1030,6 +1030,14 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
       klee_warning("seeds patched for violating constraint");
   }
 
+  // RLR TODO: Debug
+  // verify that this condition is satisfyable
+  solver->setTimeout(coreSolverTimeout);
+  bool valid;
+  bool success = solver->mayBeTrue(state, condition, valid);
+  solver->setTimeout(0);
+  assert(success && valid);
+
   state.addConstraint(condition);
   if (ivcEnabled)
     doImpliedValueConcretization(state, condition,
@@ -1131,17 +1139,18 @@ ref<Expr> Executor::toUnique(const ExecutionState &state,
   ref<Expr> result = e;
 
   if (!isa<ConstantExpr>(e)) {
-    ref<ConstantExpr> value;
-    bool isTrue = false;
 
+    ref<ConstantExpr> value;
     solver->setTimeout(coreSolverTimeout);
-    if (solver->getValue(state, e, value) &&
-        solver->mustBeTrue(state, EqExpr::create(e, value), isTrue) &&
-        isTrue)
-      result = value;
+    if (solver->getValue(state, e, value)) {
+      bool answer;
+      ref<Expr> eq = EqExpr::create(e, value);
+      if (solver->mustBeTrue(state, eq, answer) && answer) {
+        result = value;
+      }
+    }
     solver->setTimeout(0);
   }
-
   return result;
 }
 
@@ -3128,7 +3137,7 @@ ref<Expr> Executor::replaceReadWithSymbolic(ExecutionState &state,
   ref<Expr> res = Expr::createTempRead(array, e->getWidth());
   ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, res));
   llvm::errs() << "Making symbolic: " << eq << "\n";
-  state.addConstraint(eq);
+  addConstraint(state, eq);
   return res;
 }
 
@@ -3155,34 +3164,11 @@ void Executor::executeAlloc(ExecutionState &state,
                             KInstruction *target,
                             bool zeroMemory,
                             const ObjectState *reallocFrom) {
+
+  // try to convert size to constant expression
+  Expr::Width W = size->getWidth();
   size = toUnique(state, size);
-  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
-
-    size_t allocationAlignment = getAllocationAlignment(target->inst);
-    MemoryObject *mo =
-        memory->allocate(CE->getZExtValue(), nullptr, kind, target->inst, allocationAlignment);
-    if (!mo) {
-      bindLocal(target, state,
-                ConstantExpr::alloc(0, Context::get().getPointerWidth()));
-    } else {
-
-      mo->name = target->inst->getName();
-      ObjectState *os = bindObjectInState(state, mo);
-      if (zeroMemory) {
-        os->initializeToZero();
-      } else {
-        os->initializeToRandom();
-      }
-      bindLocal(target, state, mo->getBaseExpr());
-
-      if (reallocFrom) {
-        unsigned count = std::min(reallocFrom->size, os->size);
-        for (unsigned i=0; i<count; i++)
-          os->write(i, reallocFrom->read8(i));
-        state.addressSpace.unbindObject(reallocFrom->getObject());
-      }
-    }
-  } else {
+  if (!isa<ConstantExpr>(size)) {
 
     // RLR TODO: what to do about name?
 
@@ -3198,69 +3184,76 @@ void Executor::executeAlloc(ExecutionState &state,
     // collapses the size expression with a select.
 
     ref<ConstantExpr> example;
-    bool success = solver->getValue(state, size, example);
-    assert(success && "FIXME: Unhandled solver failure");
-    (void) success;
-
-    // Try and start with a small example.
-    Expr::Width W = example->getWidth();
-    while (example->Ugt(ConstantExpr::alloc(128, W))->isTrue()) {
-      ref<ConstantExpr> tmp = example->LShr(ConstantExpr::alloc(1, W));
-      bool res;
-      bool success = solver->mayBeTrue(state, EqExpr::create(tmp, size), res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (!res)
-        break;
-      example = tmp;
+    if (!solver->getValue(state, size, example)) {
+      assert(false && "FIXME: Unhandled solver failure");
     }
 
-    StatePair fixedSize = fork(state, EqExpr::create(example, size), true);
+    if (example->getZExtValue(W) > 4096) {
 
-    if (fixedSize.second) {
-      // Check for exactly two values
-      ref<ConstantExpr> tmp;
-      bool success = solver->getValue(*fixedSize.second, size, tmp);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      bool res;
-      success = solver->mustBeTrue(*fixedSize.second,
-                                   EqExpr::create(tmp, size),
-                                   res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (res) {
-        executeAlloc(*fixedSize.second, tmp, kind,
-                     target, zeroMemory, reallocFrom);
-      } else {
-        // See if a *really* big value is possible. If so assume
-        // malloc will fail for it, so lets fork and return 0.
-        StatePair hugeSize =
-          fork(*fixedSize.second,
-               UltExpr::create(ConstantExpr::alloc(1<<31, W), size),
-               true);
-        if (hugeSize.first) {
-          klee_message("NOTE: found huge malloc, returning 0");
-          bindLocal(target, *hugeSize.first,
-                    ConstantExpr::alloc(0, Context::get().getPointerWidth()));
-        }
+      // fairly large allocation.  see if a smaller one would do.
+      bool result = false;
+      for (unsigned trial = 16; trial <= 4096 && !result; trial <<= 1) {
 
-        if (hugeSize.second) {
-
-          std::string Str;
-          llvm::raw_string_ostream info(Str);
-          ExprPPrinter::printOne(info, "  size expr", size);
-          info << "  concretization : " << example << "\n";
-          info << "  unbound example: " << tmp << "\n";
-          terminateStateOnError(*hugeSize.second, "concretized symbolic size",
-                                Model, NULL, info.str());
+        ref<ConstantExpr> e = ConstantExpr::create(trial, W);
+        ref<Expr> equal = EqExpr::create(e, size);
+        if (solver->mayBeTrue(state, equal, result) && result) {
+          example = e;
         }
       }
     }
 
-    if (fixedSize.first) // can be zero when fork fails
-      executeAlloc(*fixedSize.first, example, kind,
-                   target, zeroMemory, reallocFrom);
+    // shunken or not, example is now the size of our allocation
+    // since example is constant, we can just alloc again
+    addConstraint(state, EqExpr::create(example, size));
+    size = example;
+  }
+
+  // size is now a constant
+  ConstantExpr *CE = cast<ConstantExpr>(size);
+  uint64_t allocSize = CE->getZExtValue(W);
+  if (allocSize > 1024 * 1024) {
+
+    errs() << "failing large allocation\n";
+    bindLocal(target, state, ConstantExpr::createPointer(0));
+    return;
+  }
+  size_t allocAlignment = getAllocationAlignment(target->inst);
+  MemoryObject *mo = memory->allocate(allocSize, nullptr, kind, target->inst, allocAlignment);
+  if (mo == nullptr) {
+    bindLocal(target, state, ConstantExpr::createPointer(0));
+    return;
+  }
+
+  // if this is a heap allocation, clone off a malloc fail state
+  if (kind == MemKind::heap) {
+//        ExecutionState *failState = state.branch();
+//
+//        // and split the process truee for the new state
+//        state.ptreeNode->data = nullptr;
+//        std::pair<PTree::Node *, PTree::Node *> res = processTree->split(state.ptreeNode, &state, failState);
+//        state.ptreeNode = res.first;
+//        failState->ptreeNode = res.second;
+//
+//        addedStates.push_back(failState);
+//        bindLocal(target, *failState, ConstantExpr::createPointer(0));
+  }
+
+  // bind the new object into the success state
+  mo->name = target->inst->getName();
+  ObjectState *os = bindObjectInState(state, mo);
+  if (zeroMemory) {
+    os->initializeToZero();
+  } else {
+    os->initializeToRandom();
+  }
+  bindLocal(target, state, mo->getBaseExpr());
+
+  // only need to handle realloc in the success state
+  if (reallocFrom) {
+    unsigned count = std::min(reallocFrom->size, os->size);
+    for (unsigned i = 0; i < count; i++)
+      os->write(i, reallocFrom->read8(i));
+    state.addressSpace.unbindObject(reallocFrom->getObject());
   }
 }
 
@@ -3691,6 +3684,7 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
 
   solver->setTimeout(coreSolverTimeout);
 
+#if 0 == 1
   ExecutionState tmp(state);
 
   // Go through each byte in every test case and attempt to restrict
@@ -3721,11 +3715,14 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
     if (pi!=pie) break;
   }
 
+#endif
+
   std::vector< std::vector<unsigned char> > values;
   std::vector<const Array*> objects;
   for (unsigned i = 0; i != state.symbolics.size(); ++i)
     objects.push_back(state.symbolics[i].second);
-  bool success = solver->getInitialValues(tmp, objects, values);
+//  bool success = solver->getInitialValues(tmp, objects, values);
+  bool success = solver->getInitialValues(state, objects, values);
   solver->setTimeout(0);
   if (!success) {
     klee_warning("unable to compute initial values (invalid constraints?)!");

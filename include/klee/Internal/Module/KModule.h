@@ -126,6 +126,7 @@ namespace klee {
     void addM2MPath(const llvm::BasicBlock *bb);
     unsigned getBBIndex(const llvm::BasicBlock *bb);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
+    bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
 
 
@@ -179,12 +180,16 @@ namespace klee {
     bool isInternalFunction(const llvm::Function *fn)
       { return internalFunctions.find(fn) != internalFunctions.end(); }
 
+    bool isModuleFunction(const llvm::Function *fn) const;
+
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
   private:
 
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;
+    bool stub_subfns;
+    KFunction *entry_point;
 
   public:
     KModule(llvm::Module *_module);
@@ -196,11 +201,14 @@ namespace klee {
     void prepare(const Interpreter::ModuleOptions &opts, 
                  InterpreterHandler *ihandler);
 
-    void prepareMarkers();
+    void prepareMarkers(InterpreterHandler *ih, std::string entry_point);
+    void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
     void constructSortedBBlocks(std::vector<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry);
+    void calcMarkerDistances(const KFunction *entry, std::map<const llvm::BasicBlock*,unsigned> &mapDist);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
+    bool stubSubfunctions() const     { return stub_subfns; }
   };
 } // End klee namespace
 
