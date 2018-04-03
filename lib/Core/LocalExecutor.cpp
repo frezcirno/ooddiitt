@@ -1538,14 +1538,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee fuction, then let the standard executor handle it
-      if (((fn != nullptr) && !kmodule->stubSubfunctions()) ||
-          specialFunctionHandler->isSpecial(fn) ||
-          kmodule->isInternalFunction(fn)) {
-        Executor::executeInstruction(state, ki);
-        return;
+      bool isInModule = false;
+      if (fn != nullptr) {
+        isInModule = kmodule->isModuleFunction(fn);
+        if ((!kmodule->stubSubfunctions() && isInModule) ||
+            specialFunctionHandler->isSpecial(fn) ||
+            kmodule->isInternalFunction(fn)) {
+          Executor::executeInstruction(state, ki);
+          return;
+        }
       }
 
-      // will be simulating a stubbed subfunction.
+      // we will be simulating a stubbed subfunction.
 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
@@ -1553,52 +1557,56 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // consider the arguments pushed for the call, rather than
       // args expected by the target
       unsigned numArgs = cs.arg_size();
-      for (unsigned index = 0; index < numArgs; ++index) {
-        const Value *v = cs.getArgument(index);
-        Type *argType = v->getType();
+      if (!fn->isVarArg()) {
+        for (unsigned index = 0; index < numArgs; ++index) {
+          const Value *v = cs.getArgument(index);
+          Type *argType = v->getType();
 
-        if ((countLoadIndirection(argType) > 0) && !progInfo->isConstParam(fnName, index)) {
+          if ((countLoadIndirection(argType) > 0) && !progInfo->isConstParam(fnName, index)) {
 
-          ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
-          Expr::Width width = address->getWidth();
-          assert(width == Context::get().getPointerWidth());
+            ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
+            Expr::Width width = address->getWidth();
+            assert(width == Context::get().getPointerWidth());
 
-          ObjectPair op;
-          if (resolveMO(state, address, op) == ResolveResult::OK) {
-            const MemoryObject *orgMO = op.first;
-            const ObjectState *orgOS = op.second;
-            ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
+            ObjectPair op;
+            if (resolveMO(state, address, op) == ResolveResult::OK) {
+              const MemoryObject *orgMO = op.first;
+              const ObjectState *orgOS = op.second;
+              ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
 
-            Type *eleType = argType->getPointerElementType();
-            unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
-            unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
-            unsigned count = (orgMO->size - offset) / eleSize;
+              Type *eleType = argType->getPointerElementType();
+              unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
+              unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
+              unsigned count = (orgMO->size - offset) / eleSize;
 
-            // unconstrain from address to end of the memory block
-            WObjectPair wop;
-            if (!allocSymbolic(state,
-                               eleType,
-                               v,
-                               MemKind::output,
-                               fullName(fnName, counter, std::to_string(index + 1)),
-                               wop,
-                               0,
-                               count)) {
-              klee_error("failed to allocate ptr argument");
+              // unconstrain from address to end of the memory block
+              WObjectPair wop;
+              if (!allocSymbolic(state,
+                                 eleType,
+                                 v,
+                                 MemKind::output,
+                                 fullName(fnName, counter, std::to_string(index + 1)),
+                                 wop,
+                                 0,
+                                 count)) {
+                klee_error("failed to allocate ptr argument");
+              }
+
+              ObjectState *newOS = wop.second;
+              for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
+                argOS->write8(offset + idx, newOS->read8(idx));
+              }
+            } else {
+  //            assert(false && "failed to resolve a parameter");
             }
-
-            ObjectState *newOS = wop.second;
-            for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
-              argOS->write8(offset + idx, newOS->read8(idx));
-            }
-          } else {
-//            assert(false && "failed to resolve a parameter");
           }
         }
       }
 
       // unconstrain global variables
-      unconstrainGlobals(state, fn, counter);
+      if (isInModule) {
+        unconstrainGlobals(state, fn, counter);
+      }
 
       // now get the return type
       Type *ty = cs->getType();

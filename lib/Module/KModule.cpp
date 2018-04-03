@@ -538,6 +538,11 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   }
 }
 
+bool KModule::isModuleFunction(const llvm::Function *fn) const {
+
+  return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
+}
+
 void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList,
                                      const BasicBlock *entry) {
 

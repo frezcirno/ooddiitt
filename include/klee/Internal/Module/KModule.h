@@ -180,6 +180,8 @@ namespace klee {
     bool isInternalFunction(const llvm::Function *fn)
       { return internalFunctions.find(fn) != internalFunctions.end(); }
 
+    bool isModuleFunction(const llvm::Function *fn) const;
+
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
   private:

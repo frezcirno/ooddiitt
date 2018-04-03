@@ -1633,17 +1633,6 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
-  // RLR TODO: evaluate if we still need list of functions
-  // build a set of functions in the initially loaded module
-  // klee will link additional functions later. we will want to ignore those
-  std::set<Function *> fnInModule;
-  for (auto itr = mainModule->begin(), end = mainModule->end(); itr != end; ++itr) {
-    Function *fn = itr;
-    if (!(fn->isIntrinsic() || fn->isDeclaration())) {
-      fnInModule.insert(fn);
-    }
-  }
-
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
