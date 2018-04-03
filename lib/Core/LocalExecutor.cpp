@@ -1557,7 +1557,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // consider the arguments pushed for the call, rather than
       // args expected by the target
       unsigned numArgs = cs.arg_size();
-      if (!fn->isVarArg()) {
+      if (fn == nullptr || !fn->isVarArg()) {
         for (unsigned index = 0; index < numArgs; ++index) {
           const Value *v = cs.getArgument(index);
           Type *argType = v->getType();
