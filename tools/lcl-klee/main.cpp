@@ -1737,7 +1737,7 @@ int main(int argc, char **argv, char **envp) {
     Function *entryFn = mainModule->getFunction(EntryPoint);
     if (entryFn != nullptr) {
       theInterpreter->runFunctionUnconstrained(entryFn);
-    } else {
+    } else if (EntryPoint != "void") {
       klee_error("Unable to find function: %s", EntryPoint.c_str());
     }
   }
