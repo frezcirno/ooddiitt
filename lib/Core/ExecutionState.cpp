@@ -149,6 +149,10 @@ ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
 
 
 ExecutionState::~ExecutionState() {
+
+  if (name == "_germinal_") {
+    errs() << "break here";
+  }
   for (unsigned int i=0; i<symbolics.size(); i++)
   {
     const MemoryObject *mo = symbolics[i].first;

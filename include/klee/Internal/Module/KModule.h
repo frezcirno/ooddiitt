@@ -75,7 +75,6 @@ namespace klee {
 
     // loop analysis
     std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
-    llvm::DominatorTree domTree;
 
     // marker info
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;

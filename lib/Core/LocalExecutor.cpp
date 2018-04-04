@@ -145,7 +145,11 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
 
 LocalExecutor::~LocalExecutor() {
 
-  delete germinalState;
+  if (germinalState != nullptr) {
+    // this last state is leaked.  something in solver
+    // tear-down does not like its deletion
+    germinalState = nullptr;
+  }
 
   if (statsTracker) {
     statsTracker->done();
@@ -310,29 +314,14 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
   if (e->getWidth() == width) {
 
     ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
-    ref<Expr> eqMax = NotOptimizedExpr::create(EqExpr::create(e, max));
+//    ref<Expr> eqMax = NotOptimizedExpr::create(EqExpr::create(e, max));
+    ref<Expr> eqMax = EqExpr::create(e, max);
 
     bool result = false;
     solver->setTimeout(coreSolverTimeout);
-    if (solver->mayBeTrue(state, eqMax, result)) {
-
-      if (!result) {
-
-        // RLR TODO: debug
-
-        // if not max, then what?
-//        ref<ConstantExpr> ce;
-//        solver->getValue(state, e, ce);
-//        auto pr = solver->getRange(state, e);
-
-
-//        errs() << "Here!\n";
-      }
-
-      solver->setTimeout(0);
-      return result;
-    }
+    bool success = solver->mayBeTrue(state, eqMax, result);
     solver->setTimeout(0);
+    return success && result;
   }
   return false;
 }
@@ -380,11 +369,6 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    // RLR TODO: silence noise
-//    if (result == ResolveResult::NoObject) {
-//      // invalid memory read
-//      errs() << " *** failed to resolve MO on read ***\n";
-//    }
     terminateState(state);
     return false;
   }
@@ -423,9 +407,6 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     if (!isLocallyAllocated(state, mo)) {
       if (mo->kind == klee::MemKind::lazy) {
         os = makeSymbolic(state, mo);
-      } else {
-        // RLR TODO: consider removing
-//        outs() << "*** Not converting " << mo->getKindAsStr() << ":" << mo->name << " to symbolic\n";
       }
     }
   }
@@ -444,7 +425,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
          ++depth);
 
     ref<ConstantExpr> null = Expr::createPointer(0);
-    ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(e, null));
+//    ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(e, null));
+    ref<Expr> eqNull = EqExpr::create(e, null);
 
     if (depth >= maxLazyDepth) {
 
@@ -480,7 +462,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
             for (auto existing : listMOs) {
               if (existing->kind == MemKind::lazy) {
                 ref<Expr> ptr = existing->getBaseExpr();
-                ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+//                ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+                ref<Expr> eq = EqExpr::create(e, ptr);
                 StatePair new_sp = fork(*sp.second, eq, false);
                 sp.second = new_sp.second;
               }
@@ -492,7 +475,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
                                             '*' + mo->name, 0, lazyAllocationCount);
           bindObjectInState(*sp.second, newMO);
           ref<ConstantExpr> ptr = newMO->getBaseExpr();
-          ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+//          ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
+          ref<Expr> eq = EqExpr::create(e, ptr);
           addConstraintOrTerminate(*sp.second, eq);
         }
       }
@@ -565,7 +549,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     ref<ConstantExpr> cex;
     if (solver->getValue(state, offsetExpr, cex)) {
 
-      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
+//      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(offsetExpr, cex));
+      ref<Expr> eq = EqExpr::create(offsetExpr, cex);
       if (!addConstraintOrTerminate(state, eq)) {
         return false;
       }
@@ -602,10 +587,6 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   std::string objName = uniqueName;
   while (!state.arrayNames.insert(uniqueName).second) {
     uniqueName = mo->name + "_" + llvm::utostr(++id);
-    if (!objName.empty()) {
-      // RLR TODO: this may be a common circumstance
-//      errs() << "duplicate obj names: " << objName << ", " << uniqueName << "\n";
-    }
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
 
@@ -695,8 +676,7 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 
 void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) {
 
-  for (Module::const_global_iterator itr = kmodule->module->global_begin(),
-       end = kmodule->module->global_end();
+  for (Module::const_global_iterator itr = kmodule->module->global_begin(), end = kmodule->module->global_end();
        itr != end;
        ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
@@ -720,13 +700,6 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
-
-// RLR TODO: not sure why I included this
-//  if ((statsTracker == nullptr) && (!opts.StubSubFunctions)) {
-//    statsTracker = new StatsTracker(*this,
-//                                    interpreterHandler->getOutputFilename("assembly.ll"),
-//                                    true);
-//  }
 
   // prepare a generic initial state
   germinalState = new ExecutionState();
@@ -945,48 +918,8 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   assert(kf->m2m_paths.size() == m2m_pathsCovered.size() + m2m_pathsRemaining.size());
   outs() << "    " << m2m_pathsCovered.size();
   outs() << " of " << kf->m2m_paths.size() << " m2m paths covered\n";
-#if 0 == 1
-  if (m2m_pathsUnreachable.empty()) {
-    outs() << "\n";
-  } else {
-    outs() << ", missing:\n";
-
-    for (const m2m_path_t &path : m2m_pathsUnreachable) {
-
-      bool first = true;
-      outs() << "      [";
-      for (const unsigned &marker : path) {
-        if (!first) outs() << ", ";
-        first = false;
-        outs() << marker;
-      }
-      outs() << "]\n";
-    }
-  }
-#endif
   outs().flush();
 }
-
-#if 0 == 1
-void LocalExecutor::markUnreachable(const std::vector<unsigned> &ids) {
-
-  // remove any m2m-paths starting with an id for startBB
-  for (unsigned id : ids) {
-
-    // consider each remaining path
-    for (auto itr = m2m_pathsRemaining.cbegin(), end = m2m_pathsRemaining.cend(); itr != end; ) {
-
-      assert(!itr->empty());
-      if (id == itr->front() % 1000) {
-        m2m_pathsUnreachable.insert(*itr);
-        itr = m2m_pathsRemaining.erase(itr);
-      } else {
-        ++itr;
-      }
-    }
-  }
-}
-#endif
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState) {
 
@@ -1295,7 +1228,8 @@ ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<E
     if (solver->getValue(state, e, result)) {
 
       bool answer;
-      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, result));
+//      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, result));
+      ref<Expr> eq = EqExpr::create(e, result);
       if (solver->mustBeTrue(state, eq, answer) && !answer) {
         addConstraint(state, eq);
       }
@@ -1317,7 +1251,8 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
     if (solver->getValue(state, e, value)) {
 
       bool answer;
-      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, value));
+//      ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, value));
+      ref<Expr> eq = EqExpr::create(e, value);
       if (solver->mustBeTrue(state, eq, answer)) {
         result = answer;
       }
@@ -1596,8 +1531,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
                 argOS->write8(offset + idx, newOS->read8(idx));
               }
-            } else {
-  //            assert(false && "failed to resolve a parameter");
             }
           }
         }
@@ -1627,7 +1560,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // two possible returns for a pointer type, nullptr and a valid object
 
           ref<ConstantExpr> null = Expr::createPointer(0);
-          ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(retExpr, null));
+//          ref<Expr> eqNull = NotOptimizedExpr::create(EqExpr::create(retExpr, null));
+          ref<Expr> eqNull = EqExpr::create(retExpr, null);
           StatePair sp = fork(state, eqNull, false);
 
           // in the true case, ptr is null, so nothing further to do
@@ -1662,7 +1596,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   addConstraint(*sp.second, UltExpr::create(size, min_size));
                   bool success = solver->getValue(*sp.second, size, min_size);
                   assert(success && "FIXME: solver just said mayBeTrue");
-                  addConstraint(*sp.second, NotOptimizedExpr::create(EqExpr::create(size, min_size)));
+//                  ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(size, min_size));
+                  ref<Expr> eq = EqExpr::create(size, min_size);
+                  addConstraint(*sp.second, eq);
                   count = (unsigned) min_size->getZExtValue();
                 } else {
                   // too big of an allocation
@@ -1678,7 +1614,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               bindObjectInState(*sp.second, newMO);
 
               ref<ConstantExpr> ptr = newMO->getBaseExpr();
-              addConstraint(*sp.second, NotOptimizedExpr::create(EqExpr::create(retExpr, ptr)));
+//              ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(retExpr, ptr));
+              ref<Expr> eq = EqExpr::create(retExpr, ptr);
+              addConstraint(*sp.second, eq);
             } else {
               errs() << "Not a first class type!\n";
             }
@@ -1737,20 +1675,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (AssumeInboundPointers) {
           bool answer;
 
-// RLR TODO: don't think this is necessary
-#if 0 == 1
-          // index must be >= 0
-          ref<Expr> mc = SgeExpr::create(offset, ConstantExpr::create(0, base->getWidth()));
-          solver->setTimeout(coreSolverTimeout);
-          if (solver->mustBeFalse(state, mc, answer) && answer) {
-            // RLR TODO: potential dead code
-//            terminateState(state);
-//            solver->setTimeout(0);
-//            break;
-          } else if (solver->mustBeTrue(state, mc, answer) && !answer) {
-            state.addConstraint(mc);
-          }
-#endif
           // base must point into an allocation
           solver->setTimeout(coreSolverTimeout);
           ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);

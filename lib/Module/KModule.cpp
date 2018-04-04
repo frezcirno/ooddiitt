@@ -1134,6 +1134,7 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
 
 void KFunction::findLoops() {
 
+  llvm::DominatorTree domTree;
   domTree.runOnFunction(*function);
 
   for (const BasicBlock &bb : *function) {
