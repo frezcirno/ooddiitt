@@ -939,6 +939,7 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState) {
         continue;
       }
       outs() << "    starting from: " << kf->mapMarkers[startBB].front() << "\n";
+      outs().flush();
     }
     runFrom(kf, initialState, startBB);
   }
