@@ -79,11 +79,15 @@ public:
   bad_expression(const char *msg) : std::runtime_error(msg) {}
 };
 
+cl::opt<std::string>
+  SkipStartingBlocks("skip-starting-blocks",
+                     cl::init(""),
+                     cl::desc("When fragmenting, do not start from these block ids"));
 
 cl::opt<bool>
-    VerifyConstraints("verify-constraints",
-                      cl::init(false),
-                      cl::desc("Perform additional constraint verification before adding"));
+  VerifyConstraints("verify-constraints",
+                    cl::init(false),
+                    cl::desc("Perform additional constraint verification before adding"));
 
 cl::opt<bool>
   AssumeInboundPointers("assume-inbound-pointers",
@@ -923,10 +927,34 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
 
 void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState) {
 
+  // create a set of blocks to skip, from command line (previously tried)
+  BasicBlocks skips;
+  std::string skip_string = SkipStartingBlocks.c_str();
+
+  // comma delimited list of marker ids
+  char *pch = strtok(const_cast<char*>(skip_string.c_str()), " ,");
+  while (pch != nullptr) {
+
+    // non-empty list of skipped blocks implies we are skipping the
+    // entry block
+    if (skips.empty()) {
+      skips.insert(&kf->function->getEntryBlock());
+    }
+
+    // insert the id's basic block
+    auto itr = kf->mapBBlocks.find((unsigned) atoi(pch));
+    if (itr != kf->mapBBlocks.end()) {
+      skips.insert(itr->second);
+    }
+    pch = strtok(nullptr, " ,");
+  }
+
   // create a worklist of basicblocks sorted by distance from entry
   std::deque<const llvm::BasicBlock*> worklist;
   for (auto bb : kf->sortedBBlocks) {
-    worklist.push_back(bb);
+    if (skips.count(bb) == 0) {
+      worklist.push_back(bb);
+    }
   }
 
   while (!m2m_pathsRemaining.empty() && !worklist.empty() && !haltExecution) {
