@@ -909,7 +909,7 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
     for (auto state : stowedStates) {
       if (coversPath(m2m_pathsRemaining, state)) {
 
-        state->endingMarker = state->markers.back().id;
+        state->endingMarker = state->markers.get_terminating_id();
         state->generate_test_case = true;
         interpreterHandler->processTestCase(*state);
         updateCoveredPaths(state);

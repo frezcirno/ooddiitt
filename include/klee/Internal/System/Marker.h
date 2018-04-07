@@ -53,6 +53,14 @@ public:
       }
     }
   }
+  unsigned get_terminating_id() const {
+    for (auto itr = this->crbegin(), end = this->crend(); itr != end; ++itr) {
+      if (toupper(itr->type) == 'M') {
+        return itr->id;
+      }
+    }
+    return 0;
+  };
 };
 
 #endif //KLEE_MARKER_H
