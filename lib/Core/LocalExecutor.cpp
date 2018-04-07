@@ -993,7 +993,7 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
     // record starting marker
     initState->startingMarker = kf->mapMarkers[start].front();
 
-    // declare local variables symbolic
+    // unconstrain local variables
     prepareLocalSymbolics(kf, *initState);
 
     // if jumping into the interior of a loop, push required loop frames
@@ -1793,7 +1793,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
   }
 }
 
-
 void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
 
   std::vector<SymbolicSolution> out;
@@ -1822,7 +1821,6 @@ void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
   }
 }
 
-
 const Cell& LocalExecutor::eval(KInstruction *ki, unsigned index, ExecutionState &state) const {
 
   const Cell& result = Executor::eval(ki, index, state);
@@ -1831,7 +1829,6 @@ const Cell& LocalExecutor::eval(KInstruction *ki, unsigned index, ExecutionState
   }
   return result;
 }
-
 
 unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
 
@@ -1851,7 +1848,6 @@ Interpreter *Interpreter::createLocal(LLVMContext &ctx,
   return new LocalExecutor(ctx, opts, ih, progInfo);
 }
 
-  
 }
 
 ///
