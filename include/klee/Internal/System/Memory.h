@@ -47,6 +47,7 @@ public:
 
   /// size in bytes
   unsigned size;
+  unsigned visible_size;
   size_t align;
   mutable std::string name;
 
@@ -83,6 +84,7 @@ public:
       id(counter++), 
       address(_address),
       size(0),
+      visible_size(0),
       name("hack"),
       kind(MemKind::fixed),
       type(nullptr),
@@ -98,6 +100,7 @@ public:
       id(counter++),
       address(_address),
       size(_size),
+      visible_size(_size),
       align(_align),
       name(""),
       kind(_kind),
@@ -192,10 +195,11 @@ private:
 public:
     //RLR TODO: evaluate wether symboliclyWritten is still needed.
   bool symboliclyWritten;
-  unsigned size;
+  mutable unsigned visible_size;
   bool readOnly;
 
 public:
+
   /// Create a new object state for the given memory object with concrete
   /// contents. The initial contents are undefined, it is the callers
   /// responsibility to initialize the object contents appropriately.
@@ -220,7 +224,9 @@ public:
   bool cloneWritten(const ObjectState *src);
   void resetBytesWritten();
   bool isWritten() const { return writtenMask != nullptr; }
-  
+  unsigned getPhysicalSize() const { return object->size; }
+  unsigned getVisibleSize() const { return object->size; }
+
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;
   ref<Expr> read8(unsigned offset) const;
@@ -237,6 +243,41 @@ public:
   ref<Expr> read8(ref<Expr> offset) const;
   void write8(unsigned offset, ref<Expr> value);
   void write8(ref<Expr> offset, ref<Expr> value);
+
+  /// state versions of allocation expressions
+  ref<ConstantExpr> getBaseExpr() const {
+    return ConstantExpr::create(object->address, Context::get().getPointerWidth());
+  }
+  ref<ConstantExpr> getSizeExpr() const {
+    return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
+  }
+  ref<Expr> getOffsetExpr(ref<Expr> pointer) const {
+    return SubExpr::create(pointer, getBaseExpr());
+  }
+  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer) const {
+    return getBoundsCheckOffset(getOffsetExpr(pointer));
+  }
+  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, unsigned bytes) const {
+    return getBoundsCheckOffset(getOffsetExpr(pointer), bytes);
+  }
+
+  ref<Expr> getBoundsCheckOffset(ref<Expr> offset) const {
+    if (visible_size==0) {
+      return EqExpr::create(offset,
+                            ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+    } else {
+      return UltExpr::create(offset, getSizeExpr());
+    }
+  }
+  ref<Expr> getBoundsCheckOffset(ref<Expr> offset, unsigned bytes) const {
+    if (bytes<=visible_size) {
+      return UltExpr::create(offset,
+                             ConstantExpr::alloc(visible_size - bytes + 1,
+                                                 Context::get().getPointerWidth()));
+    } else {
+      return ConstantExpr::alloc(0, Expr::Bool);
+    }
+  }
 
 private:
   const UpdateList &getUpdates() const;

@@ -395,7 +395,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   } else {
 
     solver->setTimeout(coreSolverTimeout);
-    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
+    ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
       if (!addConstraintOrTerminate(state, mc)) {
@@ -448,7 +448,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       if (sp.second != nullptr) {
 
         // pointer may not be null
-        std::vector<const MemoryObject*> listMOs;
+        std::vector<ObjectPair> listOPs;
         Type *subtype = type->getPointerElementType()->getPointerElementType();
 
         // this is just for debugging and diagnostics
@@ -462,8 +462,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
           if (LazyAllocationExt) {
 
             // consider any existing objects in memory of the same type
-            sp.second->addressSpace.getMemoryObjects(listMOs, subtype);
-            for (auto existing : listMOs) {
+            sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
+            for (const auto pr : listOPs) {
+              const MemoryObject *existing = pr.first;
               if (existing->kind == MemKind::lazy) {
                 ref<Expr> ptr = existing->getBaseExpr();
 //                ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, ptr));
@@ -534,7 +535,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   } else {
 
     solver->setTimeout(coreSolverTimeout);
-    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
+    ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
       if (!addConstraintOrTerminate(state, mc)) {
@@ -616,6 +617,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
   uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
+  uint64_t visible_size = size;
 
   if ((kind == MemKind::lazy) && (size < MinLazyAllocationSize)) {
     size = MinLazyAllocationSize;
@@ -627,6 +629,9 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   } else {
     mo->name = name;
     mo->count = count;
+    if (size != visible_size) {
+      mo->visible_size = visible_size;
+    }
   }
   return mo;
 }
@@ -1678,7 +1683,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
       if (result == ResolveResult::OK) {
-        const MemoryObject *mo = op.first;
+//        const MemoryObject *mo = op.first;
+        const ObjectState *os = op.second;
 
         assert(i->getType()->isPtrOrPtrVectorTy());
         Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
@@ -1706,7 +1712,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
           // base must point into an allocation
           solver->setTimeout(coreSolverTimeout);
-          ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
+          ref<Expr> mc = os->getBoundsCheckPointer(base, bytes);
 
           if (solver->mustBeTrue(state, mc, answer) && !answer) {
             if (solver->mayBeTrue(state, mc, answer) && answer) {
@@ -1769,8 +1775,19 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (resolveMO(state, ptr, op) == ResolveResult::OK) {
 
             const MemoryObject *mo = op.first;
-            if ((mo->kind == MemKind::lazy) && (destSize > mo->size)) {
-              klee_warning("lazy init size too small for bitcast");
+            if (mo->kind == MemKind::lazy) {
+              const ObjectState *os = op.second;
+
+              if (destSize > mo->size) {
+                // not even one will fit
+                klee_warning("lazy init size too small for bitcast");
+              }
+
+              destSize *= lazyAllocationCount;
+              destSize = std::min(destSize, mo->size);
+              if (destSize > os->visible_size) {
+                os->visible_size = destSize;
+              }
             }
           }
         }

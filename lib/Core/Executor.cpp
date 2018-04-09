@@ -3250,7 +3250,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
   // only need to handle realloc in the success state
   if (reallocFrom) {
-    unsigned count = std::min(reallocFrom->size, os->size);
+    unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
     for (unsigned i = 0; i < count; i++)
       os->write(i, reallocFrom->read8(i));
     state.addressSpace.unbindObject(reallocFrom->getObject());

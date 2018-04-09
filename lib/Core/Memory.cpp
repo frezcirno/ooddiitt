@@ -109,16 +109,16 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates(0, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    size(mo->size),
+    visible_size(mo->visible_size),
     readOnly(false) {
   mo->refCount++;
   if (!UseConstantArrays) {
     static unsigned id = 0;
     const Array *array =
-        getArrayCache()->CreateArray("tmp_arr" + llvm::utostr(++id), size);
+        getArrayCache()->CreateArray("tmp_arr" + llvm::utostr(++id), mo->size);
     updates = UpdateList(array, 0);
   }
-  memset(concreteStore, 0, size);
+  memset(concreteStore, 0, mo->size);
 }
 
 
@@ -133,37 +133,37 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     updates(array, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    size(mo->size),
+    visible_size(mo->visible_size),
     readOnly(false) {
   mo->refCount++;
   makeSymbolic();
-  memset(concreteStore, 0, size);
+  memset(concreteStore, 0, mo->size);
 }
 
 ObjectState::ObjectState(const ObjectState &os) 
   : copyOnWriteOwner(0),
     refCount(0),
     object(os.object),
-    concreteStore(new uint8_t[os.size]),
-    concreteMask(os.concreteMask ? new BitArray(*os.concreteMask, os.size) : 0),
-    flushMask(os.flushMask ? new BitArray(*os.flushMask, os.size) : 0),
+    concreteStore(new uint8_t[os.object->size]),
+    concreteMask(os.concreteMask ? new BitArray(*os.concreteMask, os.object->size) : 0),
+    flushMask(os.flushMask ? new BitArray(*os.flushMask, os.object->size) : 0),
     knownSymbolics(0),
     updates(os.updates),
-    writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.size) : nullptr),
+    writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.object->size) : nullptr),
     symboliclyWritten(os.symboliclyWritten),
-    size(os.size),
+    visible_size(os.visible_size),
     readOnly(os.readOnly) {
   assert(!os.readOnly && "no need to copy read only object?");
   if (object)
     object->refCount++;
 
   if (os.knownSymbolics) {
-    knownSymbolics = new ref<Expr>[size];
-    for (unsigned i=0; i<size; i++)
+    knownSymbolics = new ref<Expr>[os.object->size];
+    for (unsigned i=0; i<os.object->size; i++)
       knownSymbolics[i] = os.knownSymbolics[i];
   }
 
-  memcpy(concreteStore, os.concreteStore, size*sizeof(*concreteStore));
+  memcpy(concreteStore, os.concreteStore, os.object->size*sizeof(*concreteStore));
 }
 
 ObjectState::~ObjectState() {
@@ -207,10 +207,10 @@ const UpdateList &ObjectState::getUpdates() const {
       Writes[i] = std::make_pair(un->index, un->value);
     }
 
-    std::vector< ref<ConstantExpr> > Contents(size);
+    std::vector< ref<ConstantExpr> > Contents(object->size);
 
     // Initialize to zeros.
-    for (unsigned i = 0, e = size; i != e; ++i)
+    for (unsigned i = 0, e = object->size; i != e; ++i)
       Contents[i] = ConstantExpr::create(0, Expr::Int8);
 
     // Pull off as many concrete writes as we can.
@@ -230,7 +230,7 @@ const UpdateList &ObjectState::getUpdates() const {
 
     static unsigned id = 0;
     const Array *array = getArrayCache()->CreateArray(
-        "const_arr" + llvm::utostr(++id), size, &Contents[0],
+        "const_arr" + llvm::utostr(++id), object->size, &Contents[0],
         &Contents[0] + Contents.size());
     updates = UpdateList(array, 0);
 
@@ -254,7 +254,7 @@ void ObjectState::makeSymbolic() {
          "XXX makeSymbolic of objects with symbolic values is unsupported");
 
   // XXX simplify this, can just delete various arrays I guess
-  for (unsigned i=0; i<size; i++) {
+  for (unsigned i=0; i<object->size; i++) {
     markByteSymbolic(i);
     setKnownSymbolic(i, 0);
     markByteFlushed(i);
@@ -263,12 +263,12 @@ void ObjectState::makeSymbolic() {
 
 void ObjectState::initializeToZero() {
   makeConcrete();
-  memset(concreteStore, 0, size);
+  memset(concreteStore, 0, object->size);
 }
 
 void ObjectState::initializeToRandom() {  
   makeConcrete();
-  for (unsigned i=0; i<size; i++) {
+  for (unsigned i=0; i<object->size; i++) {
     // randomly selected by 256 sided die
     concreteStore[i] = 0xAB;
   }
@@ -286,12 +286,12 @@ void ObjectState::fastRangeCheckOffset(ref<Expr> offset,
                                        unsigned *base_r,
                                        unsigned *size_r) const {
   *base_r = 0;
-  *size_r = size;
+  *size_r = object->size;
 }
 
 void ObjectState::flushRangeForRead(unsigned rangeBase, 
                                     unsigned rangeSize) const {
-  if (!flushMask) flushMask = new BitArray(size, true);
+  if (!flushMask) flushMask = new BitArray(object->size, true);
  
   for (unsigned offset=rangeBase; offset<rangeBase+rangeSize; offset++) {
     if (!isByteFlushed(offset)) {
@@ -311,7 +311,7 @@ void ObjectState::flushRangeForRead(unsigned rangeBase,
 
 void ObjectState::flushRangeForWrite(unsigned rangeBase, 
                                      unsigned rangeSize) {
-  if (!flushMask) flushMask = new BitArray(size, true);
+  if (!flushMask) flushMask = new BitArray(object->size, true);
 
   for (unsigned offset=rangeBase; offset<rangeBase+rangeSize; offset++) {
     if (!isByteFlushed(offset)) {
@@ -368,7 +368,7 @@ void ObjectState::markByteConcrete(unsigned offset) {
 
 void ObjectState::markByteSymbolic(unsigned offset) {
   if (!concreteMask)
-    concreteMask = new BitArray(size, true);
+    concreteMask = new BitArray(object->size, true);
   concreteMask->unset(offset);
 }
 
@@ -379,7 +379,7 @@ void ObjectState::markByteUnflushed(unsigned offset) {
 
 void ObjectState::markByteFlushed(unsigned offset) {
   if (!flushMask) {
-    flushMask = new BitArray(size, false);
+    flushMask = new BitArray(object->size, false);
   } else {
     flushMask->unset(offset);
   }
@@ -387,7 +387,7 @@ void ObjectState::markByteFlushed(unsigned offset) {
 
 void ObjectState::markByteWritten(unsigned offset) {
   if (writtenMask == nullptr) {
-    writtenMask = new BitArray(size, false);
+    writtenMask = new BitArray(object->size, false);
   }
   writtenMask->set(offset);
 }
@@ -398,7 +398,7 @@ void ObjectState::setKnownSymbolic(unsigned offset,
     knownSymbolics[offset] = value;
   } else {
     if (value) {
-      knownSymbolics = new ref<Expr>[size];
+      knownSymbolics = new ref<Expr>[object->size];
       knownSymbolics[offset] = value;
     }
   }
@@ -407,14 +407,14 @@ void ObjectState::setKnownSymbolic(unsigned offset,
 bool ObjectState::cloneWritten(const ObjectState *src) {
 
   // RLR TODO: validate == attributes
-  if (src->size == size) {
+  if (src->object->size == object->size) {
 
     if (src->symboliclyWritten) {
       klee_warning("cloning a symbolicly written object");
     }
 
     if (src->isWritten()) {
-      for (unsigned index = 0; index < size; index++) {
+      for (unsigned index = 0; index < object->size; index++) {
         if (src->isByteWritten(index)) {
           write8(index, src->read8(index));
         }
@@ -643,10 +643,10 @@ void ObjectState::print() {
   llvm::errs() << "-- ObjectState --\n";
   llvm::errs() << "\tMemoryObject ID: " << object->id << "\n";
   llvm::errs() << "\tRoot Object: " << updates.root << "\n";
-  llvm::errs() << "\tSize: " << size << "\n";
+  llvm::errs() << "\tSize: " << object->size << "\n";
 
   llvm::errs() << "\tBytes:\n";
-  for (unsigned i=0; i<size; i++) {
+  for (unsigned i=0; i<object->size; i++) {
     llvm::errs() << "\t\t["<<i<<"]"
                << " concrete? " << isByteConcrete(i)
                << " known-sym? " << isByteKnownSymbolic(i)

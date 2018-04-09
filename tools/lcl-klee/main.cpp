@@ -602,16 +602,20 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["addressSpace"] = Json::arrayValue;
       Json::Value &addrSpace = root["addressSpace"];
 
-      std::vector<const MemoryObject*> listMOs;
-      state.addressSpace.getMemoryObjects(listMOs);
-      for (const MemoryObject *mo : listMOs) {
+      std::vector<ObjectPair> listOPs;
+      state.addressSpace.getMemoryObjects(listOPs);
+      for (const auto pr : listOPs) {
+
+        const MemoryObject *mo = pr.first;
+        const ObjectState *os = pr.second;
 
         Json::Value obj = Json::objectValue;
         obj["id"] = mo->id;
         obj["name"] = mo->name;
         obj["kind"] = mo->getKindAsStr();
         obj["count"] = mo->count;
-        obj["size"] = mo->size;
+        obj["physical_size"] = mo->size;
+        obj["visible_size"] = os->visible_size;
 
         if (mo->type != nullptr) {
           obj["type"] = getTypeName(mo->type);
