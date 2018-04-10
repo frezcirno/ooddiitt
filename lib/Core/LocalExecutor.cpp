@@ -1546,7 +1546,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               Type *eleType = argType->getPointerElementType();
               unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
               unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
-              unsigned count = (orgMO->size - offset) / eleSize;
+              unsigned count = (orgOS->visible_size - offset) / eleSize;
 
               // unconstrain from address to end of the memory block
               WObjectPair wop;
