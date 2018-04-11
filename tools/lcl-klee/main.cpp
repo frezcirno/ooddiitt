@@ -21,8 +21,8 @@
 #include "klee/Internal/System/Time.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
+#include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/Module/KModule.h"
-#include "klee/Internal/System/ProgInfo.h"
 #include "klee/Internal/System/Memory.h"
 
 #include "llvm/IR/Constants.h"
@@ -543,6 +543,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["startingMarker"] = state.startingMarker;
       root["endingMarker"] = state.endingMarker;
       root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
+      root["kleeRevision"] = KLEE_BUILD_REVISION;
 
       // store the path condition
       std::string constraints;
