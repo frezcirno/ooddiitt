@@ -915,7 +915,6 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
       if (coversPath(m2m_pathsRemaining, state)) {
 
         state->endingMarker = state->markers.get_terminating_id();
-        state->generate_test_case = true;
         interpreterHandler->processTestCase(*state);
         updateCoveredPaths(state);
       }
@@ -1089,7 +1088,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   m2m_paths_t covered;
   getCoveredPaths(m2m_pathsRemaining, &state, covered);
 
-  if (state.generate_test_case) {
+  if (state.status == ExecutionState::StateStatus::Completed) {
     if (!covered.empty()) {
       interpreterHandler->processTestCase(state, nullptr, nullptr);
     }
@@ -1109,9 +1108,24 @@ void LocalExecutor::terminateState(ExecutionState &state) {
 }
 
 void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
-  state.generate_test_case = true;
-  terminateState(state);
+  state.status = ExecutionState::StateStatus::Completed;
+  Executor::terminateStateOnExit(state);
 }
+
+
+void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
+  state.status = ExecutionState::StateStatus::TerminateEarly;
+  Executor::terminateStateEarly(state, message);
+}
+
+void LocalExecutor::terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
+                           enum TerminateReason termReason,
+                           const char *suffix,
+                           const llvm::Twine &longMessage) {
+  state.status = ExecutionState::StateStatus::TerminateError;
+  Executor::terminateStateOnError(state, message, termReason, suffix, longMessage);
+}
+
 
 void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
 

@@ -129,6 +129,13 @@ protected:
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
   void terminateState(ExecutionState &state) override;
   void terminateStateOnExit(ExecutionState &state) override;
+  void terminateStateEarly(ExecutionState &state, const llvm::Twine &message) override;
+  void terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
+                                     enum TerminateReason termReason,
+                                     const char *suffix = NULL,
+                                     const llvm::Twine &longMessage = "") override;
+
+
   virtual const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const;
   void updateStates(ExecutionState *current) override;
   void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;

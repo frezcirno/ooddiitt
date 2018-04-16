@@ -2882,8 +2882,6 @@ void Executor::terminateState(ExecutionState &state) {
     removedStates.push_back(&state);
   } else {
 
-    // RLR TODO: not sure why this assertion was here...
-    //assert(state.isProcessed && "deleted processed state");
     // never reached searcher, just delete immediately
     std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it3 =
       seedMap.find(&state);
@@ -2906,7 +2904,7 @@ void Executor::terminateStateEarly(ExecutionState &state,
 void Executor::terminateStateOnExit(ExecutionState &state) {
   if (!OnlyOutputStatesCoveringNew || state.coveredNew ||
       (AlwaysOutputSeeds && seedMap.count(&state)))
-    interpreterHandler->processTestCase(state, 0, 0);
+//    interpreterHandler->processTestCase(state, 0, 0);
   terminateState(state);
 }
 
@@ -3005,8 +3003,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
       suffix_buf += ".err";
       suffix = suffix_buf.c_str();
     }
-
-    interpreterHandler->processTestCase(state, msg.str().c_str(), suffix);
+//    interpreterHandler->processTestCase(state, msg.str().c_str(), suffix);
   }
 
   terminateState(state);

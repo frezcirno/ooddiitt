@@ -96,6 +96,25 @@ private:
 
 
 public:
+
+  enum StateStatus {
+    Pending,
+    Completed,
+    TerminateEarly,
+    TerminateError
+  };
+
+  std::string get_status() const {
+    std::string result = "unknown";
+    switch (status) {
+    case Pending: result = "pending"; break;
+    case Completed: result = "completed"; break;
+    case TerminateEarly: result = "early"; break;
+    case TerminateError: result = "error"; break;
+    }
+    return result;
+  }
+
   // Execution - Control Flow specific
 
   /// @brief Pointer to instruction to be executed after the current
@@ -173,7 +192,7 @@ public:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
-  bool generate_test_case;
+  StateStatus status;
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;

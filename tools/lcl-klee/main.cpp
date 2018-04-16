@@ -89,6 +89,11 @@ cl::opt<bool>
              cl::desc("Start local symbolic execution at entrypoint"),
              cl::init(""));
 
+  cl::opt<unsigned>
+  StartCaseID("start-case-id",
+              cl::init(1),
+              cl::desc("starting test case id"));
+
   cl::opt<std::string>
   UserMain("user-main",
            cl::desc("Consider the function with the given name as the main point"),
@@ -291,7 +296,7 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     create_output_dir(false),
     outputDirectory(),
     casesGenerated(0),
-    nextTestCaseID(1),
+    nextTestCaseID(StartCaseID),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
@@ -521,10 +526,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
     unsigned testID = nextTestCaseID++;
     std::vector<SymbolicSolution> out;
 
-    if (state.generate_test_case) {
-      if (!m_interpreter->getSymbolicSolution(state, out)) {
-        klee_warning("unable to get symbolic solution, losing test case");
-      }
+    if (!m_interpreter->getSymbolicSolution(state, out)) {
+      klee_warning("unable to get symbolic solution, losing test case");
     }
 
     double start_time = util::getWallTime();
@@ -544,6 +547,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["endingMarker"] = state.endingMarker;
       root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
       root["kleeRevision"] = KLEE_BUILD_REVISION;
+      root["status"] = state.get_status();
 
       // store the path condition
       std::string constraints;
