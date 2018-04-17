@@ -612,7 +612,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       for (const auto pr : listOPs) {
 
         const MemoryObject *mo = pr.first;
-        const ObjectState *os = pr.second;
+//        const ObjectState *os = pr.second;
 
         Json::Value obj = Json::objectValue;
         obj["id"] = mo->id;
@@ -620,7 +620,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         obj["kind"] = mo->getKindAsStr();
         obj["count"] = mo->count;
         obj["physical_size"] = mo->size;
-        obj["visible_size"] = os->visible_size;
+        obj["visible_size"] = mo->visible_size;
 
         if (mo->type != nullptr) {
           obj["type"] = getTypeName(mo->type);

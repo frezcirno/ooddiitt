@@ -47,7 +47,7 @@ public:
 
   /// size in bytes
   unsigned size;
-  unsigned visible_size;
+  mutable unsigned visible_size;
   size_t align;
   mutable std::string name;
 
@@ -193,9 +193,9 @@ private:
   BitArray *writtenMask;
 
 public:
-    //RLR TODO: evaluate wether symboliclyWritten is still needed.
+    //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
-  mutable unsigned visible_size;
+//  unsigned visible_size;
   bool readOnly;
 
 public:
@@ -244,6 +244,7 @@ public:
   void write8(unsigned offset, ref<Expr> value);
   void write8(ref<Expr> offset, ref<Expr> value);
 
+#ifdef NEVER
   /// state versions of allocation expressions
   ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(object->address, Context::get().getPointerWidth());
@@ -278,6 +279,7 @@ public:
       return ConstantExpr::alloc(0, Expr::Bool);
     }
   }
+#endif
 
 private:
   const UpdateList &getUpdates() const;
