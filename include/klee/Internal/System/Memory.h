@@ -137,7 +137,7 @@ public:
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
   ref<ConstantExpr> getSizeExpr() const { 
-    return ConstantExpr::create(size, Context::get().getPointerWidth());
+    return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
   }
   ref<Expr> getOffsetExpr(ref<Expr> pointer) const {
     return SubExpr::create(pointer, getBaseExpr());
@@ -150,7 +150,7 @@ public:
   }
 
   ref<Expr> getBoundsCheckOffset(ref<Expr> offset) const {
-    if (size==0) {
+    if (visible_size==0) {
       return EqExpr::create(offset, 
                             ConstantExpr::alloc(0, Context::get().getPointerWidth()));
     } else {
@@ -158,9 +158,9 @@ public:
     }
   }
   ref<Expr> getBoundsCheckOffset(ref<Expr> offset, unsigned bytes) const {
-    if (bytes<=size) {
+    if (bytes<=visible_size) {
       return UltExpr::create(offset, 
-                             ConstantExpr::alloc(size - bytes + 1, 
+                             ConstantExpr::alloc(visible_size - bytes + 1,
                                                  Context::get().getPointerWidth()));
     } else {
       return ConstantExpr::alloc(0, Expr::Bool);
