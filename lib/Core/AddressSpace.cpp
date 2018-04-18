@@ -116,10 +116,10 @@ bool AddressSpace::resolveOne(ExecutionState &state,
     while (oi!=begin) {
       --oi;
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
         
       bool mayBeTrue;
-      if (!solver->mayBeTrue(state, 
-                             mo->getBoundsCheckPointer(address), mayBeTrue))
+      if (!solver->mayBeTrue(state, os->getBoundsCheckPointer(address), mayBeTrue))
         return false;
       if (mayBeTrue) {
         result = *oi;
@@ -139,20 +139,17 @@ bool AddressSpace::resolveOne(ExecutionState &state,
     // search forwards
     for (oi=start; oi!=end; ++oi) {
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
 
       bool mustBeTrue;
-      if (!solver->mustBeTrue(state, 
-                              UltExpr::create(address, mo->getBaseExpr()),
-                              mustBeTrue))
+      if (!solver->mustBeTrue(state, UltExpr::create(address, mo->getBaseExpr()), mustBeTrue))
         return false;
       if (mustBeTrue) {
         break;
       } else {
         bool mayBeTrue;
 
-        if (!solver->mayBeTrue(state, 
-                               mo->getBoundsCheckPointer(address),
-                               mayBeTrue))
+        if (!solver->mayBeTrue(state, os->getBoundsCheckPointer(address), mayBeTrue))
           return false;
         if (mayBeTrue) {
           result = *oi;
@@ -220,11 +217,12 @@ bool AddressSpace::resolve(ExecutionState &state,
     while (oi!=begin) {
       --oi;
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
       if (timeout_us && timeout_us < timer.check())
         return true;
 
       // XXX I think there is some query wasteage here?
-      ref<Expr> inBounds = mo->getBoundsCheckPointer(p);
+      ref<Expr> inBounds = os->getBoundsCheckPointer(p);
       bool mayBeTrue;
       if (!solver->mayBeTrue(state, inBounds, mayBeTrue))
         return true;
@@ -245,9 +243,7 @@ bool AddressSpace::resolve(ExecutionState &state,
       }
         
       bool mustBeTrue;
-      if (!solver->mustBeTrue(state, 
-                              UgeExpr::create(p, mo->getBaseExpr()),
-                              mustBeTrue))
+      if (!solver->mustBeTrue(state, UgeExpr::create(p, mo->getBaseExpr()), mustBeTrue))
         return true;
       if (mustBeTrue)
         break;
@@ -255,19 +251,18 @@ bool AddressSpace::resolve(ExecutionState &state,
     // search forwards
     for (oi=start; oi!=end; ++oi) {
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
       if (timeout_us && timeout_us < timer.check())
         return true;
 
       bool mustBeTrue;
-      if (!solver->mustBeTrue(state, 
-                              UltExpr::create(p, mo->getBaseExpr()),
-                              mustBeTrue))
+      if (!solver->mustBeTrue(state, UltExpr::create(p, mo->getBaseExpr()), mustBeTrue))
         return true;
       if (mustBeTrue)
         break;
       
       // XXX I think there is some query wasteage here?
-      ref<Expr> inBounds = mo->getBoundsCheckPointer(p);
+      ref<Expr> inBounds = os->getBoundsCheckPointer(p);
       bool mayBeTrue;
       if (!solver->mayBeTrue(state, inBounds, mayBeTrue))
         return true;

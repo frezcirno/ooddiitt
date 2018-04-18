@@ -652,7 +652,7 @@ void SpecialFunctionHandler::handleCheckMemoryAccess(ExecutionState &state,
                                      executor.getAddressInfo(state, address));
     } else {
       ref<Expr> chk = 
-        op.first->getBoundsCheckPointer(address, 
+        op.second->getBoundsCheckPointer(address,
                                         cast<ConstantExpr>(size)->getZExtValue());
       if (!chk->isTrue()) {
         executor.terminateStateOnError(state,
@@ -712,6 +712,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
   for (Executor::ExactResolutionList::iterator it = rl.begin(), 
          ie = rl.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first.first;
+    const ObjectState *os = it->first.second;
     mo->name = name;
     
     const ObjectState *old = it->first.second;
@@ -729,7 +730,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
       executor.solver->mustBeTrue(*s, 
                                   EqExpr::create(ZExtExpr::create(arguments[1],
                                                                   Context::get().getPointerWidth()),
-                                                 mo->getSizeExpr()),
+                                                 os->getSizeExpr()),
                                   res);
     assert(success && "FIXME: Unhandled solver failure");
     

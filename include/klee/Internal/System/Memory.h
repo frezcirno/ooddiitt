@@ -47,7 +47,7 @@ public:
 
   /// size in bytes
   unsigned size;
-  mutable unsigned visible_size;
+  unsigned created_size;
   size_t align;
   mutable std::string name;
 
@@ -84,7 +84,7 @@ public:
       id(counter++), 
       address(_address),
       size(0),
-      visible_size(0),
+      created_size(0),
       name("hack"),
       kind(MemKind::fixed),
       type(nullptr),
@@ -100,7 +100,7 @@ public:
       id(counter++),
       address(_address),
       size(_size),
-      visible_size(_size),
+      created_size(_size),
       align(_align),
       name(""),
       kind(_kind),
@@ -136,36 +136,36 @@ public:
   ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
-  ref<ConstantExpr> getSizeExpr() const { 
-    return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
-  }
+//  ref<ConstantExpr> getSizeExpr() const {
+//    return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
+//  }
   ref<Expr> getOffsetExpr(ref<Expr> pointer) const {
     return SubExpr::create(pointer, getBaseExpr());
   }
-  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer) const {
-    return getBoundsCheckOffset(getOffsetExpr(pointer));
-  }
-  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, unsigned bytes) const {
-    return getBoundsCheckOffset(getOffsetExpr(pointer), bytes);
-  }
-
-  ref<Expr> getBoundsCheckOffset(ref<Expr> offset) const {
-    if (visible_size==0) {
-      return EqExpr::create(offset, 
-                            ConstantExpr::alloc(0, Context::get().getPointerWidth()));
-    } else {
-      return UltExpr::create(offset, getSizeExpr());
-    }
-  }
-  ref<Expr> getBoundsCheckOffset(ref<Expr> offset, unsigned bytes) const {
-    if (bytes<=visible_size) {
-      return UltExpr::create(offset, 
-                             ConstantExpr::alloc(visible_size - bytes + 1,
-                                                 Context::get().getPointerWidth()));
-    } else {
-      return ConstantExpr::alloc(0, Expr::Bool);
-    }
-  }
+//  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer) const {
+//    return getBoundsCheckOffset(getOffsetExpr(pointer));
+//  }
+//  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, unsigned bytes) const {
+//    return getBoundsCheckOffset(getOffsetExpr(pointer), bytes);
+//  }
+//
+//  ref<Expr> getBoundsCheckOffset(ref<Expr> offset) const {
+//    if (visible_size==0) {
+//      return EqExpr::create(offset,
+//                            ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+//    } else {
+//      return UltExpr::create(offset, getSizeExpr());
+//    }
+//  }
+//  ref<Expr> getBoundsCheckOffset(ref<Expr> offset, unsigned bytes) const {
+//    if (bytes<=visible_size) {
+//      return UltExpr::create(offset,
+//                             ConstantExpr::alloc(visible_size - bytes + 1,
+//                                                 Context::get().getPointerWidth()));
+//    } else {
+//      return ConstantExpr::alloc(0, Expr::Bool);
+//    }
+//  }
 };
 
 class ObjectState {
@@ -195,7 +195,7 @@ private:
 public:
     //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
-//  unsigned visible_size;
+  unsigned visible_size;
   bool readOnly;
 
 public:
@@ -244,22 +244,21 @@ public:
   void write8(unsigned offset, ref<Expr> value);
   void write8(ref<Expr> offset, ref<Expr> value);
 
-#ifdef NEVER
   /// state versions of allocation expressions
-  ref<ConstantExpr> getBaseExpr() const {
-    return ConstantExpr::create(object->address, Context::get().getPointerWidth());
-  }
+//  ref<ConstantExpr> getBaseExpr() const {
+//    return ConstantExpr::create(object->address, Context::get().getPointerWidth());
+//  }
   ref<ConstantExpr> getSizeExpr() const {
     return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
   }
-  ref<Expr> getOffsetExpr(ref<Expr> pointer) const {
-    return SubExpr::create(pointer, getBaseExpr());
-  }
+//  ref<Expr> getOffsetExpr(ref<Expr> pointer) const {
+//    return SubExpr::create(pointer, getBaseExpr());
+//  }
   ref<Expr> getBoundsCheckPointer(ref<Expr> pointer) const {
-    return getBoundsCheckOffset(getOffsetExpr(pointer));
+    return getBoundsCheckOffset(object->getOffsetExpr(pointer));
   }
   ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, unsigned bytes) const {
-    return getBoundsCheckOffset(getOffsetExpr(pointer), bytes);
+    return getBoundsCheckOffset(object->getOffsetExpr(pointer), bytes);
   }
 
   ref<Expr> getBoundsCheckOffset(ref<Expr> offset) const {
@@ -279,7 +278,6 @@ public:
       return ConstantExpr::alloc(0, Expr::Bool);
     }
   }
-#endif
 
 private:
   const UpdateList &getUpdates() const;

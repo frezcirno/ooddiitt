@@ -2456,6 +2456,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
+      [[gnu::fallthrough]];
     case FCmpInst::FCMP_OEQ:
       Result = CmpRes == APFloat::cmpEqual;
       break;
@@ -2465,6 +2466,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
+      [[gnu::fallthrough]];
     case FCmpInst::FCMP_OGT:
       Result = CmpRes == APFloat::cmpGreaterThan;
       break;
@@ -2474,6 +2476,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
+      [[gnu::fallthrough]];
     case FCmpInst::FCMP_OGE:
       Result = CmpRes == APFloat::cmpGreaterThan || CmpRes == APFloat::cmpEqual;
       break;
@@ -2483,6 +2486,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
+      [[gnu::fallthrough]];
     case FCmpInst::FCMP_OLT:
       Result = CmpRes == APFloat::cmpLessThan;
       break;
@@ -2492,6 +2496,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
+      [[gnu::fallthrough]];
     case FCmpInst::FCMP_OLE:
       Result = CmpRes == APFloat::cmpLessThan || CmpRes == APFloat::cmpEqual;
       break;
@@ -3338,6 +3343,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
   if (success) {
     const MemoryObject *mo = op.first;
+    const ObjectState *os = op.second;
 
     if (MaxSymArraySize && mo->size>=MaxSymArraySize) {
       address = toConstant(state, address, "max-sym-array-size");
@@ -3347,9 +3353,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
     bool inBounds;
     solver->setTimeout(coreSolverTimeout);
-    bool success = solver->mustBeTrue(state,
-                                      mo->getBoundsCheckOffset(offset, bytes),
-                                      inBounds);
+    bool success = solver->mustBeTrue(state, os->getBoundsCheckOffset(offset, bytes), inBounds);
     solver->setTimeout(0);
     if (!success) {
       state.pc = state.prevPC;
@@ -3358,7 +3362,6 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     }
 
     if (inBounds) {
-      const ObjectState *os = op.second;
       if (isWrite) {
         if (os->readOnly) {
           terminateStateOnError(state, "memory error: object read only",
@@ -3395,7 +3398,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   for (ResolutionList::iterator i = rl.begin(), ie = rl.end(); i != ie; ++i) {
     const MemoryObject *mo = i->first;
     const ObjectState *os = i->second;
-    ref<Expr> inBounds = mo->getBoundsCheckPointer(address, bytes);
+    ref<Expr> inBounds = os->getBoundsCheckPointer(address, bytes);
 
     StatePair branches = fork(*unbound, inBounds, true);
     ExecutionState *bound = branches.first;

@@ -387,7 +387,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
-    if (offset + bytes > mo->size) {
+    if (offset + bytes > os->visible_size) {
       terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
                             NULL, getAddressInfo(state, address));
       return false;
@@ -395,7 +395,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   } else {
 
     solver->setTimeout(coreSolverTimeout);
-    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
+    ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
       if (!addConstraintOrTerminate(state, mc)) {
@@ -526,7 +526,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const unsigned offset = (unsigned) coffsetExpr->getZExtValue();
-    if (offset + bytes > mo->size) {
+    if (offset + bytes > os->visible_size) {
 
       terminateStateOnError(state, "memory error: out of bound pointer", Ptr,
                             NULL, getAddressInfo(state, address));
@@ -535,7 +535,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   } else {
 
     solver->setTimeout(coreSolverTimeout);
-    ref<Expr> mc = mo->getBoundsCheckOffset(offsetExpr, bytes);
+    ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
 
     if (AssumeInboundPointers) {
       if (!addConstraintOrTerminate(state, mc)) {
@@ -616,8 +616,8 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   if (align == 0) {
     align = kmodule->targetData->getPrefTypeAlignment(type);
   }
-  uint64_t size = kmodule->targetData->getTypeStoreSize(type) * count;
-  uint64_t visible_size = size;
+  unsigned size = (unsigned) (kmodule->targetData->getTypeStoreSize(type) * count);
+  unsigned created_size = size;
 
   if ((kind == MemKind::lazy) && (size < MinLazyAllocationSize)) {
     size = MinLazyAllocationSize;
@@ -629,9 +629,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   } else {
     mo->name = name;
     mo->count = count;
-    if (size != visible_size) {
-      mo->visible_size = visible_size;
-    }
+    mo->created_size = created_size;
   }
   return mo;
 }
@@ -1560,7 +1558,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               Type *eleType = argType->getPointerElementType();
               unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
               unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
-              unsigned count = (orgMO->visible_size - offset) / eleSize;
+              unsigned count = (orgOS->visible_size - offset) / eleSize;
 
               // unconstrain from address to end of the memory block
               WObjectPair wop;
@@ -1697,8 +1695,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
       if (result == ResolveResult::OK) {
-        const MemoryObject *mo = op.first;
-//        const ObjectState *os = op.second;
+//        const MemoryObject *mo = op.first;
+        const ObjectState *os = op.second;
 
         assert(i->getType()->isPtrOrPtrVectorTy());
         Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
@@ -1726,7 +1724,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
           // base must point into an allocation
           solver->setTimeout(coreSolverTimeout);
-          ref<Expr> mc = mo->getBoundsCheckPointer(base, bytes);
+          ref<Expr> mc = os->getBoundsCheckPointer(base, bytes);
 
           if (solver->mustBeTrue(state, mc, answer) && !answer) {
             if (solver->mayBeTrue(state, mc, answer) && answer) {
@@ -1789,6 +1787,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (resolveMO(state, ptr, op) == ResolveResult::OK) {
 
             const MemoryObject *mo = op.first;
+            const ObjectState *os = op.second;
             if (mo->kind == MemKind::lazy) {
 
               if (destSize > mo->size) {
@@ -1798,8 +1797,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
               destSize *= lazyAllocationCount;
               destSize = std::min(destSize, mo->size);
-              if (destSize > mo->visible_size) {
-                mo->visible_size = destSize;
+              ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+              if (destSize > wos->visible_size) {
+                wos->visible_size = destSize;
               }
             }
           }
