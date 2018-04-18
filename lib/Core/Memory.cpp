@@ -119,6 +119,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates = UpdateList(array, 0);
   }
   memset(concreteStore, 0, mo->size);
+  types.push_back(mo->created_type);
 }
 
 
@@ -138,6 +139,7 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, mo->size);
+  types.push_back(mo->created_type);
 }
 
 ObjectState::ObjectState(const ObjectState &os) 
@@ -152,6 +154,7 @@ ObjectState::ObjectState(const ObjectState &os)
     writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.object->size) : nullptr),
     symboliclyWritten(os.symboliclyWritten),
     visible_size(os.visible_size),
+    types(os.types),
     readOnly(os.readOnly) {
   assert(!os.readOnly && "no need to copy read only object?");
   if (object)

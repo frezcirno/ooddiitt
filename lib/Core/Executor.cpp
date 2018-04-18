@@ -654,7 +654,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
       if (!mo)
         llvm::report_fatal_error("out of memory");
       mo->name = v->getName();
-      mo->type = ty;
+      mo->created_type = ty;
       mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));

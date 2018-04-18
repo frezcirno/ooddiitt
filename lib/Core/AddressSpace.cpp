@@ -337,8 +337,8 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
 
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
-    if (type == nullptr || (mo->type == type)) {
-      const ObjectState *os = it->second;
+    const ObjectState *os = it->second;
+    if (type == nullptr || (os->getLastType() == type)) {
       listOPs.push_back(std::make_pair(mo, os));
     }
   }

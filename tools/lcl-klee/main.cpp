@@ -578,17 +578,17 @@ void KleeHandler::processTestCase(ExecutionState &state,
       for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
         auto &test = *itrObj;
-        assert(test.first->type != nullptr);
-
-        std::string name = test.first->name;
-        const llvm::Type *type = test.first->type;
+        const MemoryObject *mo = test.first;
         std::vector<unsigned char> &data = test.second;
 
+        const ObjectState *os = state.addressSpace.findObject(mo);
+
+
         Json::Value obj = Json::objectValue;
-        obj["name"] = name;
-        obj["kind"] = test.first->getKindAsStr();
-        obj["count"] = test.first->count;
-        obj["type"] = getTypeName(type);
+        obj["name"] = mo->name;
+        obj["kind"] = mo->getKindAsStr();
+        obj["count"] = mo->count;
+        obj["type"] = getTypeName(os->getLastType());
 
         // scale to 32 or 64 bits
         unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -622,8 +622,9 @@ void KleeHandler::processTestCase(ExecutionState &state,
         obj["physical_size"] = mo->size;
         obj["visible_size"] = os->visible_size;
 
-        if (mo->type != nullptr) {
-          obj["type"] = getTypeName(mo->type);
+        const llvm::Type *type = os->getLastType();
+        if (type != nullptr) {
+          obj["type"] = getTypeName(type);
         } else {
           obj["type"] = "";
         }

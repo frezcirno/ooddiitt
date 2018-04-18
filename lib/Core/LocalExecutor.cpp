@@ -662,7 +662,7 @@ bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
                                       std::string name,
                                       WObjectPair &wop) {
 
-  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, origMO->kind, allocSite, origMO->align);
+  MemoryObject *mo = memory->allocate(origMO->size, origMO->created_type, origMO->kind, allocSite, origMO->align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic duplication");
     return false;
@@ -1780,7 +1780,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         unsigned srcSize = (unsigned) kmodule->targetData->getTypeStoreSize(srcPtd);
         unsigned destSize = (unsigned) kmodule->targetData->getTypeStoreSize(destPtd);
 
-        if (srcSize < destSize) {
+        if ((srcTy != destTy) || (srcSize < destSize)) {
           ref<Expr> ptr = eval(ki, 0, state).value;
 
           ObjectPair op;
@@ -1798,6 +1798,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               destSize *= lazyAllocationCount;
               destSize = std::min(destSize, mo->size);
               ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+              if (srcPtd != destPtd) {
+                wos->types.push_back(destTy);
+              }
               if (destSize > wos->visible_size) {
                 wos->visible_size = destSize;
               }
@@ -1832,10 +1835,13 @@ void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
     for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
       auto &sym = *itrObj;
-      assert(sym.first->type != nullptr);
+      const MemoryObject *mo = sym.first;
+      const ObjectState *os = state->addressSpace.findObject(mo);
 
-      std::string name = sym.first->name;
-      const llvm::Type *type = sym.first->type;
+      assert(os->getLastType() != nullptr);
+
+      std::string name = mo->name;
+      const llvm::Type *type = os->getLastType();
       std::vector<unsigned char> &data = sym.second;
       (void) type;
       (void) data;

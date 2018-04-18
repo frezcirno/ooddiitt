@@ -52,7 +52,7 @@ public:
   mutable std::string name;
 
   MemKind kind;
-  const llvm::Type *type;
+  const llvm::Type *created_type;
   unsigned count;
 
   /// true if created by us.
@@ -87,7 +87,7 @@ public:
       created_size(0),
       name("hack"),
       kind(MemKind::fixed),
-      type(nullptr),
+      created_type(nullptr),
       count(0),
       parent(NULL),
       allocSite(0) {
@@ -104,7 +104,7 @@ public:
       align(_align),
       name(""),
       kind(_kind),
-      type(type),
+      created_type(type),
       count(0),
       fake_object(false),
       isUserSpecified(false),
@@ -196,6 +196,7 @@ public:
     //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
   unsigned visible_size;
+  std::vector<const llvm::Type*> types;
   bool readOnly;
 
 public:
@@ -226,6 +227,7 @@ public:
   bool isWritten() const { return writtenMask != nullptr; }
   unsigned getPhysicalSize() const { return object->size; }
   unsigned getVisibleSize() const { return object->size; }
+  const llvm::Type *getLastType() const { if (!types.empty()) return types.back(); return nullptr; }
 
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;
