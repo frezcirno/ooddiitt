@@ -412,6 +412,10 @@ bool ObjectState::cloneWritten(const ObjectState *src) {
   // RLR TODO: validate == attributes
   if (src->object->size == object->size) {
 
+    // copy attributes over from src
+    visible_size = src->visible_size;
+    types = src->types;
+
     if (src->symboliclyWritten) {
       klee_warning("cloning a symbolicly written object");
     }
