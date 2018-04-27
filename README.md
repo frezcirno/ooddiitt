@@ -27,7 +27,7 @@ klee
 * [STP installation manual with build options](https://github.com/stp/stp/blob/master/INSTALL.md)
 * [metaSMT-Support for KLEE](http://srg.doc.ic.ac.uk/projects/klee-multisolver/getting-started.html)
 
-## Fedora (with stow)
+## Ubuntu (with stow)
 
 ### Notes:  
 
@@ -38,7 +38,7 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 
 ~~~
 Packages to install:
-bison cmake curl flex git boost-devel gperftools-devel ninja-build graphviz doxygen
+bison cmake curl flex git boost-devel libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build graphviz doxygen libncurses5-dev gcc-multilib
 
 Set the install path:
 export KLEE_DIR=/usr/local/stow/lcl-klee
@@ -177,6 +177,8 @@ cmake -G "Ninja" \
 
 ```
 
+Run `ldconfig` to update shared library cache
+
 Final installed build in /usr/local/stow/lcl-klee. Activate by `sudo stow --dir=/usr/local/stow lcl-klee`
 
 -----------
@@ -199,6 +201,8 @@ export KLEE_DIR=$(brew --prefix)/Cellar/klee/1.3.0
 |-------------|---------------------------------------------------------|-------------------------------|
 | llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
+
+
 
 ```
 cd llvm-3.4
