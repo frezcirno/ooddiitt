@@ -370,56 +370,60 @@ KleeHandler::~KleeHandler() {
 
 std::string KleeHandler::getTypeName(const Type *Ty) const {
 
-  switch (Ty->getTypeID()) {
-  case Type::VoidTyID: return "void";
-  case Type::HalfTyID: return "half";
-  case Type::FloatTyID: return "float";
-  case Type::DoubleTyID: return "double";
-  case Type::X86_FP80TyID: return "x86_fp80";
-  case Type::FP128TyID: return "fp128";
-  case Type::PPC_FP128TyID: return "ppc_fp128";
-  case Type::LabelTyID: return "label";
-  case Type::MetadataTyID: return "metadata";
-  case Type::X86_MMXTyID: return "x86_mmx";
-  case Type::IntegerTyID: {
-    std::stringstream ss;
-    ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
-    return ss.str();
-  }
-  case Type::FunctionTyID: return "function";
-  case Type::StructTyID: {
-    const StructType *STy = cast<StructType>(Ty);
-    return STy->getName().str();
-  }
-  case Type::PointerTyID: {
+  if (Ty != nullptr) {
 
-    std::stringstream ss;
-    const PointerType *PTy = cast<PointerType>(Ty);
-    ss << getTypeName(PTy->getElementType());
-    ss << '*';
-    return ss.str();
-  }
-  case Type::ArrayTyID: {
+    switch (Ty->getTypeID()) {
+      case Type::VoidTyID: return "void";
+      case Type::HalfTyID: return "half";
+      case Type::FloatTyID: return "float";
+      case Type::DoubleTyID: return "double";
+      case Type::X86_FP80TyID: return "x86_fp80";
+      case Type::FP128TyID: return "fp128";
+      case Type::PPC_FP128TyID: return "ppc_fp128";
+      case Type::LabelTyID: return "label";
+      case Type::MetadataTyID: return "metadata";
+      case Type::X86_MMXTyID: return "x86_mmx";
+      case Type::IntegerTyID: {
+        std::stringstream ss;
+        ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
+        return ss.str();
+      }
+      case Type::FunctionTyID: return "function";
+      case Type::StructTyID: {
+        const StructType *STy = cast<StructType>(Ty);
+        return STy->getName().str();
+      }
+      case Type::PointerTyID: {
 
-    std::stringstream ss;
-    const ArrayType *ATy = cast<ArrayType>(Ty);
-    ss << '[' << ATy->getNumElements() << " x ";
-    ss << getTypeName(ATy->getElementType());
-    ss << ']';
-    return ss.str();
-  }
-  case Type::VectorTyID: {
-    std::stringstream ss;
-    const VectorType *VTy = cast<VectorType>(Ty);
-    ss << '<' << VTy->getNumElements() << " x ";
-    ss << getTypeName(VTy->getElementType());
-    ss << '>';
-    return ss.str();
-  }
-  default: {
+        std::stringstream ss;
+        const PointerType *PTy = cast<PointerType>(Ty);
+        ss << getTypeName(PTy->getElementType());
+        ss << '*';
+        return ss.str();
+      }
+      case Type::ArrayTyID: {
 
+        std::stringstream ss;
+        const ArrayType *ATy = cast<ArrayType>(Ty);
+        ss << '[' << ATy->getNumElements() << " x ";
+        ss << getTypeName(ATy->getElementType());
+        ss << ']';
+        return ss.str();
+      }
+      case Type::VectorTyID: {
+        std::stringstream ss;
+        const VectorType *VTy = cast<VectorType>(Ty);
+        ss << '<' << VTy->getNumElements() << " x ";
+        ss << getTypeName(VTy->getElementType());
+        ss << '>';
+        return ss.str();
+      }
+      default: {
+
+      }
+    }
   }
-  }
+
   return "";
 }
 
@@ -583,7 +587,6 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
         const ObjectState *os = state.addressSpace.findObject(mo);
 
-
         Json::Value obj = Json::objectValue;
         obj["name"] = mo->name;
         obj["kind"] = mo->getKindAsStr();
@@ -621,12 +624,10 @@ void KleeHandler::processTestCase(ExecutionState &state,
         obj["count"] = mo->count;
         obj["physical_size"] = mo->size;
         obj["visible_size"] = os->visible_size;
-
-        const llvm::Type *type = os->getLastType();
-        if (type != nullptr) {
-          obj["type"] = getTypeName(type);
-        } else {
-          obj["type"] = "";
+        obj["type"] = getTypeName(os->getLastType());
+        obj["types"] = Json::arrayValue;
+        for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
+          obj["types"].append(getTypeName(*itr));
         }
 
         // scale to 32 or 64 bits
@@ -1458,8 +1459,10 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
 }
 
 int main(int argc, char **argv, char **envp) {
-  atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
 
+  void *heap_base = sbrk(0);
+
+  atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
   parseArguments(argc, argv);
@@ -1753,6 +1756,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   IOpts.seMaxTime = seMaxTime;
   IOpts.createOutputDir = handler->createOutputDir();
+  IOpts.heap_base = heap_base;
   Opts.OutputStaticAnalysis = handler->createOutputDir();
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);

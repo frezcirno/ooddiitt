@@ -104,11 +104,13 @@ public:
     unsigned MakeConcreteSymbolic;
     unsigned seMaxTime;
     bool createOutputDir;
+    void *heap_base;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(false),
         seMaxTime(0),
-        createOutputDir(false)
+        createOutputDir(false),
+        heap_base(nullptr)
     {}
   };
 

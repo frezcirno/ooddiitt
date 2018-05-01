@@ -172,6 +172,7 @@ protected:
   unsigned seMaxTime;
   unsigned maxStatesInLoop;
   ExecutionState *germinalState;
+  void *heap_base;
 };
 
 

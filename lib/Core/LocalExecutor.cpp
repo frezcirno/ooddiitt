@@ -143,7 +143,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   progInfo(pi),
   seMaxTime(opts.seMaxTime),
   maxStatesInLoop(10000),
-  germinalState(nullptr) {
+  germinalState(nullptr),
+  heap_base(opts.heap_base) {
   assert(pi != nullptr);
 }
 
@@ -709,7 +710,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
 
   // prepare a generic initial state
-  germinalState = new ExecutionState();
+  germinalState = new ExecutionState(heap_base);
   germinalState->maxLoopIteration = maxLoopIteration;
   germinalState->lazyAllocationCount = lazyAllocationCount;
   germinalState->maxLazyDepth = maxLazyDepth;

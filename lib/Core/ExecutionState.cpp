@@ -69,9 +69,10 @@ StackFrame::~StackFrame() {
 }
 
 /***/
-ExecutionState::ExecutionState() :
+ExecutionState::ExecutionState(void *base_addr) :
     prevPC(pc),
     incomingBBIndex(INVALID_BB_INDEX),
+    addressSpace(base_addr),
 
     queryCost(0.),
     weight(1),
@@ -144,15 +145,11 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
 
 unsigned long ExecutionState::lastUsedStateSignature = 0;
 
-ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
-    : constraints(assumptions), queryCost(0.), ptreeNode(0) { }
-
+ExecutionState::ExecutionState(const ExecutionState &state, const std::vector<ref<Expr> > &assumptions)
+    : addressSpace(state.addressSpace.getBaseAddr()), constraints(assumptions), queryCost(0.), ptreeNode(0) { }
 
 ExecutionState::~ExecutionState() {
 
-  if (name == "_germinal_") {
-    errs() << "break here";
-  }
   for (unsigned int i=0; i<symbolics.size(); i++)
   {
     const MemoryObject *mo = symbolics[i].first;
