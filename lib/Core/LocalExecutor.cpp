@@ -917,8 +917,12 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
     // check to see if a terminated state will cover
     // one of the unreachable m2m blocks
     for (auto state : stowedStates) {
-      if (coversPath(m2m_pathsRemaining, state)) {
 
+      m2m_paths_t covered;
+      getCoveredPaths(m2m_pathsRemaining, state, covered);
+      if (!covered.empty()) {
+
+        state->targetedPaths = covered;
         state->endingMarker = state->markers.get_terminating_id();
         interpreterHandler->processTestCase(*state);
         updateCoveredPaths(state);
@@ -1095,6 +1099,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
 
   if (state.status == ExecutionState::StateStatus::Completed) {
     if (!covered.empty()) {
+      state.targetedPaths = covered;
       interpreterHandler->processTestCase(state, nullptr, nullptr);
     }
   } else {
@@ -1227,20 +1232,6 @@ void LocalExecutor::updateStates(ExecutionState *current) {
     }
   }
   Executor::updateStates(current);
-}
-
-bool LocalExecutor::coversPath(const m2m_paths_t &paths, const ExecutionState *state) const {
-
-  m2m_path_t trace;
-  state->markers.m2m_path(trace);
-  for (const auto &path : paths) {
-    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-    if (found != trace.end()) {
-      // the trace contains a matching path
-      return true;
-    }
-  }
-  return false;
 }
 
 bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const {

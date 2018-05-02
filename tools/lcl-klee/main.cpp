@@ -578,6 +578,15 @@ void KleeHandler::processTestCase(ExecutionState &state,
         pathEx.append(itr->to_string());
       }
 
+      // record the m2m paths resulting in this test begin selected
+      Json::Value &targetedPaths = root["targetedPaths"] = Json::arrayValue;
+      for (const auto tp : state.targetedPaths) {
+        Json::Value &targetedPath = targetedPaths.append(Json::arrayValue);
+        for (auto itr = tp.begin(), end = tp.end(); itr != end; ++itr) {
+          targetedPath.append(*itr);
+        }
+      }
+
       Json::Value &objects = root["objects"] = Json::arrayValue;
       for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
