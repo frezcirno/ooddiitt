@@ -625,7 +625,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         obj["physical_size"] = mo->size;
         obj["visible_size"] = os->visible_size;
         obj["type"] = getTypeName(os->getLastType());
-        obj["types"] = Json::arrayValue;
+        obj["type_history"] = Json::arrayValue;
         for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
           obj["types"].append(getTypeName(*itr));
         }
@@ -1460,7 +1460,8 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
 
 int main(int argc, char **argv, char **envp) {
 
-  void *heap_base = sbrk(0);
+  // used to find the beginning of the heap
+  extern void *_end;
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
@@ -1752,11 +1753,13 @@ int main(int argc, char **argv, char **envp) {
   KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo);
   handler->setWatchDog(pid_watchdog);
 
+  void *heap_base = &_end;
+
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   IOpts.seMaxTime = seMaxTime;
   IOpts.createOutputDir = handler->createOutputDir();
-  IOpts.heap_base = (void *) ((uint64_t) heap_base - 0x100000);
+  IOpts.heap_base = (void *) ((uint64_t) heap_base);
   Opts.OutputStaticAnalysis = handler->createOutputDir();
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
