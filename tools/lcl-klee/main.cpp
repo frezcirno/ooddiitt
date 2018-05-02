@@ -627,7 +627,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
         obj["type"] = getTypeName(os->getLastType());
         obj["type_history"] = Json::arrayValue;
         for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
-          obj["types"].append(getTypeName(*itr));
+          obj["type_history"].append(getTypeName(*itr));
         }
 
         // scale to 32 or 64 bits
