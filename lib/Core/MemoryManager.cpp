@@ -82,7 +82,7 @@ MemoryManager::~MemoryManager() {
   while (!objects.empty()) {
     MemoryObject *mo = *objects.begin();
     if (!mo->isFixed() && !DeterministicAllocation)
-      free((void *)mo->address);
+      free((void *) (mo->address + base_addr));
     objects.erase(mo);
     delete mo;
   }
@@ -126,7 +126,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   } else {
     // Use malloc for the standard case
     if (alignment <= 8)
-      address = (uint64_t)malloc(size);
+      address = (uint64_t) malloc(size);
     else {
       int res = posix_memalign((void **)&address, alignment, size);
       if (res < 0) {
@@ -137,7 +137,11 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   }
 
   if (!address)
-    return 0;
+    return nullptr;
+
+  if (base_addr != 0) {
+    address -= base_addr;
+  }
 
   if ((Context::get().getPointerWidth() == Expr::Int32) && (address > UINT32_MAX)) {
     klee_error("32-bit memory allocation requires 64 bit value");
@@ -169,7 +173,7 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
 void MemoryManager::markFreed(MemoryObject *mo) {
   if (objects.find(mo) != objects.end()) {
     if (!mo->isFixed() && !DeterministicAllocation)
-      free((void *)mo->address);
+      free((void *) (mo->address + base_addr));
     objects.erase(mo);
   }
 }

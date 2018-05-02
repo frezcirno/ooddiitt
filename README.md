@@ -38,7 +38,7 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 
 ~~~
 Packages to install:
-bison cmake curl flex git boost-devel libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build graphviz doxygen libncurses5-dev gcc-multilib
+bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build graphviz doxygen libncurses5-dev gcc-multilib
 
 Set the install path:
 export KLEE_DIR=/usr/local/stow/lcl-klee
@@ -61,12 +61,12 @@ mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
- -DCMAKE_BUILD_TYPE='Release' \
+ -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DCMAKE_C_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
- -DLLVM_TARGETS_TO_BUILD='host' \
+ -DLLVM_TARGETS_TO_BUILD=host \
  ..
 
 ninja
@@ -83,7 +83,7 @@ mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
- -DCMAKE_BUILD_TYPE='Release' \
+ -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  ..
 
@@ -101,7 +101,7 @@ mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
- -DCMAKE_BUILD_TYPE="Release" \
+ -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DTUNE_NATIVE:BOOL=ON \
@@ -121,7 +121,7 @@ mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G Ninja \
- -DCMAKE_BUILD_TYPE="Release" \
+ -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  ..
 
@@ -159,7 +159,7 @@ mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
- -DCMAKE_BUILD_TYPE='Release' \
+ -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \

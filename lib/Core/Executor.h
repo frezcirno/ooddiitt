@@ -231,7 +231,7 @@ protected:
   void initializeGlobalObject(ExecutionState &state, ObjectState *os, 
 			      const llvm::Constant *c,
 			      unsigned offset);
-  void initializeGlobals(ExecutionState &state);
+  void initializeGlobals(ExecutionState &state, void *base_addr);
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);

@@ -146,6 +146,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   germinalState(nullptr),
   heap_base(opts.heap_base) {
   assert(pi != nullptr);
+  memory->setBaseAddr(heap_base);
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -709,15 +710,20 @@ const Module *LocalExecutor::setModule(llvm::Module *module,
   const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
 
+  void *addr_offset = nullptr;
+  if (Context::get().getPointerWidth() == Expr::Int32) {
+    addr_offset = heap_base;
+  }
+
   // prepare a generic initial state
-  germinalState = new ExecutionState(heap_base);
+  germinalState = new ExecutionState(addr_offset);
   germinalState->maxLoopIteration = maxLoopIteration;
   germinalState->lazyAllocationCount = lazyAllocationCount;
   germinalState->maxLazyDepth = maxLazyDepth;
   germinalState->maxLoopForks = maxLoopForks;
   germinalState->areSubfunctionsStubbed = kmodule->stubSubfunctions();
 
-  initializeGlobals(*germinalState);
+  initializeGlobals(*germinalState, addr_offset);
   bindModuleConstants();
   return result;
 }

@@ -1756,7 +1756,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   IOpts.seMaxTime = seMaxTime;
   IOpts.createOutputDir = handler->createOutputDir();
-  IOpts.heap_base = heap_base;
+  IOpts.heap_base = (void *) ((uint64_t) heap_base - 0x100000);
   Opts.OutputStaticAnalysis = handler->createOutputDir();
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
