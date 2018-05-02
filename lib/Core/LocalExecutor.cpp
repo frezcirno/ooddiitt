@@ -1804,12 +1804,25 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
               destSize *= lazyAllocationCount;
               destSize = std::min(destSize, mo->size);
-              ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-              if (srcPtd != destPtd) {
-                wos->types.push_back(destTy);
-              }
-              if (destSize > wos->visible_size) {
+              if (destSize > os->visible_size) {
+                ObjectState *wos = state.addressSpace.getWriteable(mo, os);
                 wos->visible_size = destSize;
+              }
+
+              // pointed type change
+              if (srcPtd != destPtd) {
+
+                // only record if this is a pointer to the beginning of a memory object
+                ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
+
+                bool result;
+                solver->setTimeout(coreSolverTimeout);
+                bool success = solver->mayBeTrue(state, is_zero, result);
+                solver->setTimeout(0);
+                if (success && result) {
+                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+                  wos->types.push_back(destTy);
+                }
               }
             }
           }
