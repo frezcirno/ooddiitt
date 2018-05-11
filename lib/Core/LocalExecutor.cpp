@@ -1548,37 +1548,46 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
           if ((countLoadIndirection(argType) > 0) && !progInfo->isConstParam(fnName, index)) {
 
-            ref<ConstantExpr> address = ensureUnique(state, eval(ki, index + 1, state).value);
-            Expr::Width width = address->getWidth();
-            assert(width == Context::get().getPointerWidth());
-
+            ref<Expr> exp_addr = eval(ki, index + 1, state).value;
             ObjectPair op;
-            if (resolveMO(state, address, op) == ResolveResult::OK) {
+
+            // find the referenced memory object
+            if (resolveMO(state, exp_addr, op) == ResolveResult::OK) {
               const MemoryObject *orgMO = op.first;
               const ObjectState *orgOS = op.second;
-              ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
 
-              Type *eleType = argType->getPointerElementType();
-              unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
-              unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
-              unsigned count = (orgOS->visible_size - offset) / eleSize;
+              ref<Expr> e = orgOS->getBoundsCheckPointer(exp_addr);
+              bool result;
+              solver->setTimeout(coreSolverTimeout);
+              bool success = solver->mayBeTrue(state, e, result);
+              solver->setTimeout(0);
+              if (success && result) {
+                addConstraint(state, e);
 
-              // unconstrain from address to end of the memory block
-              WObjectPair wop;
-              if (!allocSymbolic(state,
-                                 eleType,
-                                 v,
-                                 MemKind::output,
-                                 fullName(fnName, counter, std::to_string(index + 1)),
-                                 wop,
-                                 0,
-                                 count)) {
-                klee_error("failed to allocate ptr argument");
-              }
+                ref<ConstantExpr> address = ensureUnique(state, exp_addr);
+                ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
+                Type *eleType = argType->getPointerElementType();
+                unsigned eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
+                unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
+                unsigned count = (orgOS->visible_size - offset) / eleSize;
 
-              ObjectState *newOS = wop.second;
-              for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
-                argOS->write8(offset + idx, newOS->read8(idx));
+                // unconstrain from address to end of the memory block
+                WObjectPair wop;
+                if (!allocSymbolic(state,
+                                   eleType,
+                                   v,
+                                   MemKind::output,
+                                   fullName(fnName, counter, std::to_string(index + 1)),
+                                   wop,
+                                   0,
+                                   count)) {
+                  klee_error("failed to allocate ptr argument");
+                }
+
+                ObjectState *newOS = wop.second;
+                for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
+                  argOS->write8(offset + idx, newOS->read8(idx));
+                }
               }
             }
           }
