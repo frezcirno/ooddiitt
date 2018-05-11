@@ -228,6 +228,12 @@ public:
   unsigned getPhysicalSize() const { return object->size; }
   unsigned getVisibleSize() const { return object->size; }
   const llvm::Type *getLastType() const { if (!types.empty()) return types.back(); return nullptr; }
+  bool referencedAs(const llvm::Type *type) const
+    { for (auto itr = types.cbegin(), end = types.cend(); itr != end; ++itr) {
+        if (*itr == type) return true;
+      }
+      return false;
+    }
 
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;

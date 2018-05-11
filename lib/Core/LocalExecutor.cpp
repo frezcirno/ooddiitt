@@ -1034,15 +1034,20 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   uint64_t stopTime = seMaxTime == 0 ? UINT64_MAX : startTime + seMaxTime;
   HaltReason halt = HaltReason::OK;
 
+  bool search_enabled = true;
+
   while (!states.empty()) {
 
     if (haltExecution || halt != HaltReason::OK) break;
     if (kmodule->stubSubfunctions() && m2m_pathsRemaining.empty()) break;
+    ExecutionState *state;
 
-    ExecutionState &state = searcher->selectState();
+    if (search_enabled) {
+      state = &searcher->selectState();
+    }
 
-    KInstruction *ki = state.pc;
-    stepInstruction(state);
+    KInstruction *ki = state->pc;
+    stepInstruction(*state);
     try {
 
       // RLR TODO: debug
@@ -1050,14 +1055,14 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
         debug_break();
       }
 
-      executeInstruction(state, ki);
+      executeInstruction(*state, ki);
     } catch (bad_expression &e) {
       halt = HaltReason::InvalidExpr;
       errs() << "    * uninitialized expression, halting execution\n";
     }
 
-    processTimers(&state, 0);
-    updateStates(&state);
+    processTimers(state, 0);
+    updateStates(state);
 
     if (--stats_counter == 0) {
       stats_counter = stats_granularity;
