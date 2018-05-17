@@ -111,7 +111,7 @@ cl::opt<unsigned>
 
 cl::opt<bool>
     LazyAllocationExt("lazy-allocation-ext",
-                        cl::init(false),
+                        cl::init(true),
                         cl::desc("extend lazy allocation to include existing memory objects of same type"));
 
 cl::opt<unsigned>
