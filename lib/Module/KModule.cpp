@@ -507,6 +507,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     if (orig_functions.count(fn) == 0) {
       addInternalFunction(fn);
     }
+    addInternalFunction("fn_tag");
 
     KFunction *kf = new KFunction(fn, this);
 

@@ -979,7 +979,13 @@ void LocalExecutor::runPaths(KFunction *kf, ExecutionState &initialState) {
       if (!reachesRemainingPath(kf, startBB)) {
         continue;
       }
-      outs() << "    starting from: " << kf->mapMarkers[startBB].front() << "\n";
+      outs() << "    starting from: ";
+      if (kf->mapMarkers[startBB].empty()) {
+        outs() << "unmarked block";
+      } else {
+        outs() << kf->mapMarkers[startBB].front();
+      }
+      outs() << "\n";
       outs().flush();
     }
     runFrom(kf, initialState, startBB);
@@ -1004,7 +1010,11 @@ LocalExecutor::HaltReason LocalExecutor::runFrom(KFunction *kf, ExecutionState &
   if (start != &kf->function->getEntryBlock()) {
 
     // record starting marker
-    initState->startingMarker = kf->mapMarkers[start].front();
+    if (kf->mapMarkers[start].empty()) {
+      initState->startingMarker = (unsigned) -1;
+    } else {
+      initState->startingMarker = kf->mapMarkers[start].front();
+    }
 
     // unconstrain local variables
     prepareLocalSymbolics(kf, *initState);
