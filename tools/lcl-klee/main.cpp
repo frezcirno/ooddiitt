@@ -1580,7 +1580,7 @@ int main(int argc, char **argv, char **envp) {
             // so try and give the process extra time to clean up.
             clock_gettime(CLOCK_MONOTONIC, &tm);
             now = (uint64_t) tm.tv_sec;
-            nextStep = now + 10;
+            nextStep = now + 30;
           }
         }
       }
