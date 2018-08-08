@@ -198,7 +198,6 @@ public:
   unsigned long stateSignature;
   std::deque<unsigned> trace;
   bool areSubfunctionsStubbed;
-  m2m_paths_t targetedPaths;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

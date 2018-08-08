@@ -922,7 +922,6 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
       getCoveredPaths(m2m_pathsRemaining, state, covered);
       if (!covered.empty()) {
 
-        state->targetedPaths = covered;
         state->endingMarker = state->markers.get_terminating_id();
         interpreterHandler->processTestCase(*state);
         updateCoveredPaths(state);
@@ -1113,10 +1112,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   getCoveredPaths(m2m_pathsRemaining, &state, covered);
 
   if (state.status == ExecutionState::StateStatus::Completed) {
-    if (!covered.empty()) {
-      state.targetedPaths = covered;
-      interpreterHandler->processTestCase(state, nullptr, nullptr);
-    }
+    interpreterHandler->processTestCase(state, nullptr, nullptr);
   } else {
     bool stowed = false;
     for (auto path : covered) {
