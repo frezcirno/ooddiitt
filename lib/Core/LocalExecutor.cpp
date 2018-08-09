@@ -1112,7 +1112,9 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   getCoveredPaths(m2m_pathsRemaining, &state, covered);
 
   if (state.status == ExecutionState::StateStatus::Completed) {
-    interpreterHandler->processTestCase(state, nullptr, nullptr);
+    if (!kmodule->stubSubfunctions() || !covered.empty()) {
+      interpreterHandler->processTestCase(state, nullptr, nullptr);
+    }
   } else {
     bool stowed = false;
     for (auto path : covered) {
