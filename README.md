@@ -1,6 +1,6 @@
-# How to build lcl-klee
+# How to build pg-klee
 
-This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building lcl-klee and its dependencies.
+This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building pg-klee and its dependencies.
 
 ----------
 
@@ -9,8 +9,8 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 ### The resulting directory structure:
 ```
 klee
-├── org-klee
-├── lcl-klee
+├── klee
+├── pg-klee
 ├── klee-uclibc (linux only)
 ├── llvm-3.4
 ├── minisat
@@ -20,7 +20,7 @@ klee
 
 ## Usefull Links:
 
-* [The official (but buggy) installation manual](https://klee.github.io/build-llvm34/)
+* [The official installation manual](https://klee.github.io/build-llvm34/)
 * [Build LLVM on your own](http://www.llvm.org/docs/GettingStarted.html#getting-started-quickly-a-summary)
 * [The old official installation manual](https://llvm.org/svn/llvm-project/klee/trunk/www/GetStarted.html?p=156062)
 * [More recent user installation for Ubuntu 14.04 LTS](http://blog.opensecurityresearch.com/2014/07/klee-on-ubuntu-1404-lts-64bit.html)
@@ -40,8 +40,6 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 Packages to install:
 bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build graphviz doxygen libncurses5-dev gcc-multilib
 
-Set the install path:
-export KLEE_DIR=/usr/local/stow/lcl-klee
 ~~~
 
 ### Step 2: LLVM
@@ -54,6 +52,8 @@ export KLEE_DIR=/usr/local/stow/lcl-klee
 edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
 Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.0.0
 
+export KLEE_BASE='/usr/local/stow'
+
 
 ```
 cd llvm-3.4
@@ -62,7 +62,7 @@ cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_DIR}" \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/llvm-3.4" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DCMAKE_C_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
@@ -84,7 +84,7 @@ cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
  ..
 
 ninja
@@ -102,7 +102,9 @@ cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
+ -DMINISAT_INCLUDE_DIRS="${KLEE_BASE}/stp/include" \
+ -DMINISAT_LIBDIR="${KLEE_BASE}/stp/lib" \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DTUNE_NATIVE:BOOL=ON \
  ..
@@ -110,6 +112,8 @@ cmake -G "Ninja" \
 ninja
 ninja install
 cd ../..
+
+sudo stow --dir=/usr/local/stow stp
 ```
 
 ### Step 5: Z3
@@ -122,12 +126,14 @@ cd cmake-build-release
 
 cmake -G Ninja \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/z3" \
  ..
 
 ninja
 ninja install
 cd ../..
+
+sudo stow --dir=/usr/local/stow z3
 ```
 
 Installation places a new shared object library in /usr/local/lib. Need to run `sudo ldconfig` so the os can find it.
@@ -137,30 +143,22 @@ Installation places a new shared object library in /usr/local/lib. Need to run `
 ```
 git clone https://github.com/klee/klee-uclibc.git
 cd klee-uclibc
-./configure --make-llvm-lib --with-llvm-config=${KLEE_DIR}/bin/llvm-config
+./configure --make-llvm-lib --with-llvm-config="${KLEE_BASE}/llvm-3.4/bin/llvm-config"
 make -j `nproc`
 cd ..
 ```
 
-### Step 7: org-klee
-
-Original klee code for reference. Not required to build.
+### Step 7: klee
 
 ```
-git clone https://github.com/klee/klee.git org-klee
-```
-
-### Step 8: lcl-klee
-
-```
-git clone https://github.gatech.edu/arktos/lcl-klee.git
-cd lcl-klee
+git clone https://github.com/klee/klee.git
+cd klee
 mkdir cmake-build-release
 cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX=${KLEE_DIR} \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/klee" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \
  -DENABLE_TCMALLOC=ON \
@@ -171,14 +169,43 @@ cmake -G "Ninja" \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DENABLE_UNIT_TESTS=OFF \
  -DENABLE_SYSTEM_TESTS=OFF \
- -DLLVM_CONFIG_BINARY="${KLEE_DIR}/bin/llvm-config" \
+ -DUSE_CXX11=ON \
+ -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
  ..
 
+sudo stow --dir=/usr/local/stow klee
+```
+
+### Step 8: pg-klee
+
+```
+git clone https://github.gatech.edu/arktos/pg-klee.git
+cd pg-klee
+mkdir cmake-build-release
+cd cmake-build-release
+
+cmake -G "Ninja" \
+ -DCMAKE_BUILD_TYPE=Release \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/pg-klee" \
+ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+ -DCMAKE_CXX_FLAGS="-fno-rtti" \
+ -DENABLE_TCMALLOC=ON \
+ -DENABLE_SOLVER_STP=ON \
+ -DENABLE_SOLVER_Z3=ON \
+ -DENABLE_POSIX_RUNTIME=ON \
+ -DENABLE_KLEE_UCLIBC=ON \
+ -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
+ -DENABLE_UNIT_TESTS=OFF \
+ -DENABLE_SYSTEM_TESTS=OFF \
+ -DUSE_CXX11=ON \
+ -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
+ ..
+
+sudo stow --dir=/usr/local/stow pg-klee
 ```
 
 Run `ldconfig` to update shared library cache
 
-Final installed build in /usr/local/stow/lcl-klee. Activate by `sudo stow --dir=/usr/local/stow lcl-klee`
 
 -----------
 

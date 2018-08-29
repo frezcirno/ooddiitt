@@ -50,8 +50,8 @@ set(KLEE_VERSION_MINOR 3)
 set(KLEE_VERSION_PATCH 1)
 set(KLEE_VERSION_TWEAK 0)
 set(KLEE_VERSION "${KLEE_VERSION_MAJOR}.${KLEE_VERSION_MINOR}.${KLEE_VERSION_PATCH}.${KLEE_VERSION_TWEAK}")
-message(STATUS "LCL-KLEE version ${KLEE_VERSION}")
-set(PACKAGE_STRING "\"LCL-KLEE ${KLEE_VERSION}\"")
+message(STATUS "PG-KLEE version ${KLEE_VERSION}")
+set(PACKAGE_STRING "\"PG-KLEE ${KLEE_VERSION}\"")
 set(PACKAGE_URL "\"https://klee.github.io\"")
 
 ################################################################################
@@ -626,10 +626,10 @@ if (ENABLE_KLEE_UCLIBC)
   # Add klee-uclibc to the install target. We install the original
   # file rather than the symlink because CMake would just copy the symlink
   # rather than the file.
-  install(FILES "${KLEE_UCLIBC_C_BCA}"
-    DESTINATION "${KLEE_INSTALL_RUNTIME_DIR}"
-    RENAME "${KLEE_UCLIBC_BCA_NAME}"
-    )
+#  install(FILES "${KLEE_UCLIBC_C_BCA}"
+#    DESTINATION "${KLEE_INSTALL_RUNTIME_DIR}"
+#    RENAME "${KLEE_UCLIBC_BCA_NAME}"
+#    )
 
 else()
   message(STATUS "klee-uclibc support disabled")
@@ -773,4 +773,4 @@ endif()
 ################################################################################
 # Miscellaneous install
 ################################################################################
-install(FILES include/klee/klee.h DESTINATION include/klee)
+# install(FILES include/klee/klee.h DESTINATION include/klee)
