@@ -169,7 +169,6 @@ cmake -G "Ninja" \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DENABLE_UNIT_TESTS=OFF \
  -DENABLE_SYSTEM_TESTS=OFF \
- -DUSE_CXX11=ON \
  -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
  ..
 
