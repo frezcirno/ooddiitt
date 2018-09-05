@@ -552,6 +552,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = state.get_status();
+      root["message"] = state.terminationMessage;
 
       // store the path condition
       std::string constraints;
@@ -606,40 +607,44 @@ void KleeHandler::processTestCase(ExecutionState &state,
         objects.append(obj);
       }
 
-      // dump details of the state address space
-      root["addressSpace"] = Json::arrayValue;
-      Json::Value &addrSpace = root["addressSpace"];
+      // only emit address space details for completed test cases
+      if (state.status == ExecutionState::Completed) {
 
-      std::vector<ObjectPair> listOPs;
-      state.addressSpace.getMemoryObjects(listOPs);
-      for (const auto pr : listOPs) {
+        // dump details of the state address space
+        root["addressSpace"] = Json::arrayValue;
+        Json::Value &addrSpace = root["addressSpace"];
 
-        const MemoryObject *mo = pr.first;
-        const ObjectState *os = pr.second;
+        std::vector<ObjectPair> listOPs;
+        state.addressSpace.getMemoryObjects(listOPs);
+        for (const auto pr : listOPs) {
 
-        Json::Value obj = Json::objectValue;
-        obj["id"] = mo->id;
-        obj["name"] = mo->name;
-        obj["kind"] = mo->getKindAsStr();
-        obj["count"] = mo->count;
-        obj["physical_size"] = mo->size;
-        obj["visible_size"] = os->visible_size;
-        obj["type"] = getTypeName(os->getLastType());
-        obj["type_history"] = Json::arrayValue;
-        for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
-          obj["type_history"].append(getTypeName(*itr));
+          const MemoryObject *mo = pr.first;
+          const ObjectState *os = pr.second;
+
+          Json::Value obj = Json::objectValue;
+          obj["id"] = mo->id;
+          obj["name"] = mo->name;
+          obj["kind"] = mo->getKindAsStr();
+          obj["count"] = mo->count;
+          obj["physical_size"] = mo->size;
+          obj["visible_size"] = os->visible_size;
+          obj["type"] = getTypeName(os->getLastType());
+          obj["type_history"] = Json::arrayValue;
+          for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
+            obj["type_history"].append(getTypeName(*itr));
+          }
+
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
+          }
+          obj["addr"] = toDataString(addr);
+
+          addrSpace.append(obj);
         }
-
-        // scale to 32 or 64 bits
-        unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-        std::vector<unsigned char> addr;
-        unsigned char *addrBytes = ((unsigned char *) &(mo->address));
-        for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-          addr.push_back(*addrBytes);
-        }
-        obj["addr"] = toDataString(addr);
-
-        addrSpace.append(obj);
       }
 
       // write the constructed json object to file

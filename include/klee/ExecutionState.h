@@ -100,6 +100,7 @@ public:
   enum StateStatus {
     Pending,
     Completed,
+    Faulted,
     TerminateEarly,
     TerminateError
   };
@@ -109,6 +110,7 @@ public:
     switch (status) {
     case Pending: result = "pending"; break;
     case Completed: result = "completed"; break;
+    case Faulted: result = "faulted"; break;
     case TerminateEarly: result = "early"; break;
     case TerminateError: result = "error"; break;
     }
@@ -193,6 +195,7 @@ public:
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   StateStatus status;
+  std::string terminationMessage;
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;
