@@ -1135,6 +1135,9 @@ void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
   Executor::terminateStateOnExit(state);
 }
 
+void LocalExecutor::terminateStateOnFault(ExecutionState &state, const llvm::Twine &message) {
+
+}
 
 void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
   state.status = ExecutionState::StateStatus::TerminateEarly;

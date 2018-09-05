@@ -129,6 +129,7 @@ protected:
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
   void terminateState(ExecutionState &state) override;
   void terminateStateOnExit(ExecutionState &state) override;
+  void terminateStateOnFault(ExecutionState &state, const llvm::Twine &message);
   void terminateStateEarly(ExecutionState &state, const llvm::Twine &message) override;
   void terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
                                      enum TerminateReason termReason,
