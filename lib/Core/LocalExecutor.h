@@ -15,6 +15,7 @@
 #ifndef KLEE_LOCAL_EXECUTOR_H
 #define KLEE_LOCAL_EXECUTOR_H
 
+#include "TimedSolver.h"
 #include "Executor.h"
 #include "klee/Internal/System/Memory.h"
 #include "llvm/Analysis/Dominators.h"
@@ -34,37 +35,31 @@ public:
 
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &opts,
-                             InterpreterHandler *ih,
-                             ProgInfo *progInfo)
-    { return new klee::LocalExecutor(ctx, opts, ih, progInfo); }
+                             InterpreterHandler *ih)
+    { return new klee::LocalExecutor(ctx, opts, ih); }
   
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
-                InterpreterHandler *ie,
-                ProgInfo *progInfo);
+                InterpreterHandler *ie);
 
   virtual ~LocalExecutor();
 
-  virtual const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts);
-  virtual void bindModuleConstants();
-
-  virtual void runFunctionAsMain(llvm::Function *f,
-                                 int argc,
-                                 char **argv,
-                                 char **envp);
-  virtual void runFunctionUnconstrained(llvm::Function *f);
+  const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
+  void bindModuleConstants() override;
+  void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
+  void runFunctionUnconstrained(llvm::Function *f) override;
 
 protected:
   void runFn(KFunction *kf, ExecutionState &initialState);
-  void runPaths(KFunction *kf, ExecutionState &initialState);
-  HaltReason runFrom(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
+  void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
+  HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
   }
 
-  virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
+  void executeInstruction(ExecutionState &state, KInstruction *ki) override;
 
   ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
@@ -76,10 +71,7 @@ protected:
                     KInstruction *target,
                     bool symbolic = false);
 
-
-  virtual void executeFree(ExecutionState &state,
-                           ref<Expr> address,
-                           KInstruction *target = 0);
+  void executeFree(ExecutionState &state, ref<Expr> address, KInstruction *target) override;
 
   bool executeReadMemoryOperation(ExecutionState &state,
                                   ref<Expr> address,
@@ -89,6 +81,7 @@ protected:
   bool executeWriteMemoryOperation(ExecutionState &state,
                                    ref<Expr> address,
                                    ref<Expr> value,
+                                   KInstruction *target,
                                    const std::string name);
   
   ObjectState *makeSymbolic(ExecutionState &state,
@@ -120,7 +113,6 @@ protected:
 
   void initializeGlobalValues(ExecutionState &state, llvm::Function *fn);
   void unconstrainGlobals(ExecutionState &state, llvm::Function *fn, unsigned counter);
-  bool isUsherType(const llvm::Type *type) const;
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
@@ -129,15 +121,15 @@ protected:
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
   void terminateState(ExecutionState &state) override;
   void terminateStateOnExit(ExecutionState &state) override;
-  void terminateStateOnFault(ExecutionState &state, const llvm::Twine &message);
+  void terminateStateOnFault(ExecutionState &state, const KInstruction *ki, const llvm::Twine &message);
   void terminateStateEarly(ExecutionState &state, const llvm::Twine &message) override;
-  void terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
-                                     enum TerminateReason termReason,
-                                     const char *suffix = NULL,
-                                     const llvm::Twine &longMessage = "") override;
+  void terminateStateOnError(ExecutionState &state,
+                             const llvm::Twine &message,
+                             enum TerminateReason termReason,
+                             const char *suffix = NULL,
+                             const llvm::Twine &longMessage = "") override;
 
-
-  virtual const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const;
+  const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void updateStates(ExecutionState *current) override;
   void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
@@ -149,30 +141,24 @@ protected:
   bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
   void updateCoveredPaths(const ExecutionState *state);
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
-
   void InspectSymbolicSolutions(const ExecutionState *state);
 
-#ifdef NEVER
-  // RLR TODO: remove this after debugging is complete (i.e., long after I am 6 ft deep...)
-  uint64_t getAddr(ExecutionState& state, ref<Expr> addr) const;
-  int64_t getValue(ExecutionState& state, ref<Expr> value) const;
-#endif
-
+  TimedSolver *tsolver;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   m2m_paths_t m2m_pathsRemaining;
-  m2m_paths_t m2m_pathsCovered;
-  ExecutionStates stowedStates;
-  m2m_paths_t m2m_pathsCoveredByStowed;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
-  unsigned seMaxTime;
   unsigned maxStatesInLoop;
   ExecutionState *germinalState;
   void *heap_base;
+  uint64_t timeout;
+  UnconstraintFlagsT unconstraintFlags;
+  std::vector<ProgressionDesc> progression;
+  ExecModeID modeID;
 };
 
 

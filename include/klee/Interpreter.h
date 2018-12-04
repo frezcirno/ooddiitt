@@ -15,6 +15,7 @@
 #include <string>
 #include <map>
 #include <set>
+#include <bitset>
 
 struct KTest;
 
@@ -36,6 +37,13 @@ typedef std::vector<unsigned> m2m_path_t;
 typedef std::set<m2m_path_t> m2m_paths_t;
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
+#define HEARTBEAT_INTERVAL   (15)
+
+#define UNCONSTRAIN_GLOBAL_FLAG (0)
+#define UNCONSTRAIN_LOCAL_FLAG  (1)
+#define UNCONSTRAIN_STUB_FLAG   (2)
+typedef std::bitset<8> UnconstraintFlagsT;
+
 class InterpreterHandler {
 public:
   InterpreterHandler() {}
@@ -53,8 +61,24 @@ public:
                                const char *suffix = nullptr) = 0;
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
-  virtual bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) { paths.clear(); return false; }
   virtual bool resetWatchDogTimer() const { return false; }
+  std::string to_string(UnconstraintFlagsT flags) const {
+
+    const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
+        std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
+        std::make_pair(UNCONSTRAIN_LOCAL_FLAG, "locals,"),
+        std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
+    };
+
+    std::string result("inputs,");
+    for (auto p: flag2name) {
+      if (flags.test(p.first)) {
+        result += p.second;
+      }
+    }
+    result.pop_back();
+    return result;
+  }
 
 };
 
@@ -68,23 +92,14 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
-    bool StubSubfunctions;
     bool OutputStaticAnalysis;
 
-    ModuleOptions(const std::string &_LibraryDir,
-                  const std::string &_EntryPoint,
-                  bool _Optimize,
-                  bool _CheckDivZero,
-                  bool _CheckOvershift,
-                  bool _StubSubfunctions,
-                  bool _OutputStaticAnalysis)
-        : LibraryDir(_LibraryDir),
-          EntryPoint(_EntryPoint),
-          Optimize(_Optimize),
-          CheckDivZero(_CheckDivZero),
-          CheckOvershift(_CheckOvershift),
-          StubSubfunctions(_StubSubfunctions),
-          OutputStaticAnalysis(_OutputStaticAnalysis) {}
+    ModuleOptions()
+      : Optimize(false),
+        CheckDivZero(false),
+        CheckOvershift(false),
+        OutputStaticAnalysis(false)
+      {}
   };
 
   enum LogType
@@ -95,6 +110,19 @@ public:
       SMTVARS  // part of SMT2 containing var declarations
   };
 
+  enum ExecModeID {
+      zop,  // interpreter should execute module in zop mode
+      fault // interpreter should execute module to find faults
+  };
+
+  struct ProgressionDesc {
+    unsigned timeout;
+    UnconstraintFlagsT unconstraintFlags;
+
+    explicit ProgressionDesc(unsigned t) : timeout(t) {}
+    ProgressionDesc(unsigned t, const UnconstraintFlagsT &b) : timeout(t), unconstraintFlags(b) {}
+  };
+
   /// InterpreterOptions - Options varying the runtime behavior during
   /// interpretation.
   struct InterpreterOptions {
@@ -102,15 +130,18 @@ public:
     /// symbolic values. This is used to test the correctness of the
     /// symbolic execution on concrete programs.
     unsigned MakeConcreteSymbolic;
-    unsigned seMaxTime;
     bool createOutputDir;
     void *heap_base;
+    ProgInfo *pinfo;
+    std::vector<ProgressionDesc> progression;
+    ExecModeID mode;
 
     InterpreterOptions()
-      : MakeConcreteSymbolic(false),
-        seMaxTime(0),
+      : MakeConcreteSymbolic(0),
         createOutputDir(false),
-        heap_base(nullptr)
+        heap_base(nullptr),
+        pinfo(nullptr),
+        mode(Interpreter::zop)
     {}
   };
 
@@ -130,8 +161,7 @@ public:
 
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
-                                  InterpreterHandler *ih,
-                                  ProgInfo *progInfo);
+                                  InterpreterHandler *ih);
 
   /// Register the module to be executed.  
   ///

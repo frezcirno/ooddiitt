@@ -12,27 +12,11 @@ if [[ $(uname -s ) == "Darwin" ]]; then
   TOOL_ROOT="/usr/local/opt"
 fi
 
-export KLEE_HOME="klee"
-if [[ -d "${TOOL_ROOT}/lcl-klee" ]]; then
-  KLEE_HOME="lcl-klee"
-fi
-
-export CLANG3="${TOOL_ROOT}/${KLEE_HOME}/bin/clang"
-export LINK="${TOOL_ROOT}/${KLEE_HOME}/bin/llvm-link"
+export CLANG3="${TOOL_ROOT}/llvm-3.4/bin/clang"
+export LINK="${TOOL_ROOT}/llvm-3.4/bin/llvm-link"
 
 export CLANG="clang"
 export CLANG_FORMAT="clang-format"
-
-if [[ -d "${TOOL_ROOT}/llvm" ]]; then
-  CLANG="/${TOOL_ROOT}/llvm/bin/${CLANG}"
-  CLANG_FORMAT="${TOOL_ROOT}/llvm/bin/${CLANG_FORMAT}"
-elif [[ -d "${TOOL_ROOT}/llvm-5.0" ]]; then
-  CLANG="${TOOL_ROOT}/llvm-5.0/bin/${CLANG}"
-  CLANG_FORMAT="${TOOL_ROOT}/llvm-5.0/bin/${CLANG_FORMAT}"
-elif [[ -d "${TOOL_ROOT}/llvm-4.0" ]]; then
-  CLANG="${TOOL_ROOT}/llvm-4.0/bin/${CLANG}"
-  CLANG_FORMAT="${TOOL_ROOT}/llvm-4.0/bin/${CLANG_FORMAT}"
-fi
 
 export CFLAGS="-m32 -fno-builtin"
 

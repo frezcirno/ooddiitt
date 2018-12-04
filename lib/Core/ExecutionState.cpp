@@ -89,14 +89,18 @@ ExecutionState::ExecutionState(void *base_addr) :
     maxLoopForks(0),
     maxLazyDepth(0),
     status(Pending),
+    instFaulting(nullptr),
     startingMarker(0),
     endingMarker(0),
-    areSubfunctionsStubbed(false)
+    allBranchCounter(0),
+    unconBranchCounter(0)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
 
     fnAliases(state.fnAliases),
+    unconstraint_flags(state.unconstraint_flags),
+
 //    pc(state.pc),
 //    prevPC(state.prevPC),
     stack(state.stack),
@@ -129,10 +133,12 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     maxLazyDepth(state.maxLazyDepth),
     status(state.status),
     terminationMessage(state.terminationMessage),
+    instFaulting(state.instFaulting),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace),
-    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
+    allBranchCounter(state.allBranchCounter),
+    unconBranchCounter(state.unconBranchCounter)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -165,6 +171,7 @@ ExecutionState::~ExecutionState() {
 
 ExecutionState::ExecutionState(const ExecutionState& state):
     fnAliases(state.fnAliases),
+    unconstraint_flags(state.unconstraint_flags),
     pc(state.pc),
     prevPC(state.prevPC),
     stack(state.stack),
@@ -197,10 +204,12 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     maxLazyDepth(state.maxLazyDepth),
     status(state.status),
     terminationMessage(state.terminationMessage),
+    instFaulting(state.instFaulting),
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace),
-    areSubfunctionsStubbed(state.areSubfunctionsStubbed)
+    allBranchCounter(state.allBranchCounter),
+    unconBranchCounter(state.unconBranchCounter)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

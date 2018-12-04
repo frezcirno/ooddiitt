@@ -352,7 +352,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       coreSolverTimeout(MaxCoreSolverTime != 0 && MaxInstructionTime != 0
                             ? std::min(MaxCoreSolverTime, MaxInstructionTime)
                             : std::max(MaxCoreSolverTime, MaxInstructionTime)),
-      debugInstFile(0), debugLogBuffer(debugBufferString) {
+      debugInstFile(0), debugLogBuffer(debugBufferString), verify_constraints(false) {
 
   if (coreSolverTimeout) UseForkedCoreSolver = true;
   Solver *coreSolver = klee::createCoreSolver(CoreSolverToUse);
@@ -1031,13 +1031,14 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
       klee_warning("seeds patched for violating constraint");
   }
 
-  // RLR TODO: Debug
-  // verify that this condition is satisfyable
-  solver->setTimeout(coreSolverTimeout);
-  bool valid;
-  bool success = solver->mayBeTrue(state, condition, valid);
-  solver->setTimeout(0);
-  assert(success && valid);
+  if (verify_constraints) {
+    // verify that this condition is satisfyable
+    solver->setTimeout(coreSolverTimeout);
+    bool valid;
+    bool success = solver->mayBeTrue(state, condition, valid);
+    solver->setTimeout(0);
+    assert(success && valid);
+  }
 
   state.addConstraint(condition);
   if (ivcEnabled)
@@ -3171,8 +3172,6 @@ void Executor::executeAlloc(ExecutionState &state,
   Expr::Width W = size->getWidth();
   size = toUnique(state, size);
   if (!isa<ConstantExpr>(size)) {
-
-    // RLR TODO: what to do about name?
 
     // XXX For now we just pick a size. Ideally we would support
     // symbolic sizes fully but even if we don't it would be better to

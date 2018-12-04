@@ -213,6 +213,10 @@ protected:
   // @brief buffer to store logs before flushing to file
   llvm::raw_string_ostream debugLogBuffer;
 
+  bool verify_constraints;
+
+  void setVerifyContraints(bool b) { verify_constraints = b; }
+
   llvm::Function* getTargetFunction(llvm::Value *calledVal,
                                     ExecutionState &state);
   

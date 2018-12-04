@@ -10,7 +10,6 @@
 #define DEBUG_TYPE "KModule"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-
 #include "Passes.h"
 
 #include "klee/Config/Version.h"
@@ -56,6 +55,7 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/Metadata.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <getopt.h>
@@ -123,7 +123,6 @@ KModule::KModule(Module *_module)
     kleeMergeFn(nullptr),
     infos(nullptr),
     constantTable(nullptr),
-    stub_subfns(false),
     entry_point(nullptr) {}
 
 KModule::~KModule() {
@@ -259,7 +258,6 @@ void KModule::addInternalFunction(Function *fn) {
 void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
-  stub_subfns = opts.StubSubfunctions;
   if (opts.OutputStaticAnalysis) {
     OutputStatic = true;
   }
@@ -421,6 +419,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   if (f && f->use_empty()) f->eraseFromParent();
 #endif
 
+  infos = new InstructionInfoTable(module);
+
   // Write out the .ll assembly file. We truncate long lines to work
   // around a kcachegrind parsing bug (it puts them on new lines), so
   // that source browsing works.
@@ -485,7 +485,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   }
 
   if (OutputModule) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("final.bc");
+    llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.bc");
     if (os != nullptr) {
       WriteBitcodeToFile(module, *os);
       delete os;
@@ -495,7 +495,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   kleeMergeFn = module->getFunction("klee_merge");
 
   /* Build shadow structures */
-
   infos = new InstructionInfoTable(module);  
   
   for (Module::iterator it = module->begin(), ie = module->end();
@@ -544,8 +543,7 @@ bool KModule::isModuleFunction(const llvm::Function *fn) const {
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }
 
-void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList,
-                                     const BasicBlock *entry) {
+void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList, const BasicBlock *entry) {
 
   set<const BasicBlock*> visited;
   deque<const BasicBlock*> worklist;
@@ -572,6 +570,7 @@ void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList,
   }
 }
 
+// RLR TODO: review this function
 void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
 
   outs() << "analyzing functions ... ";
@@ -583,9 +582,8 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
   set<const Function *> fns_ptr_to_int;
   set<const Function *> fns_int_to_ptr;
 
-  // try to load remaining m2m paths
-  map<string,m2m_paths_t> remaining_paths;
-  bool remaining_loaded = ih->getRemainingPaths(remaining_paths);
+  // construct a call graph fur future use
+  callGraph.runOnModule(*module);
 
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
@@ -639,7 +637,6 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
               const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
               if ((arg0 != nullptr) && (arg1 != nullptr)) {
                 fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-
                 unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
                 bbIDs.push_back(bbID);
 
@@ -681,7 +678,7 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
           }
         }
       }
-      if (bbIDs.size() > 0) {
+      if (!bbIDs.empty()) {
 
         // track the explicit major markers found
         kf->mapMarkers[&bb] = bbIDs;
@@ -735,16 +732,10 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
         }
       }
 
-      // use the loaded remaining paths, if found
-      // otherwise, generate our own
-      if (remaining_loaded) {
-        kf->m2m_paths = remaining_paths[fn_name];
+      if (fn->size() > 1) {
+        kf->addM2MPaths(majorMarkerList);
       } else {
-        if (fn->size() > 1) {
-          kf->addM2MPaths(majorMarkerList);
-        } else {
-          kf->addM2MPath(&fn->getEntryBlock());
-        }
+        kf->addM2MPath(&fn->getEntryBlock());
       }
     }
   }
@@ -772,49 +763,10 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
       *os << "}\n";
       delete os;
     }
-
-    // save a json formatted record of bb distance from program start to each bb (identified by marker)
-    if ((entry_point != nullptr) && !entry_point->sortedBBlocks.empty()) {
-
-      map<const BasicBlock *, unsigned> mapDistance;
-      calcMarkerDistances(entry_point, mapDistance);
-
-      // save to json output file
-    }
   }
 }
 
-void KModule::calcMarkerDistances(const KFunction *entry, std::map<const llvm::BasicBlock*,unsigned> &mapDist) {
-
-  assert(entry != nullptr);
-  mapDist.clear();
-
-  if (!entry->sortedBBlocks.empty()) {
-
-    // RLR TODO: need an answer to this
-#if 0 == 1
-    // BFS through the inter-procedural CFG starting at main
-    const BasicBlock *entryBB = entry->sortedBBlocks.front();
-    const Instruction *i = &entryBB->front();
-
-    deque<const BasicBlock*> worklist;
-    set<const BasicBlock*> visited;
-    vector<pair<const KFunction*,const Instruction*> > fn_stack;
-    unsigned distance = 0;
-
-    worklist.push_back(entryBB);
-    fn_stack.push_back(make_pair(entry, i));
-
-    while (!worklist.empty()) {
-      const BasicBlock *bb = worklist.front();
-      worklist.pop_front();
-      visited.insert(bb);
-    }
-#endif
-  }
-}
-
-void KModule::EmitFunctionSet(llvm::raw_fd_ostream *os,
+void KModule::EmitFunctionSet(raw_fd_ostream *os,
                               string key,
                               set<const Function*> fns,
                               unsigned &counter_keys) {
@@ -835,6 +787,31 @@ void KModule::EmitFunctionSet(llvm::raw_fd_ostream *os,
       counter_elements += 1;
     }
     *os << "\n  ]";
+  }
+}
+
+void KModule::getReachablePaths(const Function *fn, m2m_paths_t &paths) {
+
+  paths.empty();
+
+  // construct transitive closure of call graph from fn
+  set<Function*> transClosure;
+  deque<CallGraphNode*> worklist = { callGraph[fn] };
+  while (!worklist.empty()) {
+    CallGraphNode *node = worklist.front();
+    worklist.pop_front();
+    transClosure.insert(node->getFunction());
+    for (unsigned idx = 0, end = node->getNumReferences(); idx < end; ++idx) {
+      CallGraphNode *child = &node[idx];
+      if (transClosure.count(child->getFunction()) == 0) {
+        worklist.push_back(child);
+      }
+    }
+  }
+
+  for (Function *tc : transClosure) {
+    KFunction *kf = functionMap[tc];
+    paths.insert(kf->m2m_paths.begin(), kf->m2m_paths.end());
   }
 }
 

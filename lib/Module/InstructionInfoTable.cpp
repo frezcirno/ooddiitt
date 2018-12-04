@@ -115,6 +115,10 @@ bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I,
 InstructionInfoTable::InstructionInfoTable(Module *m) 
   : dummyString(""), dummyInfo(0, dummyString, 0, 0) {
   unsigned id = 0;
+
+  llvm::LLVMContext &C = m->getContext();
+  unsigned int mdkline = m->getMDKindID("klee.assemblyLine");
+
   std::map<const Instruction*, unsigned> lineTable;
   buildInstructionToLineMap(m, lineTable);
 
@@ -144,22 +148,20 @@ InstructionInfoTable::InstructionInfoTable(Module *m)
       // Update our source level debug information.
       getInstructionDebugInfo(instr, file, line);
 
-      infos.insert(std::make_pair(instr,
-                                  InstructionInfo(id++, *file, line,
-                                                  assemblyLine)));
+      MDNode *N = MDNode::get(C, MDString::get(C, std::to_string(assemblyLine)));
+      instr->setMetadata(mdkline, N);
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, *file, line, assemblyLine)));
     }
   }
 }
 
 InstructionInfoTable::~InstructionInfoTable() {
-  for (std::set<const std::string *, ltstr>::iterator
-         it = internedStrings.begin(), ie = internedStrings.end();
-       it != ie; ++it)
+  for (auto it = internedStrings.begin(), ie = internedStrings.end(); it != ie; ++it)
     delete *it;
 }
 
 const std::string *InstructionInfoTable::internString(std::string s) {
-  std::set<const std::string *, ltstr>::iterator it = internedStrings.find(&s);
+  auto it = internedStrings.find(&s);
   if (it==internedStrings.end()) {
     std::string *interned = new std::string(s);
     internedStrings.insert(interned);

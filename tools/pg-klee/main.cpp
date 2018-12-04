@@ -59,8 +59,9 @@
 #include <iterator>
 #include <sstream>
 #include <fcntl.h>
-#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <klee/Internal/Module/KInstruction.h>
 
 using namespace llvm;
 using namespace klee;
@@ -80,18 +81,13 @@ cl::opt<bool>
              cl::init(false));
 
   cl::opt<std::string>
-  SEMaxTime("se-max-time",
-              cl::init(""),
-              cl::desc("Maximum amount of time for any single symbolic execution (min = 10s)"));
-
-  cl::opt<std::string>
   EntryPoint("entry-point",
              cl::desc("Start local symbolic execution at entrypoint"),
              cl::init(""));
 
-  cl::opt<unsigned>
+  cl::opt<int>
   StartCaseID("start-case-id",
-              cl::init(1),
+              cl::init(-1),
               cl::desc("starting test case id"));
 
   cl::opt<std::string>
@@ -99,10 +95,21 @@ cl::opt<bool>
            cl::desc("Consider the function with the given name as the main point"),
            cl::init("main"));
 
+  cl::opt<std::string>
+  Progression("progression",
+              cl::desc("progressive phases of unconstraint (i:600,g:600,l:60,s:60)"),
+              cl::init(""));
+
+  cl::opt<Interpreter::ExecModeID>
+  ExecMode("mode",
+           cl::desc("pg-klee execution mode"),
+           cl::values(clEnumVal(Interpreter::zop, ""), clEnumVal(Interpreter::fault, ""), clEnumValEnd),
+           cl::init(Interpreter::zop));
+
   cl::opt<bool>
-  StubSubFunctions("stub-subfunctions",
-                   cl::desc("substitite stubs for native sub-functions"),
-                   cl::init(false));
+  NoAddressSpace("no-address-space",
+                 cl::desc("do not emit address space map with test cases"),
+                 cl::init(false));
 
   cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
@@ -164,8 +171,8 @@ cl::opt<bool>
        cl::desc("Choose libc version (none by default)."),
        cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
                   clEnumValN(KleeLibc, "klee", "Link in klee libc"),
-		  clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
-		  clEnumValEnd),
+		          clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
+		          clEnumValEnd),
        cl::init(NoLibc));
 
 
@@ -188,13 +195,6 @@ cl::opt<bool>
   CheckOvershift("check-overshift",
                cl::desc("Inject checks for overshift"),
                cl::init(true));
-
-#if 0 == 1
-  cl::opt<std::string>
-  OutputDir("output-dir",
-            cl::desc("Directory to write results in (defaults to klee-out-N)"),
-            cl::init(""));
-#endif
 
   cl::opt<std::string>
   OutputCreate("output-create",
@@ -220,11 +220,9 @@ cl::opt<bool>
 
   cl::opt<bool>
   Watchdog("watchdog",
-           cl::desc("Use a watchdog process to enforce --se-max-time."),
+           cl::desc("Use a watchdog process to monitor se."),
            cl::init(0));
 }
-
-extern cl::opt<double> MaxTime;
 
 /***/
 
@@ -248,7 +246,7 @@ private:
   char **m_argv;
 
 public:
-  KleeHandler(int argc, char **argv, ProgInfo &pi);
+  KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
   ~KleeHandler();
 
   bool createOutputDir() const { return create_output_dir; }
@@ -274,7 +272,6 @@ public:
 
   std::string getTypeName(const Type *Ty) const override;
 
-  bool getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) override;
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
@@ -288,15 +285,15 @@ public:
   static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
-KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
-  : m_interpreter(0),
-    m_pathWriter(0),
-    m_symPathWriter(0),
-    m_infoFile(0),
+KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
+  : m_interpreter(nullptr),
+    m_pathWriter(nullptr),
+    m_symPathWriter(nullptr),
+    m_infoFile(nullptr),
     create_output_dir(false),
     outputDirectory(),
     casesGenerated(0),
-    nextTestCaseID(StartCaseID),
+    nextTestCaseID(1),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
@@ -310,6 +307,20 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
     outputDirectory = OutputCreate;
   } else if (!OutputAppend.empty()) {
     outputDirectory = OutputAppend;
+  }
+
+  if (StartCaseID < 0) {
+    // set default starting test case identifier
+    if (!entry.empty()) {
+      unsigned fnID = pi.getFnID(entry);
+      if (fnID > 0) {
+        nextTestCaseID = 100000 * fnID;
+      }
+    }
+
+  } else {
+    // assign explicit number
+    nextTestCaseID = (unsigned) StartCaseID;
   }
 
   boost::filesystem::path p(outputDirectory.str());
@@ -359,8 +370,6 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi)
 }
 
 KleeHandler::~KleeHandler() {
-  // RLR TODO: save out current kmodInfo contents
-
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
   fclose(klee_warning_file);
@@ -549,10 +558,21 @@ void KleeHandler::processTestCase(ExecutionState &state,
       root["maxLazyDepth"] = state.maxLazyDepth;
       root["startingMarker"] = state.startingMarker;
       root["endingMarker"] = state.endingMarker;
-      root["stubbedSubFunctions"] = state.areSubfunctionsStubbed;
+      root["unconstraintFlags"] = state.getUnconstraintFlags().to_string();
+      root["unconstraintDescription"] = to_string(state.getUnconstraintFlags());
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = state.get_status();
+      if (state.instFaulting != nullptr) {
+        root["instFaulting"] = state.instFaulting->info->assemblyLine;
+      }
       root["message"] = state.terminationMessage;
+
+      // calculate a measure of unconstraint for this state
+      double unconstraintMetric = 0.0;
+      if (state.allBranchCounter != 0) {
+        unconstraintMetric = ((double) state.unconBranchCounter) / ((double) state.allBranchCounter);
+      }
+      root["unconstraintMetric"] = unconstraintMetric;
 
       // store the path condition
       std::string constraints;
@@ -586,13 +606,16 @@ void KleeHandler::processTestCase(ExecutionState &state,
         const MemoryObject *mo = test.first;
         std::vector<unsigned char> &data = test.second;
 
-        const ObjectState *os = state.addressSpace.findObject(mo);
-
         Json::Value obj = Json::objectValue;
         obj["name"] = mo->name;
         obj["kind"] = mo->getKindAsStr();
         obj["count"] = mo->count;
-        obj["type"] = getTypeName(os->getLastType());
+        const ObjectState *os = state.addressSpace.findObject(mo);
+        std::string type = "?unknown?";
+        if (os != nullptr) {
+          type = getTypeName(os->getLastType());
+        }
+        obj["type"] = type;
 
         // scale to 32 or 64 bits
         unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -608,7 +631,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       }
 
       // only emit address space details for completed test cases
-      if (state.status == ExecutionState::Completed) {
+      if (state.status == ExecutionState::Completed && !NoAddressSpace) {
 
         // dump details of the state address space
         root["addressSpace"] = Json::arrayValue;
@@ -786,8 +809,13 @@ void KleeHandler::getKTestFilesInDir(std::string directoryPath,
 std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env)
+  if (env) {
     return std::string(env);
+  }
+
+  if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
+    return std::string(KLEE_INSTALL_RUNTIME_DIR);
+  }
 
   // Take any function from the execution binary but not main (as not allowed by
   // C++ standard)
@@ -825,60 +853,6 @@ std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
   return libDir.str();
 }
 
-bool KleeHandler::getRemainingPaths(std::map<std::string,m2m_paths_t> &paths) {
-
-  InterpreterHandler::getRemainingPaths(paths);
-
-  bool result = false;
-
-  // try to retrieve remaining paths from klee output directory
-  std::ifstream infile(getOutputFilename("remaining_paths.json"));
-  if (infile.is_open()) {
-
-    Json::Value root;
-    infile >> root;
-    infile.close();
-
-    if (root.isObject()) {
-
-      result = true;
-
-      // iterate over each function object
-      for (Json::ValueConstIterator itrFn = root.begin(), endFn = root.end(); result && itrFn != endFn; ++itrFn) {
-        Json::Value fn_value = *itrFn;
-        std::string fn_name = itrFn.key().asString();
-        m2m_paths_t &fn_paths = paths[fn_name];
-        if (fn_value.isArray()) {
-          for (Json::ValueConstIterator itrPath = fn_value.begin(), endPath = fn_value.end(); result && itrPath != endPath; ++itrPath) {
-            m2m_path_t fn_path;
-            Json::Value path_value = *itrPath;
-            if (path_value.isArray()) {
-              for (Json::ValueConstIterator itrMark = path_value.begin(), endMark = path_value.end(); result && itrMark != endMark; ++itrMark) {
-                Json::Value mark_value = *itrMark;
-                if (mark_value.isUInt()) {
-                  fn_path.push_back(mark_value.asUInt());
-                } else {
-                  result = false;
-                }
-              }
-              fn_paths.insert(fn_path);
-            } else {
-              result = false;
-            }
-          }
-        } else {
-          result = false;
-        }
-      }
-    }
-  }
-  if (!result) {
-    paths.clear();
-  }
-  return result;
-}
-
-
 bool KleeHandler::resetWatchDogTimer() const {
 
   // signal the watchdog process
@@ -888,7 +862,6 @@ bool KleeHandler::resetWatchDogTimer() const {
   }
   return false;
 }
-
 
 //===----------------------------------------------------------------------===//
 // main Driver function
@@ -1033,6 +1006,11 @@ static const char *modelledExternals[] = {
   "__ubsan_handle_sub_overflow",
   "__ubsan_handle_mul_overflow",
   "__ubsan_handle_divrem_overflow",
+
+    // ignore marker instrumentation
+  "mark",
+  "MARK",
+  "fn_tag",
 };
 // Symbols we aren't going to warn about
 static const char *dontCareExternals[] = {
@@ -1057,11 +1035,6 @@ static const char *dontCareExternals[] = {
   "gettimeofday",
   "uname",
 
-  // ignore marker instrumentation
-  "mark",
-  "MARK",
-  "guide",
-
   // fp stuff we just don't worry about yet
   "frexp",
   "ldexp",
@@ -1081,6 +1054,7 @@ static const char *dontCareKlee[] = {
 };
 // Extra symbols we aren't going to warn about with uclibc
 static const char *dontCareUclibc[] = {
+  "__ctype_b_loc",
   "__dso_handle",
 
   // Don't warn about these since we explicitly commented them out of
@@ -1089,22 +1063,21 @@ static const char *dontCareUclibc[] = {
   "vprintf"
 };
 // Symbols we consider unsafe
-static const char *unsafeExternals[] = {
-  "fork", // oh lord
-  "exec", // heaven help us
-  "error", // calls _exit
-  "raise", // yeah
-  "kill", // mmmhmmm
-};
+//static const char *unsafeExternals[] = {
+//  "fork", // oh lord
+//  "exec", // heaven help us
+//  "error", // calls _exit
+//  "raise", // yeah
+//  "kill", // mmmhmmm
+//};
+
 #define NELEMS(array) (sizeof(array)/sizeof(array[0]))
-void externalsAndGlobalsCheck(const Module *m) {
-  std::map<std::string, bool> externals;
+
+void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   std::set<std::string> modelled(modelledExternals,
                                  modelledExternals+NELEMS(modelledExternals));
   std::set<std::string> dontCare(dontCareExternals,
                                  dontCareExternals+NELEMS(dontCareExternals));
-  std::set<std::string> unsafe(unsafeExternals,
-                               unsafeExternals+NELEMS(unsafeExternals));
 
   switch (Libc) {
   case KleeLibc:
@@ -1121,68 +1094,58 @@ void externalsAndGlobalsCheck(const Module *m) {
   if (WithPOSIXRuntime)
     dontCare.insert("syscall");
 
-  for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end();
-       fnIt != fn_ie; ++fnIt) {
-    if (fnIt->isDeclaration() && !fnIt->use_empty())
-      externals.insert(std::make_pair(fnIt->getName(), false));
-    for (Function::const_iterator bbIt = fnIt->begin(), bb_ie = fnIt->end();
-         bbIt != bb_ie; ++bbIt) {
-      for (BasicBlock::const_iterator it = bbIt->begin(), ie = bbIt->end();
-           it != ie; ++it) {
+  std::set<std::string> extFunctions;
+  std::set<std::string> extGlobals;
+
+  // get a list of functions declared, but not defined
+  for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end(); fnIt != fn_ie; ++fnIt) {
+    if (fnIt->isDeclaration() && !fnIt->use_empty()) {
+      std::string name = fnIt->getName();
+      if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
+        extFunctions.insert(fnIt->getName());
+      }
+    }
+
+    if (emit_warnings) {
+      // check for inline assembly
+      for (Function::const_iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); bbIt != bb_ie; ++bbIt) {
+        for (BasicBlock::const_iterator it = bbIt->begin(), ie = bbIt->end(); it != ie; ++it) {
         if (const CallInst *ci = dyn_cast<CallInst>(it)) {
           if (isa<InlineAsm>(ci->getCalledValue())) {
-            klee_warning_once(&*fnIt,
-                              "function \"%s\" has inline asm",
-                              fnIt->getName().data());
+              klee_warning_once(&*fnIt, "function \"%s\" has inline asm", fnIt->getName().data());
           }
         }
       }
     }
   }
-  for (Module::const_global_iterator
-         it = m->global_begin(), ie = m->global_end();
-       it != ie; ++it)
-    if (it->isDeclaration() && !it->use_empty())
-      externals.insert(std::make_pair(it->getName(), true));
-  // and remove aliases (they define the symbol after global
-  // initialization)
-  for (Module::const_alias_iterator
-         it = m->alias_begin(), ie = m->alias_end();
-       it != ie; ++it) {
-    std::map<std::string, bool>::iterator it2 =
-      externals.find(it->getName());
-    if (it2!=externals.end())
-      externals.erase(it2);
   }
 
-  std::map<std::string, bool> foundUnsafe;
-  for (std::map<std::string, bool>::iterator
-         it = externals.begin(), ie = externals.end();
-       it != ie; ++it) {
-    const std::string &ext = it->first;
-    if (!modelled.count(ext) && (WarnAllExternals ||
-                                 !dontCare.count(ext))) {
-
-      // RLR TODO: perhaps define undefined variables (if we can
-      // determine the type and initial values)
-//      if (unsafe.count(ext)) {
-//        foundUnsafe.insert(*it);
-//      } else {
-//
-//        klee_warning("undefined reference to %s: %s",
-//                     it->second ? "variable" : "function",
-//                     ext.c_str());
-//      }
+  // get a list of globals declared, but not defined
+  for (Module::const_global_iterator it = m->global_begin(), ie = m->global_end(); it != ie; ++it) {
+    if (it->isDeclaration() && !it->use_empty()) {
+      extGlobals.insert(it->getName());
+    }
+  }
+  // and remove aliases (they define the symbol after global
+  // initialization)
+  for (Module::const_alias_iterator it = m->alias_begin(), ie = m->alias_end(); it != ie; ++it) {
+    auto it2 = extFunctions.find(it->getName());
+    if (it2!=extFunctions.end()) {
+      extFunctions.erase(it2);
+  }
+    auto it3 = extGlobals.find(it->getName());
+    if (it3!=extGlobals.end()) {
+      extGlobals.erase(it3);
     }
   }
 
-  for (std::map<std::string, bool>::iterator
-         it = foundUnsafe.begin(), ie = foundUnsafe.end();
-       it != ie; ++it) {
-    const std::string &ext = it->first;
-    klee_warning("undefined reference to %s: %s (UNSAFE)!",
-                 it->second ? "variable" : "function",
-                 ext.c_str());
+  if (emit_warnings) {
+    for (auto fn: extFunctions) {
+      klee_warning("reference to external function: %s", fn.c_str());
+    }
+    for (auto global: extGlobals) {
+      klee_warning("reference to undefined global: %s", global.c_str());
+    }
   }
 }
 
@@ -1318,8 +1281,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // linked. In the off chance that both prefixed and unprefixed
   // versions are present in the module, make sure we don't create a
   // naming conflict.
-  for (Module::iterator fi = mainModule->begin(), fe = mainModule->end();
-       fi != fe; ++fi) {
+  for (Module::iterator fi = mainModule->begin(), fe = mainModule->end(); fi != fe; ++fi) {
     Function *f = static_cast<Function *>(fi);
     const std::string &name = f->getName();
     if (name[0]=='\01') {
@@ -1377,8 +1339,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   BasicBlock *bb = BasicBlock::Create(ctx, "entry", stub);
 
   std::vector<llvm::Value*> args;
-  args.push_back(llvm::ConstantExpr::getBitCast(userMainFn,
-                                                ft->getParamType(0)));
+  args.push_back(llvm::ConstantExpr::getBitCast(userMainFn, ft->getParamType(0)));
   args.push_back(static_cast<Argument *>(stub->arg_begin())); // argc
   args.push_back(static_cast<Argument *>(++stub->arg_begin())); // argv
   args.push_back(Constant::getNullValue(ft->getParamType(3))); // app_init
@@ -1463,6 +1424,71 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
   }
 }
 
+void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
+
+  names.clear();
+  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
+    if (itr->isDeclaration() && !itr->use_empty()) {
+      names.insert(itr->getName());
+    }
+  }
+}
+
+bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &progression, const std::string &str) {
+
+  bool result = false;
+  if (str.empty()) {
+    // default progression
+    UnconstraintFlagsT flags;
+    if (UserMain == "main") {
+      progression.emplace_back(600, flags);
+    }
+    flags.set(UNCONSTRAIN_GLOBAL_FLAG);
+    progression.emplace_back(600, flags);
+    flags.reset();
+    flags.set(UNCONSTRAIN_LOCAL_FLAG);
+    progression.emplace_back(60, flags);
+    flags.reset();
+    flags.set(UNCONSTRAIN_STUB_FLAG);
+    progression.emplace_back(60, flags);
+    result = true;
+  } else {
+
+    // parse out the progression phases
+    std::vector<std::string> phases;
+    boost::split(phases, str, [](char c){return c == ',';});
+    for (auto phase: phases) {
+
+      // loop through each phase in progression
+      UnconstraintFlagsT flags;
+      unsigned timeout = 60;
+
+      // parse out the phase
+      bool done = false;
+      for (auto itr = phase.begin(), end = phase.end(); (!done) && itr != end; ++itr) {
+
+        if (*itr == ':') {
+          // rest of string is a unsigned timeout
+          timeout = (unsigned) std::stoi(std::string(itr + 1, end));
+          done = true;
+        } else if (*itr == 'g') {
+          flags.set(UNCONSTRAIN_GLOBAL_FLAG);
+        } else if (*itr == 'l') {
+          flags.set(UNCONSTRAIN_LOCAL_FLAG);
+        } else if (*itr == 's') {
+          flags.set(UNCONSTRAIN_STUB_FLAG);
+        } else if (*itr != 'i') {
+          // invalid character
+          return false;
+        }
+      }
+      progression.emplace_back(timeout, flags);
+    }
+    result = (phases.size() == progression.size());
+  }
+  return result;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   // used to find the beginning of the heap
@@ -1474,39 +1500,13 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
 
-  unsigned seMaxTime = 0;
-  if (SEMaxTime.size() > 0) {
-
-    unsigned multiplier = 1;
-    char last = SEMaxTime.back();
-    if (isalpha(last)) {
-      SEMaxTime.pop_back();
-      if (last == 'm') {
-        multiplier = 60;
-      } else if (last == 'h') {
-        multiplier = 60 * 60;
-      } else if (last != 's') {
-        errs() << "invalid se-max-time specified\n";
-        exit(1);
-      }
-    }
-    seMaxTime = multiplier * atoi(SEMaxTime.c_str());
-    if (seMaxTime > 0) {
-      seMaxTime = seMaxTime > 10 ? seMaxTime : 10;
-    }
-  }
-
   pid_t pid_watchdog = 0;
-
   if (Watchdog) {
-    if (seMaxTime == 0) {
-      klee_error("--watchdog used without --se-max-time");
-    }
 
     int pid = fork();
     if (pid<0) {
       klee_error("unable to fork watchdog");
-    } else if (pid) {
+    } else if (pid > 0) {
       reset_watchdog_timer = false;
       klee_message("KLEE: WATCHDOG: watching %d\n", pid);
       fflush(stderr);
@@ -1520,19 +1520,20 @@ int main(int argc, char **argv, char **envp) {
       sa.sa_sigaction = handle_usr1_signal;
       sigaction(SIGUSR1, &sa, NULL);
 
-      uint64_t incrementTime = seMaxTime * 2;
+      uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL * 4;
       struct timespec tm;
       clock_gettime(CLOCK_MONOTONIC, &tm);
       uint64_t now = (uint64_t) tm.tv_sec;
-      uint64_t nextStep = now + incrementTime;
+      uint64_t nextStep = now + heartbeat_timeout;
 
       int level = 0;
 
       // Simple stupid code...
-      while (1) {
+      while (true) {
         sleep(1);
 
-        int status, res = waitpid(pid, &status, WNOHANG);
+        int status;
+        int res = waitpid(pid, &status, WNOHANG);
 
         if (res < 0) {
           if (errno==ECHILD) { // No child, no need to watch but
@@ -1552,31 +1553,26 @@ int main(int argc, char **argv, char **envp) {
           now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
-            nextStep = now + incrementTime;
+            nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
             ++level;
 
             if (level==1) {
-              klee_warning(
-                  "KLEE: WATCHDOG: time expired, attempting halt via INT\n");
+              klee_warning("KLEE: WATCHDOG: time expired, attempting halt via INT\n");
               kill(pid, SIGINT);
             } else if (level==2) {
-              klee_warning(
-                  "KLEE: WATCHDOG: time expired, attempting halt via gdb\n");
+              klee_warning("KLEE: WATCHDOG: time expired, attempting halt via gdb\n");
               halt_via_gdb(pid);
             } else {
-              klee_warning(
-                  "KLEE: WATCHDOG: kill(9)ing child (I tried to be nice)\n");
+              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I tried to be nice)\n");
               kill(pid, SIGKILL);
               return 1; // what more can we do
             }
 
             // Ideally this triggers a dump, which may take a while,
             // so try and give the process extra time to clean up.
-            clock_gettime(CLOCK_MONOTONIC, &tm);
-            now = (uint64_t) tm.tv_sec;
-            nextStep = now + 30;
+            nextStep = now + (HEARTBEAT_INTERVAL * 2);
           }
         }
       }
@@ -1595,26 +1591,13 @@ int main(int argc, char **argv, char **envp) {
   // Load the bytecode...
   std::string ErrorMsg;
   LLVMContext ctx;
-  Module *mainModule = 0;
+  Module *mainModule = nullptr;
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   OwningPtr<MemoryBuffer> BufferPtr;
   error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
   if (ec) {
     klee_error("error loading program '%s': %s", InputFile.c_str(),
                ec.message().c_str());
-  }
-
-  ProgInfo progInfo;
-  if (!ProgramInfo.empty()) {
-
-    std::ifstream info;
-    info.open(ProgramInfo);
-    if (info.is_open()) {
-
-      Json::Value root;
-      info >> root;
-      load_prog_info(root, progInfo);
-    }
   }
 
   mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
@@ -1652,6 +1635,22 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
+  ProgInfo progInfo;
+  if (!ProgramInfo.empty()) {
+
+    std::ifstream info;
+    info.open(ProgramInfo);
+    if (info.is_open()) {
+
+      Json::Value root;
+      info >> root;
+      load_prog_info(root, progInfo);
+    }
+  }
+
+  std::set<std::string> mainFunctions;
+  enumModuleFunctions(mainModule, mainFunctions);
+
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1659,14 +1658,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   std::string LibraryDir = KleeHandler::getRunTimeLibraryPath(argv[0]);
-  Interpreter::ModuleOptions Opts(LibraryDir.c_str(),
-                                  UserMain,
-                                  OptimizeModule,
-                                  CheckDivZero,
-                                  CheckOvershift,
-                                  StubSubFunctions,
-                                  false);
-
+ 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
     break;
@@ -1674,7 +1666,7 @@ int main(int argc, char **argv, char **envp) {
   // RLR TODO: both kleelibc and uclibc are host-bit (64) only
   case KleeLibc: {
     // FIXME: Find a reasonable solution for this.
-    SmallString<128> Path(Opts.LibraryDir);
+    SmallString<128> Path(LibraryDir);
     llvm::sys::path::append(Path, "klee-libc.bc");
     mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
     assert(mainModule && "unable to link with klee-libc");
@@ -1687,7 +1679,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   if (WithPOSIXRuntime) {
-    SmallString<128> Path(Opts.LibraryDir);
+    SmallString<128> Path(LibraryDir);
 
     std::string posixLib = "libkleeRuntimePOSIX";
     Module::PointerSize width = mainModule->getPointerSize();
@@ -1755,19 +1747,20 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo);
+  KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo, EntryPoint);
   handler->setWatchDog(pid_watchdog);
 
   void *heap_base = &_end;
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
-  IOpts.seMaxTime = seMaxTime;
   IOpts.createOutputDir = handler->createOutputDir();
   IOpts.heap_base = (void *) ((uint64_t) heap_base);
-  Opts.OutputStaticAnalysis = handler->createOutputDir();
-
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler, &progInfo);
+  if (!parseUnconstraintProgression(IOpts.progression, Progression)) {
+    klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
+  }
+  IOpts.pinfo = &progInfo;
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 
   for (int i=0; i<argc; i++) {
@@ -1775,8 +1768,29 @@ int main(int argc, char **argv, char **envp) {
   }
   handler->getInfoStream() << "PID: " << getpid() << "\n";
 
-  const Module *finalModule = theInterpreter->setModule(mainModule, Opts);
-  externalsAndGlobalsCheck(finalModule);
+  Interpreter::ModuleOptions MOpts;
+
+  MOpts.LibraryDir = LibraryDir;
+  MOpts.EntryPoint = UserMain;
+  MOpts.Optimize = OptimizeModule;
+  MOpts.CheckDivZero = CheckDivZero;
+  MOpts.CheckOvershift = CheckOvershift;
+  MOpts.OutputStaticAnalysis = handler->createOutputDir();
+
+  const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
+
+  std::set<std::string> finalFunctions;
+  enumModuleFunctions(finalModule, finalFunctions);
+
+  // get a list of functions linked in by klee
+  std::set<std::string> linkedFunctions;
+  for (auto fn : finalFunctions) {
+    if (mainFunctions.count(fn) == 0) {
+      linkedFunctions.insert(fn);
+    }
+  }
+
+  externalsAndGlobalsCheck(finalModule, handler->createOutputDir());
 
   char buf[256];
   time_t t[2];

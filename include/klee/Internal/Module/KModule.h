@@ -11,6 +11,7 @@
 #define KLEE_KMODULE_H
 
 #include "llvm/Analysis/Dominators.h"
+#include "llvm/Analysis/CallGraph.h"
 
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
@@ -187,8 +188,8 @@ namespace klee {
 
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;
-    bool stub_subfns;
     KFunction *entry_point;
+    llvm::CallGraph callGraph;
 
   public:
     KModule(llvm::Module *_module);
@@ -203,11 +204,10 @@ namespace klee {
     void prepareMarkers(InterpreterHandler *ih, std::string entry_point);
     void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
     void constructSortedBBlocks(std::vector<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry);
-    void calcMarkerDistances(const KFunction *entry, std::map<const llvm::BasicBlock*,unsigned> &mapDist);
+    void getReachablePaths(const llvm::Function *fn, m2m_paths_t &paths);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
-    bool stubSubfunctions() const     { return stub_subfns; }
   };
 } // End klee namespace
 
