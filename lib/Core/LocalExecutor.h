@@ -126,21 +126,18 @@ protected:
   void terminateStateOnError(ExecutionState &state,
                              const llvm::Twine &message,
                              enum TerminateReason termReason,
-                             const char *suffix = NULL,
+                             const char *suffix = nullptr,
                              const llvm::Twine &longMessage = "") override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  void updateStates(ExecutionState *current) override;
   void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;
   unsigned getNextLoopSignature() { return ++nextLoopSignature; }
   void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
-//  void getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const;
   bool removeCoveredPaths(const ExecutionState *state);
   bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
-//  void updateCoveredPaths(const ExecutionState *state);
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   void InspectSymbolicSolutions(const ExecutionState *state);
 

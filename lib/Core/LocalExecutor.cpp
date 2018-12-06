@@ -1239,31 +1239,6 @@ bool LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
   return result;
 }
 
-//void LocalExecutor::updateCoveredPaths(const ExecutionState *state) {
-//
-//  m2m_path_t trace;
-//  state->markers.m2m_path(trace);
-//  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
-//    const m2m_path_t &path = *itr;
-//    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-//    if (found == trace.end()) {
-//      ++itr;
-//    } else {
-//      itr = m2m_pathsRemaining.erase(itr);
-//    }
-//  }
-//}
-
-void LocalExecutor::updateStates(ExecutionState *current) {
-
-//  for (auto state : removedStates) {
-//    if (state->isProcessed) {
-//      updateCoveredPaths(state);
-//    }
-//  }
-  Executor::updateStates(current);
-}
-
 bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const {
 
   // construct a set of m2m path headers
@@ -1282,20 +1257,6 @@ bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *
   }
   return kf->reachesAnyOf(bb, path_headers);
 }
-
-//void LocalExecutor::getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const {
-//
-//  covered.clear();
-//  m2m_path_t trace;
-//  state->markers.m2m_path(trace);
-//  for (const auto &path : paths) {
-//    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-//    if (found != trace.end()) {
-//      // the trace contains a matching path
-//      covered.insert(path);
-//    }
-//  }
-//}
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
@@ -1335,7 +1296,6 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
   }
   return result;
 }
-
 
 void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
 
