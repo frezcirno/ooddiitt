@@ -72,10 +72,15 @@ namespace {
 
   cl::opt<std::string>
   ProgramInfo("prog-info",
-           cl::desc("json formated info from static analysis"),
-           cl::init(""));
+              cl::desc("json formated info from static analysis"),
+              cl::init(""));
 
-cl::opt<bool>
+  cl::opt<bool>
+  Verbose("verbose",
+          cl::desc("verbose output text"),
+          cl::init(false));
+
+  cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
              cl::init(false));
@@ -102,8 +107,12 @@ cl::opt<bool>
 
   cl::opt<Interpreter::ExecModeID>
   ExecMode("mode",
+           cl::Required,
            cl::desc("pg-klee execution mode"),
-           cl::values(clEnumVal(Interpreter::zop, ""), clEnumVal(Interpreter::fault, ""), clEnumValEnd),
+           cl::values(
+               clEnumValN(Interpreter::zop, "zop", "configure for zop input generation"),
+               clEnumValN(Interpreter::fault, "fault", "configure for fault finding"),
+               clEnumValEnd),
            cl::init(Interpreter::zop));
 
   cl::opt<bool>
@@ -257,17 +266,15 @@ public:
 
   void setInterpreter(Interpreter *i);
 
-  void processTestCase(ExecutionState  &state,
-                       const char *errorMessage = nullptr,
-                       const char *errorSuffix = nullptr) override;
+  void processTestCase(ExecutionState  &state, bool faulting) override;
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 
   std::string getOutputFilename(const std::string &filename) override;
-  std::string getTestFilename(const std::string &ext, unsigned id);
+  std::string getTestFilename(const std::string &prefix, const std::string &ext, unsigned id);
 
-  std::ostream *openTestCaseFile(unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const std::string &ext, unsigned id);
+  std::ostream *openTestCaseFile(const std::string &prefix, unsigned testID);
+  llvm::raw_fd_ostream *openTestFile(const std::string &prefix, const std::string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
 
   std::string getTypeName(const Type *Ty) const override;
@@ -340,9 +347,11 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string 
       while (!done) {
 
         // find the next missing test case id.
-        std::string filename = getOutputFilename(getTestFilename("json", nextTestCaseID));
-        boost::filesystem::path file(filename);
-        if (boost::filesystem::exists(file)) {
+        std::string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
+        std::string failname = getOutputFilename(getTestFilename("fail", "json", nextTestCaseID));
+        boost::filesystem::path testfile(testname);
+        boost::filesystem::path failfile(failname);
+        if (boost::filesystem::exists(testfile) || boost::filesystem::exists(failfile)) {
           ++nextTestCaseID;
         } else {
           done = true;
@@ -485,21 +494,20 @@ llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename, b
   return f;
 }
 
-std::string KleeHandler::getTestFilename(const std::string &ext, unsigned id) {
+std::string KleeHandler::getTestFilename(const std::string &prefix, const std::string &ext, unsigned id) {
   std::stringstream filename;
-  filename << "test" << std::setfill('0') << std::setw(10) << id << '.' << ext;
+  filename << prefix << std::setfill('0') << std::setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &ext,
-                                                unsigned id) {
-  return openOutputFile(getTestFilename(ext, id));
+llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &prefix, const std::string &ext, unsigned id) {
+  return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-std::ostream *KleeHandler::openTestCaseFile(unsigned testID) {
+std::ostream *KleeHandler::openTestCaseFile(const std::string &prefix, unsigned testID) {
 
   std::ofstream *result = nullptr;
-  std::string filename = getOutputFilename(getTestFilename("json", testID));
+  std::string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
   result = new std::ofstream(filename);
   if (result != nullptr) {
     if (!result->is_open()) {
@@ -525,13 +533,7 @@ std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) co
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void KleeHandler::processTestCase(ExecutionState &state,
-                                  const char *errorMessage,
-                                  const char *errorSuffix) {
-  if (errorMessage && ExitOnError) {
-    m_interpreter->prepareForEarlyExit();
-    klee_error("EXITING ON ERROR:\n%s\n", errorMessage);
-  }
+void KleeHandler::processTestCase(ExecutionState &state, bool faulting) {
 
   if (!NoOutput) {
 
@@ -544,7 +546,12 @@ void KleeHandler::processTestCase(ExecutionState &state,
     }
 
     double start_time = util::getWallTime();
-    std::ostream *kout = openTestCaseFile(testID);
+    std::string prefix = "test";
+    if (faulting) {
+      prefix = "fail";
+    }
+
+    std::ostream *kout = openTestCaseFile(prefix, testID);
     if (kout != nullptr) {
 
       // construct the json object representing the test case
@@ -589,7 +596,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
       // retain for backward compatibility
       Json::Value &path = root["markerPath"] = Json::arrayValue;
       m2m_path_t trace;
-      state.markers.m2m_path(trace);
+      state.markers.to_trace(trace);
       for (auto itr = trace.begin(), end = trace.end(); itr != end; ++itr) {
         path.append(*itr);
       }
@@ -687,30 +694,14 @@ void KleeHandler::processTestCase(ExecutionState &state,
       klee_warning("unable to write output test case, losing it");
     }
 
-    if (errorMessage) {
-      llvm::raw_ostream *f = openTestFile(errorSuffix, testID);
-      *f << errorMessage;
-      delete f;
-    }
-
     if (m_pathWriter) {
       std::vector<unsigned char> concreteBranches;
       m_pathWriter->readStream(m_interpreter->getPathStreamID(state),
                                concreteBranches);
-      llvm::raw_fd_ostream *f = openTestFile("path", testID);
-      for (std::vector<unsigned char>::iterator I = concreteBranches.begin(),
-                                                E = concreteBranches.end();
-           I != E; ++I) {
+      llvm::raw_fd_ostream *f = openTestFile("test", "path", testID);
+      for (auto I = concreteBranches.begin(), E = concreteBranches.end(); I != E; ++I) {
         *f << *I << "\n";
       }
-      delete f;
-    }
-
-    if (errorMessage || WriteKQueries) {
-      std::string constraints;
-      m_interpreter->getConstraintLog(state, constraints,Interpreter::KQUERY);
-      llvm::raw_ostream *f = openTestFile("kquery", testID);
-      *f << constraints;
       delete f;
     }
 
@@ -719,15 +710,15 @@ void KleeHandler::processTestCase(ExecutionState &state,
       // SMT-LIBv2 not CVC which is a bit confusing
       std::string constraints;
       m_interpreter->getConstraintLog(state, constraints, Interpreter::STP);
-      llvm::raw_ostream *f = openTestFile("cvc", testID);
+      llvm::raw_ostream *f = openTestFile("test", "cvc", testID);
       *f << constraints;
       delete f;
     }
 
-    if(WriteSMT2s) {
+    if (WriteSMT2s) {
       std::string constraints;
         m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
-        llvm::raw_ostream *f = openTestFile("smt2", testID);
+        llvm::raw_ostream *f = openTestFile("test", "smt2", testID);
         *f << constraints;
         delete f;
     }
@@ -736,8 +727,8 @@ void KleeHandler::processTestCase(ExecutionState &state,
       std::vector<unsigned char> symbolicBranches;
       m_symPathWriter->readStream(m_interpreter->getSymbolicPathStreamID(state),
                                   symbolicBranches);
-      llvm::raw_fd_ostream *f = openTestFile("sym.path", testID);
-      for (std::vector<unsigned char>::iterator I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
+      llvm::raw_fd_ostream *f = openTestFile("test", "sym.path", testID);
+      for (auto I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
         *f << *I << "\n";
       }
       delete f;
@@ -746,13 +737,9 @@ void KleeHandler::processTestCase(ExecutionState &state,
     if (WriteCov) {
       std::map<const std::string*, std::set<unsigned> > cov;
       m_interpreter->getCoveredLines(state, cov);
-      llvm::raw_ostream *f = openTestFile("cov", testID);
-      for (std::map<const std::string*, std::set<unsigned> >::iterator
-             it = cov.begin(), ie = cov.end();
-           it != ie; ++it) {
-        for (std::set<unsigned>::iterator
-               it2 = it->second.begin(), ie = it->second.end();
-             it2 != ie; ++it2)
+      llvm::raw_ostream *f = openTestFile("test", "cov", testID);
+      for (auto it = cov.begin(), ie = cov.end(); it != ie; ++it) {
+        for (auto it2 = it->second.begin(), ie2 = it->second.end(); it2 != ie2; ++it2)
           *f << *it->first << ":" << *it2 << "\n";
       }
       delete f;
@@ -760,7 +747,7 @@ void KleeHandler::processTestCase(ExecutionState &state,
 
     if (WriteTestInfo) {
       double elapsed_time = util::getWallTime() - start_time;
-      llvm::raw_ostream *f = openTestFile("info", testID);
+      llvm::raw_ostream *f = openTestFile("test", "info", testID);
       *f << "Time to generate test case: "
          << elapsed_time << "s\n";
       delete f;
@@ -1518,7 +1505,7 @@ int main(int argc, char **argv, char **envp) {
       sigemptyset(&sa.sa_mask);
       sa.sa_flags = SA_NODEFER;
       sa.sa_sigaction = handle_usr1_signal;
-      sigaction(SIGUSR1, &sa, NULL);
+      sigaction(SIGUSR1, &sa, nullptr);
 
       uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL * 4;
       struct timespec tm;
@@ -1760,6 +1747,7 @@ int main(int argc, char **argv, char **envp) {
     klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
   }
   IOpts.pinfo = &progInfo;
+  IOpts.verbose = Verbose;
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 

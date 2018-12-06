@@ -56,9 +56,7 @@ public:
 
   virtual void incPathsExplored() = 0;
 
-  virtual void processTestCase(ExecutionState &state,
-                               const char *err = nullptr,
-                               const char *suffix = nullptr) = 0;
+  virtual void processTestCase(ExecutionState &state, bool faulting) = 0;
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
@@ -135,13 +133,15 @@ public:
     ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
+    bool verbose;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
         createOutputDir(false),
         heap_base(nullptr),
         pinfo(nullptr),
-        mode(Interpreter::zop)
+        mode(Interpreter::zop),
+        verbose(false)
     {}
   };
 
@@ -167,8 +167,7 @@ public:
   ///
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
-  virtual const llvm::Module *setModule(llvm::Module *module,
-                                        const ModuleOptions &opts) = 0;
+  virtual const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) = 0;
 
   // supply a tree stream writer which the interpreter will use
   // to record the concrete path (as a stream of '0' and '1' bytes).
@@ -212,9 +211,7 @@ public:
 
   virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
   
-  virtual void getConstraintLog(const ExecutionState &state,
-                                std::string &res,
-                                LogType logFormat = STP) = 0;
+  virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = STP) = 0;
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
 

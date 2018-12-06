@@ -11,7 +11,6 @@
 #define KLEE_KMODULE_H
 
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/Analysis/CallGraph.h"
 
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
@@ -61,7 +60,8 @@ namespace klee {
   struct KFunction {
     llvm::Function *function;
 
-    unsigned numArgs, numRegisters;
+    unsigned numArgs;
+    unsigned numRegisters;
 
     unsigned numInstructions;
     KInstruction **instructions;
@@ -83,21 +83,11 @@ namespace klee {
     std::set<unsigned> majorMarkers;
     marker_paths_t m2m_paths;
     std::vector<const llvm::BasicBlock*> sortedBBlocks;
+    std::set<const KFunction*> callees;
 
   private:
     KFunction(const KFunction&);
     KFunction &operator=(const KFunction&);
-
-    void recurseAllSimplePaths(const llvm::BasicBlock *bb,
-                               std::set<const llvm::BasicBlock*> &visited,
-                               bb_path_t &path,
-                               bb_paths_t &paths) const;
-
-    void recurseAllSimpleCycles(const llvm::BasicBlock *bb,
-                                const llvm::BasicBlock *dst,
-                                std::set<const llvm::BasicBlock*> &visited,
-                                bb_path_t &path,
-                                bb_paths_t &paths) const;
 
     void recurseM2MPaths(const BasicBlocks &majorMarkers,
                          const llvm::BasicBlock *bb,
@@ -189,7 +179,6 @@ namespace klee {
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;
     KFunction *entry_point;
-    llvm::CallGraph callGraph;
 
   public:
     KModule(llvm::Module *_module);
@@ -204,7 +193,7 @@ namespace klee {
     void prepareMarkers(InterpreterHandler *ih, std::string entry_point);
     void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
     void constructSortedBBlocks(std::vector<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry);
-    void getReachablePaths(const llvm::Function *fn, m2m_paths_t &paths);
+    void getReachablePaths(const KFunction *kf, m2m_paths_t &paths);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);

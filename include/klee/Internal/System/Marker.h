@@ -7,6 +7,10 @@
 
 #include <sstream>
 
+inline unsigned toMarker(unsigned fnID, unsigned mkID) { return (fnID * 1000) + mkID; }
+inline unsigned getFNID(unsigned marker)               { return marker / 1000; }
+inline unsigned getMKID(unsigned marker)               { return marker % 1000; }
+
 class Marker {
 
 public:
@@ -45,14 +49,25 @@ inline bool operator>=(const Marker &m1, const Marker &m2) { return !(m1 < m2); 
 class MarkerSequence : public std::vector<Marker> {
 
 public:
-  void m2m_path(klee::m2m_path_t &path) const {
+  void to_trace(klee::m2m_path_t &path) const {
     path.clear();
     for (auto itr = this->cbegin(), end = this->cend(); itr != end; ++itr) {
       if (toupper(itr->type) == 'M') {
-        path.push_back((itr->fn * 1000) + itr->id);
+        path.push_back(toMarker(itr->fn, itr->id));
       }
     }
   }
+
+  void to_intra_traces(std::map<unsigned,klee::m2m_path_t> &map) const {
+    map.clear();
+
+    for (auto itr = this->cbegin(), end = this->cend(); itr != end; ++itr) {
+      if (toupper(itr->type) == 'M') {
+        map[itr->fn].push_back(toMarker(itr->fn, itr->id));
+      }
+    }
+  }
+
   unsigned get_terminating_id() const {
     for (auto itr = this->crbegin(), end = this->crend(); itr != end; ++itr) {
       if (toupper(itr->type) == 'M') {

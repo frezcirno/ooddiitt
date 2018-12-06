@@ -137,9 +137,10 @@ protected:
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
-  void getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const;
+//  void getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const;
+  bool removeCoveredPaths(const ExecutionState *state);
   bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
-  void updateCoveredPaths(const ExecutionState *state);
+//  void updateCoveredPaths(const ExecutionState *state);
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   void InspectSymbolicSolutions(const ExecutionState *state);
 
@@ -159,6 +160,7 @@ protected:
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
   ExecModeID modeID;
+  bool verbose;
 };
 
 

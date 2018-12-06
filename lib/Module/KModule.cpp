@@ -19,6 +19,7 @@
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
+#include "klee/Internal/System/Marker.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -582,9 +583,6 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
   set<const Function *> fns_ptr_to_int;
   set<const Function *> fns_int_to_ptr;
 
-  // construct a call graph fur future use
-  callGraph.runOnModule(*module);
-
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
@@ -646,6 +644,14 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
               }
             } else if (!isInternalFunction(called)) {
               is_implicit_major = true;
+
+              // insert callee into called function set
+              if (!calledName.empty()) {
+                auto itr = functionMap.find(called);
+                if (itr != functionMap.end()) {
+                  kf->callees.insert(itr->second);
+                }
+              }
             }
           }
         } else if (OutputStatic) {
@@ -686,14 +692,14 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
           kf->mapBBlocks[id] = &bb;
           if (majorIDs.count(id) > 0) {
             majorMarkerList.insert(&bb);
-            kf->majorMarkers.insert((fnID * 1000) + id);
+            kf->majorMarkers.insert(toMarker(fnID, id));
           }
         }
 
         // check if this is an implicit marker
         if (majorIDs.empty() && is_implicit_major) {
           majorMarkerList.insert(&bb);
-          kf->majorMarkers.insert((fnID * 1000) + bbIDs.front());
+          kf->majorMarkers.insert(toMarker(fnID, bbIDs.front()));
         }
       }
     }
@@ -790,28 +796,27 @@ void KModule::EmitFunctionSet(raw_fd_ostream *os,
   }
 }
 
-void KModule::getReachablePaths(const Function *fn, m2m_paths_t &paths) {
+void KModule::getReachablePaths(const KFunction *kf, m2m_paths_t &paths) {
 
   paths.empty();
 
   // construct transitive closure of call graph from fn
-  set<Function*> transClosure;
-  deque<CallGraphNode*> worklist = { callGraph[fn] };
+  set<const KFunction*> transClosure;
+  deque<const KFunction*> worklist = { kf };
   while (!worklist.empty()) {
-    CallGraphNode *node = worklist.front();
+    const KFunction *node = worklist.front();
     worklist.pop_front();
-    transClosure.insert(node->getFunction());
-    for (unsigned idx = 0, end = node->getNumReferences(); idx < end; ++idx) {
-      CallGraphNode *child = &node[idx];
-      if (transClosure.count(child->getFunction()) == 0) {
+    transClosure.insert(node);
+    for (auto child : node->callees) {
+      if (transClosure.count(child) == 0) {
         worklist.push_back(child);
       }
     }
   }
 
-  for (Function *tc : transClosure) {
-    KFunction *kf = functionMap[tc];
-    paths.insert(kf->m2m_paths.begin(), kf->m2m_paths.end());
+  // insert each m2m path in the transitive closure.
+  for (const KFunction *tc : transClosure) {
+    paths.insert(tc->m2m_paths.begin(), tc->m2m_paths.end());
   }
 }
 
@@ -1103,7 +1108,7 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
     // skip unmarked basic blocks
     if (markers != mapMarkers.end()) {
       for (unsigned bbID : markers->second) {
-        marker_path.push_back((fnID * 1000) + bbID);
+        marker_path.push_back(toMarker(fnID, bbID));
       }
     }
   }

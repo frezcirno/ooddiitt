@@ -141,6 +141,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   tsolver = new TimedSolver(solver, coreSolverTimeout);
   progression = opts.progression;
   modeID = opts.mode;
+  verbose = opts.verbose;
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -773,7 +774,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   }
 
   std::string name = fn->getName();
-  kmodule->getReachablePaths(fn, m2m_pathsRemaining);
+  kmodule->getReachablePaths(kf, m2m_pathsRemaining);
+  auto num_reachable_paths = m2m_pathsRemaining.size();
+  unsigned num_dropped_paths = 0;
 
   // iterate through each phase of unconstraint progression
   for (auto &desc: progression) {
@@ -785,6 +788,22 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
     ExecutionState *state = new ExecutionState(*germinalState, kf, name);
     timeout = desc.timeout;
+
+    // when substituting unconstraining stubs, remaining paths
+    // must be filtered to only entry function
+    if (desc.unconstraintFlags.test(UNCONSTRAIN_STUB_FLAG)) {
+      auto itr = m2m_pathsRemaining.begin();
+      while (itr != m2m_pathsRemaining.end()) {
+        const m2m_path_t &path = *itr;
+        if (path.empty() || getFNID(path[0]) != kf->fnID) {
+          itr = m2m_pathsRemaining.erase(itr);
+          ++num_dropped_paths;
+        } else {
+          ++itr;
+        }
+      }
+    }
+
     unconstraintFlags |= desc.unconstraintFlags;
     state->setUnconstraintFlags(unconstraintFlags);
 
@@ -817,6 +836,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     }
     runFn(kf, *state);
   }
+  outs() << name << ": covered "
+         << num_reachable_paths - (m2m_pathsRemaining.size() + num_dropped_paths)
+         << " of " << num_reachable_paths << " reachable m2m paths\n";
+  outs().flush();
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
@@ -926,8 +949,10 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
 void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
 
   Function *fn = kf->function;
-  outs() << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
-  outs().flush();
+  if (verbose) {
+    outs() << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
+    outs().flush();
+  }
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -938,10 +963,6 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   } else {
     runFnFromBlock(kf, initialState, &fn->getEntryBlock());
   }
-
-  // RLR TODO: update
-  outs() << "stale stats\n";
-  outs().flush();
 }
 
 void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) {
@@ -963,14 +984,16 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       if (!reachesRemainingPath(kf, startBB)) {
         continue;
       }
-      outs() << "    starting from: ";
-      if (kf->mapMarkers[startBB].empty()) {
-        outs() << "unmarked block";
-      } else {
-        outs() << kf->mapMarkers[startBB].front();
+      if (verbose) {
+        outs() << "    starting from: ";
+        if (kf->mapMarkers[startBB].empty()) {
+          outs() << "unmarked block";
+        } else {
+          outs() << kf->mapMarkers[startBB].front();
+        }
+        outs() << "\n";
+        outs().flush();
       }
-      outs() << "\n";
-      outs().flush();
     }
     runFnFromBlock(kf, initialState, startBB);
   }
@@ -1008,7 +1031,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // create loop frames in order
     StackFrame &sf = initState->stack.back();
     for (auto itr = hdrs.begin(), end = hdrs.end(); itr != end; ++itr) {
-      sf.loopFrames.push_back(LoopFrame(*itr, getNextLoopSignature()));
+      sf.loopFrames.emplace_back(LoopFrame(*itr, getNextLoopSignature()));
     }
   }
 
@@ -1030,8 +1053,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   while (!states.empty()) {
 
     if (haltExecution || halt != HaltReason::OK) break;
-    // RLR TODO: evaluate if we still want to do this
-//    if (kmodule->stubCallees() && m2m_pathsRemaining.empty()) break;
+    if (m2m_pathsRemaining.empty()) break;
     ExecutionState *state;
 
     state = &searcher->selectState();
@@ -1057,7 +1079,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     clock_gettime(CLOCK_MONOTONIC, &tm);
     now = (uint64_t) tm.tv_sec;
     if (now > stopTime) {
-      errs() << "    * max time elapsed, halting execution\n";
+      outs() << "    * max time elapsed, halting execution\n";
       halt = HaltReason::TimeOut;
     } else if (now > heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1086,15 +1108,11 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 // RLR TODO: this must be modal
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-  // get a set of paths covered by this state before termination
-//  m2m_paths_t covered;
-//  getCoveredPaths(m2m_pathsRemaining, &state, covered);
-
+//  interpreterHandler->processTestCase(state, false);
   if (state.status == ExecutionState::StateStatus::Completed) {
-    // RLR TODO : may need this
-//    if (!kmodule->stubSubfunctions() || !covered.empty()) {
-//      interpreterHandler->processTestCase(state, nullptr, nullptr);
-//    }
+    if (removeCoveredPaths(&state)) {
+      interpreterHandler->processTestCase(state, false);
+    }
   }
   Executor::terminateState(state);
 }
@@ -1197,28 +1215,52 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::updateCoveredPaths(const ExecutionState *state) {
+bool LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
 
-  m2m_path_t trace;
-  state->markers.m2m_path(trace);
-  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
+  bool result = false;
+  std::map<unsigned,m2m_path_t> traces;
+  state->markers.to_intra_traces(traces);
+  auto itr = m2m_pathsRemaining.begin();
+  auto end = m2m_pathsRemaining.end();
+  while (itr != end) {
+
     const m2m_path_t &path = *itr;
-    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-    if (found == trace.end()) {
+    unsigned fnID = getFNID(path[0]);
+    m2m_path_t &intra_trace = traces[fnID];
+
+    auto found = std::search(intra_trace.begin(), intra_trace.end(), path.begin(), path.end());
+    if (found == intra_trace.end()) {
       ++itr;
     } else {
       itr = m2m_pathsRemaining.erase(itr);
+      result = true;
     }
   }
+  return result;
 }
+
+//void LocalExecutor::updateCoveredPaths(const ExecutionState *state) {
+//
+//  m2m_path_t trace;
+//  state->markers.m2m_path(trace);
+//  for (auto itr = m2m_pathsRemaining.begin(), end = m2m_pathsRemaining.end(); itr != end;) {
+//    const m2m_path_t &path = *itr;
+//    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+//    if (found == trace.end()) {
+//      ++itr;
+//    } else {
+//      itr = m2m_pathsRemaining.erase(itr);
+//    }
+//  }
+//}
 
 void LocalExecutor::updateStates(ExecutionState *current) {
 
-  for (auto state : removedStates) {
-    if (state->isProcessed) {
-      updateCoveredPaths(state);
-    }
-  }
+//  for (auto state : removedStates) {
+//    if (state->isProcessed) {
+//      updateCoveredPaths(state);
+//    }
+//  }
   Executor::updateStates(current);
 }
 
@@ -1228,26 +1270,32 @@ bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *
   std::set<const BasicBlock*> path_headers;
   for (auto path : m2m_pathsRemaining) {
     assert(!path.empty());
-    unsigned head = path.front() % 1000;
-    path_headers.insert(kf->mapBBlocks[head]);
+    unsigned head = getMKID(path.front());
+    auto itr = kf->mapBBlocks.find(head);
+    if (itr != kf->mapBBlocks.end() && itr->second != nullptr) {
+      path_headers.insert(itr->second);
+    }
   }
-  assert(path_headers.count(nullptr) == 0);
+
+  if (path_headers.empty()) {
+    return false;
+  }
   return kf->reachesAnyOf(bb, path_headers);
 }
 
-void LocalExecutor::getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const {
-
-  covered.clear();
-  m2m_path_t trace;
-  state->markers.m2m_path(trace);
-  for (const auto &path : paths) {
-    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
-    if (found != trace.end()) {
-      // the trace contains a matching path
-      covered.insert(path);
-    }
-  }
-}
+//void LocalExecutor::getCoveredPaths(const m2m_paths_t &paths, const ExecutionState *state, m2m_paths_t &covered) const {
+//
+//  covered.clear();
+//  m2m_path_t trace;
+//  state->markers.m2m_path(trace);
+//  for (const auto &path : paths) {
+//    auto found = std::search(trace.begin(), trace.end(), path.begin(), path.end());
+//    if (found != trace.end()) {
+//      // the trace contains a matching path
+//      covered.insert(path);
+//    }
+//  }
+//}
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
@@ -1752,7 +1800,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             // generate a test case
             const KInstruction *prior = state.instFaulting;
             state.instFaulting = ki;
-            interpreterHandler->processTestCase(state, nullptr, nullptr);
+            interpreterHandler->processTestCase(state, true);
             state.instFaulting = prior;
           }
         }

@@ -44,9 +44,9 @@ namespace {
 /***/
 
 StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
-  : caller(_caller), kf(_kf), callPathNode(0), 
+  : caller(_caller), kf(_kf), callPathNode(nullptr),
     numRegs(kf->numRegisters),
-    minDistToUncoveredOnReturn(0), varargs(0) {
+    minDistToUncoveredOnReturn(0), varargs(nullptr) {
   locals = new Cell[numRegs];
 }
 
@@ -275,6 +275,7 @@ void ExecutionState::removeFnAlias(std::string fn) {
 }
 
 void ExecutionState::addMarker(char type, unsigned fnID, unsigned bbID) {
+
 
   markers.push_back(Marker(type, fnID, bbID));
 }
