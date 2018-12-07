@@ -1457,6 +1457,12 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
         if (*itr == ':') {
           // rest of string is a unsigned timeout
           timeout = (unsigned) std::stoi(std::string(itr + 1, end));
+          char suffix = (char) tolower(phase.back());
+          if (suffix == 'm') {
+            timeout *= 60;
+          } else if (suffix == 'h') {
+            timeout *= (60 * 60);
+          }
           done = true;
         } else if (*itr == 'g') {
           flags.set(UNCONSTRAIN_GLOBAL_FLAG);
