@@ -1874,6 +1874,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
+    case Instruction::FCmp:
+      Executor::executeInstruction(state, ki);
+      klee_warning("Floating point comparison");
+      break;
+
     default:
       Executor::executeInstruction(state, ki);
       break;

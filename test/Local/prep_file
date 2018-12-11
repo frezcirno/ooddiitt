@@ -12,11 +12,7 @@ if [[ $(uname -s ) == "Darwin" ]]; then
   TOOL_ROOT="/usr/local/opt"
 fi
 
-export CLANG3="${TOOL_ROOT}/llvm-3.4/bin/clang"
-export LINK="${TOOL_ROOT}/llvm-3.4/bin/llvm-link"
-
-export CLANG="clang"
-export CLANG_FORMAT="clang-format"
+export CLANG34="${TOOL_ROOT}/llvm-3.4/bin/clang"
 
 export CFLAGS="-m32 -fno-builtin"
 
@@ -25,9 +21,8 @@ function ensure_binary {
 }
 
 ensure_binary zopper
-ensure_binary ${CLANG}
-ensure_binary ${CLANG3}
-ensure_binary ${CLANG_FORMAT}
+ensure_binary clang-format
+ensure_binary ${CLANG34}
 
 rm -rf *.i ${TARGET}_cil.c ${TARGET}_decil.c ${TARGET}_return.c ${TARGET}_marked.c cfgs dots ${TARGET}.json ${TARGET}.bc
 
@@ -38,15 +33,15 @@ rm *.i
 prename "s/.cil.c/_cil.c/" *.c
 
 decilify "${TARGET}_cil.c" > "${TARGET}_decil.c"
-${CLANG_FORMAT} -style=file -i "${TARGET}_decil.c"
+clang-format -style=file -i "${TARGET}_decil.c"
 
 # refactor return statements
 zopper -refactor-returns "${TARGET}_decil.c" -- ${CFLAGS} > "${TARGET}_return.c"
-${CLANG_FORMAT} -i -style='LLVM' "${TARGET}_return.c"
+clang-format -i -style='LLVM' "${TARGET}_return.c"
 
 # insert markers
 zopper -insert-markers -info=${TARGET}.json "${TARGET}_return.c" -- ${CFLAGS}> "${TARGET}_marked.c"
-${CLANG_FORMAT} -i -style='LLVM' "${TARGET}_marked.c"
+clang-format -i -style='LLVM' "${TARGET}_marked.c"
 
 # extract info and cfgs
 zopper -write-info -info=${TARGET}.json "${TARGET}_marked.c" -- ${CFLAGS} 
@@ -59,4 +54,4 @@ chk-info --info=${TARGET}.json || exit 1;
 cfg-analyze --input=cfgs --info=${TARGET}.json
 cfg-dot --input=cfgs --output=dots
 
-${CLANG3} -emit-llvm -g -c ${CFLAGS} -o "${TARGET}.bc" "${TARGET}_marked.c"
+${CLANG34} -emit-llvm -g -c ${CFLAGS} -o "${TARGET}.bc" "${TARGET}_marked.c"
