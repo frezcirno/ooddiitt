@@ -276,7 +276,6 @@ void ExecutionState::removeFnAlias(std::string fn) {
 
 void ExecutionState::addMarker(char type, unsigned fnID, unsigned bbID) {
 
-
   markers.push_back(Marker(type, fnID, bbID));
 }
 
