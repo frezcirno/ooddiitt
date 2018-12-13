@@ -79,11 +79,6 @@ public:
   bad_expression(const char *msg) : std::runtime_error(msg) {}
 };
 
-cl::opt<std::string>
-  SkipStartingBlocks("skip-starting-blocks",
-                     cl::init(""),
-                     cl::desc("When fragmenting, do not start from these block ids"));
-
 cl::opt<bool>
   VerifyConstraints("verify-constraints",
                     cl::init(false),
@@ -136,12 +131,31 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   progInfo(opts.pinfo),
   maxStatesInLoop(10000),
   germinalState(nullptr),
-  heap_base(opts.heap_base) {
+  heap_base(opts.heap_base),
+  progression(opts.progression),
+  verbose(opts.verbose),
+  terminatedPendingState(false)  {
+
   memory->setBaseAddr(heap_base);
   tsolver = new TimedSolver(solver, coreSolverTimeout);
-  progression = opts.progression;
-  modeID = opts.mode;
-  verbose = opts.verbose;
+  switch (opts.mode) {
+    case ExecModeID::zop:
+      doSaveComplete = true;
+      doSaveFault = false;
+      doAssumeInBounds = true;
+      doLocalCoverage = true;
+      break;
+    case ExecModeID::fault:
+      doSaveComplete = false;
+      doSaveFault = true;
+      doAssumeInBounds = false;
+      doLocalCoverage = false;
+      break;
+    default:
+      klee_error("invalid execution mode");
+  }
+
+  // RLR TODO: implement semantics of the skip block list
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -779,11 +793,19 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   unsigned num_dropped_paths = 0;
 
   // iterate through each phase of unconstraint progression
-  for (auto &desc: progression) {
+  for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
-    // done if there are no paths remaining
-    if (m2m_pathsRemaining.empty()) {
-      break;
+    const auto &desc = *itr;
+
+    if (doLocalCoverage) {
+
+      // done if our objective is local coverage and there are no paths remaining
+      if (m2m_pathsRemaining.empty()) break;
+    } else {
+
+      // otherwise, if no prior progression phase terminated a pending state,
+      // then we have covered every feasible path
+      if (itr != progression.begin() && !terminatedPendingState) break;
     }
 
     ExecutionState *state = new ExecutionState(*germinalState, kf, name);
@@ -813,7 +835,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       state->symPathOS = symPathWriter->open();
 
     if (statsTracker)
-      statsTracker->framePushed(*state, 0);
+      statsTracker->framePushed(*state, nullptr);
 
     initializeGlobalValues(*state, fn);
 
@@ -836,9 +858,13 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     }
     runFn(kf, *state);
   }
-  outs() << name << ": covered "
-         << num_reachable_paths - (m2m_pathsRemaining.size() + num_dropped_paths)
-         << " of " << num_reachable_paths << " reachable m2m paths\n";
+  outs() << name;
+  if (doLocalCoverage) {
+    outs() << ": covered "
+           << num_reachable_paths - (m2m_pathsRemaining.size() + num_dropped_paths)
+           << " of " << num_reachable_paths << " reachable m2m path(s)";
+  }
+  outs() << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
   outs().flush();
 }
 
@@ -972,16 +998,24 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
   // create a worklist of basicblocks sorted by distance from entry
   std::deque<const llvm::BasicBlock*> worklist;
   for (auto bb : kf->sortedBBlocks) {
+
+    // do not include blocks from the skip list in worklist
+    if (skipBlocks.count(bb) == 0) {
       worklist.push_back(bb);
+    }
   }
 
-  while (!m2m_pathsRemaining.empty() && !worklist.empty() && !haltExecution) {
+  while (!worklist.empty() && !haltExecution) {
+
+    // of our objective is just local coverage, then we're done
+    if (doLocalCoverage && m2m_pathsRemaining.empty())
+      break;
 
     const BasicBlock *startBB = worklist.front();
     worklist.pop_front();
 
     if (startBB != &kf->function->getEntryBlock()) {
-      if (!reachesRemainingPath(kf, startBB)) {
+      if (doLocalCoverage && !reachesRemainingPath(kf, startBB)) {
         continue;
       }
       if (verbose) {
@@ -1053,7 +1087,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   while (!states.empty()) {
 
     if (haltExecution || halt != HaltReason::OK) break;
-    if (m2m_pathsRemaining.empty()) break;
+    if (doLocalCoverage && m2m_pathsRemaining.empty()) break;
     ExecutionState *state;
 
     state = &searcher->selectState();
@@ -1104,21 +1138,18 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   return halt;
 }
 
-
-// RLR TODO: this must be modal
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-//  interpreterHandler->processTestCase(state, false);
-  if (modeID == ExecModeID::zop) {
-    if (state.status == ExecutionState::StateStatus::Completed) {
-      if (removeCoveredPaths(&state)) {
-        interpreterHandler->processTestCase(state);
-      }
-    }
-  } else if (modeID == ExecModeID::fault) {
-    if (state.status == ExecutionState::StateStatus::Faulted) {
+  if (state.status == ExecutionState::StateStatus::Pending) {
+    terminatedPendingState = true;
+  }
+
+  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
+    if (removeCoveredPaths(&state)) {
       interpreterHandler->processTestCase(state);
     }
+  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
+    interpreterHandler->processTestCase(state);
   }
   Executor::terminateState(state);
 }
@@ -1741,8 +1772,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         const ObjectState *os = op.second;
 
         assert(i->getType()->isPtrOrPtrVectorTy());
-        Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
-        unsigned bytes = Expr::getMinBytesForWidth(width);
 
         for (auto it = kgepi->indices.begin(), ie = kgepi->indices.end(); it != ie; ++it) {
           uint64_t elementSize = it->second;
@@ -1759,7 +1788,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // if we are looking for faults and
         // this is a base pointer into a lazy init with a non-zero offset,
         // then this could be a memory bounds fail.
-        if (modeID == ExecModeID::fault && mo->kind == MemKind::lazy) {
+        if (doSaveFault && mo->kind == MemKind::lazy) {
           bool ans = false;
           if (tsolver->mayBeTrue(state, Expr::createIsZero(offset), ans) && ans) {
 
@@ -1774,7 +1803,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         base = AddExpr::create(base, offset);
 
         // if we are in zop mode, insure the pointer is inbounds
-        if (modeID == ExecModeID::zop) {
+        if (doAssumeInBounds) {
+
+          Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
+          unsigned bytes = Expr::getMinBytesForWidth(width);
 
           // base must point into an allocation
           bool answer;

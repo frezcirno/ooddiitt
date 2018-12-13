@@ -53,6 +53,7 @@ public:
 
   virtual std::string getOutputFilename(const std::string &filename) = 0;
   virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
+  virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() = 0;
 
@@ -133,6 +134,7 @@ public:
     void *heap_base;
     ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
+    std::vector<unsigned> skipBlocks;
     ExecModeID mode;
     bool verbose;
 

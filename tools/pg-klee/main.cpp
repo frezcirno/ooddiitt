@@ -80,7 +80,12 @@ namespace {
           cl::desc("verbose output text"),
           cl::init(false));
 
-  cl::opt<bool>
+  cl::opt<std::string>
+  SkipStartingBlocks("skip-starting-blocks",
+                     cl::init(""),
+                     cl::desc("When fragmenting, do not start from these block ids"));
+
+cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
              cl::init(false));
@@ -260,7 +265,8 @@ public:
 
   bool createOutputDir() const { return create_output_dir; }
   llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
-  unsigned getNumTestCases() { return casesGenerated; }
+  unsigned getNumTestCases() const override { return casesGenerated; }
+
   unsigned getNumPathsExplored() { return m_pathsExplored; }
   void incPathsExplored() override { m_pathsExplored++; }
 
@@ -1751,6 +1757,17 @@ int main(int argc, char **argv, char **envp) {
   IOpts.pinfo = &progInfo;
   IOpts.verbose = Verbose;
   IOpts.mode = ExecMode;
+
+  if (!SkipStartingBlocks.empty()) {
+
+    // parse list of block identifiers
+    std::vector<std::string> blocks;
+    boost::split(blocks, SkipStartingBlocks, boost::is_any_of(", "));
+    for (const auto &block : blocks) {
+      IOpts.skipBlocks.push_back((unsigned) stoi(block));
+    }
+  }
+
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 

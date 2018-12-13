@@ -156,8 +156,16 @@ protected:
   uint64_t timeout;
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
-  ExecModeID modeID;
+
+  // behavior conditioned by exec mode
+  bool doSaveComplete;
+  bool doSaveFault;
+  bool doAssumeInBounds;
+  bool doLocalCoverage;
+
+  std::set<const llvm::BasicBlock*> skipBlocks;
   bool verbose;
+  bool terminatedPendingState;
 };
 
 
