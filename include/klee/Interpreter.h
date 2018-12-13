@@ -56,7 +56,7 @@ public:
 
   virtual void incPathsExplored() = 0;
 
-  virtual void processTestCase(ExecutionState &state, bool faulting) = 0;
+  virtual void processTestCase(ExecutionState &state) = 0;
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
@@ -109,6 +109,7 @@ public:
   };
 
   enum ExecModeID {
+      none, // undefined
       zop,  // interpreter should execute module in zop mode
       fault // interpreter should execute module to find faults
   };

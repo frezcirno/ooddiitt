@@ -868,7 +868,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
   Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
   if (ai!=ae) {
-    arguments.push_back(ConstantExpr::alloc(argc, Expr::Int32));
+    arguments.emplace_back(ConstantExpr::alloc(argc, Expr::Int32));
     if (++ai!=ae) {
       Instruction *first = static_cast<Instruction *>(f->begin()->begin());
       argvMO =
@@ -878,11 +878,11 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
       
-      arguments.push_back(argvMO->getBaseExpr());
+      arguments.emplace_back(argvMO->getBaseExpr());
       
       if (++ai!=ae) {
         uint64_t envp_start = argvMO->address + (argc+1)*NumPtrBytes;
-        arguments.push_back(Expr::createPointer(envp_start));
+        arguments.emplace_back(Expr::createPointer(envp_start));
         
         if (++ai!=ae)
           klee_error("invalid main function (expect 0-3 arguments)");
@@ -1109,9 +1109,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 void LocalExecutor::terminateState(ExecutionState &state) {
 
 //  interpreterHandler->processTestCase(state, false);
-  if (state.status == ExecutionState::StateStatus::Completed) {
-    if (removeCoveredPaths(&state)) {
-      interpreterHandler->processTestCase(state, false);
+  if (modeID == ExecModeID::zop) {
+    if (state.status == ExecutionState::StateStatus::Completed) {
+      if (removeCoveredPaths(&state)) {
+        interpreterHandler->processTestCase(state);
+      }
+    }
+  } else if (modeID == ExecModeID::fault) {
+    if (state.status == ExecutionState::StateStatus::Faulted) {
+      interpreterHandler->processTestCase(state);
     }
   }
   Executor::terminateState(state);
@@ -1314,7 +1320,7 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
 
       } else {
         // this is a new loop
-        sf.loopFrames.push_back(LoopFrame(dst, getNextLoopSignature()));
+        sf.loopFrames.emplace_back(LoopFrame(dst, getNextLoopSignature()));
       }
     } else if (!sf.loopFrames.empty()) {
 
@@ -1753,14 +1759,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // if we are looking for faults and
         // this is a base pointer into a lazy init with a non-zero offset,
         // then this could be a memory bounds fail.
-        if (modeID == Interpreter::fault && mo->kind == MemKind::lazy) {
+        if (modeID == ExecModeID::fault && mo->kind == MemKind::lazy) {
           bool ans = false;
           if (tsolver->mayBeTrue(state, Expr::createIsZero(offset), ans) && ans) {
 
             // generate a test case
             const KInstruction *prior = state.instFaulting;
             state.instFaulting = ki;
-            interpreterHandler->processTestCase(state, true);
+            interpreterHandler->processTestCase(state);
             state.instFaulting = prior;
           }
         }
@@ -1768,7 +1774,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         base = AddExpr::create(base, offset);
 
         // if we are in zop mode, insure the pointer is inbounds
-        if (modeID == Interpreter::zop) {
+        if (modeID == ExecModeID::zop) {
 
           // base must point into an allocation
           bool answer;

@@ -110,10 +110,10 @@ namespace {
            cl::Required,
            cl::desc("pg-klee execution mode"),
            cl::values(
-               clEnumValN(Interpreter::zop, "zop", "configure for zop input generation"),
-               clEnumValN(Interpreter::fault, "fault", "configure for fault finding"),
+               clEnumValN(Interpreter::ExecModeID::zop, "zop", "configure for zop input generation"),
+               clEnumValN(Interpreter::ExecModeID::fault, "fault", "configure for fault finding"),
                clEnumValEnd),
-           cl::init(Interpreter::zop));
+           cl::init(Interpreter::ExecModeID::none));
 
   cl::opt<bool>
   NoAddressSpace("no-address-space",
@@ -266,7 +266,7 @@ public:
 
   void setInterpreter(Interpreter *i);
 
-  void processTestCase(ExecutionState  &state, bool faulting) override;
+  void processTestCase(ExecutionState  &state) override;
 
   std::string toDataString(const std::vector<unsigned char> &data) const;
 
@@ -533,7 +533,7 @@ std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) co
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void KleeHandler::processTestCase(ExecutionState &state, bool faulting) {
+void KleeHandler::processTestCase(ExecutionState &state) {
 
   if (!NoOutput) {
 
@@ -547,10 +547,6 @@ void KleeHandler::processTestCase(ExecutionState &state, bool faulting) {
 
     double start_time = util::getWallTime();
     std::string prefix = "test";
-    if (faulting) {
-      prefix = "fail";
-    }
-
     std::ostream *kout = openTestCaseFile(prefix, testID);
     if (kout != nullptr) {
 
@@ -1754,6 +1750,7 @@ int main(int argc, char **argv, char **envp) {
   }
   IOpts.pinfo = &progInfo;
   IOpts.verbose = Verbose;
+  IOpts.mode = ExecMode;
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 
@@ -1861,17 +1858,20 @@ int main(int argc, char **argv, char **envp) {
   stats << "KLEE: done: generated tests = "
         << handler->getNumTestCases() << "\n";
 
-  bool useColors = llvm::errs().is_displayed();
-  if (useColors)
-    llvm::errs().changeColor(llvm::raw_ostream::GREEN,
-                             /*bold=*/true,
-                             /*bg=*/false);
+  if (OutputCreate.empty()) {
 
-  llvm::errs() << stats.str();
+    // only display stats if output was appended (i.e. actual se was performed)
+    bool useColors = llvm::errs().is_displayed();
+    if (useColors)
+      llvm::errs().changeColor(llvm::raw_ostream::GREEN,
+          /*bold=*/true,
+          /*bg=*/false);
 
-  if (useColors)
-    llvm::errs().resetColor();
+    llvm::errs() << stats.str();
 
+    if (useColors)
+      llvm::errs().resetColor();
+  }
   handler->getInfoStream() << stats.str();
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
