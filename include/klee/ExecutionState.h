@@ -102,7 +102,8 @@ public:
     Completed,
     Faulted,
     TerminateEarly,
-    TerminateError
+    TerminateError,
+    TerminateDiscard
   };
 
   std::string get_status() const {
@@ -113,6 +114,7 @@ public:
     case Faulted: result = "faulted"; break;
     case TerminateEarly: result = "early"; break;
     case TerminateError: result = "error"; break;
+    case TerminateDiscard: result = "discard"; break;
     }
     return result;
   }
