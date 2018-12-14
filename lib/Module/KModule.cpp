@@ -60,6 +60,7 @@
 
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <getopt.h>
+#include <boost/algorithm/string.hpp>
 
 #include "llvm/IR/Instructions.h"
 
@@ -130,12 +131,10 @@ KModule::~KModule() {
   delete[] constantTable;
   delete infos;
 
-  for (vector<KFunction*>::iterator it = functions.begin(),
-         ie = functions.end(); it != ie; ++it)
+  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it)
     delete *it;
 
-  for (map<llvm::Constant*, KConstant*>::iterator it=constantMap.begin(),
-      itE=constantMap.end(); it!=itE;++it)
+  for (auto it=constantMap.begin(), itE=constantMap.end(); it!=itE;++it)
     delete it->second;
 
   delete targetData;
@@ -264,7 +263,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   }
 
   // gather a list of original module functions
-  set<const Function *> orig_functions;
+  set<const Function*> orig_functions;
+  set<const Function*> annot_functions;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
     if (!fn->isDeclaration()) {
@@ -283,16 +283,13 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 				 module);
     }
 
-    for (cl::list<string>::iterator it = MergeAtExit.begin(),
-           ie = MergeAtExit.end(); it != ie; ++it) {
+    for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
       string &name = *it;
       Function *f = module->getFunction(name);
       if (!f) {
-        klee_error("cannot insert merge-at-exit for: %s (cannot find)",
-                   name.c_str());
+        klee_error("cannot insert merge-at-exit for: %s (cannot find)", name.c_str());
       } else if (f->isDeclaration()) {
-        klee_error("cannot insert merge-at-exit for: %s (external)",
-                   name.c_str());
+        klee_error("cannot insert merge-at-exit for: %s (external)", name.c_str());
       }
 
       BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
@@ -498,8 +495,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   /* Build shadow structures */
   infos = new InstructionInfoTable(module);  
   
-  for (Module::iterator it = module->begin(), ie = module->end();
-       it != ie; ++it) {
+  for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
     if (it->isDeclaration())
       continue;
 
@@ -522,8 +518,33 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   /* Compute various interesting properties */
 
-  for (vector<KFunction*>::iterator it = functions.begin(),
-         ie = functions.end(); it != ie; ++it) {
+  // check for annotation functions
+  // RLR TODO: need to do something with type annotations
+  set<KFunction*> typeAnnotations;
+  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+    const Function *fn = kf->function;
+    std::string full_name = fn->getName();
+    if (fn->getReturnType()->isVoidTy() && boost::starts_with(full_name, "annot_")) {
+      std::string target_name = full_name.substr(6);
+      if (!target_name.empty()) {
+        if (Function *target = module->getFunction(target_name)) {
+
+          // this is a function annotation
+          if (!MatchSignature(fn, target)) {
+            klee_error("Function annotation for %s has mismtached argument types", target->getName().str().c_str());
+          }
+          functionMap[target]->annotationKFn = kf;
+        } else {
+
+          // this could be a type type annotation
+          typeAnnotations.insert(kf);
+        }
+      }
+    }
+  }
+
+  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     if (functionEscapes(kf->function))
       escapingFunctions.insert(kf->function);
@@ -531,8 +552,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   if (DebugPrintEscapingFunctions && !escapingFunctions.empty()) {
     llvm::errs() << "KLEE: escaping functions: [";
-    for (set<Function*>::iterator it = escapingFunctions.begin(),
-         ie = escapingFunctions.end(); it != ie; ++it) {
+    for (auto it = escapingFunctions.begin(), ie = escapingFunctions.end(); it != ie; ++it) {
       llvm::errs() << (*it)->getName() << ", ";
     }
     llvm::errs() << "]\n";
@@ -540,7 +560,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 }
 
 bool KModule::isModuleFunction(const llvm::Function *fn) const {
-
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }
 
@@ -571,7 +590,6 @@ void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList, cons
   }
 }
 
-// RLR TODO: review this function
 void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
 
   outs() << "analyzing functions ... ";
@@ -889,13 +907,13 @@ static int getOperandNum(Value *v,
 KFunction::KFunction(llvm::Function *_function,
                      KModule *km) 
   : function(_function),
-    numArgs(function->arg_size()),
+    numArgs((unsigned) function->arg_size()),
     numInstructions(0),
     trackCoverage(true),
-    fnID(0) {
+    fnID(0),
+    annotationKFn(nullptr) {
 
-  for (llvm::Function::iterator bbit = function->begin(),
-         bbie = function->end(); bbit != bbie; ++bbit) {
+  for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
     basicBlockEntry[bb] = numInstructions;
     numInstructions += bb->size();
@@ -907,19 +925,15 @@ KFunction::KFunction(llvm::Function *_function,
 
   // The first arg_size() registers are reserved for formals.
   unsigned rnum = numArgs;
-  for (llvm::Function::iterator bbit = function->begin(), 
-         bbie = function->end(); bbit != bbie; ++bbit) {
-    for (llvm::BasicBlock::iterator it = bbit->begin(), ie = bbit->end();
-         it != ie; ++it)
+  for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
+    for (auto it = bbit->begin(), ie = bbit->end(); it != ie; ++it)
       registerMap[static_cast<Instruction *>(it)] = rnum++;
   }
   numRegisters = rnum;
   
   unsigned i = 0;
-  for (llvm::Function::iterator bbit = function->begin(), 
-         bbie = function->end(); bbit != bbie; ++bbit) {
-    for (llvm::BasicBlock::iterator it = bbit->begin(), ie = bbit->end();
-         it != ie; ++it) {
+  for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
+    for (auto it = bbit->begin(), ie = bbit->end(); it != ie; ++it) {
       KInstruction *ki;
 
       switch(it->getOpcode()) {
@@ -1057,18 +1071,6 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
   path.pop_back();
   visited.erase(bb);
 
-}
-
-unsigned KFunction::getBBIndex(const llvm::BasicBlock *bb) {
-
-  unsigned index = 0;
-  for (const BasicBlock *block : sortedBBlocks) {
-    if (block == bb) {
-      return index;
-    }
-    ++index;
-  }
-  return UINT_MAX;
 }
 
 bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {

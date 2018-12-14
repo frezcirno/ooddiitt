@@ -1643,9 +1643,6 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  std::set<std::string> mainFunctions;
-  enumModuleFunctions(mainModule, mainFunctions);
-
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1786,17 +1783,6 @@ int main(int argc, char **argv, char **envp) {
   MOpts.OutputStaticAnalysis = handler->createOutputDir();
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
-
-  std::set<std::string> finalFunctions;
-  enumModuleFunctions(finalModule, finalFunctions);
-
-  // get a list of functions linked in by klee
-  std::set<std::string> linkedFunctions;
-  for (auto fn : finalFunctions) {
-    if (mainFunctions.count(fn) == 0) {
-      linkedFunctions.insert(fn);
-    }
-  }
 
   externalsAndGlobalsCheck(finalModule, handler->createOutputDir());
 

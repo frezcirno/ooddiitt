@@ -73,6 +73,7 @@ namespace klee {
     bool trackCoverage;
 
     unsigned fnID;
+    const KFunction *annotationKFn;
 
     // loop analysis
     std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
@@ -109,12 +110,8 @@ namespace klee {
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
-    void addAllSimplePaths(bb_paths_t &paths) const;
-    void addAllSimpleCycles(const llvm::BasicBlock *bb, bb_paths_t &paths) const;
-    void setM2MPaths(const bb_paths_t &bb_paths);
     void addM2MPaths(const BasicBlocks &majorMarkers);
     void addM2MPath(const llvm::BasicBlock *bb);
-    unsigned getBBIndex(const llvm::BasicBlock *bb);
     bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
@@ -173,6 +170,9 @@ namespace klee {
     bool isModuleFunction(const llvm::Function *fn) const;
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
+
+    // RLR TODO: needs implementation
+    bool MatchSignature(const llvm::Function *fn1, const llvm::Function *fn2) const { return true; }
 
   private:
 

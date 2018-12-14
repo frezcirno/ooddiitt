@@ -221,15 +221,11 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
   bool result = false;
   if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
 
-    // RLR TODO: why not a tsolver?
     ref<ConstantExpr> caddr;
-    solver->setTimeout(coreSolverTimeout);
-    if (solver->getValue(state, address, caddr)) {
-      solver->setTimeout(0);
+    if (tsolver->getValue(state, address, caddr)) {
       return resolveMO(state, caddr, op);
     }
   }
-  solver->setTimeout(0);
   return result ? ResolveResult::OK : ResolveResult::NoObject;
 }
 
