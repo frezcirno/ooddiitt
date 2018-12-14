@@ -64,6 +64,14 @@ namespace {
 
 ///
 
+// RLR TODO: annotation functions needed:
+// INVARIANT(a)         : if feasible, add to pc, else kill
+// EXPECT(a)            : if feasible, add to pc, else pass
+// IMPLIES(a, b)        : INVARIANT( ~a || b)
+// HOLDS(a)             : returns mustBeTrue(a)
+// MAY_HOLD(a)          : returns mayBeTrue(a)
+// VALID_POINTER(ptr)   : returns valid pointer
+// OBJECT_SIZE(ptr)     : if VALID_POINTER(ptr), returns object size, else kill
 
 
 // FIXME: We are more or less committed to requiring an intrinsic
@@ -116,6 +124,14 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   add("klee_alias_function", handleAliasFunction, false),
   add("malloc", handleMalloc, true),
   add("realloc", handleRealloc, true),
+
+  // pg-klee extensions
+  add("pgklee_hard_assume", handleHardAssume, false),
+  add("pgklee_soft_assume", handleSoftAssume, false),
+  add("pgklee_expr_holds", handleExprHolds, true),
+  add("pgklee_expr_mayhold", handleExprMayHold, true),
+  add("pgklee_valid_pointer", handleValidPointer, true),
+  add("pgklee_object_size", handleObjectSize, true),
 
   // operator delete[](void*)
   add("_ZdaPv", handleDeleteArray, false),
@@ -777,4 +793,91 @@ void SpecialFunctionHandler::handleDivRemOverflow(ExecutionState &state,
                                                std::vector<ref<Expr> > &arguments) {
   executor.terminateStateOnError(state, "overflow on division or remainder",
                                  Executor::Overflow);
+}
+
+// RLR TODO: these need implementations
+
+void SpecialFunctionHandler::handleHardAssume(ExecutionState &state,
+                                          KInstruction *target,
+                                          std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size()==1 && "invalid number of arguments to klee_assume");
+
+  ref<Expr> e = arguments[0];
+
+  if (e->getWidth() != Expr::Bool)
+    e = NeExpr::create(e, ConstantExpr::create(0, e->getWidth()));
+
+  bool res;
+  bool success __attribute__ ((unused)) = executor.solver->mustBeFalse(state, e, res);
+  assert(success && "FIXME: Unhandled solver failure");
+  if (res) {
+    if (SilentKleeAssume) {
+      executor.terminateState(state);
+    } else {
+      executor.terminateStateOnError(state,
+                                     "invalid klee_assume call (provably false)",
+                                     Executor::User);
+    }
+  } else {
+    executor.addConstraint(state, e);
+  }
+}
+
+void SpecialFunctionHandler::handleSoftAssume(ExecutionState &state,
+                                              KInstruction *target,
+                                              std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size()==1 && "invalid number of arguments to klee_assume");
+
+  ref<Expr> e = arguments[0];
+
+  if (e->getWidth() != Expr::Bool)
+    e = NeExpr::create(e, ConstantExpr::create(0, e->getWidth()));
+
+  bool res;
+  bool success __attribute__ ((unused)) = executor.solver->mustBeFalse(state, e, res);
+  assert(success && "FIXME: Unhandled solver failure");
+  if (res) {
+    if (SilentKleeAssume) {
+      executor.terminateState(state);
+    } else {
+      executor.terminateStateOnError(state,
+                                     "invalid klee_assume call (provably false)",
+                                     Executor::User);
+    }
+  } else {
+    executor.addConstraint(state, e);
+  }
+}
+
+
+void SpecialFunctionHandler::handleExprHolds(ExecutionState &state,
+                                             KInstruction *target,
+                                             std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size() == 1 && "invalid number of arguments to klee_is_symbolic");
+
+  executor.bindLocal(target, state, ConstantExpr::create(!isa<ConstantExpr>(arguments[0]), Expr::Int32));
+}
+
+void SpecialFunctionHandler::handleExprMayHold(ExecutionState &state,
+                                              KInstruction *target,
+                                              std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size() == 1 && "invalid number of arguments to klee_is_symbolic");
+
+  executor.bindLocal(target, state, ConstantExpr::create(!isa<ConstantExpr>(arguments[0]), Expr::Int32));
+}
+
+void SpecialFunctionHandler::handleValidPointer(ExecutionState &state,
+                                               KInstruction *target,
+                                               std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size() == 1 && "invalid number of arguments to klee_is_symbolic");
+
+  executor.bindLocal(target, state, ConstantExpr::create(!isa<ConstantExpr>(arguments[0]), Expr::Int32));
+}
+
+void SpecialFunctionHandler::handleObjectSize(ExecutionState &state,
+                                               KInstruction *target,
+                                               std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size() == 1 && "invalid number of arguments to klee_is_symbolic");
+
+  executor.bindLocal(target, state, ConstantExpr::create(!isa<ConstantExpr>(arguments[0]), Expr::Int32));
 }

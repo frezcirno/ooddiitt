@@ -1,0 +1,14 @@
+strict digraph  {
+0 [callees="[]", markers="[]", orderedSuccessors="[]", markType=0, label="0 (Exit)", shape=doublecircle];
+1 [callees="['MARK']", markers="[1001]", orderedSuccessors="['0']", markType=3, label="1 [1001]", shape=doubleoctagon];
+3 [callees="['mark']", markers="[1003]", orderedSuccessors="['2']", markType=1, label="3 [1003]"];
+4 [callees="['MARK']", markers="[1004]", orderedSuccessors="['3', '1']", markType=3, label="4 [1004]", shape=doubleoctagon];
+5 [callees="['MARK']", markers="[1005]", orderedSuccessors="['4']", markType=3, label="5 [1005]", shape=doubleoctagon];
+6 [callees="[]", markers="[]", orderedSuccessors="['5']", markType=0, label="6 (Entry)", shape=circle];
+1 -> 0  [id=0, backedge=False];
+3 -> 4  [backedge=True, id=4, arrowhead=diamond];
+4 -> 3  [id=3, backedge=False];
+4 -> 1  [id=1, backedge=False];
+5 -> 4  [id=4, backedge=False];
+6 -> 5  [id=5, backedge=False];
+}

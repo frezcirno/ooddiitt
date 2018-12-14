@@ -519,8 +519,18 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   /* Compute various interesting properties */
 
   // check for annotation functions
-  // RLR TODO: need to do something with type annotations
-  set<KFunction*> typeAnnotations;
+  // construct a list of data types, by name, for annotation matching
+  map<string,Type*> mapNameToType;
+  llvm::TypeFinder typeFinder;
+  typeFinder.run(*module, true);
+  for (auto type : typeFinder) {
+    std::string name = type->getName().str();
+    if (boost::starts_with(name, "struct.")) {
+      name = name.substr(7);
+    }
+    mapNameToType[name] = type;
+  }
+
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
@@ -532,13 +542,27 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
           // this is a function annotation
           if (!MatchSignature(fn, target)) {
-            klee_error("Function annotation for %s has mismtached argument types", target->getName().str().c_str());
+            klee_error("Function annotation for %s has mismtached argument types", full_name.c_str());
           }
           functionMap[target]->annotationKFn = kf;
         } else {
 
-          // this could be a type type annotation
-          typeAnnotations.insert(kf);
+          auto itr = mapNameToType.find(target_name);
+          if (itr != mapNameToType.end()) {
+
+            // this is a type annotation
+            Type *tptr = PointerType::get(itr->second, 0);
+            if (!MatchSignature(tptr, fn)) {
+              klee_error("Type annotation for %s has incorrect argument type", full_name.c_str());
+            }
+            mapTypeToAnnotation[tptr] = kf;
+
+          } else {
+
+            // annotation cannot be associated with either function or data type
+            // report error
+            klee_error("Cannot find annotation association for %s", full_name.c_str());
+          }
         }
       }
     }
@@ -558,6 +582,56 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     llvm::errs() << "]\n";
   }
 }
+
+bool KModule::MatchSignature(const Function *fn, const Function *annotFn) const {
+
+  if (annotFn->getReturnType()->isVoidTy()) {
+    if (fn->arg_size() == annotFn->arg_size()) {
+
+      // collect all of the argument types
+      vector<const Type*> fnArgTypes;
+      vector<const Type*> annotArgTypes;
+      for (auto ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai) {
+        fnArgTypes.push_back(ai->getType());
+      }
+      for (auto ai = annotFn->arg_begin(), ae = annotFn->arg_end(); ai != ae; ++ai) {
+        annotArgTypes.push_back(ai->getType());
+      }
+
+      // number of args is the same so size of arrays should be the same as well
+      assert(fnArgTypes.size() == annotArgTypes.size());
+
+      // if any argument has a different type, then this is not a match
+      for (unsigned index = 0, end = (unsigned) fnArgTypes.size(); index < end; ++index) {
+        if (fnArgTypes[index] != annotArgTypes[index]) {
+          return false;
+        }
+      }
+
+      // all argument types match
+      return true;
+    }
+  }
+  return false;
+}
+
+bool KModule::MatchSignature(const Type *type, const Function *annotFn) const {
+
+  if (annotFn->getReturnType()->isVoidTy()) {
+
+    unsigned index = 0;
+    for (auto ai = annotFn->arg_begin(), ae = annotFn->arg_end(); ai != ae; ++ai, ++index) {
+
+      const Argument &arg = *ai;
+      if (type != arg.getType()) {
+        return false;
+      }
+    }
+    return index == 1;
+  }
+  return false;
+}
+
 
 bool KModule::isModuleFunction(const llvm::Function *fn) const {
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();

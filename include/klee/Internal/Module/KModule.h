@@ -171,8 +171,9 @@ namespace klee {
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
-    // RLR TODO: needs implementation
-    bool MatchSignature(const llvm::Function *fn1, const llvm::Function *fn2) const { return true; }
+    bool MatchSignature(const llvm::Function *fn, const llvm::Function *annotFn) const;
+    bool MatchSignature(const llvm::Type *type, const llvm::Function *annotFn) const;
+    std::map<const llvm::Type*,KFunction*> mapTypeToAnnotation;
 
   private:
 
