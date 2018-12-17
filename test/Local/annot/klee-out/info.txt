@@ -1,0 +1,21 @@
+/home/rrutledge/projects/arktos/klee/pg-klee/cmake-build-debug/bin/pg-klee -mode=fault -output-create=klee-out -prog-info=annot.json -entry-point=foo1 -progression=g:10m annot.bc
+PID: 14773
+Started: 2018-12-17 14:04:38
+BEGIN searcher description
+<InterleavedSearcher> containing 2 searchers:
+RandomPathSearcher
+WeightedRandomSearcher::CoveringNew
+</InterleavedSearcher>
+END searcher description
+Finished: 2018-12-17 14:04:38
+Elapsed: 00:00:00
+KLEE: done: explored paths = 1
+KLEE: done: avg. constructs per query = 27
+KLEE: done: total queries = 3
+KLEE: done: valid queries = 1
+KLEE: done: invalid queries = 2
+KLEE: done: query cex = 3
+
+KLEE: done: total instructions = 26
+KLEE: done: completed paths = 1
+KLEE: done: generated tests = 0

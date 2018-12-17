@@ -1000,6 +1000,17 @@ static const char *modelledExternals[] = {
   "mark",
   "MARK",
   "fn_tag",
+
+  // special pgklee functions
+  "pgklee_hard_assume",
+  "pgklee_soft_assume",
+  "pgklee_implies",
+  "pgklee_expr_holds",
+  "pgklee_expr_mayhold",
+  "pgklee_valid_pointer",
+  "pgklee_object_size"
+
+
 };
 // Symbols we aren't going to warn about
 static const char *dontCareExternals[] = {

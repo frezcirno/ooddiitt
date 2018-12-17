@@ -18,7 +18,7 @@
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 
-#include "Executor.h"
+#include "LocalExecutor.h"
 #include "MemoryManager.h"
 
 #include "klee/CommandLine.h"
@@ -70,7 +70,7 @@ namespace {
 // IMPLIES(a, b)        : INVARIANT( ~a || b)
 // HOLDS(a)             : returns mustBeTrue(a)
 // MAY_HOLD(a)          : returns mayBeTrue(a)
-// VALID_POINTER(ptr)   : returns valid pointer
+// VALID_POINTER(ptr)   : returns pointer validity
 // OBJECT_SIZE(ptr)     : if VALID_POINTER(ptr), returns object size, else kill
 
 
@@ -128,6 +128,7 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   // pg-klee extensions
   add("pgklee_hard_assume", handleHardAssume, false),
   add("pgklee_soft_assume", handleSoftAssume, false),
+  add("pgklee_implies", handleImplication, false),
   add("pgklee_expr_holds", handleExprHolds, true),
   add("pgklee_expr_mayhold", handleExprMayHold, true),
   add("pgklee_valid_pointer", handleValidPointer, true),
@@ -185,8 +186,8 @@ int SpecialFunctionHandler::size() {
 	return sizeof(handlerInfo)/sizeof(handlerInfo[0]);
 }
 
-SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor) 
-  : executor(_executor) {}
+SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor)
+  : executor(_executor), lcl_exec(nullptr) {}
 
 
 void SpecialFunctionHandler::prepare() {
@@ -375,7 +376,6 @@ void SpecialFunctionHandler::handleNew(ExecutionState &state,
                          std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new");
-
   executor.executeAlloc(state, arguments[0], MemKind::heap, target);
 }
 
@@ -795,8 +795,6 @@ void SpecialFunctionHandler::handleDivRemOverflow(ExecutionState &state,
                                  Executor::Overflow);
 }
 
-// RLR TODO: these need implementations
-
 void SpecialFunctionHandler::handleHardAssume(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
@@ -838,6 +836,17 @@ void SpecialFunctionHandler::handleSoftAssume(ExecutionState &state,
   }
 }
 
+void SpecialFunctionHandler::handleImplication(ExecutionState &state,
+                                              KInstruction *target,
+                                              std::vector<ref<Expr> > &arguments) {
+  assert(arguments.size() == 2 && "invalid number of arguments to pgklee_expr_holds");
+
+  ref<Expr> hyp = arguments[0];
+  ref<Expr> conc = arguments[1];
+  ref<Expr> implies = OrExpr::create(Expr::createIsZero(hyp), conc);
+  std::vector<ref<Expr> > new_args = { implies };
+  handleHardAssume(state, target, new_args);
+}
 
 void SpecialFunctionHandler::handleExprHolds(ExecutionState &state,
                                              KInstruction *target,
@@ -882,10 +891,14 @@ void SpecialFunctionHandler::handleValidPointer(ExecutionState &state,
   assert(arguments.size() == 1 && "invalid number of arguments to pgklee_valid_pointer");
 
   unsigned value = 0;
-  Executor::ExactResolutionList rl;
-  executor.resolveExact(state, arguments[0], rl, "klee_get_obj_size");
-  for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
-    value = 1;
+  if (lcl_exec != nullptr) {
+
+    ref<Expr> base = arguments[0];
+    ObjectPair op;
+    LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, base, op);
+    if (result == LocalExecutor::ResolveResult::OK) {
+      value = 1;
+    }
   }
   executor.bindLocal(target, state, ConstantExpr::create(value, Expr::Int32));
 }
@@ -895,18 +908,23 @@ void SpecialFunctionHandler::handleObjectSize(ExecutionState &state,
                                               std::vector<ref<Expr> > &arguments) {
 
   assert(arguments.size() == 1 && "invalid number of arguments to pgklee_object_size");
-  unsigned value = 0;
 
-  executor.bindLocal(target, state, ConstantExpr::create(value, Expr::Int32));
+  int value = -1;
+  if (lcl_exec != nullptr) {
 
-  assert(arguments.size()==1 && "invalid number of arguments to pgklee_object_size");
-  Executor::ExactResolutionList rl;
-  executor.resolveExact(state, arguments[0], rl, "klee_get_obj_size");
-  for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
-
-    ref<Expr> size = ConstantExpr::create(it->first.first->size,
-                                          executor.kmodule->targetData->getTypeSizeInBits(target->inst->getType()));
-    executor.bindLocal(target, *it->second, size);
+    ref<Expr> base = arguments[0];
+    ObjectPair op;
+    LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, base, op);
+    if (result == LocalExecutor::ResolveResult::OK) {
+      const ObjectState *os = op.second;
+      value = os->getVisibleSize();
+    }
+  }
+  if (value >= 0) {
+    executor.bindLocal(target, state, ConstantExpr::create((uint64_t) value, Expr::Int32));
+  } else {
+    state.status = ExecutionState::StateStatus ::TerminateDiscard;
+    executor.terminateState(state);
   }
 }
 

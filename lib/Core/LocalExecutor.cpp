@@ -155,7 +155,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
       klee_error("invalid execution mode");
   }
 
-  // RLR TODO: implement semantics of the skip block list
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -740,6 +739,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers(interpreterHandler, opts.EntryPoint);
+  specialFunctionHandler->setLocalExecutor(this);
 
   void *addr_offset = nullptr;
   if (Context::get().getPointerWidth() == Expr::Int32) {

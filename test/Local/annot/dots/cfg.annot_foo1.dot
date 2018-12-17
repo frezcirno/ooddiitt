@@ -1,6 +1,6 @@
 strict digraph  {
 0 [callees="[]", markers="[]", orderedSuccessors="[]", markType=0, label="0 (Exit)", shape=doublecircle];
-1 [callees="['MARK']", markers="[2002, 2001]", orderedSuccessors="['0']", markType=3, label="1 [2002, 2001]", shape=doubleoctagon];
+1 [callees="['MARK', 'pgklee_hard_assume']", markers="[2002, 2001]", orderedSuccessors="['0']", markType=3, label="1 [2002, 2001]", shape=doubleoctagon];
 2 [callees="[]", markers="[]", orderedSuccessors="['1']", markType=0, label="2 (Entry)", shape=circle];
 1 -> 0  [id=0, backedge=False];
 2 -> 1  [id=1, backedge=False];

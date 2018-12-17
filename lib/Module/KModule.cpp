@@ -541,7 +541,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         if (Function *target = module->getFunction(target_name)) {
 
           // this is a function annotation
-          if (!MatchSignature(fn, target)) {
+          if (!MatchSignature(target, fn)) {
             klee_error("Function annotation for %s has mismtached argument types", full_name.c_str());
           }
           functionMap[target]->annotationKFn = kf;

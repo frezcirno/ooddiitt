@@ -28,6 +28,8 @@ typedef std::set<ExecutionState*> ExecutionStates;
 
 class LocalExecutor : public Executor {
 
+  friend class SpecialFunctionHandler;
+
 public:
 
   enum class HaltReason { OK, TimeOut, InvalidExpr };

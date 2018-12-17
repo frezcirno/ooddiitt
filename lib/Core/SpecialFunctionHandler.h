@@ -21,6 +21,7 @@ namespace llvm {
 
 namespace klee {
   class Executor;
+  class LocalExecutor;
   class Expr;
   class ExecutionState;
   struct KInstruction;
@@ -37,6 +38,7 @@ namespace klee {
 
     handlers_ty handlers;
     class Executor &executor;
+    class LocalExecutor *lcl_exec;
 
     struct HandlerInfo {
       const char *name;
@@ -72,6 +74,7 @@ namespace klee {
 
   public:
     SpecialFunctionHandler(Executor &_executor);
+    void setLocalExecutor(LocalExecutor *lcl) { lcl_exec = lcl; }
 
     /// Perform any modifications on the LLVM module before it is
     /// prepared for execution. At the moment this involves deleting
@@ -142,6 +145,7 @@ namespace klee {
 
     HANDLER(handleHardAssume);
     HANDLER(handleSoftAssume);
+    HANDLER(handleImplication);
     HANDLER(handleExprHolds);
     HANDLER(handleExprMayHold);
     HANDLER(handleValidPointer);
