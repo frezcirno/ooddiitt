@@ -8,7 +8,7 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 
 ### The resulting directory structure:
 ```
-klee
+pg-klee
 ├── klee
 ├── pg-klee
 ├── klee-uclibc (linux only)
@@ -54,7 +54,6 @@ Fedora: clang is unable to find required gcc library installation. In directory 
 
 export KLEE_BASE='/usr/local/stow'
 
-
 ```
 cd llvm-3.4
 mkdir cmake-build-release
@@ -64,8 +63,6 @@ cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/llvm-3.4" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
- -DCMAKE_CXX_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
- -DCMAKE_C_FLAGS="-Wimplicit-fallthrough=0 -Wno-unused-function -Wno-unused-local-typedefs -Wno-misleading-indentation" \
  -DLLVM_TARGETS_TO_BUILD=host \
  ..
 
@@ -84,6 +81,7 @@ cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
+ -DSTATIC_BINARIES=ON \
  -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
  ..
 
@@ -97,6 +95,7 @@ cd ..\..
 ```
 git clone https://github.com/stp/stp.git
 cd stp
+git checkout tags/2.1.2
 mkdir cmake-build-release
 cd cmake-build-release
 
@@ -106,6 +105,7 @@ cmake -G "Ninja" \
  -DMINISAT_INCLUDE_DIRS="${KLEE_BASE}/stp/include" \
  -DMINISAT_LIBDIR="${KLEE_BASE}/stp/lib" \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
+ -DBUILD_SHARED_LIBS=OFF \
  -DTUNE_NATIVE:BOOL=ON \
  ..
 
