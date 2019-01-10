@@ -148,11 +148,12 @@ Searcher *klee::constructUserSearcher(Executor &executor) {
     searcher = new IterativeDeepeningTimeSearcher(searcher);
   }
 
+#if 0 == 1
   llvm::raw_ostream &os = executor.getHandler().getInfoStream();
 
   os << "BEGIN searcher description\n";
   searcher->printName(os);
   os << "END searcher description\n";
-
+#endif
   return searcher;
 }

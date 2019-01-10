@@ -13,6 +13,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
+#include <sys/resource.h>
 
 #ifdef ENABLE_METASMT
 
@@ -67,6 +68,13 @@ Solver *createCoreSolver(CoreSolverType cst) {
   case STP_SOLVER:
 #ifdef ENABLE_STP
     klee_message("Using STP solver backend");
+    {
+      // tired of forgetting to manually remove stack limits
+      struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
+      if (setrlimit(RLIMIT_STACK, &rlim) < 0) {
+        klee_error("Failed to remove stack limits");
+      }
+    }
     return new STPSolver(UseForkedCoreSolver, CoreSolverOptimizeDivides);
 #else
     klee_message("Not compiled with STP support");

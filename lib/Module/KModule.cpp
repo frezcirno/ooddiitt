@@ -666,9 +666,6 @@ void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList, cons
 
 void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
 
-  outs() << "analyzing functions ... ";
-  outs().flush();
-
   set<const Function *> fns_ptr_relation;
   set<const Function *> fns_ptr_equality;
   set<const Function *> fns_ptr_equal_non_null_const;

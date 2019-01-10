@@ -67,6 +67,7 @@ using namespace llvm;
 using namespace klee;
 
 namespace {
+
   cl::opt<std::string>
   InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
 
@@ -1180,22 +1181,6 @@ static void interrupt_handle_watchdog() {
   // just wait for the child to finish
 }
 
-// This is a temporary hack. If the running process has access to
-// externals then it can disable interrupts, which screws up the
-// normal "nice" watchdog termination process. We try to request the
-// interpreter to halt using this mechanism as a last resort to save
-// the state data before going ahead and killing it.
-static void halt_via_gdb(int pid) {
-  char buffer[256];
-  sprintf(buffer,
-          "gdb --batch --eval-command=\"p halt_execution()\" "
-          "--eval-command=detach --pid=%d &> /dev/null",
-          pid);
-  //  fprintf(stderr, "KLEE: WATCHDOG: running: %s\n", buffer);
-  if (system(buffer)==-1)
-    perror("system");
-}
-
 // returns the end of the string put in buf
 static char *format_tdiff(char *buf, long seconds)
 {
@@ -1562,16 +1547,13 @@ int main(int argc, char **argv, char **envp) {
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
-            ++level;
 
-            if (level==1) {
+            ++level;
+            if (level == 1) {
               klee_warning("KLEE: WATCHDOG: time expired, attempting halt via INT\n");
               kill(pid, SIGINT);
-            } else if (level==2) {
-              klee_warning("KLEE: WATCHDOG: time expired, attempting halt via gdb\n");
-              halt_via_gdb(pid);
-            } else {
-              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I tried to be nice)\n");
+            } else if (level > 1) {
+              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
               kill(pid, SIGKILL);
               return 1; // what more can we do
             }

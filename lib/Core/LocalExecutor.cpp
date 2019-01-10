@@ -114,11 +114,6 @@ cl::opt<unsigned>
                   cl::init(16),
                   cl::desc("Number of forks within loop body"));
 
-cl::opt<unsigned>
-    DebugValue("debug-value",
-                cl::init(0),
-                cl::desc("context specific debug value"));
-
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih) :
@@ -971,10 +966,9 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
 void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
 
   Function *fn = kf->function;
-  if (verbose) {
-    outs() << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
-    outs().flush();
-  }
+
+  llvm::raw_ostream &os = getHandler().getInfoStream();
+  os << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -1014,24 +1008,21 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       if (doLocalCoverage && !reachesRemainingPath(kf, startBB)) {
         continue;
       }
-      if (verbose) {
-        outs() << "    starting from: ";
-        if (kf->mapMarkers[startBB].empty()) {
-          outs() << "unmarked block";
-        } else {
-          outs() << kf->mapMarkers[startBB].front();
-        }
-        outs() << "\n";
-        outs().flush();
+
+      llvm::raw_ostream &os = getHandler().getInfoStream();
+      os << "    starting from: ";
+      if (kf->mapMarkers[startBB].empty()) {
+        os << "unmarked block";
+      } else {
+        os << kf->mapMarkers[startBB].front();
       }
+      os << "\n";
     }
     runFnFromBlock(kf, initialState, startBB);
   }
 }
 
 LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
-
-  unsigned debug_value = DebugValue;
 
   // reset the watchdog timer
   interpreterHandler->resetWatchDogTimer();
@@ -1091,15 +1082,11 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     stepInstruction(*state);
     try {
 
-      // RLR TODO: convenience statement for debugging
-      if (ki->info->assemblyLine == debug_value) {
-        debug_break();
-      }
-
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
       halt = HaltReason::InvalidExpr;
-      outs() << "    * uninitialized expression, halting execution\n";
+      llvm::raw_ostream &os = getHandler().getInfoStream();
+      os << "    * uninitialized expression, restarting execution\n";
     }
 
     processTimers(state, 0);
@@ -1109,7 +1096,12 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     clock_gettime(CLOCK_MONOTONIC, &tm);
     now = (uint64_t) tm.tv_sec;
     if (now > stopTime) {
-      outs() << "    * max time elapsed, halting execution\n";
+
+      llvm::raw_ostream &os = getHandler().getInfoStream();
+
+      os << "    * max time elapsed\n";
+      os.flush();
+
       halt = HaltReason::TimeOut;
     } else if (now > heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1179,6 +1171,7 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
 
   Executor::checkMemoryUsage();
 
+  // expensive, so do not do this very often
   if ((stats::instructions & 0xFFF) == 0) {
     if (kf != nullptr) {
       for (const auto pair : kf->loopInfo) {
@@ -1186,7 +1179,9 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
         unsigned num = numStatesInLoop(hdr);
         if (num > maxStatesInLoop) {
           unsigned killed = decimateStatesInLoop(hdr, 99);
-          outs() << "terminated " << killed << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
+
+          llvm::raw_ostream &os = getHandler().getInfoStream();
+          os << "terminated " << killed << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
         }
       }
     }
