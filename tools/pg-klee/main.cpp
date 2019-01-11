@@ -1516,6 +1516,7 @@ int main(int argc, char **argv, char **envp) {
       clock_gettime(CLOCK_MONOTONIC, &tm);
       uint64_t now = (uint64_t) tm.tv_sec;
       uint64_t nextStep = now + heartbeat_timeout;
+      uint64_t baseline = now;
 
       int level = 0;
 
@@ -1544,19 +1545,24 @@ int main(int argc, char **argv, char **envp) {
           now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
+            klee_warning("KLEE: WATCHDOG: rx heartbeat interval: %u\n", (unsigned) (now - baseline));
+            baseline = now;
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
 
             ++level;
-            if (level == 1) {
-              klee_warning("KLEE: WATCHDOG: time expired, attempting halt via INT\n");
-              kill(pid, SIGINT);
-            } else if (level > 1) {
-              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
-              kill(pid, SIGKILL);
-              return 1; // what more can we do
-            }
+            klee_warning("KLEE: WATCHDOG: timer expired %u time(s), completely ignored\n", level);
+
+
+//            if (level == 1) {
+//              klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
+//              kill(pid, SIGINT);
+//            } else if (level > 1) {
+//              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
+//              kill(pid, SIGKILL);
+//              return 1; // what more can we do
+//            }
 
             // Ideally this triggers a dump, which may take a while,
             // so try and give the process extra time to clean up.
