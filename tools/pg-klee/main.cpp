@@ -1499,9 +1499,11 @@ int main(int argc, char **argv, char **envp) {
       klee_error("unable to fork watchdog");
     } else if (pid > 0) {
       reset_watchdog_timer = false;
-      klee_message("KLEE: WATCHDOG: watching %d\n", pid);
-      fflush(stderr);
+      klee_message("KLEE: WATCHDOG: watching %d", pid);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
+
+      std::ofstream log("watchdog.txt", std::ios::app);
+      log << EntryPoint.c_str() << ":" << std::endl;
 
       // catch SIGUSR1
       struct sigaction sa;
@@ -1531,7 +1533,7 @@ int main(int argc, char **argv, char **envp) {
           if (errno==ECHILD) { // No child, no need to watch but
                                // return error since we didn't catch
                                // the exit.
-            klee_warning("KLEE: watchdog exiting (no child)\n");
+            klee_warning("KLEE: watchdog exiting (no child)");
             return 1;
           } else if (errno!=EINTR) {
             perror("watchdog waitpid");
@@ -1545,15 +1547,16 @@ int main(int argc, char **argv, char **envp) {
           now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
-            klee_warning("KLEE: WATCHDOG: rx heartbeat interval: %u\n", (unsigned) (now - baseline));
+            klee_message("KLEE: WATCHDOG: rx heartbeat interval: %u", (unsigned) (now - baseline));
+            log << "rx heartbeat interval: " << now - baseline << std::endl;
             baseline = now;
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
 
             ++level;
-            klee_warning("KLEE: WATCHDOG: timer expired %u time(s), completely ignored\n", level);
-
+            klee_message("KLEE: WATCHDOG: timer expired %u time(s), completely ignored", level);
+            log << "timer expired " << level << "time(s)" << std::endl;
 
 //            if (level == 1) {
 //              klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
