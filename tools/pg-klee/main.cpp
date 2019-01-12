@@ -1504,6 +1504,7 @@ int main(int argc, char **argv, char **envp) {
 
       std::ofstream log("watchdog.txt", std::ios::app);
       log << EntryPoint.c_str() << ":" << std::endl;
+      log << "watching pid: " << pid << std::endl;
 
       // catch SIGUSR1
       struct sigaction sa;
@@ -1513,14 +1514,12 @@ int main(int argc, char **argv, char **envp) {
       sa.sa_sigaction = handle_usr1_signal;
       sigaction(SIGUSR1, &sa, nullptr);
 
-      uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL * 4;
+      uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL * 16;
       struct timespec tm;
       clock_gettime(CLOCK_MONOTONIC, &tm);
       uint64_t now = (uint64_t) tm.tv_sec;
       uint64_t nextStep = now + heartbeat_timeout;
       uint64_t baseline = now;
-
-      int level = 0;
 
       // Simple stupid code...
       while (true) {
@@ -1554,22 +1553,25 @@ int main(int argc, char **argv, char **envp) {
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
 
-            ++level;
-            klee_message("KLEE: WATCHDOG: timer expired %u time(s), completely ignored", level);
-            log << "timer expired " << level << "time(s)" << std::endl;
-
-//            if (level == 1) {
-//              klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
-//              kill(pid, SIGINT);
-//            } else if (level > 1) {
-//              klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
-//              kill(pid, SIGKILL);
-//              return 1; // what more can we do
-//            }
+            klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
+            log << "watchdog expired, attempting halt via INT" << std::endl;
+            kill(pid, SIGINT);
 
             // Ideally this triggers a dump, which may take a while,
             // so try and give the process extra time to clean up.
-            nextStep = now + (HEARTBEAT_INTERVAL * 2);
+            for (unsigned counter = 0; counter < 30; counter++) {
+              sleep(1);
+              res = waitpid(pid, &status, WNOHANG);
+              if (res < 0) {
+                return 1;
+              } else if (res==pid && WIFEXITED(status)) {
+                return WEXITSTATUS(status);
+              }
+            }
+            klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
+            log << "KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)" << std::endl;
+            kill(pid, SIGKILL);
+            return 1; // what more can we do
           }
         }
       }
