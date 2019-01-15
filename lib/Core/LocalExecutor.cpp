@@ -106,7 +106,7 @@ cl::opt<bool>
 
 cl::opt<unsigned>
     MaxLoopIteration("max-loop-iteration",
-                      cl::init(1),
+                      cl::init(4),
                       cl::desc("Number of loop iterations"));
 
 cl::opt<unsigned>
@@ -1245,6 +1245,8 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
 
 bool LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
 
+#if 0 == 1
+
   bool result = false;
   std::map<unsigned,m2m_path_t> traces;
   state->markers.to_intra_traces(traces);
@@ -1265,6 +1267,8 @@ bool LocalExecutor::removeCoveredPaths(const ExecutionState *state) {
     }
   }
   return result;
+#endif
+  return true;
 }
 
 bool LocalExecutor::reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const {

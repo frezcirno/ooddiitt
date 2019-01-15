@@ -241,9 +241,8 @@ cl::opt<bool>
 
 /***/
 
-class KleeHandler : public InterpreterHandler {
+class PGKleeHandler : public InterpreterHandler {
 private:
-  Interpreter *m_interpreter;
   TreeStreamWriter *m_pathWriter, *m_symPathWriter;
   llvm::raw_ostream *m_infoFile;
 
@@ -261,8 +260,8 @@ private:
   char **m_argv;
 
 public:
-  KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
-  ~KleeHandler();
+  PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
+  ~PGKleeHandler();
 
   bool createOutputDir() const { return create_output_dir; }
   llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
@@ -271,7 +270,7 @@ public:
   unsigned getNumPathsExplored() { return m_pathsExplored; }
   void incPathsExplored() override { m_pathsExplored++; }
 
-  void setInterpreter(Interpreter *i);
+  void setInterpreter(Interpreter *i) override;
 
   void processTestCase(ExecutionState  &state) override;
 
@@ -299,9 +298,8 @@ public:
   static std::string getRunTimeLibraryPath(const char *argv0);
 };
 
-KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
-  : m_interpreter(nullptr),
-    m_pathWriter(nullptr),
+PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
+  : m_pathWriter(nullptr),
     m_symPathWriter(nullptr),
     m_infoFile(nullptr),
     create_output_dir(false),
@@ -385,7 +383,7 @@ KleeHandler::KleeHandler(int argc, char **argv, ProgInfo &pi, const std::string 
   if (IndentJson) indentation = "  ";
 }
 
-KleeHandler::~KleeHandler() {
+PGKleeHandler::~PGKleeHandler() {
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
   fclose(klee_warning_file);
@@ -393,7 +391,7 @@ KleeHandler::~KleeHandler() {
   delete m_infoFile;
 }
 
-std::string KleeHandler::getTypeName(const Type *Ty) const {
+std::string PGKleeHandler::getTypeName(const Type *Ty) const {
 
   if (Ty != nullptr) {
 
@@ -452,30 +450,31 @@ std::string KleeHandler::getTypeName(const Type *Ty) const {
   return "";
 }
 
-void KleeHandler::setInterpreter(Interpreter *i) {
-  m_interpreter = i;
+void PGKleeHandler::setInterpreter(Interpreter *i) {
+
+  InterpreterHandler::setInterpreter(i);
 
   if (WritePaths) {
     m_pathWriter = new TreeStreamWriter(getOutputFilename("paths.ts"));
     assert(m_pathWriter->good());
-    m_interpreter->setPathWriter(m_pathWriter);
+    i->setPathWriter(m_pathWriter);
   }
 
   if (WriteSymPaths) {
     m_symPathWriter = new TreeStreamWriter(getOutputFilename("symPaths.ts"));
     assert(m_symPathWriter->good());
-    m_interpreter->setSymbolicPathWriter(m_symPathWriter);
+    i->setSymbolicPathWriter(m_symPathWriter);
   }
 }
 
-std::string KleeHandler::getOutputFilename(const std::string &filename) {
+std::string PGKleeHandler::getOutputFilename(const std::string &filename) {
 
   SmallString<128> path = outputDirectory;
   sys::path::append(path, filename);
   return path.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
+llvm::raw_fd_ostream *PGKleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
   llvm::raw_fd_ostream *f;
   std::string Error;
   std::string path = getOutputFilename(filename);
@@ -501,17 +500,17 @@ llvm::raw_fd_ostream *KleeHandler::openOutputFile(const std::string &filename, b
   return f;
 }
 
-std::string KleeHandler::getTestFilename(const std::string &prefix, const std::string &ext, unsigned id) {
+std::string PGKleeHandler::getTestFilename(const std::string &prefix, const std::string &ext, unsigned id) {
   std::stringstream filename;
   filename << prefix << std::setfill('0') << std::setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *KleeHandler::openTestFile(const std::string &prefix, const std::string &ext, unsigned id) {
+llvm::raw_fd_ostream *PGKleeHandler::openTestFile(const std::string &prefix, const std::string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-std::ostream *KleeHandler::openTestCaseFile(const std::string &prefix, unsigned testID) {
+std::ostream *PGKleeHandler::openTestCaseFile(const std::string &prefix, unsigned testID) {
 
   std::ofstream *result = nullptr;
   std::string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
@@ -525,7 +524,7 @@ std::ostream *KleeHandler::openTestCaseFile(const std::string &prefix, unsigned 
   return result;
 }
 
-std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) const {
+std::string PGKleeHandler::toDataString(const std::vector<unsigned char> &data) const {
 
   std::stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
@@ -540,15 +539,17 @@ std::string KleeHandler::toDataString(const std::vector<unsigned char> &data) co
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void KleeHandler::processTestCase(ExecutionState &state) {
+void PGKleeHandler::processTestCase(ExecutionState &state) {
 
-  if (!NoOutput) {
+  Interpreter *i = getInterpreter();
+
+  if (i != nullptr && !NoOutput) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
     std::vector<SymbolicSolution> out;
 
-    if (!m_interpreter->getSymbolicSolution(state, out)) {
+    if (!i->getSymbolicSolution(state, out)) {
       klee_warning("unable to get symbolic solution, losing test case");
     }
 
@@ -586,7 +587,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 
       // store the path condition
       std::string constraints;
-      m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTVARS);
+      i->getConstraintLog(state, constraints, Interpreter::SMTVARS);
       root["pathConditionVars"] = constraints;
 
       std::stringstream args;
@@ -699,8 +700,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 
     if (m_pathWriter) {
       std::vector<unsigned char> concreteBranches;
-      m_pathWriter->readStream(m_interpreter->getPathStreamID(state),
-                               concreteBranches);
+      m_pathWriter->readStream(i->getPathStreamID(state), concreteBranches);
       llvm::raw_fd_ostream *f = openTestFile("test", "path", testID);
       for (auto I = concreteBranches.begin(), E = concreteBranches.end(); I != E; ++I) {
         *f << *I << "\n";
@@ -712,7 +712,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
       // FIXME: If using Z3 as the core solver the emitted file is actually
       // SMT-LIBv2 not CVC which is a bit confusing
       std::string constraints;
-      m_interpreter->getConstraintLog(state, constraints, Interpreter::STP);
+      i->getConstraintLog(state, constraints, Interpreter::STP);
       llvm::raw_ostream *f = openTestFile("test", "cvc", testID);
       *f << constraints;
       delete f;
@@ -720,7 +720,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 
     if (WriteSMT2s) {
       std::string constraints;
-        m_interpreter->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
+        i->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
         llvm::raw_ostream *f = openTestFile("test", "smt2", testID);
         *f << constraints;
         delete f;
@@ -728,8 +728,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 
     if (m_symPathWriter) {
       std::vector<unsigned char> symbolicBranches;
-      m_symPathWriter->readStream(m_interpreter->getSymbolicPathStreamID(state),
-                                  symbolicBranches);
+      m_symPathWriter->readStream(i->getSymbolicPathStreamID(state), symbolicBranches);
       llvm::raw_fd_ostream *f = openTestFile("test", "sym.path", testID);
       for (auto I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
         *f << *I << "\n";
@@ -739,7 +738,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 
     if (WriteCov) {
       std::map<const std::string*, std::set<unsigned> > cov;
-      m_interpreter->getCoveredLines(state, cov);
+      i->getCoveredLines(state, cov);
       llvm::raw_ostream *f = openTestFile("test", "cov", testID);
       for (auto it = cov.begin(), ie = cov.end(); it != ie; ++it) {
         for (auto it2 = it->second.begin(), ie2 = it->second.end(); it2 != ie2; ++it2)
@@ -759,7 +758,7 @@ void KleeHandler::processTestCase(ExecutionState &state) {
 }
 
   // load a .path file
-void KleeHandler::loadPathFile(std::string name,
+void PGKleeHandler::loadPathFile(std::string name,
                                      std::vector<bool> &buffer) {
   std::ifstream f(name.c_str(), std::ios::in | std::ios::binary);
 
@@ -774,7 +773,7 @@ void KleeHandler::loadPathFile(std::string name,
   }
 }
 
-void KleeHandler::getKTestFilesInDir(std::string directoryPath,
+void PGKleeHandler::getKTestFilesInDir(std::string directoryPath,
                                      std::vector<std::string> &results) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   error_code ec;
@@ -796,7 +795,7 @@ void KleeHandler::getKTestFilesInDir(std::string directoryPath,
   }
 }
 
-std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
+std::string PGKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -843,7 +842,7 @@ std::string KleeHandler::getRunTimeLibraryPath(const char *argv0) {
   return libDir.str();
 }
 
-bool KleeHandler::resetWatchDogTimer() const {
+bool PGKleeHandler::resetWatchDogTimer() const {
 
   // signal the watchdog process
   if (pid_watchdog != 0) {
@@ -1499,7 +1498,7 @@ int main(int argc, char **argv, char **envp) {
       klee_error("unable to fork watchdog");
     } else if (pid > 0) {
       reset_watchdog_timer = false;
-      klee_message("KLEE: WATCHDOG: watching %d\n", pid);
+      klee_message("KLEE: WATCHDOG: watching %d", pid);
       fflush(stderr);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
 
@@ -1531,7 +1530,7 @@ int main(int argc, char **argv, char **envp) {
           if (errno==ECHILD) { // No child, no need to watch but
                                // return error since we didn't catch
                                // the exit.
-            klee_warning("KLEE: watchdog exiting (no child)\n");
+            klee_warning("KLEE: watchdog exiting (no child)");
             return 1;
           } else if (errno!=EINTR) {
             perror("watchdog waitpid");
@@ -1545,14 +1544,14 @@ int main(int argc, char **argv, char **envp) {
           now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
-            klee_warning("KLEE: WATCHDOG: rx heartbeat interval: %u\n", (unsigned) (now - baseline));
+            klee_message("KLEE: WATCHDOG: rx heartbeat interval: %u", (unsigned) (now - baseline));
             baseline = now;
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
 
             ++level;
-            klee_warning("KLEE: WATCHDOG: timer expired %u time(s), completely ignored\n", level);
+            klee_message("KLEE: WATCHDOG: timer expired %u time(s), completely ignored", level);
 
 
 //            if (level == 1) {
@@ -1648,7 +1647,7 @@ int main(int argc, char **argv, char **envp) {
       return r;
   }
 
-  std::string LibraryDir = KleeHandler::getRunTimeLibraryPath(argv[0]);
+  std::string LibraryDir = PGKleeHandler::getRunTimeLibraryPath(argv[0]);
  
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -1738,7 +1737,7 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  KleeHandler *handler = new KleeHandler(pArgc, pArgv, progInfo, EntryPoint);
+  PGKleeHandler *handler = new PGKleeHandler(pArgc, pArgv, progInfo, EntryPoint);
   handler->setWatchDog(pid_watchdog);
 
   void *heap_base = &_end;

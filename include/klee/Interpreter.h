@@ -46,8 +46,11 @@ typedef std::bitset<8> UnconstraintFlagsT;
 
 class InterpreterHandler {
 public:
-  InterpreterHandler() {}
+  InterpreterHandler() : interpreter(nullptr)  {}
   virtual ~InterpreterHandler() {}
+
+  virtual void setInterpreter(Interpreter *i)  { interpreter = i; }
+  virtual Interpreter *getInterpreter() { return interpreter; }
 
   virtual llvm::raw_ostream &getInfoStream() const = 0;
 
@@ -78,7 +81,8 @@ public:
     result.pop_back();
     return result;
   }
-
+private:
+  Interpreter *interpreter;
 };
 
 class Interpreter {
@@ -165,6 +169,8 @@ public:
   static Interpreter *createLocal(llvm::LLVMContext &ctx,
                                   const InterpreterOptions &_interpreterOpts,
                                   InterpreterHandler *ih);
+
+  const InterpreterOptions &getOptions() const { return interpreterOpts; }
 
   /// Register the module to be executed.  
   ///

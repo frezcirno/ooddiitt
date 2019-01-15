@@ -3168,8 +3168,9 @@ void Executor::executeAlloc(ExecutionState &state,
                             bool zeroMemory,
                             const ObjectState *reallocFrom) {
 
-  // try to convert size to constant expression
   Expr::Width W = size->getWidth();
+
+  // try to convert size to constant expression
   size = toUnique(state, size);
   if (!isa<ConstantExpr>(size)) {
 
@@ -3184,34 +3185,41 @@ void Executor::executeAlloc(ExecutionState &state,
     // return argument first). This shows up in pcre when llvm
     // collapses the size expression with a select.
 
-    ref<ConstantExpr> example;
-    if (!solver->getValue(state, size, example)) {
-      assert(false && "FIXME: Unhandled solver failure");
-    }
+    // find a reasonable ceiling for symbolic size
+    unsigned ceiling = 0;
+    for (unsigned trial = 16; trial <= 4096 && ceiling == 0; trial <<= 1) {
 
-    if (example->getZExtValue(W) > 4096) {
-
-      // fairly large allocation.  see if a smaller one would do.
       bool result = false;
-      for (unsigned trial = 16; trial <= 4096 && !result; trial <<= 1) {
-
-        ref<ConstantExpr> e = ConstantExpr::create(trial, W);
-        ref<Expr> equal = EqExpr::create(e, size);
-        if (solver->mayBeTrue(state, equal, result) && result) {
-          example = e;
-        }
+      if (solver->mayBeTrue(state, UleExpr::create(size, ConstantExpr::create(trial, W)), result) && result) {
+        ceiling = trial;
       }
     }
 
-    // shunken or not, example is now the size of our allocation
-    // since example is constant, we can just alloc again
+    // if ceiling is still zero, then get the minimum size
+    // range call is expensive, so should not do this very often
+    if (ceiling == 0) {
+      auto range = solver->getRange(state, size);
+      if (isa<ConstantExpr>(range.first)) {
+        ceiling = (unsigned) cast<ConstantExpr>(range.first)->getZExtValue(W);
+      }
+    }
+
+    // if we found a ceiling, then insert constraint
+    if (ceiling != 0) {
+      addConstraint(state, UleExpr::create(size, ConstantExpr::create(ceiling, W)));
+    }
+
+    ref<ConstantExpr> example;
+    solver->getValue(state, size, example);
+
+    // example is now the size of our allocation
+    // since example is constant, we can just alloc
     addConstraint(state, EqExpr::create(example, size));
     size = example;
   }
 
   // size is now a constant
-  ConstantExpr *CE = cast<ConstantExpr>(size);
-  uint64_t allocSize = CE->getZExtValue(W);
+  uint64_t allocSize = cast<ConstantExpr>(size)->getZExtValue(W);
   if (allocSize > 1024 * 1024) {
 
     errs() << "failing large allocation\n";
@@ -3227,6 +3235,8 @@ void Executor::executeAlloc(ExecutionState &state,
 
   // if this is a heap allocation, clone off a malloc fail state
   if (kind == MemKind::heap) {
+  // RLR TODO: why is this commented out?
+
 //        ExecutionState *failState = state.branch();
 //
 //        // and split the process truee for the new state
