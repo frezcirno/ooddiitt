@@ -839,7 +839,6 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
       }
     }
   }
-  outs() << "done\n";
 
   if (OutputStatic) {
 

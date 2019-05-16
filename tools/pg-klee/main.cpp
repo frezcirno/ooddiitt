@@ -259,6 +259,8 @@ private:
   int m_argc;
   char **m_argv;
 
+  std::map<std::string,unsigned> terminationCounters;
+
 public:
   PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
   ~PGKleeHandler();
@@ -296,6 +298,11 @@ public:
                                  std::vector<std::string> &results);
 
   static std::string getRunTimeLibraryPath(const char *argv0);
+
+  void incTermination(const std::string &message) override;
+  void getTerminationMessages(std::vector<std::string> &messages) override;
+  unsigned getTerminationCount(const std::string &message) override;
+
 };
 
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
@@ -850,6 +857,21 @@ bool PGKleeHandler::resetWatchDogTimer() const {
     return true;
   }
   return false;
+}
+
+void PGKleeHandler::incTermination(const std::string &message) {
+  ++terminationCounters[message];
+}
+
+void PGKleeHandler::getTerminationMessages(std::vector<std::string> &messages) {
+
+  for (const auto &pr : terminationCounters) {
+    messages.push_back(pr.first);
+  }
+}
+
+unsigned PGKleeHandler::getTerminationCount(const std::string &message) {
+  return terminationCounters[message];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1854,6 +1876,12 @@ int main(int argc, char **argv, char **envp) {
     << "KLEE: done: valid queries = " << queriesValid << "\n"
     << "KLEE: done: invalid queries = " << queriesInvalid << "\n"
     << "KLEE: done: query cex = " << queryCounterexamples << "\n";
+
+  std::vector<std::string> termination_messages;
+  handler->getTerminationMessages(termination_messages);
+  for (const auto &message : termination_messages) {
+    handler->getInfoStream() << "PG-KLEE: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
+  }
 
   std::stringstream stats;
   stats << "\n";

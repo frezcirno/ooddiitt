@@ -59,6 +59,9 @@ public:
   virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() = 0;
+  virtual void incTermination(const std::string &message) {};
+  virtual void getTerminationMessages(std::vector<std::string> &messages) {};
+  virtual unsigned getTerminationCount(const std::string &message) { return 0; }
 
   virtual void processTestCase(ExecutionState &state) = 0;
 

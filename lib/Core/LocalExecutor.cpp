@@ -66,6 +66,8 @@
 #include "llvm/IR/CallSite.h"
 #endif
 
+#include <fstream>
+
 using namespace llvm;
 
 namespace klee {
@@ -187,7 +189,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
 
     return true;
   }
-  terminateState(state);
+  terminateState(state, "added invalid constraint");
   return false;
 }
 
@@ -223,13 +225,13 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
   return result ? ResolveResult::OK : ResolveResult::NoObject;
 }
 
-void LocalExecutor::executeAlloc(ExecutionState &state,
-                                 unsigned size,
-                                 unsigned count,
-                                 const llvm::Type *type,
-                                 MemKind kind,
-                                 KInstruction *target,
-                                 bool symbolic) {
+void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
+                                         unsigned size,
+                                         unsigned count,
+                                         const llvm::Type *type,
+                                         MemKind kind,
+                                         KInstruction *target,
+                                        bool symbolic) {
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
   MemoryObject *mo =
@@ -267,14 +269,14 @@ void LocalExecutor::executeFree(ExecutionState &state,
       const MemoryObject *mo = op.first;
       if (mo->isHeap()) {
         zeroPointer.second->addressSpace.unbindObject(mo);
-        if (target) {
-          bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
-        }
       }
     } else {
 
       // when executing at the function/fragment level, memory objects
       // may not exist. this is not an error.
+    }
+    if (target) {
+      bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
     }
   }
 }
@@ -583,7 +585,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       }
       offsetExpr = cex;
     } else {
-      terminateState(*currState);
+      terminateState(*currState, "write memory solver unable to get example offset");
       return false;
     }
   }
@@ -1082,11 +1084,16 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     stepInstruction(*state);
     try {
 
+#if 0 == 0
+      if (ki->info->assemblyLine == 27522) {
+//        interpreterHandler->getInfoStream() << "break!";
+      }
+#endif
+
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
       halt = HaltReason::InvalidExpr;
-      llvm::raw_ostream &os = getHandler().getInfoStream();
-      os << "    * uninitialized expression, restarting execution\n";
+      interpreterHandler->getInfoStream() << "    * uninitialized expression, restarting execution\n";
     }
 
     processTimers(state, 0);
@@ -1112,7 +1119,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
   forkCounter.clear();
   for (ExecutionState *state : states) {
-    terminateState(*state);
+    terminateState(*state, "flushing states on halt");
   }
   updateStates(nullptr);
   assert(states.empty());
@@ -1126,7 +1133,17 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   return halt;
 }
 
-void LocalExecutor::terminateState(ExecutionState &state) {
+void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
+
+  // RLR TODO: debug code
+  std::ofstream paths("paths.txt", std::ofstream::app);
+  bool first = true;
+  for (const auto &marker : state.markers) {
+    if (!first) paths << ',';
+    paths << marker.type << ':' << marker.fn << ':' << marker.id;
+    first = false;
+  }
+  paths << '\n';
 
   if (state.status == ExecutionState::StateStatus::Pending) {
     terminatedPendingState = true;
@@ -1139,7 +1156,7 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
     interpreterHandler->processTestCase(state);
   }
-  Executor::terminateState(state);
+  Executor::terminateState(state, message);
 }
 
 void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
@@ -1151,7 +1168,7 @@ void LocalExecutor::terminateStateOnFault(ExecutionState &state, const KInstruct
   state.status = ExecutionState::StateStatus::Faulted;
   state.instFaulting = ki;
   state.terminationMessage = message.str();
-  Executor::terminateStateOnExit(state);
+  Executor::terminateState(state, message);
 }
 
 void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
@@ -1199,7 +1216,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
-          terminateState(*state);
+          terminateState(*state, "decimated");
           killed++;
         }
       }
@@ -1386,7 +1403,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         }
 
         bool to_symbolic = !ki->inst->getName().empty();
-        executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
+        executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
       }
     }
 
@@ -1512,7 +1529,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > maxLoopForks){
 
                     // finally consider terminating the state.
-                    terminateState(*states[index]);
+                    terminateState(*states[index], "loop throttled");
                   }
                 }
               }
@@ -1721,7 +1738,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   count = (unsigned) min_size->getZExtValue();
                 } else {
                   // too big of an allocation
-                  terminateState(*sp.second);
+                  terminateState(*sp.second, "zopc_malloc too large");
                   return;
                 }
               }
@@ -1750,7 +1767,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         assert("resolve array allocation");
       }
 
-      executeAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki);
+      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki);
       break;
     }
 

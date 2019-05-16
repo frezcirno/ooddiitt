@@ -762,7 +762,7 @@ void Executor::branch(ExecutionState &state,
     if (OnlyReplaySeeds) {
       for (unsigned i=0; i<N; ++i) {
         if (result[i] && !seedMap.count(result[i])) {
-          terminateState(*result[i]);
+          terminateState(*result[i], "replay");
           result[i] = NULL;
         }
       }
@@ -1370,16 +1370,14 @@ void Executor::executeCall(ExecutionState &state,
         klee_warning_once(f, "calling %s with extra arguments.",
                           f->getName().data());
       } else if (callingArgs < funcArgs) {
-        terminateStateOnError(state, "calling function with too few arguments",
-                              User);
+        terminateStateOnError(state, "calling function with too few arguments", User);
         return;
       }
     } else {
       Expr::Width WordSize = Context::get().getPointerWidth();
 
       if (callingArgs < funcArgs) {
-        terminateStateOnError(state, "calling function with too few arguments",
-                              User);
+        terminateStateOnError(state, "calling function with too few arguments", User);
         return;
       }
 
@@ -2572,8 +2570,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::ExtractElement:
   case Instruction::InsertElement:
   case Instruction::ShuffleVector:
-    terminateStateOnError(state, "XXX vector instructions unhandled",
-                          Unhandled);
+    terminateStateOnError(state, "XXX vector instructions unhandled", Unhandled);
     break;
 
   default:
@@ -2873,25 +2870,25 @@ std::string Executor::getAddressInfo(ExecutionState &state,
   return info.str();
 }
 
-void Executor::terminateState(ExecutionState &state) {
+void Executor::terminateState(ExecutionState &state, const Twine &message) {
   if (replayKTest && replayPosition!=replayKTest->numObjects) {
-    klee_warning_once(replayKTest,
-                      "replay did not consume all objects in test input.");
+    klee_warning_once(replayKTest, "replay did not consume all objects in test input.");
   }
 
   interpreterHandler->incPathsExplored();
+  if (message.str().empty()) {
+    errs() << message.str();
+  }
+  interpreterHandler->incTermination(message.str());
 
-  std::vector<ExecutionState *>::iterator it =
-      std::find(addedStates.begin(), addedStates.end(), &state);
+  auto it = std::find(addedStates.begin(), addedStates.end(), &state);
   if (it==addedStates.end()) {
     state.pc = state.prevPC;
-
     removedStates.push_back(&state);
   } else {
 
     // never reached searcher, just delete immediately
-    std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it3 =
-      seedMap.find(&state);
+    auto it3 = seedMap.find(&state);
     if (it3 != seedMap.end())
       seedMap.erase(it3);
     addedStates.erase(it);
@@ -2900,19 +2897,18 @@ void Executor::terminateState(ExecutionState &state) {
   }
 }
 
-void Executor::terminateStateEarly(ExecutionState &state,
-                                   const Twine &message) {
+void Executor::terminateStateEarly(ExecutionState &state, const Twine &message) {
   if (!OnlyOutputStatesCoveringNew || state.coveredNew ||
       (AlwaysOutputSeeds && seedMap.count(&state)))
 //    interpreterHandler->processTestCase(state, (message + "\n").str().c_str(), "early");
-  terminateState(state);
+  terminateState(state, message);
 }
 
 void Executor::terminateStateOnExit(ExecutionState &state) {
   if (!OnlyOutputStatesCoveringNew || state.coveredNew ||
       (AlwaysOutputSeeds && seedMap.count(&state)))
 //    interpreterHandler->processTestCase(state, 0, 0);
-  terminateState(state);
+  terminateState(state, "exit");
 }
 
 const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const ExecutionState &state,
@@ -3013,7 +3009,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
 //    interpreterHandler->processTestCase(state, msg.str().c_str(), suffix);
   }
 
-  terminateState(state);
+  terminateState(state, messaget);
 
   if (shouldExitOn(termReason))
     haltExecution = true;
@@ -3066,9 +3062,7 @@ void Executor::callExternalFunction(ExecutionState &state,
         ce->toMemory(&args[wordIndex]);
         wordIndex += (ce->getWidth()+63)/64;
       } else {
-        terminateStateOnExecError(state,
-                                  "external call with symbolic argument: " +
-                                  function->getName());
+        terminateStateOnExecError(state, "external call with symbolic argument: " + function->getName());
         return;
       }
     }
@@ -3096,21 +3090,18 @@ void Executor::callExternalFunction(ExecutionState &state,
 
   bool success = externalDispatcher->executeCall(function, target->inst, args);
   if (!success) {
-    terminateStateOnError(state, "failed external call: " + function->getName(),
-                          External);
+    terminateStateOnError(state, "failed external call: " + function->getName(), External);
     return;
   }
 
   if (!state.addressSpace.copyInConcretes()) {
-    terminateStateOnError(state, "external modified read-only object",
-                          External);
+    terminateStateOnError(state, "external modified read-only object", External);
     return;
   }
 
   LLVM_TYPE_Q Type *resultType = target->inst->getType();
   if (resultType != Type::getVoidTy(function->getContext())) {
-    ref<Expr> e = ConstantExpr::fromMemory((void*) args, 
-                                           getWidthForLLVMType(resultType));
+    ref<Expr> e = ConstantExpr::fromMemory((void*) args, getWidthForLLVMType(resultType));
     bindLocal(target, state, e);
   }
 }
@@ -3260,7 +3251,7 @@ void Executor::executeAlloc(ExecutionState &state,
   bindLocal(target, state, mo->getBaseExpr());
 
   // only need to handle realloc in the success state
-  if (reallocFrom) {
+  if (reallocFrom != nullptr) {
     unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
     for (unsigned i = 0; i < count; i++)
       os->write(i, reallocFrom->read8(i));
@@ -3273,7 +3264,7 @@ void Executor::executeFree(ExecutionState &state,
                            KInstruction *target) {
   StatePair zeroPointer = fork(state, Expr::createIsZero(address), true);
   if (zeroPointer.first) {
-    if (target)
+    if (target != nullptr)
       bindLocal(target, *zeroPointer.first, Expr::createPointer(0));
   }
   if (zeroPointer.second) { // address != 0
@@ -3288,9 +3279,10 @@ void Executor::executeFree(ExecutionState &state,
                               getAddressInfo(*it->second, address));
       } else {
         it->second->addressSpace.unbindObject(mo);
-        if (target)
-          bindLocal(target, *it->second, Expr::createPointer(0));
       }
+    }
+    if (target != nullptr) {
+      bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
     }
   }
 }

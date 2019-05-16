@@ -387,7 +387,7 @@ protected:
   bool shouldExitOn(enum TerminateReason termReason);
 
   // remove state from queue and delete
-  virtual void terminateState(ExecutionState &state);
+  virtual void terminateState(ExecutionState &state, const llvm::Twine &message);
   // call exit handler and terminate state
   virtual void terminateStateEarly(ExecutionState &state, const llvm::Twine &message);
   // call exit handler and terminate state

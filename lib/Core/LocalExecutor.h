@@ -65,13 +65,13 @@ protected:
 
   ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
-  void executeAlloc(ExecutionState &state,
-                    unsigned size,
-                    unsigned count,
-                    const llvm::Type *type,
-                    MemKind kind,
-                    KInstruction *target,
-                    bool symbolic = false);
+  void executeSymbolicAlloc(ExecutionState &state,
+                            unsigned size,
+                            unsigned count,
+                            const llvm::Type *type,
+                            MemKind kind,
+                            KInstruction *target,
+                            bool symbolic = false);
 
   void executeFree(ExecutionState &state, ref<Expr> address, KInstruction *target) override;
 
@@ -121,7 +121,7 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
-  void terminateState(ExecutionState &state) override;
+  void terminateState(ExecutionState &state, const llvm::Twine &message) override;
   void terminateStateOnExit(ExecutionState &state) override;
   void terminateStateOnFault(ExecutionState &state, const KInstruction *ki, const llvm::Twine &message);
   void terminateStateEarly(ExecutionState &state, const llvm::Twine &message) override;
