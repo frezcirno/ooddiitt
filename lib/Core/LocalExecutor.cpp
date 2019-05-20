@@ -1136,6 +1136,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
   // RLR TODO: debug code
+#if 0 == 1
   std::ofstream paths("paths.txt", std::ofstream::app);
   bool first = true;
   for (const auto &marker : state.markers) {
@@ -1144,6 +1145,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
     first = false;
   }
   paths << '\n';
+#endif
 
   if (state.status == ExecutionState::StateStatus::Pending) {
     terminatedPendingState = true;

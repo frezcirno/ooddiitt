@@ -1567,9 +1567,14 @@ int main(int argc, char **argv, char **envp) {
           now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
+
+
+            // RLR TODO: debug
+#if 0 == 1
             klee_message("KLEE: WATCHDOG: rx heartbeat interval: %u", (unsigned) (now - baseline));
             log << "rx heartbeat interval: " << now - baseline << std::endl;
             baseline = now;
+#endif
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
