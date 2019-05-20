@@ -1084,7 +1084,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     stepInstruction(*state);
     try {
 
-#if 0 == 0
+      // RLR TODO: remove debug
+#if 0 == 1
       if (ki->info->assemblyLine == 27522) {
 //        interpreterHandler->getInfoStream() << "break!";
       }
