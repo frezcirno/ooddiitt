@@ -237,6 +237,13 @@ cl::opt<bool>
   Watchdog("watchdog",
            cl::desc("Use a watchdog process to monitor se."),
            cl::init(0));
+
+
+  cl::opt<bool>
+  NoSolution("no-solution",
+             cl::desc("Do not save a solution with test case."),
+             cl::init(false));
+
 }
 
 /***/
@@ -554,12 +561,6 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    std::vector<SymbolicSolution> out;
-
-    if (!i->getSymbolicSolution(state, out)) {
-      klee_warning("unable to get symbolic solution, losing test case");
-    }
-
     double start_time = util::getWallTime();
     std::string prefix = "test";
     std::ostream *kout = openTestCaseFile(prefix, testID);
@@ -617,35 +618,42 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
         pathEx.append(itr->to_string());
       }
 
-      Json::Value &objects = root["objects"] = Json::arrayValue;
-      for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
+      if (!NoSolution) {
 
-        auto &test = *itrObj;
-        const MemoryObject *mo = test.first;
-        std::vector<unsigned char> &data = test.second;
-
-        Json::Value obj = Json::objectValue;
-        obj["name"] = mo->name;
-        obj["kind"] = mo->getKindAsStr();
-        obj["count"] = mo->count;
-        const ObjectState *os = state.addressSpace.findObject(mo);
-        std::string type = "?unknown?";
-        if (os != nullptr) {
-          type = getTypeName(os->getLastType());
+        std::vector<SymbolicSolution> out;
+        if (!i->getSymbolicSolution(state, out)) {
+          klee_warning("unable to get symbolic solution, losing test case");
         }
-        obj["type"] = type;
+        Json::Value &objects = root["objects"] = Json::arrayValue;
+        for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
 
-        // scale to 32 or 64 bits
-        unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-        std::vector<unsigned char> addr;
-        unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
-        for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-          addr.push_back(*addrBytes);
+          auto &test = *itrObj;
+          const MemoryObject *mo = test.first;
+          std::vector<unsigned char> &data = test.second;
+
+          Json::Value obj = Json::objectValue;
+          obj["name"] = mo->name;
+          obj["kind"] = mo->getKindAsStr();
+          obj["count"] = mo->count;
+          const ObjectState *os = state.addressSpace.findObject(mo);
+          std::string type = "?unknown?";
+          if (os != nullptr) {
+            type = getTypeName(os->getLastType());
+          }
+          obj["type"] = type;
+
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          std::vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
+          }
+          obj["addr"] = toDataString(addr);
+          obj["data"] = toDataString(data);
+
+          objects.append(obj);
         }
-        obj["addr"] = toDataString(addr);
-        obj["data"] = toDataString(data);
-
-        objects.append(obj);
       }
 
       // only emit address space details for completed test cases
@@ -1540,7 +1548,7 @@ int main(int argc, char **argv, char **envp) {
       clock_gettime(CLOCK_MONOTONIC, &tm);
       uint64_t now = (uint64_t) tm.tv_sec;
       uint64_t nextStep = now + heartbeat_timeout;
-      uint64_t baseline = now;
+//      uint64_t baseline = now;
 
       // Simple stupid code...
       while (true) {
