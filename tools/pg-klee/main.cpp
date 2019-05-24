@@ -657,7 +657,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       }
 
       // only emit address space details for completed test cases
-      if (state.status == ExecutionState::Completed && !NoAddressSpace) {
+      if (state.status == ExecutionState::Completed && !NoAddressSpace && !NoSolution) {
 
         // dump details of the state address space
         root["addressSpace"] = Json::arrayValue;
