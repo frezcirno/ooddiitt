@@ -1531,10 +1531,6 @@ int main(int argc, char **argv, char **envp) {
       klee_message("KLEE: WATCHDOG: watching %d", pid);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
 
-      std::ofstream log("watchdog.txt", std::ios::app);
-      log << EntryPoint.c_str() << ":" << std::endl;
-      log << "watching pid: " << pid << std::endl;
-
       // catch SIGUSR1
       struct sigaction sa;
       memset(&sa, 0, sizeof(sa));
@@ -1588,7 +1584,6 @@ int main(int argc, char **argv, char **envp) {
           } else if (now > nextStep) {
 
             klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
-            log << "watchdog expired, attempting halt via INT" << std::endl;
             kill(pid, SIGINT);
 
             // Ideally this triggers a dump, which may take a while,
@@ -1603,7 +1598,6 @@ int main(int argc, char **argv, char **envp) {
               }
             }
             klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
-            log << "KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)" << std::endl;
             kill(pid, SIGKILL);
             return 1; // what more can we do
           }

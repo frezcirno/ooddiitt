@@ -246,12 +246,13 @@ bool CexCachingSolver::getAssignment(const Query& query, Assignment *&result) {
         klee_error("Generated assignment doesn't match query");
       }
   } else {
-    binding = nullptr;
+    binding = (Assignment*) 0;
   }
   
   result = binding;
-  if (binding != nullptr) cache.insert(key, binding);
-  return (result != nullptr);
+  cache.insert(key, binding);
+
+  return true;
 }
 
 ///
@@ -320,7 +321,7 @@ bool CexCachingSolver::computeValue(const Query& query,
   TimerStatIncrementer t(stats::cexCacheTime);
 
   Assignment *a;
-  if (!getAssignment(query.withFalse(), a))
+  if (!getAssignment(query.withFalse(), a) || a == nullptr)
     return false;
   assert(a && "computeValue() must have assignment");
   result = a->evaluate(query.expr);  

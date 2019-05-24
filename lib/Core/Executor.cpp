@@ -3177,7 +3177,7 @@ void Executor::executeAlloc(ExecutionState &state,
     // collapses the size expression with a select.
 
     // find a reasonable ceiling for symbolic size
-    unsigned ceiling = 0;
+    uint64_t ceiling = 0;
     for (unsigned trial = 16; trial <= 4096 && ceiling == 0; trial <<= 1) {
 
       bool result = false;
@@ -3191,7 +3191,7 @@ void Executor::executeAlloc(ExecutionState &state,
     if (ceiling == 0) {
       auto range = solver->getRange(state, size);
       if (isa<ConstantExpr>(range.first)) {
-        ceiling = (unsigned) cast<ConstantExpr>(range.first)->getZExtValue(W);
+        ceiling = cast<ConstantExpr>(range.first)->getZExtValue(W);
       }
     }
 
@@ -3226,18 +3226,17 @@ void Executor::executeAlloc(ExecutionState &state,
 
   // if this is a heap allocation, clone off a malloc fail state
   if (kind == MemKind::heap) {
-  // RLR TODO: why is this commented out?
 
-//        ExecutionState *failState = state.branch();
-//
-//        // and split the process truee for the new state
-//        state.ptreeNode->data = nullptr;
-//        std::pair<PTree::Node *, PTree::Node *> res = processTree->split(state.ptreeNode, &state, failState);
-//        state.ptreeNode = res.first;
-//        failState->ptreeNode = res.second;
-//
-//        addedStates.push_back(failState);
-//        bindLocal(target, *failState, ConstantExpr::createPointer(0));
+        ExecutionState *failState = state.branch();
+
+        // and split the process truee for the new state
+        state.ptreeNode->data = nullptr;
+        std::pair<PTree::Node *, PTree::Node *> res = processTree->split(state.ptreeNode, &state, failState);
+        state.ptreeNode = res.first;
+        failState->ptreeNode = res.second;
+
+        addedStates.push_back(failState);
+        bindLocal(target, *failState, ConstantExpr::createPointer(0));
   }
 
   // bind the new object into the success state
