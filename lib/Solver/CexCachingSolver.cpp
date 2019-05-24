@@ -246,13 +246,12 @@ bool CexCachingSolver::getAssignment(const Query& query, Assignment *&result) {
         klee_error("Generated assignment doesn't match query");
       }
   } else {
-    binding = (Assignment*) 0;
+    binding = nullptr;
   }
   
   result = binding;
-  cache.insert(key, binding);
-
-  return true;
+  if (binding != nullptr) cache.insert(key, binding);
+  return (result != nullptr);
 }
 
 ///

@@ -338,7 +338,9 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
     const ObjectState *os = it->second;
-    if (type == nullptr || os->referencedAs(type)) {
+    // RLR TODO: disable type cast consideration.
+    if (type == nullptr || mo->created_type == type) {
+//    if (type == nullptr || os->referencedAs(type)) {
       listOPs.push_back(std::make_pair(mo, os));
     }
   }
