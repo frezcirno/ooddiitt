@@ -585,7 +585,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       }
       offsetExpr = cex;
     } else {
-      terminateState(*currState, "write memory solver unable to get example offset");
+      terminateStateOnFault(*currState, target, "write memory solver unable to get example offset");
       return false;
     }
   }
@@ -1152,13 +1152,18 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
     terminatedPendingState = true;
   }
 
-  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
-    if (removeCoveredPaths(&state)) {
-      interpreterHandler->processTestCase(state);
-    }
-  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
+  if (state.status == ExecutionState::StateStatus::Completed || state.status == ExecutionState::StateStatus::Faulted) {
     interpreterHandler->processTestCase(state);
   }
+
+  // RLR TODO: I broke this.  FIXME later
+//  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
+//    if (removeCoveredPaths(&state)) {
+//      interpreterHandler->processTestCase(state);
+//    }
+//  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
+//    interpreterHandler->processTestCase(state);
+//  }
   Executor::terminateState(state, message);
 }
 
@@ -1741,7 +1746,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   count = (unsigned) min_size->getZExtValue();
                 } else {
                   // too big of an allocation
-                  terminateState(*sp.second, "zopc_malloc too large");
+                  terminateStateOnFault(*sp.second, ki, "zopc_malloc too large");
                   return;
                 }
               }
