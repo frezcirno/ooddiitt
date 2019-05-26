@@ -1837,9 +1837,17 @@ int main(int argc, char **argv, char **envp) {
   if (EntryPoint.empty()) {
     theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   } else {
-    Function *entryFn = mainModule->getFunction(EntryPoint);
+    std::string entryName = EntryPoint;
+    std::vector<std::string> strs;
+    boost::split(strs, entryName, boost::is_any_of(":"));
+    unsigned bb_marker = 0;
+    if (strs.size() == 2) {
+      bb_marker = std::stoi(strs[1]);
+      entryName = strs[0];
+    }
+    Function *entryFn = mainModule->getFunction(entryName);
     if (entryFn != nullptr) {
-      theInterpreter->runFunctionUnconstrained(entryFn);
+      theInterpreter->runFunctionUnconstrained(entryFn, bb_marker);
     } else if (EntryPoint != "void") {
       klee_error("Unable to find function: %s", EntryPoint.c_str());
     }
