@@ -1152,7 +1152,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
     terminatedPendingState = true;
   }
 
-  if (state.status == ExecutionState::StateStatus::Completed || state.status == ExecutionState::StateStatus::Faulted) {
+  if ((state.status != ExecutionState::StateStatus::Decimated) && (state.markers.size() > 1)) {
     interpreterHandler->processTestCase(state);
   }
 
@@ -1176,7 +1176,7 @@ void LocalExecutor::terminateStateOnFault(ExecutionState &state, const KInstruct
   state.status = ExecutionState::StateStatus::Faulted;
   state.instFaulting = ki;
   state.terminationMessage = message.str();
-  Executor::terminateState(state, message);
+  terminateState(state, message);
 }
 
 void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
@@ -1224,6 +1224,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
+          state->status = ExecutionState::StateStatus::Decimated;
           terminateState(*state, "decimated");
           killed++;
         }
