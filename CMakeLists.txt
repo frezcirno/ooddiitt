@@ -626,10 +626,10 @@ if (ENABLE_KLEE_UCLIBC)
   # Add klee-uclibc to the install target. We install the original
   # file rather than the symlink because CMake would just copy the symlink
   # rather than the file.
-#  install(FILES "${KLEE_UCLIBC_C_BCA}"
-#    DESTINATION "${KLEE_INSTALL_RUNTIME_DIR}"
-#    RENAME "${KLEE_UCLIBC_BCA_NAME}"
-#    )
+  install(FILES "${KLEE_UCLIBC_C_BCA}"
+    DESTINATION "${KLEE_INSTALL_RUNTIME_DIR}"
+    RENAME "${KLEE_UCLIBC_BCA_NAME}"
+    )
 
 else()
   message(STATUS "klee-uclibc support disabled")
@@ -773,4 +773,4 @@ endif()
 ################################################################################
 # Miscellaneous install
 ################################################################################
-# install(FILES include/klee/klee.h DESTINATION include/klee)
+install(FILES include/klee/klee.h DESTINATION include/klee)

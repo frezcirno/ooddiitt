@@ -1026,10 +1026,10 @@ static const char *modelledExternals[] = {
   "__ubsan_handle_mul_overflow",
   "__ubsan_handle_divrem_overflow",
 
-    // ignore marker instrumentation
-  "mark",
-  "MARK",
-  "fn_tag",
+  // ignore marker instrumentation
+  "__mark__",
+  "__MARK__",
+  "__calltag__",
 
   // special pgklee functions
   "pgklee_hard_assume",
@@ -1039,8 +1039,6 @@ static const char *modelledExternals[] = {
   "pgklee_expr_mayhold",
   "pgklee_valid_pointer",
   "pgklee_object_size"
-
-
 };
 // Symbols we aren't going to warn about
 static const char *dontCareExternals[] = {
@@ -1258,6 +1256,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   if (!uclibcExists)
     klee_error("Cannot find klee-uclibc : %s", uclibcBCA.c_str());
 
+  // RLR TODO: evaluate how much of this we really need
   Function *f;
   // force import of __uClibc_main
   mainModule->getOrInsertFunction("__uClibc_main",
@@ -1317,7 +1316,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   mainModule = klee::linkWithLibrary(mainModule, uclibcBCA.c_str());
   assert(mainModule && "unable to link with uclibc");
 
-
   replaceOrRenameFunction(mainModule, "__libc_open", "open");
   replaceOrRenameFunction(mainModule, "__libc_fcntl", "fcntl");
 
@@ -1327,6 +1325,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // XXX we need to rearchitect so this can also be used with
   // programs externally linked with uclibc.
 
+#if 0 == 1
   // We now need to swap things so that __uClibc_main is the entry
   // point, in such a way that the arguments are passed to
   // __uClibc_main correctly. We do this by renaming the user main
@@ -1363,6 +1362,44 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   CallInst::Create(uclibcMainFn, args, "", bb);
 
   new UnreachableInst(ctx, bb);
+#endif
+
+  // monkey patch isatty to always return false
+  Function *isatty = mainModule->getFunction("isatty");
+  if (isatty != NULL) {
+    Type *rt = isatty->getReturnType();
+    isatty->dropAllReferences();
+    BasicBlock *bb = BasicBlock::Create(ctx, "entry", isatty);
+    ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
+  }
+
+  // and remove functions we will never use
+  std::set<std::string> dead_fns {"tcgetattr",
+                                  "__uClibc_main",
+                                  "__check_one_fd",
+                                  "__stdio_WRITE",
+                                  "__stdio_wcommit",
+                                  "_stdio_term"};
+  for (auto name : dead_fns) {
+    if ((f = mainModule->getFunction(name)) != nullptr) {
+      f->eraseFromParent();
+    }
+  }
+
+  // find the entry point, and insert call to init uclibc
+  Function *uclibc_init = mainModule->getFunction("__uClibc_init");
+  if (uclibc_init != nullptr) {
+    Function *entry = mainModule->getFunction(EntryPoint);
+    if (entry != nullptr) {
+      BasicBlock *bb = &entry->getEntryBlock();
+      Instruction *insert_point = nullptr;
+      auto itr = bb->getFirstInsertionPt();
+      if (itr != bb->end()) {
+        insert_point = &(*itr);
+      }
+      CallInst::Create(uclibc_init, "", insert_point);
+    }
+  }
 
   klee_message("NOTE: Using klee-uclibc : %s", uclibcBCA.c_str());
   return mainModule;
