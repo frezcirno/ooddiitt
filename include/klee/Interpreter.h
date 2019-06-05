@@ -207,7 +207,7 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f)          { };
+  virtual void runFunctionUnconstrained(llvm::Function *f, unsigned bb_marker)          { };
 
   /*** Runtime options ***/
 

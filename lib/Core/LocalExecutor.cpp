@@ -585,7 +585,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       }
       offsetExpr = cex;
     } else {
-      terminateState(*currState, "write memory solver unable to get example offset");
+      terminateStateOnFault(*currState, target, "write memory solver unable to get example offset");
       return false;
     }
   }
@@ -772,7 +772,7 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
-void LocalExecutor::runFunctionUnconstrained(Function *fn) {
+void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned bb_marker) {
 
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) {
@@ -849,7 +849,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         ref<Expr> e = wop.second->read(0, width);
       bindArgument(kf, index, *state, e);
     }
-    runFn(kf, *state);
+    runFn(kf, *state, bb_marker);
   }
   outs() << name;
   if (doLocalCoverage) {
@@ -949,7 +949,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
     }
   }
   
-  runFn(kf, *state);
+  runFn(kf, *state, 0);
   
   // hack to clear memory objects
   delete memory;
@@ -965,7 +965,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   }
 }
 
-void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
+void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned bb_marker) {
 
   Function *fn = kf->function;
 
@@ -977,7 +977,18 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   initTimers();
 
   if (initialState.isUnconstrainLocals()) {
-    runFnEachBlock(kf, initialState);
+    if (bb_marker == 0) {
+      runFnEachBlock(kf, initialState);
+    }
+    else {
+      auto itr = kf->mapBBlocks.find(bb_marker);
+      if (itr != kf->mapBBlocks.end()) {
+        runFnFromBlock(kf, initialState, itr->second);
+      }
+      else {
+        klee_error("entry marked block not found");
+      }
+    }
   } else {
     runFnFromBlock(kf, initialState, &fn->getEntryBlock());
   }
@@ -1152,13 +1163,18 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
     terminatedPendingState = true;
   }
 
-  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
-    if (removeCoveredPaths(&state)) {
-      interpreterHandler->processTestCase(state);
-    }
-  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
+  if ((state.status != ExecutionState::StateStatus::Decimated) && (state.markers.size() > 1)) {
     interpreterHandler->processTestCase(state);
   }
+
+  // RLR TODO: I broke this.  FIXME later
+//  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
+//    if (removeCoveredPaths(&state)) {
+//      interpreterHandler->processTestCase(state);
+//    }
+//  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
+//    interpreterHandler->processTestCase(state);
+//  }
   Executor::terminateState(state, message);
 }
 
@@ -1171,7 +1187,7 @@ void LocalExecutor::terminateStateOnFault(ExecutionState &state, const KInstruct
   state.status = ExecutionState::StateStatus::Faulted;
   state.instFaulting = ki;
   state.terminationMessage = message.str();
-  Executor::terminateState(state, message);
+  terminateState(state, message);
 }
 
 void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
@@ -1219,6 +1235,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
+          state->status = ExecutionState::StateStatus::Decimated;
           terminateState(*state, "decimated");
           killed++;
         }
@@ -1590,6 +1607,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
             state.addMarker(marker_type, fnID, bbID);
+
+            // RLR TODO debug
+#if 0 == 1
+            std::stringstream ss;
+            for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
+              if (itr != state.markers.begin()) ss << ',';
+              ss << itr->fn << ':' << itr->id;
+            }
+            std::string marker_seq = ss.str();
+            std::string target = "16:112,16:102,16:105";
+            if (marker_seq.find(target) != std::string::npos) {
+              outs() << marker_seq;
+            }
+#endif
             return;
           }
         }
@@ -1612,6 +1643,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           Executor::executeInstruction(state, ki);
           return;
         }
+      }
+
+      // RLR TODO: this needs better handing.
+      if (fnName.find("__ctype") != std::string::npos) {
+        Executor::executeInstruction(state, ki);
+        return;
       }
 
       // we will be simulating a stubbed subfunction.
@@ -1741,7 +1778,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   count = (unsigned) min_size->getZExtValue();
                 } else {
                   // too big of an allocation
-                  terminateState(*sp.second, "zopc_malloc too large");
+                  terminateStateOnFault(*sp.second, ki, "zopc_malloc too large");
                   return;
                 }
               }

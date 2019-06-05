@@ -103,6 +103,7 @@ public:
     Faulted,
     TerminateEarly,
     TerminateError,
+    Decimated,
     TerminateDiscard
   };
 
@@ -114,6 +115,7 @@ public:
     case Faulted: result = "faulted"; break;
     case TerminateEarly: result = "early"; break;
     case TerminateError: result = "error"; break;
+    case Decimated: result = "decimate"; break;
     case TerminateDiscard: result = "discard"; break;
     }
     return result;
