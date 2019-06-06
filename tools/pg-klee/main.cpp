@@ -1138,14 +1138,14 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
       // check for inline assembly
       for (Function::const_iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); bbIt != bb_ie; ++bbIt) {
         for (BasicBlock::const_iterator it = bbIt->begin(), ie = bbIt->end(); it != ie; ++it) {
-        if (const CallInst *ci = dyn_cast<CallInst>(it)) {
-          if (isa<InlineAsm>(ci->getCalledValue())) {
-              klee_warning_once(&*fnIt, "function \"%s\" has inline asm", fnIt->getName().data());
+          if (const CallInst *ci = dyn_cast<CallInst>(it)) {
+            if (isa<InlineAsm>(ci->getCalledValue())) {
+                klee_warning_once(&*fnIt, "function \"%s\" has inline asm", fnIt->getName().data());
+            }
           }
         }
       }
     }
-  }
   }
 
   // get a list of globals declared, but not defined
@@ -1325,6 +1325,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // XXX we need to rearchitect so this can also be used with
   // programs externally linked with uclibc.
 
+  // RLR TODO: evaluate the continuing need for this
 #if 0 == 1
   // We now need to swap things so that __uClibc_main is the entry
   // point, in such a way that the arguments are passed to
@@ -1462,8 +1463,32 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
         Json::Value &name = callTargets[index];
         progInfo.addCallTarget(fn, name.asString());
       }
-
     }
+
+    // get the prototypes, if that's all we have
+    Json::Value &protosRoot = root["prototypes"];
+    Json::Value::Members protos = protosRoot.getMemberNames();
+    for (const auto fn : protos) {
+
+      // find the constant function params
+      Json::Value &fnRoot = protosRoot[fn];
+      Json::Value &params = fnRoot["params"];
+      progInfo.setFnID(fn, 0);
+
+      if (params.isArray()) {
+        for (unsigned index = 0, end = params.size(); index < end; ++index) {
+
+          Json::Value &param = params[index];
+          if (!param["isOutput"].asBool()) {
+            Json::Value &type = param["type"];
+            if (type.isMember("isConst") && type["isConst"].asBool()) {
+              progInfo.setConstParam(fn, index);
+            }
+          }
+        }
+      }
+    }
+
   }
 }
 
