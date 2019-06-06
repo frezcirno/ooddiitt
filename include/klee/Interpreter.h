@@ -33,8 +33,8 @@ class Interpreter;
 class TreeStreamWriter;
 class MemoryObject;
 
-typedef std::vector<unsigned> m2m_path_t;
-typedef std::set<m2m_path_t> m2m_paths_t;
+//typedef std::vector<unsigned> m2m_path_t;
+//typedef std::set<m2m_path_t> m2m_paths_t;
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
 #define HEARTBEAT_INTERVAL   (15)
@@ -207,7 +207,7 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f, unsigned bb_marker)          { };
+  virtual void runFunctionUnconstrained(llvm::Function *f)          { };
 
   /*** Runtime options ***/
 

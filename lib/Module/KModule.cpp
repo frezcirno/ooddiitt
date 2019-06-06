@@ -19,7 +19,6 @@
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/System/Marker.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -115,6 +114,17 @@ namespace {
                               cl::desc("Print functions whose address is taken."));
 }
 
+
+// static data
+const std::string KModule::fn_major_marker = "__MARK__";
+const std::string KModule::fn_minor_marker = "__mark__";
+const std::string KModule::fn_calltag = "__calltag__";
+const std::set<std::string> KModule::fn_markers = {
+  fn_major_marker,
+  fn_minor_marker,
+  fn_calltag
+};
+
 KModule::KModule(Module *_module)
   : module(_module),
 #if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
@@ -124,8 +134,7 @@ KModule::KModule(Module *_module)
 #endif
     kleeMergeFn(nullptr),
     infos(nullptr),
-    constantTable(nullptr),
-    entry_point(nullptr) {}
+    constantTable(nullptr) {}
 
 KModule::~KModule() {
   delete[] constantTable;
@@ -642,34 +651,7 @@ bool KModule::isModuleFunction(const llvm::Function *fn) const {
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }
 
-void KModule::constructSortedBBlocks(vector<const BasicBlock*> &sortedList, const BasicBlock *entry) {
-
-  set<const BasicBlock*> visited;
-  deque<const BasicBlock*> worklist;
-
-  sortedList.clear();
-
-  visited.insert(entry);
-  worklist.push_back(entry);
-
-  while (!worklist.empty()) {
-
-    const BasicBlock *bb = worklist.front();
-    worklist.pop_front();
-    sortedList.push_back(bb);
-
-    const TerminatorInst *tinst = bb->getTerminator();
-    for (unsigned index = 0, end = tinst->getNumSuccessors(); index < end; ++index) {
-      const BasicBlock *next = tinst->getSuccessor(index);
-      if (visited.count(next) == 0) {
-        visited.insert(next);
-        worklist.push_back(next);
-      }
-    }
-  }
-}
-
-void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
+void KModule::prepareMarkers(InterpreterHandler *ih, const ProgInfo &info) {
 
   set<const Function *> fns_ptr_relation;
   set<const Function *> fns_ptr_equality;
@@ -680,76 +662,52 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
   // for each function in the main module
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
+
     const Function *fn = kf->function;
     string fn_name = fn->getName().str();
-    if (fn_name == entry_name) {
-      entry_point = kf;
-    }
+    kf->fnID = info.getFnID(fn_name);
 
-    if (isInternalFunction(fn)) {
-      continue;
-    }
+    if (!isInternalFunction(fn) && kf->fnID != 0) {
 
-    unsigned fnID = 0;
+      set<unsigned> fn_bbs;
 
-    // use a BFS to construct a sorted list of basic blocks (by distance from entry)]
-    if (!fn->empty()) {
-      constructSortedBBlocks(kf->sortedBBlocks, &fn->front());
-    }
+      // now step through each of the functions basic blocks
+      for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
+        const BasicBlock &bb = *bbit;
 
-    // now step through each of the functions basic blocks
-    set<const BasicBlock *>majorMarkerList;
-    for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
-      const BasicBlock &bb = *bbit;
+        // look through each instruction of the bb looking for function calls
+        // and problematic instructions
+        vector<unsigned> bbIDs;
+        for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
+          const Instruction *i = &(*iit);
+          unsigned opcode = i->getOpcode();
+          if (opcode == Instruction::Call) {
 
-      // look through each instruction of the bb looking for function calls
-      // use reverse iterator so we find the first bbid last (single bb function will have two)
-      vector<unsigned> bbIDs;
-      set<unsigned> majorIDs;
-      bool is_implicit_major = false;
-      for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
-        const Instruction *i = &(*iit);
-        unsigned opcode = i->getOpcode();
-        if (opcode == Instruction::Call) {
+            const CallSite cs(const_cast<Instruction *>(i));
 
-          const CallSite cs(const_cast<Instruction*>(i));
+            Function *called = getTargetFunction(cs.getCalledValue());
+            if (called != nullptr) {
 
-          Function *called = getTargetFunction(cs.getCalledValue());
-          if (called != nullptr) {
+              // check the name, number of arguments, and the return type
+              if (isMarkerFn(called->getName()) && (called->arg_size() == 2)
+                  && (called->getReturnType()->isVoidTy())) {
 
-            string calledName = called->getName();
+                // extract the two literal arguments
+                const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+                const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
+                if ((arg0 != nullptr) && (arg1 != nullptr)) {
+                  unsigned val0 = (unsigned) arg0->getUniqueInteger().getZExtValue();
+                  unsigned val1 = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
-            // check the name, number of arguments, and the return type
-            if (((calledName == "MARK") || (calledName == "mark")) &&
-                (called->arg_size() == 2) &&
-                (called->getReturnType()->isVoidTy())) {
-
-              // extract the two literal arguments
-              const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
-              const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
-              if ((arg0 != nullptr) && (arg1 != nullptr)) {
-                fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-                unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-                bbIDs.push_back(bbID);
-
-                if (calledName == "MARK") {
-                  majorIDs.insert(bbID);
-                }
-              }
-            } else if (!isInternalFunction(called)) {
-              is_implicit_major = true;
-
-              // insert callee into called function set
-              if (!calledName.empty()) {
-                auto itr = functionMap.find(called);
-                if (itr != functionMap.end()) {
-                  kf->callees.insert(itr->second);
+                  if (val0 != kf->fnID) {
+                    klee_warning("conflicting marker function id, recieved %d, expected %d", val0, kf->fnID);
+                  }
+                  bbIDs.push_back(val1);
+                  fn_bbs.insert(val1);
                 }
               }
             }
-          }
-        } else if (OutputStatic) {
-          if (opcode == Instruction::ICmp) {
+          } else if (opcode == Instruction::ICmp) {
 
             const CmpInst *ci = cast<CmpInst>(i);
             const Value *arg0 = ci->getOperand(0);
@@ -773,42 +731,20 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
             }
           } else if (opcode == Instruction::PtrToInt) {
             fns_ptr_to_int.insert(fn);
-          } else if(opcode == Instruction::IntToPtr) {
+          } else if (opcode == Instruction::IntToPtr) {
             fns_int_to_ptr.insert(fn);
           }
         }
-      }
-      if (!bbIDs.empty()) {
-
-        // track the explicit major markers found
         kf->mapMarkers[&bb] = bbIDs;
-        for (unsigned id : bbIDs) {
-          kf->mapBBlocks[id] = &bb;
-          if (majorIDs.count(id) > 0) {
-            majorMarkerList.insert(&bb);
-            kf->majorMarkers.insert(toMarker(fnID, id));
-          }
-        }
-
-        // check if this is an implicit marker
-        if (majorIDs.empty() && is_implicit_major) {
-          majorMarkerList.insert(&bb);
-          kf->majorMarkers.insert(toMarker(fnID, bbIDs.front()));
-        }
       }
-    }
-    kf->fnID = fnID;
 
-    // if this function is marked, enumerate all of the m2m_paths
-    if (kf->fnID != 0) {
+      // validate the marker ids found in function
+      if (*info.get_markers(fn_name) != fn_bbs) {
+        klee_warning("conflicting markers in function %s", fn_name.c_str());
+      }
 
       // find all (possibly nested) loop headers
       kf->findLoops();
-      for (const auto pr : kf->loopInfo) {
-        if (majorMarkerList.count(pr.first) == 0) {
-          errs() << "loop header not marked:" << kf->mapMarkers[pr.first].front() << "\n";
-        }
-      }
 
       // iterate over each loop and each basic block to
       // find the exit nodes
@@ -830,12 +766,6 @@ void KModule::prepareMarkers(InterpreterHandler *ih, string entry_name) {
             }
           }
         }
-      }
-
-      if (fn->size() > 1) {
-        kf->addM2MPaths(majorMarkerList);
-      } else {
-        kf->addM2MPath(&fn->getEntryBlock());
       }
     }
   }
@@ -886,30 +816,6 @@ void KModule::EmitFunctionSet(raw_fd_ostream *os,
       counter_elements += 1;
     }
     *os << "\n  ]";
-  }
-}
-
-void KModule::getReachablePaths(const KFunction *kf, m2m_paths_t &paths) {
-
-  paths.empty();
-
-  // construct transitive closure of call graph from fn
-  set<const KFunction*> transClosure;
-  deque<const KFunction*> worklist = { kf };
-  while (!worklist.empty()) {
-    const KFunction *node = worklist.front();
-    worklist.pop_front();
-    transClosure.insert(node);
-    for (auto child : node->callees) {
-      if (transClosure.count(child) == 0) {
-        worklist.push_back(child);
-      }
-    }
-  }
-
-  // insert each m2m path in the transitive closure.
-  for (const KFunction *tc : transClosure) {
-    paths.insert(tc->m2m_paths.begin(), tc->m2m_paths.end());
   }
 }
 
@@ -1085,6 +991,7 @@ void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLo
   }
 }
 
+#if 0 == 1
 void KFunction::addM2MPath(const BasicBlock *bb) {
 
   bb_path_t path;
@@ -1147,6 +1054,7 @@ void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
   visited.erase(bb);
 
 }
+#endif
 
 bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
 
@@ -1176,6 +1084,7 @@ bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const ll
   return false;
 }
 
+#if 0 == 1
 void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
 
   for (auto itr = bb_path.begin(), end = bb_path.end(); itr != end; ++itr) {
@@ -1190,7 +1099,7 @@ void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path
     }
   }
 }
-
+#endif
 
 void KFunction::findLoops() {
 
@@ -1285,4 +1194,34 @@ bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *
     return info.exits.find(bb) != info.exits.end();
   }
   return false;
+}
+
+void KFunction::constructSortedBBlocks(deque<const BasicBlock*> &sortedList, const BasicBlock *entry) {
+
+  set<const BasicBlock*> visited;
+  deque<const BasicBlock*> worklist;
+
+  sortedList.clear();
+  if (entry == nullptr) {
+    entry = &function->getEntryBlock();
+  }
+
+  visited.insert(entry);
+  worklist.push_back(entry);
+
+  while (!worklist.empty()) {
+
+    const BasicBlock *bb = worklist.front();
+    worklist.pop_front();
+    sortedList.push_back(bb);
+
+    const TerminatorInst *tinst = bb->getTerminator();
+    for (unsigned index = 0, end = tinst->getNumSuccessors(); index < end; ++index) {
+      const BasicBlock *next = tinst->getSuccessor(index);
+      if (visited.count(next) == 0) {
+        visited.insert(next);
+        worklist.push_back(next);
+      }
+    }
+  }
 }

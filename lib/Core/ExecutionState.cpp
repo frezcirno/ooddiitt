@@ -124,8 +124,6 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     symbolics(state.symbolics),
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
-//    name(state.name),
-    markers(state.markers),
     isProcessed(state.isProcessed),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
@@ -196,7 +194,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
     name(state.name),
-    markers(state.markers),
     isProcessed(state.isProcessed),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
@@ -276,7 +273,8 @@ void ExecutionState::removeFnAlias(std::string fn) {
 
 void ExecutionState::addMarker(char type, unsigned fnID, unsigned bbID) {
 
-  markers.push_back(Marker(type, fnID, bbID));
+  // RLR TODO:  replace this
+//  markers.push_back(Marker(type, fnID, bbID));
 }
 
 /**/

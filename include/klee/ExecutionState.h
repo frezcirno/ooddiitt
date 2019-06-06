@@ -18,7 +18,6 @@
 #include "../../lib/Core/AddressSpace.h"
 #include "klee/Internal/Module/KInstIterator.h"
 #include "klee/Internal/Module/KModule.h"
-#include "klee/Internal/System/Marker.h"
 #include "llvm/IR/BasicBlock.h"
 
 #include <map>
@@ -192,7 +191,6 @@ public:
   std::map<std::string, unsigned> callTargetCounter;
   
   std::string name;
-  MarkerSequence markers;
   bool isProcessed;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
@@ -204,7 +202,7 @@ public:
   unsigned startingMarker;
   unsigned endingMarker;
   unsigned long stateSignature;
-  std::deque<unsigned> trace;
+  std::deque<std::pair<unsigned,unsigned> > trace;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
 

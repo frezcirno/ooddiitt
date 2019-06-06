@@ -605,17 +605,10 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       }
       root["argV"] = args.str();
 
-      // retain for backward compatibility
-      Json::Value &path = root["markerPath"] = Json::arrayValue;
-      m2m_path_t trace;
-      state.markers.to_trace(trace);
-      for (auto itr = trace.begin(), end = trace.end(); itr != end; ++itr) {
-        path.append(*itr);
-      }
-
-      Json::Value &pathEx = root["markerPathEx"] = Json::arrayValue;
-      for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
-        pathEx.append(itr->to_string());
+      // store the marker trace
+      Json::Value &path = root["markerTrace"] = Json::arrayValue;
+      for (auto itr = state.trace.begin(), end = state.trace.end(); itr != end; ++itr) {
+        path.append(to_string(itr->first) + ':' + to_string(itr->second));
       }
 
       if (!NoSolution) {
@@ -1465,30 +1458,56 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       }
     }
 
-    // get the prototypes, if that's all we have
-    Json::Value &protosRoot = root["prototypes"];
-    Json::Value::Members protos = protosRoot.getMemberNames();
-    for (const auto fn : protos) {
+    // add the markers
+    Json::Value &markers = fnRoot["marks"];
+    if (markers.isArray()) {
+      for (unsigned index = 0, end = markers.size(); index < end; ++index) {
+        Json::Value &marker = markers[index];
+        progInfo.add_marker(fn, marker.asUInt());
+      }
+    }
 
-      // find the constant function params
-      Json::Value &fnRoot = protosRoot[fn];
-      Json::Value &params = fnRoot["params"];
-      progInfo.setFnID(fn, 0);
+    // then finally, add the m2m paths
+    Json::Value &m2m_paths = fnRoot["m2m_paths"];
+    if (m2m_paths.isArray()) {
+      for (unsigned index1 = 0, end1 = m2m_paths.size(); index1 < end1; ++index1) {
+        Json::Value &path = m2m_paths[index1];
+        if (path.isArray()) {
+          std::stringstream ss;
+          ss << '.';
+          for (unsigned index2 = 0, end2 = path.size(); index2 < end2; ++index2) {
+            Json::Value &marker = path[index2];
+            ss << marker.asUInt();
+            ss << '.';
+          }
+          progInfo.add_m2m_path(fn, ss.str());
+        }
+      }
+    }
+  }
 
-      if (params.isArray()) {
-        for (unsigned index = 0, end = params.size(); index < end; ++index) {
+  // get the prototypes, if that's all we have
+  Json::Value &protosRoot = root["prototypes"];
+  Json::Value::Members protos = protosRoot.getMemberNames();
+  for (const auto fn : protos) {
 
-          Json::Value &param = params[index];
-          if (!param["isOutput"].asBool()) {
-            Json::Value &type = param["type"];
-            if (type.isMember("isConst") && type["isConst"].asBool()) {
-              progInfo.setConstParam(fn, index);
-            }
+    // find the constant function params
+    Json::Value &fnRoot = protosRoot[fn];
+    Json::Value &params = fnRoot["params"];
+    progInfo.setFnID(fn, 0);
+
+    if (params.isArray()) {
+      for (unsigned index = 0, end = params.size(); index < end; ++index) {
+
+        Json::Value &param = params[index];
+        if (!param["isOutput"].asBool()) {
+          Json::Value &type = param["type"];
+          if (type.isMember("isConst") && type["isConst"].asBool()) {
+            progInfo.setConstParam(fn, index);
           }
         }
       }
     }
-
   }
 }
 
@@ -1900,16 +1919,9 @@ int main(int argc, char **argv, char **envp) {
     theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
   } else {
     std::string entryName = EntryPoint;
-    std::vector<std::string> strs;
-    boost::split(strs, entryName, boost::is_any_of(":"));
-    unsigned bb_marker = 0;
-    if (strs.size() == 2) {
-      bb_marker = std::stoi(strs[1]);
-      entryName = strs[0];
-    }
     Function *entryFn = mainModule->getFunction(entryName);
     if (entryFn != nullptr) {
-      theInterpreter->runFunctionUnconstrained(entryFn, bb_marker);
+      theInterpreter->runFunctionUnconstrained(entryFn);
     } else if (EntryPoint != "void") {
       klee_error("Unable to find function: %s", EntryPoint.c_str());
     }

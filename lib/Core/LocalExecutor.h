@@ -49,10 +49,10 @@ public:
   const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
-  void runFunctionUnconstrained(llvm::Function *f, unsigned bb_marker) override;
+  void runFunctionUnconstrained(llvm::Function *f) override;
 
 protected:
-  void runFn(KFunction *kf, ExecutionState &initialState, unsigned bb_marker);
+  void runFn(KFunction *kf, ExecutionState &initialState);
   void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
   HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
@@ -138,8 +138,11 @@ protected:
   unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
-  bool removeCoveredPaths(const ExecutionState *state);
-  bool reachesRemainingPath(KFunction *kf, const llvm::BasicBlock *bb) const;
+
+  void getReachablePaths(const KFunction *kf, M2MPaths &paths);
+  bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
+  bool removeCoveredRemainingPaths(const ExecutionState *state);
+
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   void InspectSymbolicSolutions(const ExecutionState *state);
 
@@ -148,7 +151,7 @@ protected:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
-  m2m_paths_t m2m_pathsRemaining;
+  M2MPaths pathsRemaining;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
@@ -164,10 +167,7 @@ protected:
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;
-
-  std::set<const llvm::BasicBlock*> skipBlocks;
   bool verbose;
-  bool terminatedPendingState;
 };
 
 
