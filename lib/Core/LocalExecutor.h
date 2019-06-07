@@ -141,7 +141,8 @@ protected:
 
   void getReachablePaths(const KFunction *kf, M2MPaths &paths);
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
-  bool removeCoveredRemainingPaths(const ExecutionState *state);
+  bool removeCoveredRemainingPaths(const ExecutionState &state);
+  bool addCoveredFaultingPaths(const ExecutionState &state);
 
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   void InspectSymbolicSolutions(const ExecutionState *state);
@@ -152,6 +153,8 @@ protected:
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   M2MPaths pathsRemaining;
+  M2MPaths pathsFaulting;
+  std::set<ExecutionState*> faulting_state_stash;
   unsigned nextLoopSignature;
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;

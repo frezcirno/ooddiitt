@@ -781,6 +781,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
   std::string name = fn->getName();
   getReachablePaths(kf, pathsRemaining);
+  pathsFaulting.clear();
+  faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
 
   // iterate through each phase of unconstrained progression
@@ -912,7 +914,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   if (statsTracker)
     statsTracker->framePushed(*state, nullptr);
 
-  initializeGlobalValues(*state, nullptr);
+  initializeGlobalValues(*state, f);
 
   assert(arguments.size() == f->arg_size() && "wrong number of arguments");
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
@@ -964,7 +966,7 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   Function *fn = kf->function;
 
   llvm::raw_ostream &os = getHandler().getInfoStream();
-  os << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
+  os << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -1116,30 +1118,21 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
-  // RLR TODO: debug code
-#if 0 == 1
-  std::ofstream paths("paths.txt", std::ofstream::app);
-  bool first = true;
-  for (const auto &marker : state.markers) {
-    if (!first) paths << ',';
-    paths << marker.type << ':' << marker.fn << ':' << marker.id;
-    first = false;
-  }
-  paths << '\n';
-#endif
+  if (state.status != ExecutionState::StateStatus::Pending &&
+      state.status != ExecutionState::StateStatus::TerminateDiscard) {
 
-  if (state.status != ExecutionState::StateStatus::Decimated) {
-    interpreterHandler->processTestCase(state);
+    if (state.status == ExecutionState::StateStatus::Completed) {
+      if (removeCoveredRemainingPaths(&state)) {
+        interpreterHandler->processTestCase(state);
+      }
+    } else {
+      // its an error state
+      // stash faults for later consideration
+      if (addCoveredFaultingPaths(state)) {
+        faulting_state_stash.insert(new ExecutionState(state));
+      }
+    }
   }
-
-  // RLR TODO: I broke this.  FIXME later
-//  if (doSaveComplete && state.status == ExecutionState::StateStatus::Completed) {
-//    if (removeCoveredPaths(&state)) {
-//      interpreterHandler->processTestCase(state);
-//    }
-//  } else if (doSaveFault && state.status == ExecutionState::StateStatus::Faulted) {
-//    interpreterHandler->processTestCase(state);
-//  }
   Executor::terminateState(state, message);
 }
 
@@ -1299,32 +1292,71 @@ bool LocalExecutor::reachesRemainingPath(const KFunction *kf, const llvm::BasicB
   return result;
 }
 
-bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState *state) {
-
-#if 0 == 1
+bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState &state) {
 
   bool result = false;
-  std::map<unsigned,m2m_path_t> traces;
-  state->markers.to_intra_traces(traces);
-  auto itr = m2m_pathsRemaining.begin();
-  auto end = m2m_pathsRemaining.end();
-  while (itr != end) {
 
-    const m2m_path_t &path = *itr;
-    unsigned fnID = getFNID(path[0]);
-    m2m_path_t &intra_trace = traces[fnID];
+  // look through each of the functions covered by this state
+  for (auto pr : state.itraces) {
+    auto itr = pathsRemaining.find(pr.first);
 
-    auto found = std::search(intra_trace.begin(), intra_trace.end(), path.begin(), path.end());
-    if (found == intra_trace.end()) {
-      ++itr;
-    } else {
-      itr = m2m_pathsRemaining.erase(itr);
-      result = true;
+    // if the covered function has paths remaining...
+    if (itr != pathsRemaining.end()) {
+      auto &traces = pr.second;
+      auto &paths = itr->second;
+
+      auto p_itr = paths.begin();
+      while (p_itr != paths.end()) {
+        std::string path = *p_itr;
+        bool found = false;
+        for (const std::string &trace : traces) {
+          if (trace.find(path) != std::string::npos) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          p_itr = paths.erase(p_itr);
+          result = true;
+        }
+        else {
+          ++p_itr;
+        }
+      }
     }
   }
+  pathsRemaining.clean();
   return result;
-#endif
+}
+
+bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
+
   return false;
+#if 0 == 1
+  // look through each of the functions covered by this state
+  for (auto pr : state.itraces) {
+    unsigned fnID = pr.first;
+    auto itr = pathsRemaining.find(fnID);
+
+    // if the function has paths remaining...
+    if (itr != pathsRemaining.end()) {
+      auto &traces = pr.second;
+      auto &paths = itr->second;
+
+      // check each path
+      for (const std::string &path : paths) {
+
+        // against each trace
+        for (const std::string &trace : traces) {
+          if (trace.find(path) != std::string::npos) {
+            covered[fnID].insert(path);
+            break;
+          }
+        }
+      }
+    }
+  }
+#endif
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
@@ -1464,7 +1496,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
       } else if (const GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(cur)) {
 
         (void) gep;
-        KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
+        KGEPInstruction *kgepi = static_cast<KGEPInstruction *>(ki);
         ref<Expr> base = eval(ki, 0, state).value;
         ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
 
@@ -1486,6 +1518,13 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
           bindLocal(ki, state, base);
         } else {
           klee_warning("Unable to resolve gep base during preparation of local symbolics");
+        }
+      } else if (const CallInst *ci = dyn_cast<CallInst>(cur)) {
+
+        const CallSite cs(const_cast<CallInst *>(ci));
+        Function *fn = getTargetFunction(cs.getCalledValue(), state);
+        if (fn == nullptr || fn->getName() != "__uClibc_init") {
+          klee_warning("Unexpected call instruction during preparation of local symbolics");
         }
       } else {
         klee_warning("Unexpected instruction during preparation of local symbolics");
@@ -1588,17 +1627,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         // if this is a call to a mark() variant, then log the marker to state
-        // ':' is an invalid marker type
-        char marker_type = ':';
-        if (fnName == "MARK") {
-          marker_type = 'M';
-        } else if (fnName == "mark") {
-          marker_type = 'm';
-        } else if (fnName == "fn_tag") {
-          marker_type = 't';
-        }
-
-        if ((marker_type != ':') && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
+        if ((kmodule->isMarkerFn(fnName)) && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
 
           const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
           const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
@@ -1606,7 +1635,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
             unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
-            state.addMarker(marker_type, fnID, bbID);
+            state.addMarker(fnID, bbID);
 
             // RLR TODO debug
 #if 0 == 1

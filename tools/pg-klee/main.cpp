@@ -54,6 +54,7 @@
 #include <sys/wait.h>
 
 #include <cerrno>
+#include <string>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -578,7 +579,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       root["startingMarker"] = state.startingMarker;
       root["endingMarker"] = state.endingMarker;
       root["unconstraintFlags"] = state.getUnconstraintFlags().to_string();
-      root["unconstraintDescription"] = to_string(state.getUnconstraintFlags());
+      root["unconstraintDescription"] = flags_to_string(state.getUnconstraintFlags());
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = state.get_status();
       if (state.instFaulting != nullptr) {
@@ -608,7 +609,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       // store the marker trace
       Json::Value &path = root["markerTrace"] = Json::arrayValue;
       for (auto itr = state.trace.begin(), end = state.trace.end(); itr != end; ++itr) {
-        path.append(to_string(itr->first) + ':' + to_string(itr->second));
+        path.append(std::to_string(itr->first) + ':' + std::to_string(itr->second));
       }
 
       if (!NoSolution) {
@@ -649,8 +650,8 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
         }
       }
 
-      // only emit address space details for completed test cases
-      if (state.status == ExecutionState::Completed && !NoAddressSpace && !NoSolution) {
+      // only if needed
+      if (!NoAddressSpace && !NoSolution) {
 
         // dump details of the state address space
         root["addressSpace"] = Json::arrayValue;
@@ -1402,6 +1403,16 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
 void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
 
+  // get a list of non-const global variables defined in this module
+  std::set<std::string> global_vars;
+  Json::Value &globalRoot = root["globals"];
+  Json::Value::Members gbls = globalRoot.getMemberNames();
+  for (const auto gbl : gbls) {
+    if (!globalRoot[gbl]["type"]["isConst"].asBool()) {
+      global_vars.insert(gbl);
+    }
+  }
+
   // complete progInfo from json structure
   Json::Value &fnsRoot = root["functions"];
   Json::Value::Members fns = fnsRoot.getMemberNames();
@@ -1433,7 +1444,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
         Json::Value &global = globals[index];
         if (global["isInput"].asBool()) {
           std::string name = global["name"].asString();
-          if (!root["globals"][name]["type"]["isConst"].asBool()) {
+          if (global_vars.count(name) > 0) {
             progInfo.setGlobalInput(fn, name);
           }
         }
@@ -1477,8 +1488,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
           ss << '.';
           for (unsigned index2 = 0, end2 = path.size(); index2 < end2; ++index2) {
             Json::Value &marker = path[index2];
-            ss << marker.asUInt();
-            ss << '.';
+            ss << marker.asUInt() << '.';
           }
           progInfo.add_m2m_path(fn, ss.str());
         }

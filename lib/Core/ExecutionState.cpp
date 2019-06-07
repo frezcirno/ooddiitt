@@ -57,6 +57,7 @@ StackFrame::StackFrame(const StackFrame &s)
     allocas(s.allocas),
     numRegs(s.numRegs),
     loopFrames(s.loopFrames),
+    itrace(s.itrace),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -231,8 +232,26 @@ void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
   stack.push_back(StackFrame(caller,kf));
 }
 
+
+void ExecutionState::extractITrace(const StackFrame &sf) {
+
+  // save the intra-procedural trace
+  unsigned fnID = sf.kf->fnID;
+  if (fnID != 0) {
+    std::stringstream ss;
+    ss << '.';
+    for (auto mark : sf.itrace) {
+      ss << mark << '.';
+    }
+    itraces[fnID].insert(ss.str());
+  }
+}
+
 void ExecutionState::popFrame() {
+
   StackFrame &sf = stack.back();
+  extractITrace(sf);
+
   for (auto it = sf.allocas.begin(), ie = sf.allocas.end(); it != ie; ++it)
     addressSpace.unbindObject(*it);
   stack.pop_back();
@@ -271,10 +290,11 @@ void ExecutionState::removeFnAlias(std::string fn) {
   fnAliases.erase(fn);
 }
 
-void ExecutionState::addMarker(char type, unsigned fnID, unsigned bbID) {
+void ExecutionState::addMarker(unsigned fnID, unsigned bbID) {
 
-  // RLR TODO:  replace this
-//  markers.push_back(Marker(type, fnID, bbID));
+  StackFrame &sf = stack.back();
+  sf.itrace.push_back(bbID);
+  trace.push_back(std::make_pair(fnID, bbID));
 }
 
 /**/

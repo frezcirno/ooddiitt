@@ -6,7 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(pg-klee main.cpp jsoncpp.cpp ../../include/klee/Internal/System/Marker.h)
+add_executable(pg-klee main.cpp jsoncpp.cpp)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
   message(FATAL_ERROR "pg-klee requires at least LLVM version 3.4")

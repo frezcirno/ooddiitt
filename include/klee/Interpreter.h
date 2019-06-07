@@ -67,7 +67,7 @@ public:
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
-  std::string to_string(UnconstraintFlagsT flags) const {
+  std::string flags_to_string(UnconstraintFlagsT flags) const {
 
     const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
         std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),

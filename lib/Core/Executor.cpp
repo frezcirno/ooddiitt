@@ -1548,6 +1548,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
+      if (state.stack.size() == 1) {
+        state.extractITrace(state.stack.back());
+      }
       terminateStateOnExit(state);
     } else {
       state.popFrame();

@@ -55,6 +55,23 @@ namespace klee {
   public:
     size_t size() const { unsigned result = 0; for (auto itr : *this) { result += itr.second.size(); } return result; }
     bool empty() const  { return size() == 0; }
+    void clean() {
+      auto itr = this->begin();
+      auto end = this->end();
+      while (itr != end) {
+        if (itr->second.size() == 0) itr = erase(itr);
+        else ++itr;
+      }
+    }
+
+    void extend(const M2MPaths &paths) {
+      for (auto itr : paths) {
+        unsigned fnID = itr.first;
+        for (const std::string &path : itr.second) {
+          (*this)[fnID].insert(path);
+        }
+      }
+    }
   };
 
   struct KLoopInfo {

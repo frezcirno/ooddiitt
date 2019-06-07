@@ -646,7 +646,6 @@ bool KModule::MatchSignature(const Type *type, const Function *annotFn) const {
   return false;
 }
 
-
 bool KModule::isModuleFunction(const llvm::Function *fn) const {
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }

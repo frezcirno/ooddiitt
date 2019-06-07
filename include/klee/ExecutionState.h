@@ -60,6 +60,7 @@ struct StackFrame {
   Cell *locals;
 
   std::vector<LoopFrame> loopFrames;
+  std::deque<unsigned> itrace;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -203,6 +204,7 @@ public:
   unsigned endingMarker;
   unsigned long stateSignature;
   std::deque<std::pair<unsigned,unsigned> > trace;
+  M2MPaths itraces;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
 
@@ -235,11 +237,12 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
+  void extractITrace(const StackFrame &frame);
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
   bool isConcrete(const MemoryObject *mo);
-  void addMarker(char type, unsigned fnID, unsigned bbID);
+  void addMarker(unsigned fnID, unsigned bbID);
 
   void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 
