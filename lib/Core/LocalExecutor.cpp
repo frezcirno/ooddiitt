@@ -781,7 +781,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
   std::string name = fn->getName();
   getReachablePaths(kf, pathsRemaining);
-  pathsFaulting.clear();
+  pathsFaulting.clear(0);
   faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
 
@@ -793,11 +793,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     // when substituting unconstraining stubs, remaining paths
     // must be filtered to only entry function
     if (desc.unconstraintFlags.test(UNCONSTRAIN_STUB_FLAG)) {
-      auto itr = pathsRemaining.begin();
-      while (itr != pathsRemaining.end()) {
-        if (itr->first == kf->fnID) ++itr;
-        else itr = pathsRemaining.erase(itr);
-      }
+      pathsRemaining.clear(kf->fnID);
     }
 
     if (doLocalCoverage) {
@@ -847,6 +843,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     }
     runFn(kf, *state);
   }
+
+  // now consider our stashed faulting states
+  for (auto state : faulting_state_stash) {
+    if (addCoveredFaultingPaths(state)) {
+      interpreterHandler->processTestCase(*state);
+    }
+  }
+
   outs() << name;
   if (doLocalCoverage) {
     outs() << ": covered "
@@ -1298,9 +1302,10 @@ bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState &state) {
 
   // look through each of the functions covered by this state
   for (auto pr : state.itraces) {
-    auto itr = pathsRemaining.find(pr.first);
+    unsigned fnID = pr.first;
+    auto itr = pathsRemaining.find(fnID);
 
-    // if the covered function has paths remaining...
+    // if the function has paths remaining...
     if (itr != pathsRemaining.end()) {
       auto &traces = pr.second;
       auto &paths = itr->second;
@@ -1331,8 +1336,8 @@ bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState &state) {
 
 bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
 
-  return false;
-#if 0 == 1
+  bool result = false;
+
   // look through each of the functions covered by this state
   for (auto pr : state.itraces) {
     unsigned fnID = pr.first;
@@ -1343,20 +1348,32 @@ bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
       auto &traces = pr.second;
       auto &paths = itr->second;
 
-      // check each path
-      for (const std::string &path : paths) {
-
-        // against each trace
+      auto p_itr = paths.begin();
+      while (p_itr != paths.end()) {
+        std::string path = *p_itr;
+        bool found = false;
         for (const std::string &trace : traces) {
           if (trace.find(path) != std::string::npos) {
-            covered[fnID].insert(path);
+            found = true;
             break;
           }
+        }
+        if (found) {
+
+          // found a missing covered path.  See if this path is already covered by a prior
+          // faulting path
+          if (!pathsFaulting.contains(fnID, path)) {
+            pathsFaulting[fnID].insert(path);
+            result = true;
+          }
+        }
+        else {
+          ++p_itr;
         }
       }
     }
   }
-#endif
+  return result;
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {

@@ -185,7 +185,7 @@ cd cmake-build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/pg-klee" \
+ -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/pse-tools" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \
  -DENABLE_TCMALLOC=ON \

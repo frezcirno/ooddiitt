@@ -64,6 +64,15 @@ namespace klee {
       }
     }
 
+    void clear(unsigned fnID) {
+      auto itr = this->begin();
+      auto end = this->end();
+      while (itr != end) {
+        if (itr->first != fnID) itr = erase(itr);
+        else ++itr;
+      }
+    }
+
     void extend(const M2MPaths &paths) {
       for (auto itr : paths) {
         unsigned fnID = itr.first;
@@ -71,6 +80,12 @@ namespace klee {
           (*this)[fnID].insert(path);
         }
       }
+    }
+
+    bool contains(unsigned fnID, const std::string &path) {
+      auto itr = this->find(fnID);
+      if (itr != end() && itr->second.count(path) != 0) return true;
+      return false;
     }
   };
 
