@@ -136,6 +136,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace),
+    itraces(state.itraces),
+    selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter)
 {
@@ -206,6 +208,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     startingMarker(state.startingMarker),
     endingMarker(state.endingMarker),
     trace(state.trace),
+    itraces(state.itraces),
+    selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter)
 {

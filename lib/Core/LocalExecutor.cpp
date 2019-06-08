@@ -130,6 +130,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   germinalState(nullptr),
   heap_base(opts.heap_base),
   progression(opts.progression),
+  uclibc_init(nullptr),
   verbose(opts.verbose)  {
 
   memory->setBaseAddr(heap_base);
@@ -736,6 +737,8 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   const Module *result = Executor::setModule(module, opts);
   kmodule->prepareMarkers(interpreterHandler, *progInfo);
   specialFunctionHandler->setLocalExecutor(this);
+  // RLR TODO: this could be a very bad idea...
+//  uclibc_init = module->getFunction("__uClibc_init");
 
   void *addr_offset = nullptr;
   if (Context::get().getPointerWidth() == Expr::Int32) {
@@ -845,11 +848,13 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   }
 
   // now consider our stashed faulting states
-  for (auto state : faulting_state_stash) {
-    if (addCoveredFaultingPaths(state)) {
+  for (ExecutionState *state : faulting_state_stash) {
+    if (removeCoveredRemainingPaths(*state)) {
       interpreterHandler->processTestCase(*state);
     }
+    delete state;
   }
+  faulting_state_stash.clear();
 
   outs() << name;
   if (doLocalCoverage) {
@@ -858,6 +863,20 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
            << " of " << num_reachable_paths << " reachable m2m path(s)";
   }
   outs() << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
+
+  if (interpreterOpts.verbose) {
+    for (auto itr : pathsRemaining) {
+      outs() << itr.first << ':';
+      bool first = true;
+      for (auto m : itr.second) {
+        if (!first) outs() << ',';
+        first = false;
+        outs() << m;
+      }
+      outs() << '\n';
+    }
+  }
+
   outs().flush();
 }
 
@@ -1023,6 +1042,18 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   // reset the watchdog timer
   interpreterHandler->resetWatchDogTimer();
 
+
+  // insert call to init uclibc at head of starting block
+  CallInst *callLibCInit = nullptr;
+  if (uclibc_init != nullptr) {
+    Instruction *insert_point = nullptr;
+    auto itr = start->getFirstInsertionPt();
+    if (itr != start->end()) {
+      insert_point = const_cast<Instruction*>(&(*itr));
+    }
+    callLibCInit = CallInst::Create(uclibc_init, "", insert_point);
+  }
+
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
 
@@ -1111,6 +1142,10 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   updateStates(nullptr);
   assert(states.empty());
 
+  if (callLibCInit != nullptr) {
+    callLibCInit->eraseFromParent();
+  }
+
   delete searcher;
   searcher = nullptr;
 
@@ -1130,7 +1165,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
       state.status != ExecutionState::StateStatus::TerminateDiscard) {
 
     if (state.status == ExecutionState::StateStatus::Completed) {
-      if (removeCoveredRemainingPaths(&state)) {
+      if (removeCoveredRemainingPaths(state)) {
         interpreterHandler->processTestCase(state);
       }
     } else {
@@ -1300,7 +1335,7 @@ bool LocalExecutor::reachesRemainingPath(const KFunction *kf, const llvm::BasicB
   return result;
 }
 
-bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState &state) {
+bool LocalExecutor::removeCoveredRemainingPaths(ExecutionState &state) {
 
   bool result = false;
 
@@ -1325,6 +1360,7 @@ bool LocalExecutor::removeCoveredRemainingPaths(const ExecutionState &state) {
           }
         }
         if (found) {
+          state.selected_paths[fnID].insert(path);
           p_itr = paths.erase(p_itr);
           result = true;
         }
@@ -1538,13 +1574,13 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         } else {
           klee_warning("Unable to resolve gep base during preparation of local symbolics");
         }
-      } else if (const CallInst *ci = dyn_cast<CallInst>(cur)) {
-
-        const CallSite cs(const_cast<CallInst *>(ci));
-        Function *fn = getTargetFunction(cs.getCalledValue(), state);
-        if (fn == nullptr || fn->getName() != "__uClibc_init") {
-          klee_warning("Unexpected call instruction during preparation of local symbolics");
-        }
+//      } else if (const CallInst *ci = dyn_cast<CallInst>(cur)) {
+//
+//        const CallSite cs(const_cast<CallInst *>(ci));
+//        Function *fn = getTargetFunction(cs.getCalledValue(), state);
+//        if (fn == nullptr || fn->getName() != "__uClibc_init") {
+//          klee_warning("Unexpected call instruction during preparation of local symbolics");
+//        }
       } else {
         klee_warning("Unexpected instruction during preparation of local symbolics");
       }

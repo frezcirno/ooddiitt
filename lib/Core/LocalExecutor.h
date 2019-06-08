@@ -141,7 +141,7 @@ protected:
 
   void getReachablePaths(const KFunction *kf, M2MPaths &paths);
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
-  bool removeCoveredRemainingPaths(const ExecutionState &state);
+  bool removeCoveredRemainingPaths(ExecutionState &state);
   bool addCoveredFaultingPaths(const ExecutionState &state);
 
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
@@ -164,6 +164,7 @@ protected:
   uint64_t timeout;
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
+  llvm::Function *uclibc_init;
 
   // behavior conditioned by exec mode
   bool doSaveComplete;

@@ -612,6 +612,15 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
         path.append(std::to_string(itr->first) + ':' + std::to_string(itr->second));
       }
 
+      // store the selection paths
+      Json::Value &select = root["selectedPaths"] = Json::objectValue;
+      for (auto itr = state.selected_paths.begin(), end = state.selected_paths.end(); itr != end; ++itr) {
+        Json::Value &fn = select[std::to_string(itr->first)] = Json::arrayValue;
+        for (auto path : itr->second) {
+          fn.append(path);
+        }
+      }
+
       if (!NoSolution) {
 
         std::vector<SymbolicSolution> out;
@@ -1377,22 +1386,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
                                   "_stdio_term"};
   for (auto name : dead_fns) {
     if ((f = mainModule->getFunction(name)) != nullptr) {
-      f->eraseFromParent();
-    }
-  }
-
-  // find the entry point, and insert call to init uclibc
-  Function *uclibc_init = mainModule->getFunction("__uClibc_init");
-  if (uclibc_init != nullptr) {
-    Function *entry = mainModule->getFunction(EntryPoint);
-    if (entry != nullptr) {
-      BasicBlock *bb = &entry->getEntryBlock();
-      Instruction *insert_point = nullptr;
-      auto itr = bb->getFirstInsertionPt();
-      if (itr != bb->end()) {
-        insert_point = &(*itr);
-      }
-      CallInst::Create(uclibc_init, "", insert_point);
+//      f->eraseFromParent();
     }
   }
 

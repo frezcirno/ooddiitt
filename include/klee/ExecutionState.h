@@ -206,6 +206,7 @@ public:
   unsigned long stateSignature;
   std::deque<std::pair<unsigned,unsigned> > trace;
   M2MPaths itraces;
+  M2MPaths selected_paths;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
 

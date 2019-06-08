@@ -84,8 +84,7 @@ namespace klee {
 
     bool contains(unsigned fnID, const std::string &path) {
       auto itr = this->find(fnID);
-      if (itr != end() && itr->second.count(path) != 0) return true;
-      return false;
+      return (itr != end() && itr->second.count(path) > 0);
     }
   };
 
