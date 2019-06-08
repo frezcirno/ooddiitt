@@ -85,6 +85,7 @@ struct StackFrame {
 /// @brief ExecutionState representing a path under exploration
 class ExecutionState {
 public:
+  // RLR TODO: evaluate if this should really be a vector
   typedef std::vector<StackFrame> stack_ty;
 
 private:
@@ -237,7 +238,7 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
-  void extractITrace(const StackFrame &frame);
+  void extractITrace(StackFrame &frame);
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);

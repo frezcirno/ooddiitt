@@ -1122,6 +1122,10 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
+  for (auto &sf : state.stack) {
+    state.extractITrace(sf);
+  }
+
   if (state.status != ExecutionState::StateStatus::Pending &&
       state.status != ExecutionState::StateStatus::TerminateDiscard) {
 
@@ -1367,9 +1371,7 @@ bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
             result = true;
           }
         }
-        else {
-          ++p_itr;
-        }
+        ++p_itr;
       }
     }
   }

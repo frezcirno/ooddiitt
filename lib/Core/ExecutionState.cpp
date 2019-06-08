@@ -233,17 +233,20 @@ void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
 }
 
 
-void ExecutionState::extractITrace(const StackFrame &sf) {
+void ExecutionState::extractITrace(StackFrame &sf) {
 
   // save the intra-procedural trace
-  unsigned fnID = sf.kf->fnID;
-  if (fnID != 0) {
-    std::stringstream ss;
-    ss << '.';
-    for (auto mark : sf.itrace) {
-      ss << mark << '.';
+  if (!sf.itrace.empty()) {
+    unsigned fnID = sf.kf->fnID;
+    if (fnID != 0) {
+      std::stringstream ss;
+      ss << '.';
+      for (auto mark : sf.itrace) {
+        ss << mark << '.';
+      }
+      itraces[fnID].insert(ss.str());
+      sf.itrace.clear();
     }
-    itraces[fnID].insert(ss.str());
   }
 }
 
