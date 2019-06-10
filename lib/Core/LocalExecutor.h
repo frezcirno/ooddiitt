@@ -50,6 +50,7 @@ public:
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
   void runFunctionUnconstrained(llvm::Function *f) override;
+  ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
 protected:
   void runFn(KFunction *kf, ExecutionState &initialState);
@@ -139,7 +140,8 @@ protected:
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
 
-  void getReachablePaths(const KFunction *kf, M2MPaths &paths);
+  void getReachablePaths(const KFunction *kf, M2MPaths &paths) const;
+  void getAllPaths(M2MPaths &paths) const;
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
   bool removeCoveredRemainingPaths(ExecutionState &state);
   bool addCoveredFaultingPaths(const ExecutionState &state);
@@ -159,12 +161,13 @@ protected:
   std::map<const llvm::BasicBlock*, unsigned> forkCounter;
   ProgInfo *progInfo;
   unsigned maxStatesInLoop;
-  ExecutionState *germinalState;
+  ExecutionState *baseState;
   void *heap_base;
   uint64_t timeout;
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
-  llvm::Function *uclibc_init;
+  bool libc_initializing;
+  std::set<llvm::Function*> markerFunctions;
 
   // behavior conditioned by exec mode
   bool doSaveComplete;

@@ -127,10 +127,10 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(opts.pinfo),
   maxStatesInLoop(10000),
-  germinalState(nullptr),
+  baseState(nullptr),
   heap_base(opts.heap_base),
   progression(opts.progression),
-  uclibc_init(nullptr),
+  libc_initializing(false),
   verbose(opts.verbose)  {
 
   memory->setBaseAddr(heap_base);
@@ -160,14 +160,16 @@ LocalExecutor::~LocalExecutor() {
   delete tsolver;
   tsolver = nullptr;
 
-  if (germinalState != nullptr) {
-    // this last state is leaked.  something in solver
-    // tear-down does not like its deletion
-    germinalState = nullptr;
-  }
-
   if (statsTracker) {
     statsTracker->done();
+  }
+
+  if (baseState != nullptr) {
+    // this last state is leaked.  something in solver
+    // tear-down does not like its deletion
+//    delete baseState;
+    baseState = nullptr;
+
   }
 }
 
@@ -448,15 +450,6 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
         // pointer may not be null
         std::vector<ObjectPair> listOPs;
         Type *subtype = type->getPointerElementType()->getPointerElementType();
-
-#if 0 == 1
-        // this is just for debugging and diagnostics
-        std::string type_desc;
-        llvm::raw_string_ostream rso(type_desc);
-        subtype->print(rso);
-        type_desc = rso.str();
-#endif
-
         if (subtype->isFirstClassType()) {
 
           if (LazyAllocationExt) {
@@ -735,24 +728,32 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
 
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
-  kmodule->prepareMarkers(interpreterHandler, *progInfo);
+  kmodule->prepareMarkers(opts, interpreterHandler, *progInfo);
   specialFunctionHandler->setLocalExecutor(this);
-  // RLR TODO: this could be a very bad idea...
-//  uclibc_init = module->getFunction("__uClibc_init");
 
   void *addr_offset = nullptr;
   if (Context::get().getPointerWidth() == Expr::Int32) {
     addr_offset = heap_base;
   }
 
-  // prepare a generic initial state
-  germinalState = new ExecutionState(addr_offset);
-  germinalState->maxLoopIteration = maxLoopIteration;
-  germinalState->lazyAllocationCount = lazyAllocationCount;
-  germinalState->maxLazyDepth = maxLazyDepth;
-  germinalState->maxLoopForks = maxLoopForks;
+  // get a set of marker functions
+  for (std::string fn_name : kmodule->getFnMarkers()) {
+    Function *fn = module->getFunction(fn_name);
+    if (fn != nullptr) {
+      if ((fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
+        markerFunctions.insert(fn);
+      }
+    }
+  }
 
-  initializeGlobals(*germinalState, addr_offset);
+  // prepare a generic initial state
+  baseState = new ExecutionState(addr_offset);
+  baseState->maxLoopIteration = maxLoopIteration;
+  baseState->lazyAllocationCount = lazyAllocationCount;
+  baseState->maxLazyDepth = maxLazyDepth;
+  baseState->maxLoopForks = maxLoopForks;
+
+  initializeGlobals(*baseState, addr_offset);
   bindModuleConstants();
   return result;
 }
@@ -788,6 +789,29 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
 
+  if (pathWriter) baseState->pathOS = pathWriter->open();
+  if (symPathWriter) baseState->symPathOS = symPathWriter->open();
+
+  // look for a libc initializer, execute if found to initialize the base state
+  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
+  if (libc_init != nullptr) {
+    KFunction *kf_init = kmodule->functionMap[libc_init];
+    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
+    if (statsTracker) statsTracker->framePushed(*state, nullptr);
+    initializeGlobalValues(*state, fn);
+    ExecutionState *initState = runLibCInitializer(*state, libc_init);
+    if (initState != nullptr) {
+      delete baseState;
+      baseState = initState;
+    }
+  } else {
+    initializeGlobalValues(*baseState, fn);
+  }
+
+  // initialize a common initial state
+  ExecutionState *state = new ExecutionState(*baseState, kf, name);
+  if (statsTracker) statsTracker->framePushed(*state, nullptr);
+
   // iterate through each phase of unconstrained progression
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
@@ -811,21 +835,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       break;
     }
 
-    ExecutionState *state = new ExecutionState(*germinalState, kf, name);
     timeout = desc.timeout;
-
     unconstraintFlags |= desc.unconstraintFlags;
     state->setUnconstraintFlags(unconstraintFlags);
-
-    if (pathWriter)
-      state->pathOS = pathWriter->open();
-    if (symPathWriter)
-      state->symPathOS = symPathWriter->open();
-
-    if (statsTracker)
-      statsTracker->framePushed(*state, nullptr);
-
-    initializeGlobalValues(*state, fn);
 
     // create parameter values
     unsigned index = 0;
@@ -894,6 +906,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   assert(kf && "main not found in this compilation unit");
 
   std::string name = f->getName();
+  getAllPaths(pathsRemaining);
 
   // In order to make uclibc happy and be closer to what the system is
   // doing we lay out the environments at the end of the argv array
@@ -928,7 +941,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
     }
   }
   
-  ExecutionState *state = new ExecutionState(*germinalState, kf, name);
+  ExecutionState *state = new ExecutionState(*baseState, kf, name);
   
   if (pathWriter)
     state->pathOS = pathWriter->open();
@@ -1042,18 +1055,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   // reset the watchdog timer
   interpreterHandler->resetWatchDogTimer();
 
-
-  // insert call to init uclibc at head of starting block
-  CallInst *callLibCInit = nullptr;
-  if (uclibc_init != nullptr) {
-    Instruction *insert_point = nullptr;
-    auto itr = start->getFirstInsertionPt();
-    if (itr != start->end()) {
-      insert_point = const_cast<Instruction*>(&(*itr));
-    }
-    callLibCInit = CallInst::Create(uclibc_init, "", insert_point);
-  }
-
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
 
@@ -1098,13 +1099,9 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   uint64_t heartbeat = now + HEARTBEAT_INTERVAL;
   HaltReason halt = HaltReason::OK;
 
-  while (!states.empty()) {
+  while (!states.empty() && !haltExecution && halt == HaltReason::OK && !(doLocalCoverage && pathsRemaining.empty())) {
 
-    if (haltExecution || halt != HaltReason::OK) break;
-    if (doLocalCoverage && pathsRemaining.empty()) break;
-    ExecutionState *state;
-
-    state = &searcher->selectState();
+    ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
     try {
@@ -1142,10 +1139,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   updateStates(nullptr);
   assert(states.empty());
 
-  if (callLibCInit != nullptr) {
-    callLibCInit->eraseFromParent();
-  }
-
   delete searcher;
   searcher = nullptr;
 
@@ -1153,6 +1146,65 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   processTree = nullptr;
 
   return halt;
+}
+
+ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, llvm::Function *initializer) {
+
+  ExecutionState *result = nullptr;
+
+  // reset the watchdog timer
+  interpreterHandler->resetWatchDogTimer();
+
+  KFunction *kf = kmodule->functionMap[initializer];
+  unsigned entry = kf->basicBlockEntry[&initializer->getEntryBlock()];
+  state.pc = &kf->instructions[entry];
+
+  processTree = new PTree(&state);
+  state.ptreeNode = processTree->root;
+
+  states.insert(&state);
+  searcher = constructUserSearcher(*this, Searcher::DFS);
+  std::vector<ExecutionState *> newStates(states.begin(), states.end());
+  searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
+  libc_initializing = true;
+
+  while (libc_initializing) {
+
+    ExecutionState *state;
+    state = &searcher->selectState();
+    KInstruction *ki = state->pc;
+    stepInstruction(*state);
+    try {
+      executeInstruction(*state, ki);
+    } catch (bad_expression &e) {
+      interpreterHandler->getInfoStream() << "    * uninitialized expression, restarting execution\n";
+    }
+    processTimers(state, 0);
+    updateStates(state);
+  }
+
+  forkCounter.clear();
+
+  // libc initializer should not have forked any additional states
+  if (states.size() > 1) {
+    klee_warning("libc initialization spawned multiple states");
+  }
+  if (states.empty()) {
+    klee_warning("libc initialization failed to yield a valid state");
+  } else {
+    result = *states.begin();
+    states.clear();
+  }
+  updateStates(nullptr);
+
+  // cleanup
+  delete searcher;
+  searcher = nullptr;
+
+  delete processTree;
+  processTree = nullptr;
+  result->popFrame();
+  return result;
 }
 
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
@@ -1280,30 +1332,52 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::getReachablePaths(const KFunction *kf, M2MPaths &paths) {
+void LocalExecutor::getReachablePaths(const KFunction *kf, M2MPaths &paths) const {
 
   paths.empty();
 
   // construct transitive closure of call graph from fn
-  std::set<std::string> transClosure;
-  std::deque<std::string> worklist = { kf->function->getName().str() };
+  std::set<Function*> transClosure;
+  std::deque<Function*> worklist = { kf->function };
   while (!worklist.empty()) {
-    std::string name = worklist.front();
+    Function *fn = worklist.front();
     worklist.pop_front();
-    transClosure.insert(name);
-    for (auto child : *progInfo->getCallTargets(name)) {
-      if (transClosure.count(child) == 0) {
-        worklist.push_back(child);
+    transClosure.insert(fn);
+    KFunction *kf = kmodule->functionMap[fn];
+    for (Function *target : kf->callTargets) {
+      if (transClosure.count(target) == 0) {
+        worklist.push_back(target);
       }
     }
   }
 
   // for each function in the transitive closure, insert m2m paths
-  for (auto name : transClosure) {
-    unsigned fnID = progInfo->getFnID(name);
-    auto fn_paths = progInfo->get_m2m_paths(name);
-    if (fnID != 0 && fn_paths != nullptr) {
-      paths[fnID] = *fn_paths;
+  for (Function * fn : transClosure) {
+    std::string fn_name = fn->getName();
+    unsigned fnID = progInfo->getFnID(fn_name);
+    if (fnID != 0) {
+      const auto fn_paths = progInfo->get_m2m_paths(fn_name);
+      if (fn_paths != nullptr) {
+        paths[fnID] = *fn_paths;
+      }
+    }
+  }
+}
+
+void LocalExecutor::getAllPaths(M2MPaths &paths) const {
+
+  paths.empty();
+
+  // for each function in the transitive closure, insert m2m paths
+  for (KFunction *kf: kmodule->functions) {
+    Function *fn = kf->function;
+    std::string fn_name = fn->getName();
+    unsigned fnID = progInfo->getFnID(fn_name);
+    if (fnID != 0) {
+      const auto fn_paths = progInfo->get_m2m_paths(fn_name);
+      if (fn_paths != nullptr) {
+        paths[fnID] = *fn_paths;
+      }
     }
   }
 }
@@ -1574,13 +1648,6 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         } else {
           klee_warning("Unable to resolve gep base during preparation of local symbolics");
         }
-//      } else if (const CallInst *ci = dyn_cast<CallInst>(cur)) {
-//
-//        const CallSite cs(const_cast<CallInst *>(ci));
-//        Function *fn = getTargetFunction(cs.getCalledValue(), state);
-//        if (fn == nullptr || fn->getName() != "__uClibc_init") {
-//          klee_warning("Unexpected call instruction during preparation of local symbolics");
-//        }
       } else {
         klee_warning("Unexpected instruction during preparation of local symbolics");
       }
@@ -1654,24 +1721,36 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
+    case Instruction::Ret: {
+      if (libc_initializing &&
+          ((state.stack.size() == 0 || !state.stack.back().caller))) {
+        libc_initializing = false;
+      } else {
+        Executor::executeInstruction(state, ki);
+      }
+      break;
+    }
+
     case Instruction::Invoke:
     case Instruction::Call: {
 
       const CallSite cs(i);
       std::string fnName = "unknown";
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
-      if (fn != nullptr) {
+      if (fn == nullptr) {
+
+        // let classic klee deal with it
+        Executor::executeInstruction(state, ki);
+      } else {
         fnName = fn->getName();
 
         // if this function does not return, (exit, abort, zopc_exit, etc)
         // then this state has completed
-        if (fn->hasFnAttribute(Attribute::NoReturn)) {
+        if (fnName != "__uClibc_main" && fn->hasFnAttribute(Attribute::NoReturn)) {
 
-          if (fnName == "zopc_exit" || fnName == "exit") {
-            terminateStateOnExit(state);
-          } else if (fnName == "abort") {
+          static std::set<std::string> exit_fns = {"zopc_exit", "exit", "abort"};
 
-          // RLR TODO: is an abort an fault?
+          if (exit_fns.count(fnName) > 0) {
             terminateStateOnExit(state);
           } else if (fnName == "__assert_fail") {
             terminateStateOnError(state, "assertion failed", TerminateReason::Assert);
@@ -1682,7 +1761,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         // if this is a call to a mark() variant, then log the marker to state
-        if ((kmodule->isMarkerFn(fnName)) && (fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
+        if (markerFunctions.count(fn) > 0) {
 
           const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
           const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
@@ -1691,52 +1770,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
             state.addMarker(fnID, bbID);
-
-            // RLR TODO debug
-#if 0 == 1
-            std::stringstream ss;
-            for (auto itr = state.markers.begin(), end = state.markers.end(); itr != end; ++itr) {
-              if (itr != state.markers.begin()) ss << ',';
-              ss << itr->fn << ':' << itr->id;
-            }
-            std::string marker_seq = ss.str();
-            std::string target = "16:112,16:102,16:105";
-            if (marker_seq.find(target) != std::string::npos) {
-              outs() << marker_seq;
-            }
-#endif
             return;
           }
         }
-      } else {
-        fnName = "still_unknown";
-
-        // RLR TODO: lookup something appropriate
-        // should also check to see if this is a unique ptr.
-        // do something meaningfull if so.  check for null ptr.
       }
 
       // if subfunctions are not stubbed, this is a special function, or
-      // this is an internal klee fuction, then let the standard executor handle it
+      // this is an internal klee function, then let the standard executor handle it
       bool isInModule = false;
-      if (fn != nullptr) {
-        isInModule = kmodule->isModuleFunction(fn);
-        if ((!state.isStubCallees() && isInModule) ||
-            specialFunctionHandler->isSpecial(fn) ||
-            kmodule->isInternalFunction(fn)) {
-          Executor::executeInstruction(state, ki);
-          return;
-        }
-      }
-
-      // RLR TODO: this needs better handing.
-      if (fnName.find("__ctype") != std::string::npos) {
+      isInModule = kmodule->isModuleFunction(fn);
+      if ((!state.isStubCallees() && isInModule) || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }
 
       // we will be simulating a stubbed subfunction.
-
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 

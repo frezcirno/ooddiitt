@@ -605,7 +605,7 @@ if (ENABLE_KLEE_UCLIBC)
   endif()
 
   # Find the C library bitcode archive
-  set(KLEE_UCLIBC_BCA_NAME "klee-uclibc.bca")
+  set(KLEE_UCLIBC_BCA_NAME "klee-uclibc-64.bca")
   set(KLEE_UCLIBC_C_BCA "${KLEE_UCLIBC_PATH}/lib/libc.a")
   if (NOT EXISTS "${KLEE_UCLIBC_C_BCA}")
     message(FATAL_ERROR
@@ -773,4 +773,4 @@ endif()
 ################################################################################
 # Miscellaneous install
 ################################################################################
-install(FILES include/klee/klee.h DESTINATION include/klee)
+install(FILES include/klee/klee.h DESTINATION include/klee RENAME pg-klee.h)

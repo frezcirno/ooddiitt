@@ -650,7 +650,7 @@ bool KModule::isModuleFunction(const llvm::Function *fn) const {
   return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }
 
-void KModule::prepareMarkers(InterpreterHandler *ih, const ProgInfo &info) {
+void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info) {
 
   set<const Function *> fns_ptr_relation;
   set<const Function *> fns_ptr_equality;
@@ -662,10 +662,10 @@ void KModule::prepareMarkers(InterpreterHandler *ih, const ProgInfo &info) {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
 
-    const Function *fn = kf->function;
+    Function *fn = kf->function;
     string fn_name = fn->getName().str();
-    kf->fnID = info.getFnID(fn_name);
 
+    kf->fnID = info.getFnID(fn_name);
     if (!isInternalFunction(fn) && kf->fnID != 0) {
 
       set<unsigned> fn_bbs;
@@ -686,6 +686,8 @@ void KModule::prepareMarkers(InterpreterHandler *ih, const ProgInfo &info) {
 
             Function *called = getTargetFunction(cs.getCalledValue());
             if (called != nullptr) {
+
+              kf->callTargets.insert(called);
 
               // check the name, number of arguments, and the return type
               if (isMarkerFn(called->getName()) && (called->arg_size() == 2)
@@ -990,71 +992,6 @@ void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLo
   }
 }
 
-#if 0 == 1
-void KFunction::addM2MPath(const BasicBlock *bb) {
-
-  bb_path_t path;
-  m2m_path_t m2m_path;
-  path.push_back(bb);
-  translateBBPath2MarkerPath(path, m2m_path);
-  m2m_paths.insert(m2m_path);
-}
-
-void KFunction::addM2MPaths(const BasicBlocks &majorMarkers) {
-
-  for (auto src : majorMarkers) {
-    BasicBlocks visited;
-    bb_path_t path;
-    recurseM2MPaths(majorMarkers, src, visited, path);
-  }
-}
-
-void KFunction::recurseM2MPaths(const BasicBlocks &majorMarkers,
-                                const BasicBlock *bb,
-                                BasicBlocks &visited,
-                                bb_path_t &path) {
-
-  visited.insert(bb);
-  path.push_back(bb);
-
-
-  BasicBlocks successors;
-  getSuccessorBBs(bb, successors);
-  // if bb has no successors, then we also have a path
-  if (successors.empty()) {
-
-    if (path.size() > 1) {
-      assert(majorMarkers.count(path.front()) > 0);
-      if (majorMarkers.count(path.back()) > 0) {
-        marker_path_t m2m_path;
-        translateBBPath2MarkerPath(path, m2m_path);
-        m2m_paths.insert(m2m_path);
-      }
-    }
-  } else {
-    for (auto succ : successors) {
-      if (majorMarkers.count(succ) > 0) {
-        // then path is a m2m path
-        path.push_back(succ);
-        marker_path_t m2m_path;
-        translateBBPath2MarkerPath(path, m2m_path);
-        if (m2m_path.size() > 1) {
-          m2m_paths.insert(m2m_path);
-        }
-        path.pop_back();
-
-      } else if (visited.count(succ) == 0) {
-        recurseM2MPaths(majorMarkers, succ, visited, path);
-      }
-    }
-  }
-
-  path.pop_back();
-  visited.erase(bb);
-
-}
-#endif
-
 bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
 
   // setup for BFS traversal of CFG
@@ -1082,23 +1019,6 @@ bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const ll
   }
   return false;
 }
-
-#if 0 == 1
-void KFunction::translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const {
-
-  for (auto itr = bb_path.begin(), end = bb_path.end(); itr != end; ++itr) {
-
-    const auto &markers = mapMarkers.find(*itr);
-
-    // skip unmarked basic blocks
-    if (markers != mapMarkers.end()) {
-      for (unsigned bbID : markers->second) {
-        marker_path.push_back(toMarker(fnID, bbID));
-      }
-    }
-  }
-}
-#endif
 
 void KFunction::findLoops() {
 
@@ -1129,7 +1049,6 @@ void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) c
     }
   }
 }
-
 
 void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const {
 

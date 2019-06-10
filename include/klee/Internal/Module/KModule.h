@@ -42,12 +42,6 @@ namespace klee {
   class KModule;
   template<class T> class ref;
 
-#if 0 == 1
-  typedef std::vector<unsigned> marker_path_t;
-  typedef std::set<marker_path_t> marker_paths_t;
-  typedef std::vector<const llvm::BasicBlock*> bb_path_t;
-  typedef std::set<bb_path_t> bb_paths_t;
-#endif
   typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
   typedef std::set<const llvm::BasicBlock*> BasicBlocks;
 
@@ -120,25 +114,11 @@ namespace klee {
     // marker info
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
     std::map<unsigned, const llvm::BasicBlock*> mapBBlocks;
-#if 0 == 1
-    std::set<unsigned> majorMarkers;
-    marker_paths_t m2m_paths;
-    std::vector<const llvm::BasicBlock*> sortedBBlocks;
-    std::set<const KFunction*> callees;
-#endif
+    std::set<llvm::Function*> callTargets;
 
   private:
     KFunction(const KFunction&);
-    KFunction &operator=(const KFunction&);
 
-#if 0 == 1
-    void recurseM2MPaths(const BasicBlocks &majorMarkers,
-                         const llvm::BasicBlock *bb,
-                         BasicBlocks &visited,
-                         bb_path_t &path);
-    
-    void translateBBPath2MarkerPath(const bb_path_t &bb_path, marker_path_t &marker_path) const;
-#endif
   public:
     explicit KFunction(llvm::Function*, KModule *);
     ~KFunction();
@@ -152,11 +132,6 @@ namespace klee {
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
-#if 0 == 1
-    void addM2MPaths(const BasicBlocks &majorMarkers);
-    void addM2MPath(const llvm::BasicBlock *bb);
-    bool isMajorMarker(unsigned marker) const        { return majorMarkers.find(marker) != majorMarkers.end(); }
-#endif
     void constructSortedBBlocks(std::deque<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry = nullptr);
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
@@ -232,10 +207,8 @@ namespace klee {
     /// Initialize local data structures.
     //
     // FIXME: ihandler should not be here
-    void prepare(const Interpreter::ModuleOptions &opts, 
-                 InterpreterHandler *ihandler);
-
-    void prepareMarkers(InterpreterHandler *ih, const ProgInfo &info);
+    void prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ihandler);
+    void prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info);
     void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
 
     /// Return an id for the given constant, creating a new one if necessary.
@@ -246,6 +219,7 @@ namespace klee {
     const static std::string fn_minor_marker;
     const static std::string fn_calltag;
     bool isMarkerFn(std::string fn) const { return fn_markers.count(fn) != 0; }
+    const std::set<std::string> &getFnMarkers() const { return fn_markers; }
 
   private:
     const static std::set<std::string> fn_markers;

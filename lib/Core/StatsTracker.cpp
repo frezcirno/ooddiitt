@@ -347,28 +347,31 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
 
 /* Should be called _after_ the es->pushFrame() */
 void StatsTracker::framePushed(ExecutionState &es, StackFrame *parentFrame) {
-  if (OutputIStats) {
-    StackFrame &sf = es.stack.back();
 
-    if (UseCallPaths) {
-      CallPathNode *parent = parentFrame ? parentFrame->callPathNode : 0;
-      CallPathNode *cp = callPathManager.getCallPath(parent, 
-                                                     sf.caller ? sf.caller->inst : 0, 
-                                                     sf.kf->function);
-      sf.callPathNode = cp;
-      cp->count++;
+  if (es.stack.size() > 0) {
+    if (OutputIStats) {
+      StackFrame &sf = es.stack.back();
+
+      if (UseCallPaths) {
+        CallPathNode *parent = parentFrame ? parentFrame->callPathNode : 0;
+        CallPathNode *cp = callPathManager.getCallPath(parent,
+                                                       sf.caller ? sf.caller->inst : 0,
+                                                       sf.kf->function);
+        sf.callPathNode = cp;
+        cp->count++;
+      }
     }
-  }
 
-  if (updateMinDistToUncovered) {
-    StackFrame &sf = es.stack.back();
+    if (updateMinDistToUncovered) {
+      StackFrame &sf = es.stack.back();
 
-    uint64_t minDistAtRA = 0;
-    if (parentFrame)
-      minDistAtRA = parentFrame->minDistToUncoveredOnReturn;
+      uint64_t minDistAtRA = 0;
+      if (parentFrame)
+        minDistAtRA = parentFrame->minDistToUncoveredOnReturn;
 
-    sf.minDistToUncoveredOnReturn =
-        sf.caller ? computeMinDistToUncovered(sf.caller, minDistAtRA) : 0;
+      sf.minDistToUncoveredOnReturn =
+          sf.caller ? computeMinDistToUncovered(sf.caller, minDistAtRA) : 0;
+    }
   }
 }
 

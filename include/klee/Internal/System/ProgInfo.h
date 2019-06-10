@@ -31,9 +31,6 @@ public:
   bool isReachableOutput(std::string name) const  { return reachableOutputs.count(name) > 0; }
   void setReachableOutput(std::string name)       { reachableOutputs.insert(name); }
 
-  const std::set<std::string> &getCallTargets() const { return callTargets; }
-  void addCallTarget(std::string name)                { callTargets.insert(name); }
-
   unsigned getFnID() const                   { return fnID; }
   void setFnID(unsigned id)                  { fnID = id; }
 
@@ -47,7 +44,6 @@ private:
   std::set<unsigned> constParams;
   std::set<std::string> globalInputs;
   std::set<std::string> reachableOutputs;
-  std::set<std::string> callTargets;
   std::set<std::string> m2m_paths;
   std::set<unsigned> markers;
   unsigned fnID;
@@ -57,6 +53,8 @@ class ProgInfo : private boost::noncopyable {
 
 public:
   ProgInfo()    { }
+
+  bool empty()  { return fnInfo.empty(); }
 
   bool isConstParam(std::string fn, unsigned index) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isConstParam(index) : false); }
@@ -73,10 +71,6 @@ public:
   unsigned getFnID(std::string fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.getFnID() : 0); }
   void setFnID(std::string fn, unsigned id)                { fnInfo[fn].setFnID(id); }
-
-  const std::set<std::string> *getCallTargets(std::string fn) const
-    { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.getCallTargets() : nullptr); }
-  void addCallTarget(std::string fn, std::string target)            { fnInfo[fn].addCallTarget(target); }
 
   const std::set<unsigned> *get_markers(std::string fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.get_markers() : nullptr); }

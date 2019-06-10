@@ -32,6 +32,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
@@ -75,7 +76,7 @@ namespace {
   cl::opt<std::string>
   ProgramInfo("prog-info",
               cl::desc("json formated info from static analysis"),
-              cl::init(""));
+              cl::init("prog-info.json"));
 
   cl::opt<bool>
   Verbose("verbose",
@@ -1247,12 +1248,24 @@ static void replaceOrRenameFunction(llvm::Module *module,
     }
   }
 }
-      
+
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
+
   LLVMContext &ctx = mainModule->getContext();
   // Ensure that klee-uclibc exists
   SmallString<128> uclibcBCA(libDir);
-  llvm::sys::path::append(uclibcBCA, KLEE_UCLIBC_BCA_NAME);
+
+  std::string uclibcLib = "klee-uclibc";
+  std::string extension = ".bca";
+  llvm::DataLayout targetData(mainModule);
+  Expr::Width width = targetData.getPointerSizeInBits();
+  if (width == Expr::Int32) {
+    uclibcLib += "-32";
+  } else if (width == Expr::Int64) {
+    uclibcLib += "-64";
+  }
+  uclibcLib += extension;
+  llvm::sys::path::append(uclibcBCA, uclibcLib);
 
   bool uclibcExists=false;
   llvm::sys::fs::exists(uclibcBCA.c_str(), uclibcExists);
@@ -1329,7 +1342,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // programs externally linked with uclibc.
 
   // RLR TODO: evaluate the continuing need for this
-#if 0 == 1
   // We now need to swap things so that __uClibc_main is the entry
   // point, in such a way that the arguments are passed to
   // __uClibc_main correctly. We do this by renaming the user main
@@ -1341,10 +1353,12 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   assert(userMainFn && "unable to get user main");
   Function *uclibcMainFn = mainModule->getFunction("__uClibc_main");
   assert(uclibcMainFn && "unable to get uclibc main");
-  userMainFn->setName("__user_main");
 
   const FunctionType *ft = uclibcMainFn->getFunctionType();
   assert(ft->getNumParams() == 7);
+
+  std::string new_entry = "__user_" + UserMain;
+  UserMain = new_entry;
 
   std::vector<LLVM_TYPE_Q Type*> fArgs;
   fArgs.push_back(ft->getParamType(1)); // argc
@@ -1366,32 +1380,34 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   CallInst::Create(uclibcMainFn, args, "", bb);
 
   new UnreachableInst(ctx, bb);
-#endif
 
-  // monkey patch isatty to always return false
-  Function *isatty = mainModule->getFunction("isatty");
-  if (isatty != NULL) {
-    Type *rt = isatty->getReturnType();
-    isatty->dropAllReferences();
-    BasicBlock *bb = BasicBlock::Create(ctx, "entry", isatty);
-    ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
-  }
+  // and trivialize functions we will never use
+  std::set<std::string> trivialize_fns {
+    "isatty",
+    "tcgetattr",
+    "__uClibc_main",
+    "__check_one_fd",
+    "__stdio_WRITE",
+    "__stdio_wcommit",
+    "_stdio_term"
+  };
 
-  // RLR TODO: bad things happened when I removed these... :(
-  // and remove functions we will never use
-#if 0 == 1
-  std::set<std::string> dead_fns {"tcgetattr",
-                                  "__uClibc_main",
-                                  "__check_one_fd",
-                                  "__stdio_WRITE",
-                                  "__stdio_wcommit",
-                                  "_stdio_term"};
-  for (auto name : dead_fns) {
-    if ((f = mainModule->getFunction(name)) != nullptr) {
-      f->eraseFromParent();
+  for (auto name : trivialize_fns) {
+    Function *fn;
+    if ((fn = mainModule->getFunction(name)) != nullptr) {
+
+      Type *rt = fn->getReturnType();
+      fn->dropAllReferences();
+      BasicBlock *bb = BasicBlock::Create(ctx, "entry", fn);
+
+      if (rt->isVoidTy()) {
+        ReturnInst::Create(ctx, bb);
+      } else if (rt->isIntegerTy()) {
+        ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
+      }
     }
   }
-#endif
+
   klee_message("NOTE: Using klee-uclibc : %s", uclibcBCA.c_str());
   return mainModule;
 }
@@ -1453,15 +1469,6 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       for (unsigned index = 0, end = reaching.size(); index < end; ++index) {
         Json::Value &name = reaching[index];
         progInfo.setReachableOutput(fn, name.asString());
-      }
-    }
-
-    // find the function's call targets
-    Json::Value &callTargets = fnRoot["callTargets"];
-    if (callTargets.isArray()) {
-      for (unsigned index = 0, end = callTargets.size(); index < end; ++index) {
-        Json::Value &name = callTargets[index];
-        progInfo.addCallTarget(fn, name.asString());
       }
     }
 
@@ -1659,13 +1666,6 @@ int main(int argc, char **argv, char **envp) {
 
           if (reset_watchdog_timer) {
 
-
-            // RLR TODO: debug
-#if 0 == 1
-            klee_message("KLEE: WATCHDOG: rx heartbeat interval: %u", (unsigned) (now - baseline));
-            log << "rx heartbeat interval: " << now - baseline << std::endl;
-            baseline = now;
-#endif
             nextStep = now + heartbeat_timeout;
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
@@ -1760,6 +1760,9 @@ int main(int argc, char **argv, char **envp) {
       info >> root;
       load_prog_info(root, progInfo);
     }
+  }
+  if (progInfo.empty()) {
+    klee_error("program info json repository is required");
   }
 
   if (WithPOSIXRuntime) {
