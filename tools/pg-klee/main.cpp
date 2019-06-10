@@ -1377,7 +1377,9 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
     ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
   }
 
+  // RLR TODO: bad things happened when I removed these... :(
   // and remove functions we will never use
+#if 0 == 1
   std::set<std::string> dead_fns {"tcgetattr",
                                   "__uClibc_main",
                                   "__check_one_fd",
@@ -1386,10 +1388,10 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
                                   "_stdio_term"};
   for (auto name : dead_fns) {
     if ((f = mainModule->getFunction(name)) != nullptr) {
-//      f->eraseFromParent();
+      f->eraseFromParent();
     }
   }
-
+#endif
   klee_message("NOTE: Using klee-uclibc : %s", uclibcBCA.c_str());
   return mainModule;
 }
