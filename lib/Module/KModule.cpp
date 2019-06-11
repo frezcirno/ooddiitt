@@ -659,6 +659,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
   set<const Function *> fns_int_to_ptr;
 
   // for each function in the main module
+  std::vector<std::string> bb_conflicts;
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
 
@@ -780,8 +781,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
           }
           ss << ')';
         }
-
-        klee_error("%s", ss.str().c_str());
+        bb_conflicts.push_back(ss.str());
       }
 
       // find all (possibly nested) loop headers
@@ -808,6 +808,13 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
           }
         }
       }
+    }
+    if (!bb_conflicts.empty()) {
+      std::stringstream ss;
+      for (const std::string &conflict : bb_conflicts) {
+        ss << conflict << '\n';
+      }
+      klee_error("%s", ss.str().c_str());
     }
   }
 
