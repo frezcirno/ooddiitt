@@ -781,7 +781,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
           ss << ')';
         }
 
-        klee_error(ss.str().c_str());
+        klee_error("%s", ss.str().c_str());
       }
 
       // find all (possibly nested) loop headers
