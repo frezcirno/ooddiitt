@@ -1342,17 +1342,22 @@ void LocalExecutor::getReachablePaths(const KFunction *kf, M2MPaths &paths) cons
   while (!worklist.empty()) {
     Function *fn = worklist.front();
     worklist.pop_front();
-    transClosure.insert(fn);
-    KFunction *kf = kmodule->functionMap[fn];
-    for (Function *target : kf->callTargets) {
-      if (transClosure.count(target) == 0) {
-        worklist.push_back(target);
+
+    // only add if the function is mapped in the kmodule
+    auto itr = kmodule->functionMap.find(fn);
+    if (itr != kmodule->functionMap.end()) {
+      transClosure.insert(fn);
+      KFunction *kf_target = itr->second;
+      for (Function *target : kf_target->callTargets) {
+        if (transClosure.count(target) == 0) {
+          worklist.push_back(target);
+        }
       }
     }
   }
 
   // for each function in the transitive closure, insert m2m paths
-  for (Function * fn : transClosure) {
+  for (Function *fn : transClosure) {
     std::string fn_name = fn->getName();
     unsigned fnID = progInfo->getFnID(fn_name);
     if (fnID != 0) {
