@@ -1746,6 +1746,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         // let classic klee deal with it
         Executor::executeInstruction(state, ki);
+        break;
       } else {
         fnName = fn->getName();
 

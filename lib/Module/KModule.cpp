@@ -740,8 +740,48 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
       }
 
       // validate the marker ids found in function
-      if (*info.get_markers(fn_name) != fn_bbs) {
-        klee_warning("conflicting markers in function %s", fn_name.c_str());
+      const std::set<unsigned> &info_bbs = *info.get_markers(fn_name);
+      std::set<unsigned> in_info;
+      std::set<unsigned> in_module;
+
+      std::set_difference(info_bbs.begin(), info_bbs.end(),
+                          fn_bbs.begin(), fn_bbs.end(),
+                          std::inserter(in_info, in_info.end()));
+
+      std::set_difference(fn_bbs.begin(), fn_bbs.end(),
+                          info_bbs.begin(), info_bbs.end(),
+                          std::inserter(in_module, in_module.end()));
+
+      if (!(in_info.empty() && in_module.empty())) {
+
+        // report mismatched markers
+        std::stringstream ss;
+        ss << "conflicting markers in function " << fn_name << ' ';
+        if (!in_info.empty()) {
+          ss << "(in_info: ";
+          bool first = true;
+          for (auto m : in_info) {
+            if (!first)
+              ss << ',';
+            ss << m;
+            first = false;
+          }
+          ss << ')';
+        }
+
+        if (!in_module.empty()) {
+          ss << "(in_module: ";
+          bool first = true;
+          for (auto m : in_module) {
+            if (!first)
+              ss << ',';
+            ss << m;
+            first = false;
+          }
+          ss << ')';
+        }
+
+        klee_error(ss.str().c_str());
       }
 
       // find all (possibly nested) loop headers
