@@ -1638,7 +1638,6 @@ int main(int argc, char **argv, char **envp) {
       clock_gettime(CLOCK_MONOTONIC, &tm);
       uint64_t now = (uint64_t) tm.tv_sec;
       uint64_t nextStep = now + heartbeat_timeout;
-//      uint64_t baseline = now;
 
       // Simple stupid code...
       while (true) {

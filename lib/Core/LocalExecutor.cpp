@@ -292,6 +292,9 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
 
     // ensure this is a simple expression, i.e. only concats of constant reads in the tree of subexprs
     bool simple = true;
+
+// RLR TODO
+#if 0 == 1
     std::deque<ref<Expr> > worklist = {e};
     while (simple && !worklist.empty()) {
       ref<Expr> child = worklist.front();
@@ -309,6 +312,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
         simple = false;
       }
     }
+#endif
 
     if (simple) {
       ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
@@ -388,6 +392,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   } else {
 
     ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
+    assert(!os->thisObjectHasBeenDeleted);
 
     // at most one of these forks will survive
     // currState will point to the sole survivor
@@ -410,14 +415,18 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     }
   }
 
+  assert(!os->thisObjectHasBeenDeleted);
+
   if (!currState->isSymbolic(mo)) {
     if (!isLocallyAllocated(*currState, mo)) {
       if (mo->kind == klee::MemKind::lazy) {
         os = makeSymbolic(*currState, mo);
+        assert(!os->thisObjectHasBeenDeleted);
       }
     }
   }
 
+  assert(!os->thisObjectHasBeenDeleted);
   ref<Expr> e = os->read(offsetExpr, width);
   bindLocal(target, *currState, e);
 
@@ -594,11 +603,13 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   if (os != nullptr) {
     wos = state.addressSpace.getWriteable(mo, os);
     if (state.isSymbolic(mo)) {
+      assert(!wos->thisObjectHasBeenDeleted);
       return wos;
     }
   }
 
-  // hold the old object state in memory
+  // wos with either equal os or point to a copied value
+  // os now may be been deleted, so henceforth, use wos
   ObjectHolder oh(wos);
 
   // Create a new object state for the memory object (instead of a copy).
@@ -612,11 +623,13 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   }
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
 
+  // hold the old object state in memory
   wos = bindObjectInState(state, mo, array);
   state.addSymbolic(mo, array);
   if (!oh.isNull()) {
     wos->cloneWritten(oh.getOS());
   }
+  assert(!wos->thisObjectHasBeenDeleted);
   return wos;
 }
 
@@ -709,10 +722,17 @@ void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) 
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
     MemoryObject *mo = globalObjects.find(v)->second;
-    std::string name = mo->name;
+    std::string gb_name = mo->name;
+    std::string fn_name = fn->getName();
+
     if (state.isUnconstrainGlobals() &&
-        (name.size() > 0) && (name.at(0) != '.') &&
-        (fn == nullptr || progInfo->isGlobalInput(fn->getName().str(), name))) {
+        (gb_name.size() > 0) && (gb_name.at(0) != '.') &&
+        (fn == nullptr || progInfo->isGlobalInput(fn_name, gb_name))) {
+      // global may already have a value in this state.
+      const ObjectState *os = state.addressSpace.findObject(mo);
+      if (os != nullptr) {
+        state.addressSpace.unbindObject(mo);
+      }
       makeSymbolic(state, mo);
     } else if (v->hasInitializer()) {
       assert(state.isConcrete(mo));
@@ -798,24 +818,22 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     KFunction *kf_init = kmodule->functionMap[libc_init];
     ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
     if (statsTracker) statsTracker->framePushed(*state, nullptr);
-    initializeGlobalValues(*state, fn);
     ExecutionState *initState = runLibCInitializer(*state, libc_init);
     if (initState != nullptr) {
       delete baseState;
       baseState = initState;
     }
-  } else {
-    initializeGlobalValues(*baseState, fn);
   }
 
-  // initialize a common initial state
-  ExecutionState *state = new ExecutionState(*baseState, kf, name);
-  if (statsTracker) statsTracker->framePushed(*state, nullptr);
 
   // iterate through each phase of unconstrained progression
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
     const auto &desc = *itr;
+
+    // initialize a common initial state
+    ExecutionState *state = new ExecutionState(*baseState, kf, name);
+    if (statsTracker) statsTracker->framePushed(*state, nullptr);
 
     // when substituting unconstraining stubs, remaining paths
     // must be filtered to only entry function
@@ -838,6 +856,11 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
     state->setUnconstraintFlags(unconstraintFlags);
+
+    outs() << interpreterHandler->flags_to_string(state->getUnconstraintFlags()) << '\n';
+
+    // setup global state
+    initializeGlobalValues(*state, fn);
 
     // create parameter values
     unsigned index = 0;

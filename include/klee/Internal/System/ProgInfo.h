@@ -25,11 +25,11 @@ public:
   bool isConstParam(unsigned index) const    { return constParams.count(index) > 0; }
   void setConstParam(unsigned index)         { constParams.insert(index); }
 
-  bool isGlobalInput(std::string name) const { return globalInputs.count(name) > 0; }
-  void setGlobalInput(std::string name)      { globalInputs.insert(name); }
+  bool isGlobalInput(const std::string &name) const { return globalInputs.count(name) > 0; }
+  void setGlobalInput(const std::string &name)      { globalInputs.insert(name); }
 
-  bool isReachableOutput(std::string name) const  { return reachableOutputs.count(name) > 0; }
-  void setReachableOutput(std::string name)       { reachableOutputs.insert(name); }
+  bool isReachableOutput(const std::string &name) const  { return reachableOutputs.count(name) > 0; }
+  void setReachableOutput(const std::string &name)       { reachableOutputs.insert(name); }
 
   unsigned getFnID() const                   { return fnID; }
   void setFnID(unsigned id)                  { fnID = id; }
@@ -38,7 +38,7 @@ public:
   void add_marker(unsigned marker)              { markers.insert(marker); }
 
   const std::set<std::string> &get_m2m_paths() const { return m2m_paths; }
-  void add_m2m_path(std::string path)                { m2m_paths.insert(path); }
+  void add_m2m_path(const std::string &path)         { m2m_paths.insert(path); }
 
 private:
   std::set<unsigned> constParams;
@@ -56,27 +56,27 @@ public:
 
   bool empty()  { return fnInfo.empty(); }
 
-  bool isConstParam(std::string fn, unsigned index) const
+  bool isConstParam(const std::string &fn, unsigned index) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isConstParam(index) : false); }
   void setConstParam(std::string fn, unsigned index)       { fnInfo[fn].setConstParam(index); }
 
-  bool isGlobalInput(std::string fn, std::string name) const
+  bool isGlobalInput(const std::string &fn, std::string name) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isGlobalInput(name) : false); }
   void setGlobalInput(std::string fn, std::string name)      { fnInfo[fn].setGlobalInput(name); }
 
-  bool isReachableOutput(std::string fn, std::string name) const
+  bool isReachableOutput(const std::string &fn, std::string name) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isReachableOutput(name) : false); }
   void setReachableOutput(std::string fn, std::string name)      { fnInfo[fn].setReachableOutput(name); }
 
-  unsigned getFnID(std::string fn) const
+  unsigned getFnID(const std::string &fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.getFnID() : 0); }
   void setFnID(std::string fn, unsigned id)                { fnInfo[fn].setFnID(id); }
 
-  const std::set<unsigned> *get_markers(std::string fn) const
+  const std::set<unsigned> *get_markers(const std::string &fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.get_markers() : nullptr); }
   void add_marker(std::string fn, unsigned marker)            { fnInfo[fn].add_marker(marker); }
 
-  const std::set<std::string> *get_m2m_paths(std::string fn) const
+  const std::set<std::string> *get_m2m_paths(const std::string &fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.get_m2m_paths() : nullptr); }
   void add_m2m_path(std::string fn, std::string path)              { fnInfo[fn].add_m2m_path(path); }
 

@@ -299,7 +299,7 @@ void AddressSpace::copyOutConcretes() {
     const MemoryObject *mo = it->first;
 
     if (!mo->isUserSpecified) {
-      ObjectState *os = it->second;
+      const ObjectState *os = it->second;
       uint8_t *address = (uint8_t*) (mo->address + base_addr);
 
       if (!os->readOnly)

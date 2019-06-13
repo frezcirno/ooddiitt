@@ -195,6 +195,7 @@ private:
 public:
     //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
+  bool thisObjectHasBeenDeleted;
   unsigned visible_size;
   std::vector<const llvm::Type*> types;
   bool readOnly;

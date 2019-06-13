@@ -24,7 +24,7 @@ namespace klee {
     
     ObjectHolder &operator=(const ObjectHolder &b);
     bool isNull() const                   { return (os == nullptr); }
-    ObjectState *getOS() const            { return os; }
+    const ObjectState *getOS() const            { return os; }
 
     operator class ObjectState *() { return os; }
     operator class ObjectState *() const  { return (ObjectState*) os; }
