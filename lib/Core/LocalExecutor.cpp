@@ -294,7 +294,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     bool simple = true;
 
 // RLR TODO
-#if 0 == 1
+//#if 0 == 1
     std::deque<ref<Expr> > worklist = {e};
     while (simple && !worklist.empty()) {
       ref<Expr> child = worklist.front();
@@ -312,7 +312,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
         simple = false;
       }
     }
-#endif
+//#endif
 
     if (simple) {
       ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
@@ -392,7 +392,6 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   } else {
 
     ref<Expr> mc = os->getBoundsCheckOffset(offsetExpr, bytes);
-    assert(!os->thisObjectHasBeenDeleted);
 
     // at most one of these forks will survive
     // currState will point to the sole survivor
@@ -415,18 +414,14 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
     }
   }
 
-  assert(!os->thisObjectHasBeenDeleted);
-
   if (!currState->isSymbolic(mo)) {
     if (!isLocallyAllocated(*currState, mo)) {
       if (mo->kind == klee::MemKind::lazy) {
         os = makeSymbolic(*currState, mo);
-        assert(!os->thisObjectHasBeenDeleted);
       }
     }
   }
 
-  assert(!os->thisObjectHasBeenDeleted);
   ref<Expr> e = os->read(offsetExpr, width);
   bindLocal(target, *currState, e);
 
@@ -603,7 +598,6 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   if (os != nullptr) {
     wos = state.addressSpace.getWriteable(mo, os);
     if (state.isSymbolic(mo)) {
-      assert(!wos->thisObjectHasBeenDeleted);
       return wos;
     }
   }
@@ -629,7 +623,6 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   if (!oh.isNull()) {
     wos->cloneWritten(oh.getOS());
   }
-  assert(!wos->thisObjectHasBeenDeleted);
   return wos;
 }
 

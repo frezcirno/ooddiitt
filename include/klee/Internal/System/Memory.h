@@ -195,7 +195,6 @@ private:
 public:
     //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
-  bool thisObjectHasBeenDeleted;
   unsigned visible_size;
   std::vector<const llvm::Type*> types;
   bool readOnly;
@@ -227,7 +226,7 @@ public:
   void resetBytesWritten();
   bool isWritten() const { return writtenMask != nullptr; }
   unsigned getPhysicalSize() const { return object->size; }
-  unsigned getVisibleSize() const { return object->size; }
+  unsigned getVisibleSize() const { return visible_size; }
   const llvm::Type *getLastType() const { if (!types.empty()) return types.back(); return nullptr; }
   bool referencedAs(const llvm::Type *type) const
     { for (auto itr = types.cbegin(), end = types.cend(); itr != end; ++itr) {

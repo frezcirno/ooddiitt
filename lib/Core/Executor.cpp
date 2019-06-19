@@ -111,6 +111,8 @@
 using namespace llvm;
 using namespace klee;
 
+#define MAX_ALLOCATION_SIZE (1<<30)
+
 namespace {
   cl::opt<bool>
   DumpStatesOnHalt("dump-states-on-halt",
@@ -3211,7 +3213,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
   // size is now a constant
   uint64_t allocSize = cast<ConstantExpr>(size)->getZExtValue(W);
-  if (allocSize > 1024 * 1024) {
+  if (allocSize > MAX_ALLOCATION_SIZE) {
 
     errs() << "failing large allocation\n";
     bindLocal(target, state, ConstantExpr::createPointer(0));
@@ -3229,7 +3231,7 @@ void Executor::executeAlloc(ExecutionState &state,
 
         ExecutionState *failState = state.branch();
 
-        // and split the process truee for the new state
+        // and split the process true for the new state
         state.ptreeNode->data = nullptr;
         std::pair<PTree::Node *, PTree::Node *> res = processTree->split(state.ptreeNode, &state, failState);
         state.ptreeNode = res.first;
@@ -3682,7 +3684,6 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
 
 bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) {
 
-  solver->setTimeout(coreSolverTimeout);
 
 #if 0 == 1
   ExecutionState tmp(state);
@@ -3717,11 +3718,25 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
 
 #endif
 
-  std::vector< std::vector<unsigned char> > values;
+  std::vector<const MemoryObject*> mos;
   std::vector<const Array*> objects;
-  for (unsigned i = 0; i != state.symbolics.size(); ++i)
-    objects.push_back(state.symbolics[i].second);
-//  bool success = solver->getInitialValues(tmp, objects, values);
+  std::vector< std::vector<unsigned char> > values;
+  for (unsigned idx = 0, end = state.symbolics.size(); idx != end; ++idx) {
+    const auto &pair = state.symbolics[idx];
+    mos.push_back(pair.first);
+    objects.push_back(pair.second);
+  }
+
+  std::vector<unsigned> visible_sizes(mos.size());
+  for (unsigned idx = 0, end = mos.size(); idx != end; ++idx) {
+    unsigned visible_size = UINTMAX_MAX;
+    if (const ObjectState *os = state.addressSpace.findObject(mos[idx])) {
+      visible_size = os->getVisibleSize();
+    }
+    visible_sizes[idx] = visible_size;
+  }
+
+  solver->setTimeout(coreSolverTimeout);
   bool success = solver->getInitialValues(state, objects, values);
   solver->setTimeout(0);
   if (!success) {
@@ -3729,6 +3744,13 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
     ExprPPrinter::printQuery(llvm::errs(), state.constraints,
                              ConstantExpr::alloc(0, Expr::Bool));
     return false;
+  }
+
+  // reduce solutions to objects visible size
+  for (unsigned idx = 0, end = mos.size(); idx != end; ++idx) {
+    if (values[idx].size() > visible_sizes[idx]) {
+      values[idx].resize(visible_sizes[idx]);
+    }
   }
 
   for (unsigned i = 0; i != state.symbolics.size(); ++i)

@@ -109,7 +109,6 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates(0, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    thisObjectHasBeenDeleted(false),
     visible_size(mo->created_size),
     readOnly(false) {
   mo->refCount++;
@@ -135,7 +134,6 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     updates(array, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    thisObjectHasBeenDeleted(false),
     visible_size(mo->created_size),
     readOnly(false) {
   mo->refCount++;
@@ -155,7 +153,6 @@ ObjectState::ObjectState(const ObjectState &os)
     updates(os.updates),
     writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.object->size) : nullptr),
     symboliclyWritten(os.symboliclyWritten),
-    thisObjectHasBeenDeleted(false),
     visible_size(os.visible_size),
     types(os.types),
     readOnly(os.readOnly) {
@@ -180,7 +177,6 @@ ObjectState::~ObjectState() {
 
   delete[] concreteStore;
   concreteStore = nullptr;
-  thisObjectHasBeenDeleted = true;
 
   if (object != nullptr)  {
     assert(object->refCount > 0);
