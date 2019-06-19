@@ -28,8 +28,12 @@ public:
   bool isGlobalInput(const std::string &name) const { return globalInputs.count(name) > 0; }
   void setGlobalInput(const std::string &name)      { globalInputs.insert(name); }
 
-  bool isReachableOutput(const std::string &name) const  { return reachableOutputs.count(name) > 0; }
-  void setReachableOutput(const std::string &name)       { reachableOutputs.insert(name); }
+  bool isReachableFn(const std::string &name) const  { return reachableFns.count(name) > 0; }
+  void setReachableFn(const std::string &name)       { reachableFns.insert(name); }
+  const std::set<std::string> &getReachableFns() const { return reachableFns; }
+
+  bool isOutput(const std::string &name) const  { return outputs.count(name) > 0; }
+  void setOutput(const std::string &name)       { outputs.insert(name); }
 
   unsigned getFnID() const                   { return fnID; }
   void setFnID(unsigned id)                  { fnID = id; }
@@ -43,7 +47,8 @@ public:
 private:
   std::set<unsigned> constParams;
   std::set<std::string> globalInputs;
-  std::set<std::string> reachableOutputs;
+  std::set<std::string> outputs;
+  std::set<std::string> reachableFns;
   std::set<std::string> m2m_paths;
   std::set<unsigned> markers;
   unsigned fnID;
@@ -64,9 +69,26 @@ public:
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isGlobalInput(name) : false); }
   void setGlobalInput(std::string fn, std::string name)      { fnInfo[fn].setGlobalInput(name); }
 
-  bool isReachableOutput(const std::string &fn, std::string name) const
-    { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isReachableOutput(name) : false); }
-  void setReachableOutput(std::string fn, std::string name)      { fnInfo[fn].setReachableOutput(name); }
+  bool isReachableFn(const std::string &fn, std::string name) const
+    { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isReachableFn(name) : false); }
+  void setReachableFn(std::string fn, std::string name)      { fnInfo[fn].setReachableFn(name); }
+
+  bool isOutput(const std::string &fn, std::string name) const
+    { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isOutput(name) : false); }
+  void setOutput(std::string fn, std::string name)      { fnInfo[fn].setOutput(name); }
+
+  bool isReachableOutput(const std::string &fn, std::string name) const {
+    const auto &fn_itr = fnInfo.find(fn);
+    if (fn_itr != fnInfo.end()) {
+      for (const auto &item : fn_itr->second.getReachableFns()) {
+        auto child_itr = fnInfo.find(item);
+        if (child_itr != fnInfo.end()) {
+          if (child_itr->second.isOutput(name)) return true;
+        }
+      }
+    }
+    return false;
+  }
 
   unsigned getFnID(const std::string &fn) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.getFnID() : 0); }

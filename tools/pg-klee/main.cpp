@@ -1413,6 +1413,21 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
+void accumulate_transitive_closure(const std::map<std::string,std::set<std::string> > &map_callees,
+                                   const std::string &fn,
+                                   std::set<std::string> &callees) {
+
+  const auto &itr = map_callees.find(fn);
+  if (itr != map_callees.end()) {
+    for (const auto &child : itr->second) {
+      if (callees.count(child) == 0) {
+        callees.insert(child);
+        accumulate_transitive_closure(map_callees, child, callees);
+      }
+    }
+  }
+}
+
 void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
 
   // get a list of non-const global variables defined in this module
@@ -1426,9 +1441,13 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   }
 
   // complete progInfo from json structure
+
+  // need a map of callees per function
+  std::map<std::string,std::set<std::string> > map_callees;
+
   Json::Value &fnsRoot = root["functions"];
   Json::Value::Members fns = fnsRoot.getMemberNames();
-  for (const auto fn : fns) {
+  for (const auto &fn : fns) {
 
     // find the constant function params
     Json::Value &fnRoot = fnsRoot[fn];
@@ -1449,6 +1468,15 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       }
     }
 
+    // get all of the functions direct callees
+    Json::Value &callTargets = fnRoot["callTargets"];
+    if (callTargets.isArray()) {
+      for (unsigned index = 0, end = callTargets.size(); index < end; ++index) {
+        Json::Value &target = callTargets[index];
+        map_callees[fn].insert(target.asString());
+      }
+    }
+
     // find the referenced global variables
     Json::Value &globals = fnRoot["globalRefs"];
     if (globals.isArray()) {
@@ -1460,15 +1488,12 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
             progInfo.setGlobalInput(fn, name);
           }
         }
-      }
-    }
-
-    // find the reachable output variables
-    Json::Value &reaching = fnRoot["reachingGlobalRefs"];
-    if (reaching.isArray()) {
-      for (unsigned index = 0, end = reaching.size(); index < end; ++index) {
-        Json::Value &name = reaching[index];
-        progInfo.setReachableOutput(fn, name.asString());
+        if (global["isOutput"].asBool()) {
+          std::string name = global["name"].asString();
+          if (global_vars.count(name) > 0) {
+            progInfo.setOutput(fn, name);
+          }
+        }
       }
     }
 
@@ -1496,6 +1521,18 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
           progInfo.add_m2m_path(fn, ss.str());
         }
       }
+    }
+  }
+
+  // now that we have a map of direct callees, we do a dfs to find all reachable callees
+  for (const auto &itr : map_callees) {
+    const std::string &fn = itr.first;
+    std::set<std::string> callees;
+    accumulate_transitive_closure(map_callees, fn, callees);
+
+    progInfo.setReachableFn(fn, fn);
+    for (const auto &callee : callees) {
+      progInfo.setReachableFn(fn, callee);
     }
   }
 
