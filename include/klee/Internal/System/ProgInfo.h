@@ -106,7 +106,7 @@ public:
 
 
   const std::string &getChecksum() const { return checksum; }
-  bool isChecksum(const std::string &chk) const { return checksum == chk; }
+  bool isChecksum(const std::string &chk) const { return checksum.size() == 0 || checksum == chk; }
   void setChecksum(const std::string &chk) { checksum = chk; }
 
 private:

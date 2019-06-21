@@ -44,6 +44,7 @@
 #include "llvm/Support/Signals.h"
 
 #include <openssl/sha.h>
+#include <boost/algorithm/hex.hpp>
 #include <fstream>
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
@@ -1132,17 +1133,14 @@ std::string calcChecksum(const std::string &filename){
       std::streamsize count = infile.gcount();
       if (count > 0) SHA256_Update(&sha256, buffer, count);
     }
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_Final(hash, &sha256);
-    std::stringstream ss;
-    ss << std::hex << std::setw(2) << std::setfill('0');
-    for (unsigned idx = 0; idx < SHA256_DIGEST_LENGTH; ++idx) {
-      ss <<  hash[idx];
-    }
-    result = ss.str();
+
+    std::vector<unsigned char> hash(SHA256_DIGEST_LENGTH);
+    SHA256_Final(hash.data(), &sha256);
+    boost::algorithm::hex(hash.begin(), hash.end(), std::back_inserter(result));
   }
   return result;
 }
+
 
 #define NELEMS(array) (sizeof(array)/sizeof(array[0]))
 
