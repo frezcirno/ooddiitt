@@ -293,13 +293,13 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     // ensure this is a simple expression, i.e. only concats of constant reads in the tree of subexprs
     bool simple = true;
 
-// RLR TODO
-//#if 0 == 1
+// RLR TODO: detect unconstrained pointer
+#if 0 == 1
     std::deque<ref<Expr> > worklist = {e};
     while (simple && !worklist.empty()) {
       ref<Expr> child = worklist.front();
       worklist.pop_front();
-      Expr::Kind k = child->getKind();
+      Expr::Kind k = child->getKind();W
       if (k == Expr::Kind::Concat) {
         for (unsigned idx = 0, end = child->getNumKids(); idx < end; ++idx) {
           worklist.push_back(child->getKid(idx));
@@ -312,7 +312,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
         simple = false;
       }
     }
-//#endif
+#endif
 
     if (simple) {
       ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
@@ -797,7 +797,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   }
 
   std::string name = fn->getName();
-  getReachablePaths(kf, pathsRemaining);
+  getReachablePaths(name, pathsRemaining);
   pathsFaulting.clear(0);
   faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
@@ -1348,38 +1348,29 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::getReachablePaths(const KFunction *kf, M2MPaths &paths) const {
+void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths) const {
 
   paths.empty();
 
-  // construct transitive closure of call graph from fn
-  std::set<Function*> transClosure;
-  std::deque<Function*> worklist = { kf->function };
-  while (!worklist.empty()) {
-    Function *fn = worklist.front();
-    worklist.pop_front();
-
-    // only add if the function is mapped in the kmodule
-    auto itr = kmodule->functionMap.find(fn);
-    if (itr != kmodule->functionMap.end()) {
-      transClosure.insert(fn);
-      KFunction *kf_target = itr->second;
-      for (Function *target : kf_target->callTargets) {
-        if (transClosure.count(target) == 0) {
-          worklist.push_back(target);
-        }
-      }
+  // add this functions paths
+  unsigned fnID = progInfo->getFnID(fn_name);
+  if (fnID != 0) {
+    const auto fn_paths = progInfo->get_m2m_paths(fn_name);
+    if (fn_paths != nullptr) {
+      paths[fnID] = *fn_paths;
     }
   }
 
-  // for each function in the transitive closure, insert m2m paths
-  for (Function *fn : transClosure) {
-    std::string fn_name = fn->getName();
-    unsigned fnID = progInfo->getFnID(fn_name);
-    if (fnID != 0) {
-      const auto fn_paths = progInfo->get_m2m_paths(fn_name);
-      if (fn_paths != nullptr) {
-        paths[fnID] = *fn_paths;
+  // and then every path from call graph decendents
+  auto reachableFns = progInfo->getReachableFns(fn_name);
+  if (reachableFns != nullptr) {
+    for (const auto &name : *reachableFns) {
+      unsigned id = progInfo->getFnID(name);
+      if (id != 0 && id != fnID) {
+        const auto fn_paths = progInfo->get_m2m_paths(fn_name);
+        if (fn_paths != nullptr) {
+          paths[fnID] = *fn_paths;
+        }
       }
     }
   }

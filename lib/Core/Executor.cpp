@@ -3729,7 +3729,7 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
 
   std::vector<unsigned> visible_sizes(mos.size());
   for (unsigned idx = 0, end = mos.size(); idx != end; ++idx) {
-    unsigned visible_size = UINTMAX_MAX;
+    unsigned visible_size = UINT_MAX;
     if (const ObjectState *os = state.addressSpace.findObject(mos[idx])) {
       visible_size = os->getVisibleSize();
     }

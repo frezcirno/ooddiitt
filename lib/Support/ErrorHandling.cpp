@@ -102,45 +102,17 @@ static void klee_vfmessage(FILE *fp, const char *pfx, const char *msg,
   fdos.flush();
 }
 
-/* Prints a message/warning.
-
-   If pfx is NULL, this is a regular message, and it's sent to
-   klee_message_file (messages.txt).  Otherwise, it is sent to
-   klee_warning_file (warnings.txt).
-
-   Iff onlyToFile is false, the message is also printed on stderr.
-*/
-static void klee_vmessage(const char *pfx, bool onlyToFile, const char *msg,
-                          va_list ap) {
-  if (!onlyToFile) {
-    va_list ap2;
-    va_copy(ap2, ap);
-    klee_vfmessage(stderr, pfx, msg, ap2);
-    va_end(ap2);
-  }
-
-  klee_vfmessage(pfx ? klee_warning_file : klee_message_file, pfx, msg, ap);
-}
-
 void klee::klee_message(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vmessage(NULL, false, msg, ap);
-  va_end(ap);
-}
-
-/* Message to be written only to file */
-void klee::klee_message_to_file(const char *msg, ...) {
-  va_list ap;
-  va_start(ap, msg);
-  klee_vmessage(NULL, true, msg, ap);
+  klee_vfmessage(klee_message_file, NULL, msg, ap);
   va_end(ap);
 }
 
 void klee::klee_error(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vmessage(errorPrefix, false, msg, ap);
+  klee_vfmessage(stderr, errorPrefix, msg, ap);
   va_end(ap);
   exit(1);
 }
@@ -148,7 +120,7 @@ void klee::klee_error(const char *msg, ...) {
 void klee::klee_warning(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vmessage(warningPrefix, WarningsOnlyToFile, msg, ap);
+  klee_vfmessage(klee_warning_file, warningPrefix, msg, ap);
   va_end(ap);
 }
 
@@ -169,7 +141,7 @@ void klee::klee_warning_once(const void *id, const char *msg, ...) {
     keys.insert(key);
     va_list ap;
     va_start(ap, msg);
-    klee_vmessage(warningOncePrefix, WarningsOnlyToFile, msg, ap);
+    klee_vfmessage(klee_warning_file, warningOncePrefix, msg, ap);
     va_end(ap);
   }
 }

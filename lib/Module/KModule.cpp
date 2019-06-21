@@ -98,6 +98,11 @@ namespace {
                cl::desc("Write the results of static analysis of the transformed module"),
                cl::init(false));
 
+  cl::opt<bool>
+  ValidateMarkers("validate-markers",
+                  cl::desc("verify that the set of markers found in bytecode is identical to those in program info"),
+                  cl::init(false));
+
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple", 
@@ -444,6 +449,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
   }
 
+  // RLR TODO: move to llvm static analysis pass
+# if 0 == 1
   if (OutputStatic) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json", true);
     if (os != nullptr) {
@@ -495,6 +502,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       delete os;
     }
   }
+#endif
 
   if (OutputModule) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.bc");
@@ -652,21 +660,24 @@ bool KModule::isModuleFunction(const llvm::Function *fn) const {
 
 void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info) {
 
+  // RLR TODO: move to llvm static analysis pass
+#if 0  == 1
   set<const Function *> fns_ptr_relation;
   set<const Function *> fns_ptr_equality;
   set<const Function *> fns_ptr_equal_non_null_const;
   set<const Function *> fns_ptr_to_int;
   set<const Function *> fns_int_to_ptr;
+#endif
 
   // for each function in the main module
   std::vector<std::string> bb_conflicts;
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
-    KFunction *kf = *it;
 
+    KFunction *kf = *it;
     Function *fn = kf->function;
     string fn_name = fn->getName().str();
-
     kf->fnID = info.getFnID(fn_name);
+
     if (!isInternalFunction(fn) && kf->fnID != 0) {
 
       set<unsigned> fn_bbs;
@@ -688,8 +699,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
             Function *called = getTargetFunction(cs.getCalledValue());
             if (called != nullptr) {
 
-              kf->callTargets.insert(called);
-
               // check the name, number of arguments, and the return type
               if (isMarkerFn(called->getName()) && (called->arg_size() == 2)
                   && (called->getReturnType()->isVoidTy())) {
@@ -705,10 +714,12 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
                     klee_warning("conflicting marker function id, recieved %d, expected %d", val0, kf->fnID);
                   }
                   bbIDs.push_back(val1);
-                  fn_bbs.insert(val1);
+                  if (ValidateMarkers) fn_bbs.insert(val1);
                 }
               }
             }
+// RLR TODO: move to llvm static analysis
+#if 0 == 1
           } else if (opcode == Instruction::ICmp) {
 
             const CmpInst *ci = cast<CmpInst>(i);
@@ -735,53 +746,56 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
             fns_ptr_to_int.insert(fn);
           } else if (opcode == Instruction::IntToPtr) {
             fns_int_to_ptr.insert(fn);
+#endif
           }
         }
         kf->mapMarkers[&bb] = bbIDs;
       }
 
-      // validate the marker ids found in function
-      const std::set<unsigned> &info_bbs = *info.get_markers(fn_name);
-      std::set<unsigned> in_info;
-      std::set<unsigned> in_module;
+      if (ValidateMarkers) {
+        // validate the marker ids found in function
+        const std::set<unsigned> &info_bbs = *info.get_markers(fn_name);
+        std::set<unsigned> in_info;
+        std::set<unsigned> in_module;
 
-      std::set_difference(info_bbs.begin(), info_bbs.end(),
-                          fn_bbs.begin(), fn_bbs.end(),
-                          std::inserter(in_info, in_info.end()));
+        std::set_difference(info_bbs.begin(), info_bbs.end(),
+                            fn_bbs.begin(), fn_bbs.end(),
+                            std::inserter(in_info, in_info.end()));
 
-      std::set_difference(fn_bbs.begin(), fn_bbs.end(),
-                          info_bbs.begin(), info_bbs.end(),
-                          std::inserter(in_module, in_module.end()));
+        std::set_difference(fn_bbs.begin(), fn_bbs.end(),
+                            info_bbs.begin(), info_bbs.end(),
+                            std::inserter(in_module, in_module.end()));
 
-      if (!(in_info.empty() && in_module.empty())) {
+        if (!(in_info.empty() && in_module.empty())) {
 
-        // report mismatched markers
-        std::stringstream ss;
-        ss << "conflicting markers in function " << fn_name << ' ';
-        if (!in_info.empty()) {
-          ss << "(in_info: ";
-          bool first = true;
-          for (auto m : in_info) {
-            if (!first)
-              ss << ',';
-            ss << m;
-            first = false;
+          // report mismatched markers
+          std::stringstream ss;
+          ss << "conflicting markers in function " << fn_name << ' ';
+          if (!in_info.empty()) {
+            ss << "(in_info: ";
+            bool first = true;
+            for (auto m : in_info) {
+              if (!first)
+                ss << ',';
+              ss << m;
+              first = false;
+            }
+            ss << ')';
           }
-          ss << ')';
-        }
 
-        if (!in_module.empty()) {
-          ss << "(in_module: ";
-          bool first = true;
-          for (auto m : in_module) {
-            if (!first)
-              ss << ',';
-            ss << m;
-            first = false;
+          if (!in_module.empty()) {
+            ss << "(in_module: ";
+            bool first = true;
+            for (auto m : in_module) {
+              if (!first)
+                ss << ',';
+              ss << m;
+              first = false;
+            }
+            ss << ')';
           }
-          ss << ')';
+          bb_conflicts.push_back(ss.str());
         }
-        bb_conflicts.push_back(ss.str());
       }
 
       // find all (possibly nested) loop headers
@@ -809,7 +823,8 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
         }
       }
     }
-    if (!bb_conflicts.empty()) {
+
+    if (ValidateMarkers && !bb_conflicts.empty()) {
       std::stringstream ss;
       for (const std::string &conflict : bb_conflicts) {
         ss << conflict << '\n';
@@ -818,6 +833,8 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
     }
   }
 
+// RLR TODO: move to llvm static analysis pass
+#if 0 == 1
   if (OutputStatic) {
 
     // save a json formatted record of found pointer relations
@@ -841,8 +858,11 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
       delete os;
     }
   }
+#endif
 }
 
+// RLR TODO: move to llvm static analysis pass
+#if 0 == 1
 void KModule::EmitFunctionSet(raw_fd_ostream *os,
                               string key,
                               set<const Function*> fns,
@@ -866,6 +886,7 @@ void KModule::EmitFunctionSet(raw_fd_ostream *os,
     *os << "\n  ]";
   }
 }
+#endif
 
 Function *KModule::getTargetFunction(Value *value) const {
 

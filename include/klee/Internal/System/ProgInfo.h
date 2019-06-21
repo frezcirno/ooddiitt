@@ -72,6 +72,8 @@ public:
   bool isReachableFn(const std::string &fn, std::string name) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isReachableFn(name) : false); }
   void setReachableFn(std::string fn, std::string name)      { fnInfo[fn].setReachableFn(name); }
+  const std::set<std::string> *getReachableFns(std::string fn) const
+    { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.getReachableFns() : nullptr); }
 
   bool isOutput(const std::string &fn, std::string name) const
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? itr->second.isOutput(name) : false); }
@@ -102,8 +104,14 @@ public:
     { auto itr = fnInfo.find(fn); return (itr != fnInfo.end() ? &itr->second.get_m2m_paths() : nullptr); }
   void add_m2m_path(std::string fn, std::string path)              { fnInfo[fn].add_m2m_path(path); }
 
+
+  const std::string &getChecksum() const { return checksum; }
+  bool isChecksum(const std::string &chk) const { return checksum == chk; }
+  void setChecksum(const std::string &chk) { checksum = chk; }
+
 private:
   std::map<std::string,ProgInfoFunction> fnInfo;
+  std::string checksum;
 };
 
 } // End klee namespace

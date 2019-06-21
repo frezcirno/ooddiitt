@@ -43,6 +43,10 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
 
+#include <boost/uuid/detail/sha1.hpp>
+#include <boost/algorithm/hex.hpp>
+#include <fstream>
+
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/system_error.h"
 #include "json/json.h"
@@ -383,18 +387,30 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 
   klee_message("output directory is \"%s\"", outputDirectory.c_str());
 
+  // various logging filenames
+  std::string wfilename = "warnings.txt";
+  std::string mfilename = "messages.txt";
+  std::string ifilename = "info.txt";
+
+  // specialize name for specialized entry points.
+  if (!entry.empty()) {
+    wfilename = entry + '-' + wfilename;
+    mfilename = entry + '-' + mfilename;
+    ifilename = entry + '-' + ifilename;
+  }
+
   // open warnings.txt
-  std::string file_path = getOutputFilename("warnings.txt");
+  std::string file_path = getOutputFilename(wfilename);
   if ((klee_warning_file = fopen(file_path.c_str(), "w")) == nullptr)
     klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
 
   // open messages.txt
-  file_path = getOutputFilename("messages.txt");
+  file_path = getOutputFilename(mfilename);
   if ((klee_message_file = fopen(file_path.c_str(), "w")) == nullptr)
     klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
 
   // open info
-  m_infoFile = openOutputFile("info.txt");
+  m_infoFile = openOutputFile(ifilename);
 
   if (IndentJson) indentation = "  ";
 }
@@ -1103,6 +1119,25 @@ static const char *dontCareUclibc[] = {
 //  "kill", // mmmhmmm
 //};
 
+std::string calcChecksum(const std::string &filename){
+
+  std::string result;
+  std::ifstream infile(filename, std::ifstream::binary);
+  if (infile.is_open()) {
+    char buffer[1024];
+    boost::uuids::detail::sha1 hash;
+    while (infile.read(buffer, sizeof(buffer))) {
+      hash.process_bytes(buffer, infile.gcount());
+    }
+    boost::uuids::detail::sha1::digest_type digest;
+    hash.get_digest(digest);
+
+    const auto charDigest = reinterpret_cast<const char *>(&digest);
+    boost::algorithm::hex(charDigest, charDigest + sizeof(digest), std::back_inserter(result));
+  }
+  return result;
+}
+
 #define NELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
@@ -1430,6 +1465,8 @@ void accumulate_transitive_closure(const std::map<std::string,std::set<std::stri
 
 void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
 
+  // complete progInfo from json structure
+
   // get a list of non-const global variables defined in this module
   std::set<std::string> global_vars;
   Json::Value &globalRoot = root["globals"];
@@ -1440,7 +1477,8 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
     }
   }
 
-  // complete progInfo from json structure
+  Json::Value &chksum = root["checksum"];
+  if (chksum.isString()) progInfo.setChecksum(chksum.asString());
 
   // need a map of callees per function
   std::map<std::string,std::set<std::string> > map_callees;
@@ -1659,7 +1697,7 @@ int main(int argc, char **argv, char **envp) {
       klee_error("unable to fork watchdog");
     } else if (pid > 0) {
       reset_watchdog_timer = false;
-      klee_message("KLEE: WATCHDOG: watching %d", pid);
+//      klee_message("KLEE: WATCHDOG: watching %d", pid);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
 
       // catch SIGUSR1
@@ -1801,6 +1839,10 @@ int main(int argc, char **argv, char **envp) {
     klee_error("program info json repository is required");
   }
 
+  if (!progInfo.isChecksum(calcChecksum(InputFile))) {
+    klee_error("program signature does not match info data");
+  }
+
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     if (r != 0)
@@ -1813,7 +1855,7 @@ int main(int argc, char **argv, char **envp) {
   case NoLibc: /* silence compiler warning */
     break;
 
-  // RLR TODO: both kleelibc and uclibc are host-bit (64) only
+  // RLR TODO: uclibc is 64-bit only
   case KleeLibc: {
     // FIXME: Find a reasonable solution for this.
     SmallString<128> Path(LibraryDir);
@@ -2026,19 +2068,13 @@ int main(int argc, char **argv, char **envp) {
   stats << "KLEE: done: generated tests = "
         << handler->getNumTestCases() << "\n";
 
-  if (OutputCreate.empty()) {
+  // only display stats if output was appended (i.e. actual se was performed)
+  if (EntryPoint != "void") {
 
-    // only display stats if output was appended (i.e. actual se was performed)
-    bool useColors = llvm::errs().is_displayed();
-    if (useColors)
-      llvm::errs().changeColor(llvm::raw_ostream::GREEN,
-          /*bold=*/true,
-          /*bg=*/false);
-
-    llvm::errs() << stats.str();
-
-    if (useColors)
-      llvm::errs().resetColor();
+    bool useColors = llvm::outs().is_displayed();
+    if (useColors) llvm::outs().changeColor(llvm::raw_ostream::GREEN, true, false);
+    llvm::outs() << stats.str();
+    if (useColors) llvm::outs().resetColor();
   }
   handler->getInfoStream() << stats.str();
 

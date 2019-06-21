@@ -114,7 +114,6 @@ namespace klee {
     // marker info
     std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
     std::map<unsigned, const llvm::BasicBlock*> mapBBlocks;
-    std::set<llvm::Function*> callTargets;
 
   private:
     KFunction(const KFunction&);
