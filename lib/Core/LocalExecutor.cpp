@@ -788,7 +788,7 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
-void LocalExecutor::runFunctionUnconstrained(Function *fn) {
+void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_block) {
 
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) {
@@ -872,7 +872,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         ref<Expr> e = wop.second->read(0, width);
       bindArgument(kf, index, *state, e);
     }
-    runFn(kf, *state);
+    runFn(kf, *state, starting_block);
   }
 
   // now consider our stashed faulting states
@@ -997,7 +997,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
     }
   }
   
-  runFn(kf, *state);
+  runFn(kf, *state, 0);
   
   // hack to clear memory objects
   delete memory;
@@ -1013,7 +1013,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   }
 }
 
-void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
+void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker) {
 
   Function *fn = kf->function;
 
@@ -1025,7 +1025,16 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState) {
   initTimers();
 
   if (initialState.isUnconstrainLocals()) {
-    runFnEachBlock(kf, initialState);
+    if (starting_marker == 0) {
+      runFnEachBlock(kf, initialState);
+    } else {
+      const auto &itr = kf->mapBBlocks.find(starting_marker);
+      if (itr != kf->mapBBlocks.end()) {
+        runFnFromBlock(kf, initialState, itr->second);
+      } else {
+        klee_error("requested starting marker not found");
+      }
+    }
   } else {
     runFnFromBlock(kf, initialState, &fn->getEntryBlock());
   }
@@ -1136,10 +1145,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     if (now > stopTime) {
 
       llvm::raw_ostream &os = getHandler().getInfoStream();
-
       os << "    * max time elapsed\n";
       os.flush();
-
       halt = HaltReason::TimeOut;
     } else if (now > heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1229,19 +1236,15 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
     state.extractITrace(sf);
   }
 
-  if (state.status != ExecutionState::StateStatus::Pending &&
-      state.status != ExecutionState::StateStatus::TerminateDiscard) {
-
-    if (state.status == ExecutionState::StateStatus::Completed) {
-      if (removeCoveredRemainingPaths(state)) {
-        interpreterHandler->processTestCase(state);
-      }
-    } else {
-      // its an error state
-      // stash faults for later consideration
-      if (addCoveredFaultingPaths(state)) {
-        faulting_state_stash.insert(new ExecutionState(state));
-      }
+  if (state.status == ExecutionState::StateStatus::Completed) {
+    if (removeCoveredRemainingPaths(state)) {
+      interpreterHandler->processTestCase(state);
+    }
+  } else {
+    // its an error state, pending state, or discarded state
+    // stash faults for later consideration
+    if (addCoveredFaultingPaths(state)) {
+      faulting_state_stash.insert(new ExecutionState(state));
     }
   }
   Executor::terminateState(state, message);

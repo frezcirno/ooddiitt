@@ -714,6 +714,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
                     klee_warning("conflicting marker function id, recieved %d, expected %d", val0, kf->fnID);
                   }
                   bbIDs.push_back(val1);
+                  kf->mapBBlocks[val1] = &bb;
                   if (ValidateMarkers) fn_bbs.insert(val1);
                 }
               }

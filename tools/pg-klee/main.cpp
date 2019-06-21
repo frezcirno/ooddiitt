@@ -638,6 +638,14 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
         }
       }
 
+      Json::Value &covered = root["coveredPaths"] = Json::objectValue;
+      for (auto itr = state.itraces.begin(), end = state.itraces.end(); itr != end; ++itr) {
+        Json::Value &fn = covered[std::to_string(itr->first)] = Json::arrayValue;
+        for (auto path : itr->second) {
+          fn.append(path);
+        }
+      }
+
       if (!NoSolution) {
 
         std::vector<SymbolicSolution> out;
@@ -1943,6 +1951,14 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
+  // check if a starting block has pen appended to entrypoint function name
+  unsigned starting_marker = 0;
+  auto pos = EntryPoint.find(':');
+  if (pos != std::string::npos) {
+    starting_marker = std::stoi(EntryPoint.substr(pos + 1));
+    EntryPoint.erase(pos);
+  }
+
   PGKleeHandler *handler = new PGKleeHandler(pArgc, pArgv, progInfo, EntryPoint);
   handler->setWatchDog(pid_watchdog);
 
@@ -2012,7 +2028,7 @@ int main(int argc, char **argv, char **envp) {
     std::string entryName = EntryPoint;
     Function *entryFn = mainModule->getFunction(entryName);
     if (entryFn != nullptr) {
-      theInterpreter->runFunctionUnconstrained(entryFn);
+      theInterpreter->runFunctionUnconstrained(entryFn, starting_marker);
     } else if (EntryPoint != "void") {
       klee_error("Unable to find function: %s", EntryPoint.c_str());
     }

@@ -49,11 +49,11 @@ public:
   const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
-  void runFunctionUnconstrained(llvm::Function *f) override;
+  void runFunctionUnconstrained(llvm::Function *f, unsigned starting_marker) override;
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
 protected:
-  void runFn(KFunction *kf, ExecutionState &initialState);
+  void runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker);
   void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
   HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
   void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
