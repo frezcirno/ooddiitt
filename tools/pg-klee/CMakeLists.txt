@@ -16,7 +16,8 @@ set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(pg-klee ${KLEE_LIBS} ${Boost_LIBRARIES})
+target_link_libraries(pg-klee ${KLEE_LIBS} ${Boost_LIBRARIES} crypto)
+
 
 install(TARGETS pg-klee RUNTIME DESTINATION bin)
 

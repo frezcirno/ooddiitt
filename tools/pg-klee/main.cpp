@@ -43,8 +43,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
 
-#include <boost/uuid/detail/sha1.hpp>
-#include <boost/algorithm/hex.hpp>
+#include <openssl/sha.h>
 #include <fstream>
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
@@ -1124,16 +1123,23 @@ std::string calcChecksum(const std::string &filename){
   std::string result;
   std::ifstream infile(filename, std::ifstream::binary);
   if (infile.is_open()) {
-    char buffer[1024];
-    boost::uuids::detail::sha1 hash;
-    while (infile.read(buffer, sizeof(buffer))) {
-      hash.process_bytes(buffer, infile.gcount());
-    }
-    boost::uuids::detail::sha1::digest_type digest;
-    hash.get_digest(digest);
 
-    const auto charDigest = reinterpret_cast<const char *>(&digest);
-    boost::algorithm::hex(charDigest, charDigest + sizeof(digest), std::back_inserter(result));
+    SHA256_CTX sha256;
+    char buffer[1024];
+
+    SHA256_Init(&sha256);
+    while (infile.read(buffer, sizeof(buffer))) {
+      std::streamsize count = infile.gcount();
+      if (count > 0) SHA256_Update(&sha256, buffer, count);
+    }
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_Final(hash, &sha256);
+    std::stringstream ss;
+    ss << std::hex << std::setw(2) << std::setfill('0');
+    for (unsigned idx = 0; idx < SHA256_DIGEST_LENGTH; ++idx) {
+      ss <<  hash[idx];
+    }
+    result = ss.str();
   }
   return result;
 }
