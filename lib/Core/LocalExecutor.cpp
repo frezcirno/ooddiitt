@@ -1186,7 +1186,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
   state.ptreeNode = processTree->root;
 
   states.insert(&state);
-  searcher = constructUserSearcher(*this, Searcher::DFS);
+  searcher = constructUserSearcher(*this);
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
   libc_initializing = true;
