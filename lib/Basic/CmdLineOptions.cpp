@@ -23,8 +23,8 @@ UseFastCexSolver("use-fast-cex-solver",
 
 llvm::cl::opt<bool>
 UseCexCache("use-cex-cache",
-            llvm::cl::init(true),
-            llvm::cl::desc("Use counterexample caching (default=on)"));
+            llvm::cl::init(false),
+            llvm::cl::desc("Use counterexample caching (default=off)"));
 
 llvm::cl::opt<bool>
 UseCache("use-cache",
