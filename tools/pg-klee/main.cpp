@@ -227,6 +227,11 @@ cl::opt<bool>
                cl::desc("add to existing output directory (fail if does not exist)"),
                cl::init(""));
 
+  cl::opt<std::string>
+  OutputPrefix("output-prefix",
+               cl::desc("prefix for message files"),
+               cl::init(""));
+
   cl::list<std::string>
   LinkLibraries("link-llvm-lib",
 		cl::desc("Link the given libraries before execution"),
@@ -387,27 +392,19 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 
   klee_message("output directory is \"%s\"", outputDirectory.c_str());
 
-  // various logging filenames
-  std::string wfilename = "warnings.txt";
-  std::string mfilename = "messages.txt";
-  std::string ifilename = "info.txt";
-
-  // specialize name for specialized entry points.
-  if (!entry.empty()) {
-    wfilename = entry + '-' + wfilename;
-    mfilename = entry + '-' + mfilename;
-    ifilename = entry + '-' + ifilename;
+  // initialize error handling
+  std::string prefix = OutputPrefix;
+  if (prefix.empty()) {
+    prefix = entry;
   }
 
-  // open warnings.txt
-  std::string file_path = getOutputFilename(wfilename);
-  if ((klee_warning_file = fopen(file_path.c_str(), "w")) == nullptr)
-    klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
+  init_error_handling(outputDirectory.c_str(), prefix.c_str());
 
-  // open messages.txt
-  file_path = getOutputFilename(mfilename);
-  if ((klee_message_file = fopen(file_path.c_str(), "w")) == nullptr)
-    klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
+  // specialize info name for specialized entry points.
+  std::string ifilename = "info.txt";
+  if (!prefix.empty()) {
+    ifilename = prefix + '-' + ifilename;
+  }
 
   // open info
   m_infoFile = openOutputFile(ifilename);
@@ -418,8 +415,7 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 PGKleeHandler::~PGKleeHandler() {
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
-  fclose(klee_warning_file);
-  fclose(klee_message_file);
+  term_error_handling();
   delete m_infoFile;
 }
 
@@ -1756,7 +1752,7 @@ int main(int argc, char **argv, char **envp) {
             reset_watchdog_timer = false;
           } else if (now > nextStep) {
 
-            klee_warning("KLEE: WATCHDOG: timer expired, attempting halt via INT\n");
+            errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT\n";
             kill(pid, SIGINT);
 
             // Ideally this triggers a dump, which may take a while,
@@ -1770,7 +1766,7 @@ int main(int argc, char **argv, char **envp) {
                 return WEXITSTATUS(status);
               }
             }
-            klee_warning("KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n");
+            errs() << "KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n";
             kill(pid, SIGKILL);
             return 1; // what more can we do
           }

@@ -11,6 +11,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/CommandLine.h"
+#include <boost/filesystem.hpp>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -23,13 +24,15 @@
 using namespace klee;
 using namespace llvm;
 
-FILE *klee::klee_warning_file = NULL;
-FILE *klee::klee_message_file = NULL;
-
 static const char *warningPrefix = "WARNING";
 static const char *warningOncePrefix = "WARNING ONCE";
 static const char *errorPrefix = "ERROR";
 static const char *notePrefix = "NOTE";
+
+static std::string output_dir;
+static std::string output_prefix;
+static FILE* message_file = NULL;
+static FILE* warning_file = NULL;
 
 namespace {
 cl::opt<bool> WarningsOnlyToFile(
@@ -102,10 +105,58 @@ static void klee_vfmessage(FILE *fp, const char *pfx, const char *msg,
   fdos.flush();
 }
 
+void klee::init_error_handling(const char *dir, const char *prefix) {
+
+  output_dir = dir;
+  output_prefix = prefix;
+}
+
+void klee::term_error_handling() {
+
+  if (message_file != NULL) {
+    fclose(message_file);
+    message_file = NULL;
+  }
+  if (warning_file != NULL) {
+    fclose(warning_file);
+    warning_file = NULL;
+  }
+}
+
+FILE *get_message_file() {
+
+  if (message_file == nullptr) {
+    boost::filesystem::path path(output_dir);
+    std::string filename = "messages.txt";
+    if (!output_prefix.empty()) {
+      filename = output_prefix + '-' + filename;
+    }
+    path.append(filename);
+    if ((message_file = fopen(path.c_str(), "w")) == nullptr)
+      klee_error("cannot open file \"%s\": %s", path.c_str(), strerror(errno));
+  }
+  return message_file;
+}
+
+FILE *get_warning_file() {
+
+  if (warning_file == nullptr) {
+    boost::filesystem::path path(output_dir);
+    std::string filename = "warnings.txt";
+    if (!output_prefix.empty()) {
+      filename = output_prefix + '-' + filename;
+    }
+    path.append(filename);
+    if ((warning_file = fopen(path.c_str(), "w")) == nullptr)
+      klee_error("cannot open file \"%s\": %s", path.c_str(), strerror(errno));
+  }
+  return warning_file;
+}
+
 void klee::klee_message(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vfmessage(klee_message_file, NULL, msg, ap);
+  klee_vfmessage(get_message_file(), NULL, msg, ap);
   va_end(ap);
 }
 
@@ -120,7 +171,7 @@ void klee::klee_error(const char *msg, ...) {
 void klee::klee_warning(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vfmessage(klee_warning_file, warningPrefix, msg, ap);
+  klee_vfmessage(get_warning_file(), warningPrefix, msg, ap);
   va_end(ap);
 }
 
@@ -141,7 +192,7 @@ void klee::klee_warning_once(const void *id, const char *msg, ...) {
     keys.insert(key);
     va_list ap;
     va_start(ap, msg);
-    klee_vfmessage(klee_warning_file, warningOncePrefix, msg, ap);
+    klee_vfmessage(get_warning_file(), warningOncePrefix, msg, ap);
     va_end(ap);
   }
 }

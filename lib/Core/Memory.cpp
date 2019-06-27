@@ -409,27 +409,22 @@ void ObjectState::setKnownSymbolic(unsigned offset,
 
 bool ObjectState::cloneWritten(const ObjectState *src) {
 
-  // RLR TODO: validate == attributes
-  if (src->object->size == object->size) {
+  // copy attributes over from src
+  visible_size = src->visible_size;
+  types = src->types;
 
-    // copy attributes over from src
-    visible_size = src->visible_size;
-    types = src->types;
+  if (src->symboliclyWritten) {
+    klee_warning("cloning a symbolicly written object");
+  }
 
-    if (src->symboliclyWritten) {
-      klee_warning("cloning a symbolicly written object");
-    }
-
-    if (src->isWritten()) {
-      for (unsigned index = 0; index < object->size; index++) {
-        if (src->isByteWritten(index)) {
-          write8(index, src->read8(index));
-        }
+  if (src->isWritten()) {
+    for (unsigned index = 0, end = std::min(object->size, src->object->size); index < end; index++) {
+      if (src->isByteWritten(index)) {
+        write8(index, src->read8(index));
       }
     }
-    return true;
   }
-  return false;
+  return true;
 }
 
 /***/

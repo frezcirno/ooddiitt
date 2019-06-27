@@ -93,7 +93,7 @@ cl::opt<unsigned>
 
 cl::opt<unsigned>
   MinLazyAllocationSize("min-lazy-allocation-size",
-                        cl::init(0x400),
+                        cl::init(0),
                         cl::desc("minimum size of a lazy allocation"));
 
 cl::opt<unsigned>
@@ -152,6 +152,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
       klee_error("invalid execution mode");
   }
 
+  ut_concrete_offset = ut_unique_offset = ut_symbolic_offset = 0;
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -425,77 +426,88 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   ref<Expr> e = os->read(offsetExpr, width);
   bindLocal(target, *currState, e);
 
-  if ((countLoadIndirection(type) > 1) && (isUnconstrainedPtr(*currState, e))) {
-    // this is an unconstrained ptr-ptr. this could be either a null ptr or
-    // allocate something behind the pointer
+  if (countLoadIndirection(type) > 1) {
 
-    // count current depth of lazy allocations
-    unsigned depth = 0;
-    for (auto end = (unsigned) mo->name.size(); depth < end && mo->name.at(depth) == '*'; ++depth);
-
-    ref<ConstantExpr> null = Expr::createPointer(0);
-    ref<Expr> eqNull = EqExpr::create(e, null);
-
-    if (depth >= maxLazyDepth) {
-
-      // too deep. no more forking for this pointer.
-      addConstraintOrTerminate(*currState, eqNull);
-
+    if (isa<ConstantExpr>(offsetExpr)) {
+      ut_concrete_offset += 1;
+    } else if (isUnique(*currState, offsetExpr)) {
+      ut_unique_offset += 1;
     } else {
+      ut_symbolic_offset += 1;
+    }
 
-      StatePair sp = fork(*currState, eqNull, true);
+    if (isUnconstrainedPtr(*currState, e)) {
+      // this is an unconstrained ptr-ptr. this could be either a null ptr or
+      // allocate something behind the pointer
 
-      // in the true case, ptr is null, so nothing further to do
+      // count current depth of lazy allocations
+      unsigned depth = 0;
+      for (auto end = (unsigned) mo->name.size(); depth < end && mo->name.at(depth) == '*'; ++depth);
 
-      // in the false case, allocate new memory for the ptr and
-      // constrain the ptr to point to it.
-      if (sp.second != nullptr) {
+      ref<ConstantExpr> null = Expr::createPointer(0);
+      ref<Expr> eqNull = EqExpr::create(e, null);
 
-        // pointer may not be null
-        std::vector<ObjectPair> listOPs;
-        Type *subtype = type->getPointerElementType()->getPointerElementType();
-        if (subtype->isFirstClassType()) {
+      if (depth >= maxLazyDepth) {
 
-          if (LazyAllocationExt) {
+        // too deep. no more forking for this pointer.
+        addConstraintOrTerminate(*currState, eqNull);
 
-            // consider any existing objects in memory of the same type
-            sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
-            for (const auto pr : listOPs) {
-              const MemoryObject *existing = pr.first;
-              if (existing->kind == MemKind::lazy) {
+      } else {
 
-                // branch the state
-                ExecutionState *existObjState = sp.second->branch();
-                if (existObjState != nullptr) {
+        StatePair sp = fork(*currState, eqNull, true);
 
-                  bool satisfyable;
-                  ref<Expr> eq = EqExpr::create(e, existing->getBaseExpr());
-                  if (tsolver->mayBeTrue(existObjState, eq, satisfyable) && satisfyable) {
+        // in the true case, ptr is null, so nothing further to do
 
-                    // constrain the pointer
-                    addConstraint(*existObjState, eq);
-                    addedStates.push_back(existObjState);
+        // in the false case, allocate new memory for the ptr and
+        // constrain the ptr to point to it.
+        if (sp.second != nullptr) {
 
-                    // link new state into the process tree
-                    sp.second->ptreeNode->data = nullptr;
-                    std::pair<PTree::Node*, PTree::Node*> res = processTree->split(sp.second->ptreeNode, existObjState, sp.second);
-                    existObjState->ptreeNode = res.first;
-                    sp.second->ptreeNode = res.second;
-                  } else {
-                    delete existObjState;
+          // pointer may not be null
+          std::vector<ObjectPair> listOPs;
+          Type *subtype = type->getPointerElementType()->getPointerElementType();
+          if (subtype->isFirstClassType()) {
+
+            if (LazyAllocationExt) {
+
+              // consider any existing objects in memory of the same type
+              sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
+              for (const auto pr : listOPs) {
+                const MemoryObject *existing = pr.first;
+                if (existing->kind == MemKind::lazy) {
+
+                  // branch the state
+                  ExecutionState *existObjState = sp.second->branch();
+                  if (existObjState != nullptr) {
+
+                    bool satisfyable;
+                    ref<Expr> eq = EqExpr::create(e, existing->getBaseExpr());
+                    if (tsolver->mayBeTrue(existObjState, eq, satisfyable) && satisfyable) {
+
+                      // constrain the pointer
+                      addConstraint(*existObjState, eq);
+                      addedStates.push_back(existObjState);
+
+                      // link new state into the process tree
+                      sp.second->ptreeNode->data = nullptr;
+                      std::pair<PTree::Node*, PTree::Node*> res = processTree->split(sp.second->ptreeNode, existObjState, sp.second);
+                      existObjState->ptreeNode = res.first;
+                      sp.second->ptreeNode = res.second;
+                    } else {
+                      delete existObjState;
+                    }
                   }
                 }
               }
             }
-          }
 
-          // finally, try with a new object
-          MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                            '*' + mo->name, 0, lazyAllocationCount);
-          bindObjectInState(*sp.second, newMO);
-          ref<ConstantExpr> ptr = newMO->getBaseExpr();
-          ref<Expr> eq = EqExpr::create(e, ptr);
-          addConstraintOrTerminate(*sp.second, eq);
+            // finally, try with a new object
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                              '*' + mo->name, 0, lazyAllocationCount);
+            bindObjectInState(*sp.second, newMO);
+            ref<ConstantExpr> ptr = newMO->getBaseExpr();
+            ref<Expr> eq = EqExpr::create(e, ptr);
+            addConstraintOrTerminate(*sp.second, eq);
+          }
         }
       }
     }
@@ -818,7 +830,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     }
   }
 
-
   // iterate through each phase of unconstrained progression
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
@@ -851,6 +862,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     state->setUnconstraintFlags(unconstraintFlags);
 
     outs() << interpreterHandler->flags_to_string(state->getUnconstraintFlags()) << '\n';
+    outs().flush();
 
     // setup global state
     initializeGlobalValues(*state, fn);
@@ -891,6 +903,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
            << " of " << num_reachable_paths << " reachable m2m path(s)";
   }
   outs() << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
+
+  outs() << "constant offset isUnconstrained=" << ut_concrete_offset << ", ";
+  outs() << "unique offset isUnconstrained=" << ut_unique_offset << ", ";
+  outs() << "symbolic offset isUnconstrained=" << ut_symbolic_offset << '\n';
 
   if (interpreterOpts.verbose) {
     for (auto itr : pathsRemaining) {

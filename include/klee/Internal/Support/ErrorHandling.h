@@ -20,8 +20,11 @@
 
 namespace klee {
 
-extern FILE *klee_warning_file;
-extern FILE *klee_message_file;
+//extern FILE *klee_warning_file;
+//extern FILE *klee_message_file;
+
+void init_error_handling(const char *dir, const char *prefix);
+void term_error_handling();
 
 /// Print "KLEE: ERROR: " followed by the msg in printf format and a
 /// newline on stderr and to warnings.txt, then exit with an error.
