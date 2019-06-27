@@ -390,7 +390,7 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
     }
   }
 
-  klee_message("output directory is \"%s\"", outputDirectory.c_str());
+  outs() << "output directory: " << outputDirectory << '\n';
 
   // initialize error handling
   std::string prefix = OutputPrefix;
@@ -1451,7 +1451,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
     }
   }
 
-  klee_message("NOTE: Using klee-uclibc : %s", uclibcBCA.c_str());
+  outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;
 }
 #endif
@@ -1705,7 +1705,6 @@ int main(int argc, char **argv, char **envp) {
       klee_error("unable to fork watchdog");
     } else if (pid > 0) {
       reset_watchdog_timer = false;
-//      klee_message("KLEE: WATCHDOG: watching %d", pid);
       sys::SetInterruptFunction(interrupt_handle_watchdog);
 
       // catch SIGUSR1
@@ -1891,7 +1890,7 @@ int main(int argc, char **argv, char **envp) {
     posixLib += ".bca";
 
     llvm::sys::path::append(Path, posixLib);
-    klee_message("NOTE: Using model: %s", Path.c_str());
+    outs() << "NOTE: Using model: " << Path.c_str() << '\n';
     mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
     assert(mainModule && "unable to link with simple model");
   }
@@ -1901,7 +1900,7 @@ int main(int argc, char **argv, char **envp) {
   for (libs_it = LinkLibraries.begin(), libs_ie = LinkLibraries.end();
           libs_it != libs_ie; ++libs_it) {
     const char * libFilename = libs_it->c_str();
-    klee_message("Linking in library: %s.\n", libFilename);
+    outs() << "Linking in library: " << libFilename << '\n';
     mainModule = klee::linkWithLibrary(mainModule, libFilename);
   }
   // Get the desired main function.  klee_main initializes uClibc

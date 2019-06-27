@@ -33,6 +33,7 @@ static std::string output_dir;
 static std::string output_prefix;
 static FILE* message_file = NULL;
 static FILE* warning_file = NULL;
+static bool initialized = false;
 
 namespace {
 cl::opt<bool> WarningsOnlyToFile(
@@ -109,6 +110,7 @@ void klee::init_error_handling(const char *dir, const char *prefix) {
 
   output_dir = dir;
   output_prefix = prefix;
+  initialized = true;
 }
 
 void klee::term_error_handling() {
@@ -126,11 +128,12 @@ void klee::term_error_handling() {
 FILE *get_message_file() {
 
   if (message_file == nullptr) {
-    boost::filesystem::path path(output_dir);
+    if (!initialized) klee_error("message log not initialized");
     std::string filename = "messages.txt";
     if (!output_prefix.empty()) {
       filename = output_prefix + '-' + filename;
     }
+    boost::filesystem::path path(output_dir);
     path.append(filename);
     if ((message_file = fopen(path.c_str(), "w")) == nullptr)
       klee_error("cannot open file \"%s\": %s", path.c_str(), strerror(errno));
@@ -141,11 +144,12 @@ FILE *get_message_file() {
 FILE *get_warning_file() {
 
   if (warning_file == nullptr) {
-    boost::filesystem::path path(output_dir);
+    if (!initialized) klee_error("warning log not initialized");
     std::string filename = "warnings.txt";
     if (!output_prefix.empty()) {
       filename = output_prefix + '-' + filename;
     }
+    boost::filesystem::path path(output_dir);
     path.append(filename);
     if ((warning_file = fopen(path.c_str(), "w")) == nullptr)
       klee_error("cannot open file \"%s\": %s", path.c_str(), strerror(errno));
