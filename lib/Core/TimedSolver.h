@@ -16,8 +16,7 @@
 
 namespace klee {
 
-  /// TimingSolver - A simple class which wraps a solver and handles
-  /// tracking the statistics that we care about.
+  /// TimedSolver - A simple class which wraps a sets and resets the timeout
   class TimedSolver {
   private:
     TimingSolver *solver;

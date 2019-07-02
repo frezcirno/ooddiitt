@@ -1715,11 +1715,9 @@ int main(int argc, char **argv, char **envp) {
       sa.sa_sigaction = handle_usr1_signal;
       sigaction(SIGUSR1, &sa, nullptr);
 
-      uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL * 16;
       struct timespec tm;
       clock_gettime(CLOCK_MONOTONIC, &tm);
-      uint64_t now = (uint64_t) tm.tv_sec;
-      uint64_t nextStep = now + heartbeat_timeout;
+      uint64_t timeout = (uint64_t) tm.tv_sec + HEARTBEAT_TIMEOUT;
 
       // Simple stupid code...
       while (true) {
@@ -1732,7 +1730,7 @@ int main(int argc, char **argv, char **envp) {
           if (errno==ECHILD) { // No child, no need to watch but
                                // return error since we didn't catch
                                // the exit.
-            klee_warning("KLEE: watchdog exiting (no child)");
+            errs() << "KLEE: watchdog exiting (no child)\n";
             return 1;
           } else if (errno!=EINTR) {
             perror("watchdog waitpid");
@@ -1743,13 +1741,13 @@ int main(int argc, char **argv, char **envp) {
         } else {
 
           clock_gettime(CLOCK_MONOTONIC, &tm);
-          now = (uint64_t) tm.tv_sec;
+          uint64_t now = (uint64_t) tm.tv_sec;
 
           if (reset_watchdog_timer) {
 
-            nextStep = now + heartbeat_timeout;
+            timeout = now + HEARTBEAT_TIMEOUT;
             reset_watchdog_timer = false;
-          } else if (now > nextStep) {
+          } else if (now > timeout) {
 
             errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT\n";
             kill(pid, SIGINT);
@@ -1771,7 +1769,6 @@ int main(int argc, char **argv, char **envp) {
           }
         }
       }
-
       return 0;
     }
   }

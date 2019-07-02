@@ -33,11 +33,10 @@ class Interpreter;
 class TreeStreamWriter;
 class MemoryObject;
 
-//typedef std::vector<unsigned> m2m_path_t;
-//typedef std::set<m2m_path_t> m2m_paths_t;
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
-#define HEARTBEAT_INTERVAL   (15)
+#define HEARTBEAT_INTERVAL   (1)        // secs
+#define HEARTBEAT_TIMEOUT    (5 * 60)   // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_LOCAL_FLAG  (1)

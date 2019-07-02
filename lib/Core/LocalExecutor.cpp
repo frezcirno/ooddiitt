@@ -455,58 +455,47 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
       } else {
 
         StatePair sp = fork(*currState, eqNull, true);
+        ExecutionState *next_fork = sp.second;
 
         // in the true case, ptr is null, so nothing further to do
 
         // in the false case, allocate new memory for the ptr and
         // constrain the ptr to point to it.
-        if (sp.second != nullptr) {
+        if (next_fork != nullptr) {
 
           // pointer may not be null
-          std::vector<ObjectPair> listOPs;
           Type *subtype = type->getPointerElementType()->getPointerElementType();
           if (subtype->isFirstClassType()) {
-
             if (LazyAllocationExt) {
 
               // consider any existing objects in memory of the same type
+              std::vector<ObjectPair> listOPs;
               sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
-              for (const auto pr : listOPs) {
-                const MemoryObject *existing = pr.first;
-                if (existing->kind == MemKind::lazy) {
+              for (const auto &pr : listOPs) {
+                if (next_fork == nullptr)
+                  break;
+                const MemoryObject *existingMO = pr.first;
+                if (existingMO->kind == MemKind::lazy) {
 
-                  // branch the state
-                  ExecutionState *existObjState = sp.second->branch();
-                  if (existObjState != nullptr) {
-
-                    bool satisfyable;
-                    ref<Expr> eq = EqExpr::create(e, existing->getBaseExpr());
-                    if (tsolver->mayBeTrue(existObjState, eq, satisfyable) && satisfyable) {
-
-                      // constrain the pointer
-                      addConstraint(*existObjState, eq);
-                      addedStates.push_back(existObjState);
-
-                      // link new state into the process tree
-                      sp.second->ptreeNode->data = nullptr;
-                      std::pair<PTree::Node*, PTree::Node*> res = processTree->split(sp.second->ptreeNode, existObjState, sp.second);
-                      existObjState->ptreeNode = res.first;
-                      sp.second->ptreeNode = res.second;
-                    } else {
-                      delete existObjState;
-                    }
-                  }
+                  // fork a new state
+                  ref<ConstantExpr> ptr = existingMO->getBaseExpr();
+                  ref<Expr> eq = EqExpr::create(e, ptr);
+                  StatePair sp2 = fork(*next_fork, eq, true);
+                  next_fork = sp2.second;
                 }
               }
             }
 
-            // finally, try with a new object
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                              '*' + mo->name, 0, lazyAllocationCount);
-            bindObjectInState(*sp.second, newMO);
-            ref<ConstantExpr> ptr = newMO->getBaseExpr();
-            ref<Expr> eq = EqExpr::create(e, ptr);
-            addConstraintOrTerminate(*sp.second, eq);
+            if (next_fork != nullptr) {
+
+              // finally, try with a new object
+              MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                                '*' + mo->name, 0, lazyAllocationCount);
+              bindObjectInState(*next_fork, newMO);
+              ref<ConstantExpr> ptr = newMO->getBaseExpr();
+              ref<Expr> eq = EqExpr::create(e, ptr);
+              addConstraintOrTerminate(*next_fork, eq);
+            }
           }
         }
       }
@@ -1079,11 +1068,13 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       }
 
       llvm::raw_ostream &os = getHandler().getInfoStream();
+      unsigned block_id = 0;
       os << "    starting from: ";
       if (kf->mapMarkers[startBB].empty()) {
         os << "unmarked block";
       } else {
-        os << kf->mapMarkers[startBB].front();
+        block_id = kf->mapMarkers[startBB].front();
+        os << block_id;
       }
       os << "\n";
     }
@@ -1092,9 +1083,6 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
 }
 
 LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
-
-  // reset the watchdog timer
-  interpreterHandler->resetWatchDogTimer();
 
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
@@ -1190,9 +1178,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, llvm::Function *initializer) {
 
   ExecutionState *result = nullptr;
-
-  // reset the watchdog timer
-  interpreterHandler->resetWatchDogTimer();
 
   KFunction *kf = kmodule->functionMap[initializer];
   unsigned entry = kf->basicBlockEntry[&initializer->getEntryBlock()];
