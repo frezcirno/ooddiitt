@@ -93,16 +93,6 @@ namespace {
                cl::desc("Write the bitcode for the final transformed module"),
                cl::init(false));
 
-  cl::opt<bool>
-  OutputStatic("output-static",
-               cl::desc("Write the results of static analysis of the transformed module"),
-               cl::init(false));
-
-  cl::opt<bool>
-  ValidateMarkers("validate-markers",
-                  cl::desc("verify that the set of markers found in bytecode is identical to those in program info"),
-                  cl::init(false));
-
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple", 
@@ -272,9 +262,6 @@ void KModule::addInternalFunction(Function *fn) {
 void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
-  if (opts.OutputStaticAnalysis) {
-    OutputStatic = true;
-  }
 
   // gather a list of original module functions
   set<const Function*> orig_functions;
@@ -441,7 +428,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // Write out the .ll assembly file. We truncate long lines to work
   // around a kcachegrind parsing bug (it puts them on new lines), so
   // that source browsing works.
-  if (OutputSource || OutputStatic) {
+  if (OutputSource || opts.OutputSource) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll", true);
     if (os != nullptr) {
         *os << *module;
@@ -522,11 +509,14 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       continue;
 
     Function *fn = static_cast<Function *>(it);
-    if (orig_functions.count(fn) == 0) {
+    if (opts.LoadedFnNames != nullptr) {
+      std::string fn_name = fn->getName();
+      if (opts.LoadedFnNames->count(fn_name) == 0) {
+        addInternalFunction(fn);
+      }
+    } else if (orig_functions.count(fn) == 0) {
       addInternalFunction(fn);
     }
-    addInternalFunction("fn_tag");
-
     KFunction *kf = new KFunction(fn, this);
 
     for (unsigned i=0; i<kf->numInstructions; ++i) {
@@ -715,7 +705,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
                   }
                   bbIDs.push_back(val1);
                   kf->mapBBlocks[val1] = &bb;
-                  if (ValidateMarkers) fn_bbs.insert(val1);
                 }
               }
             }
@@ -753,52 +742,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
         kf->mapMarkers[&bb] = bbIDs;
       }
 
-      if (ValidateMarkers) {
-        // validate the marker ids found in function
-        const std::set<unsigned> &info_bbs = *info.get_markers(fn_name);
-        std::set<unsigned> in_info;
-        std::set<unsigned> in_module;
-
-        std::set_difference(info_bbs.begin(), info_bbs.end(),
-                            fn_bbs.begin(), fn_bbs.end(),
-                            std::inserter(in_info, in_info.end()));
-
-        std::set_difference(fn_bbs.begin(), fn_bbs.end(),
-                            info_bbs.begin(), info_bbs.end(),
-                            std::inserter(in_module, in_module.end()));
-
-        if (!(in_info.empty() && in_module.empty())) {
-
-          // report mismatched markers
-          std::stringstream ss;
-          ss << "conflicting markers in function " << fn_name << ' ';
-          if (!in_info.empty()) {
-            ss << "(in_info: ";
-            bool first = true;
-            for (auto m : in_info) {
-              if (!first)
-                ss << ',';
-              ss << m;
-              first = false;
-            }
-            ss << ')';
-          }
-
-          if (!in_module.empty()) {
-            ss << "(in_module: ";
-            bool first = true;
-            for (auto m : in_module) {
-              if (!first)
-                ss << ',';
-              ss << m;
-              first = false;
-            }
-            ss << ')';
-          }
-          bb_conflicts.push_back(ss.str());
-        }
-      }
-
       // find all (possibly nested) loop headers
       kf->findLoops();
 
@@ -823,14 +766,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
           }
         }
       }
-    }
-
-    if (ValidateMarkers && !bb_conflicts.empty()) {
-      std::stringstream ss;
-      for (const std::string &conflict : bb_conflicts) {
-        ss << conflict << '\n';
-      }
-      klee_error("%s", ss.str().c_str());
     }
   }
 

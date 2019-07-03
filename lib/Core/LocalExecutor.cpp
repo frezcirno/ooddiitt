@@ -67,6 +67,8 @@
 #endif
 
 #include <fstream>
+#include <chrono>
+#include <iomanip>
 
 using namespace llvm;
 
@@ -603,6 +605,10 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
     }
   }
 
+  if (mo->created_size > 4096) {
+    klee_warning("large symbolic: %s, size=%d", mo->name.c_str(), mo->created_size);
+  }
+
   // wos with either equal os or point to a copied value
   // os now may be been deleted, so henceforth, use wos
   ObjectHolder oh(wos);
@@ -720,7 +726,8 @@ void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) 
     std::string fn_name = fn->getName();
 
     if (state.isUnconstrainGlobals() &&
-        (gb_name.size() > 0) && (gb_name.at(0) != '.') &&
+        (gb_name.size() > 0) &&
+        (gb_name.at(0) != '.') &&
         (fn == nullptr || progInfo->isGlobalInput(fn_name, gb_name))) {
       // global may already have a value in this state.
       const ObjectState *os = state.addressSpace.findObject(mo);
@@ -1022,8 +1029,9 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned 
 
   Function *fn = kf->function;
 
-  llvm::raw_ostream &os = getHandler().getInfoStream();
+  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
   os << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
+  os.flush();
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -1067,7 +1075,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
         continue;
       }
 
-      llvm::raw_ostream &os = getHandler().getInfoStream();
+      llvm::raw_ostream &os = interpreterHandler->getInfoStream();
       unsigned block_id = 0;
       os << "    starting from: ";
       if (kf->mapMarkers[startBB].empty()) {
@@ -1077,6 +1085,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
         os << block_id;
       }
       os << "\n";
+      os.flush();
     }
     runFnFromBlock(kf, initialState, startBB);
   }
@@ -1128,6 +1137,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   uint64_t heartbeat = now + HEARTBEAT_INTERVAL;
   HaltReason halt = HaltReason::OK;
 
+  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
+
   while (!states.empty() && !haltExecution && halt == HaltReason::OK && !(doLocalCoverage && pathsRemaining.empty())) {
 
     ExecutionState *state = &searcher->selectState();
@@ -1137,7 +1148,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
       halt = HaltReason::InvalidExpr;
-      interpreterHandler->getInfoStream() << "    * uninitialized expression, restarting execution\n";
+      os << "    * uninitialized expression, restarting execution\n";
+      os.flush();
     }
 
     processTimers(state, 0);
@@ -1146,15 +1158,13 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // check for exceeding maximum time
     clock_gettime(CLOCK_MONOTONIC, &tm);
     now = (uint64_t) tm.tv_sec;
-    if (now > stopTime) {
-
-      llvm::raw_ostream &os = getHandler().getInfoStream();
+    if (now > heartbeat) {
+      interpreterHandler->resetWatchDogTimer();
+      heartbeat = now + HEARTBEAT_INTERVAL;
+    } else if (now > stopTime) {
       os << "    * max time elapsed\n";
       os.flush();
       halt = HaltReason::TimeOut;
-    } else if (now > heartbeat) {
-      interpreterHandler->resetWatchDogTimer();
-      heartbeat = now + HEARTBEAT_INTERVAL;
     }
     checkMemoryFnUsage(kf);
   }
@@ -1193,6 +1203,8 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
   libc_initializing = true;
 
+  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
+
   while (libc_initializing) {
 
     ExecutionState *state;
@@ -1202,7 +1214,8 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
     try {
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
-      interpreterHandler->getInfoStream() << "    * uninitialized expression, restarting execution\n";
+      os << "    * uninitialized expression, restarting execution\n";
+      os.flush();
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1752,14 +1765,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
 
       const CallSite cs(i);
-      std::string fnName = "unknown";
+      std::string fnName = "@unknown";
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
-      if (fn == nullptr) {
-
-        // let classic klee deal with it
-        Executor::executeInstruction(state, ki);
-        break;
-      } else {
+      if (fn != nullptr) {
         fnName = fn->getName();
 
         // if this function does not return, (exit, abort, zopc_exit, etc)
@@ -1795,9 +1803,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee function, then let the standard executor handle it
-      bool isInModule = false;
-      isInModule = kmodule->isModuleFunction(fn);
-      if ((!state.isStubCallees() && isInModule) || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
+      bool isInModule = kmodule->isModuleFunction(fn);
+      if ((!state.isStubCallees() && isInModule) ||
+          specialFunctionHandler->isSpecial(fn) ||
+          kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }

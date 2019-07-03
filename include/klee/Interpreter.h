@@ -97,13 +97,15 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
-    bool OutputStaticAnalysis;
+    bool OutputSource;
+    std::set<std::string> *LoadedFnNames;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
         CheckOvershift(false),
-        OutputStaticAnalysis(false)
+        OutputSource(false),
+        LoadedFnNames(nullptr)
       {}
   };
 

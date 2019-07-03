@@ -24,6 +24,7 @@
 #include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/System/Memory.h"
+#include <klee/Internal/Module/KInstruction.h>
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
@@ -67,7 +68,7 @@
 #include <fcntl.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <klee/Internal/Module/KInstruction.h>
+#include <chrono>
 
 using namespace llvm;
 using namespace klee;
@@ -92,7 +93,7 @@ namespace {
                      cl::init(""),
                      cl::desc("When fragmenting, do not start from these block ids"));
 
-cl::opt<bool>
+  cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
              cl::init(false));
@@ -244,11 +245,10 @@ cl::opt<bool>
 				"Used for testing."),
                        cl::init(0));
 
-  cl::opt<bool>
+  cl::opt<unsigned>
   Watchdog("watchdog",
-           cl::desc("Use a watchdog process to monitor se."),
+           cl::desc("Use a watchdog process to monitor se. (default = 0 secs"),
            cl::init(0));
-
 
   cl::opt<bool>
   NoSolution("no-solution",
@@ -678,45 +678,44 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
 
           objects.append(obj);
         }
-      }
 
-      // only if needed
-      if (!NoAddressSpace && !NoSolution) {
+        if (!NoAddressSpace) {
 
-        // dump details of the state address space
-        root["addressSpace"] = Json::arrayValue;
-        Json::Value &addrSpace = root["addressSpace"];
+          // dump details of the state address space
+          root["addressSpace"] = Json::arrayValue;
+          Json::Value &addrSpace = root["addressSpace"];
 
-        std::vector<ObjectPair> listOPs;
-        state.addressSpace.getMemoryObjects(listOPs);
-        for (const auto pr : listOPs) {
+          std::vector<ObjectPair> listOPs;
+          state.addressSpace.getMemoryObjects(listOPs);
+          for (const auto pr : listOPs) {
 
-          const MemoryObject *mo = pr.first;
-          const ObjectState *os = pr.second;
+            const MemoryObject *mo = pr.first;
+            const ObjectState *os = pr.second;
 
-          Json::Value obj = Json::objectValue;
-          obj["id"] = mo->id;
-          obj["name"] = mo->name;
-          obj["kind"] = mo->getKindAsStr();
-          obj["count"] = mo->count;
-          obj["physical_size"] = mo->size;
-          obj["visible_size"] = os->visible_size;
-          obj["type"] = getTypeName(os->getLastType());
-          obj["type_history"] = Json::arrayValue;
-          for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
-            obj["type_history"].append(getTypeName(*itr));
+            Json::Value obj = Json::objectValue;
+            obj["id"] = mo->id;
+            obj["name"] = mo->name;
+            obj["kind"] = mo->getKindAsStr();
+            obj["count"] = mo->count;
+            obj["physical_size"] = mo->size;
+            obj["visible_size"] = os->visible_size;
+            obj["type"] = getTypeName(os->getLastType());
+            obj["type_history"] = Json::arrayValue;
+            for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
+              obj["type_history"].append(getTypeName(*itr));
+            }
+
+            // scale to 32 or 64 bits
+            unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+            std::vector<unsigned char> addr;
+            unsigned char *addrBytes = ((unsigned char *) &(mo->address));
+            for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+              addr.push_back(*addrBytes);
+            }
+            obj["addr"] = toDataString(addr);
+
+            addrSpace.append(obj);
           }
-
-          // scale to 32 or 64 bits
-          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-          std::vector<unsigned char> addr;
-          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
-          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-            addr.push_back(*addrBytes);
-          }
-          obj["addr"] = toDataString(addr);
-
-          addrSpace.append(obj);
         }
       }
 
@@ -1747,6 +1746,7 @@ int main(int argc, char **argv, char **envp) {
 
             timeout = now + HEARTBEAT_TIMEOUT;
             reset_watchdog_timer = false;
+
           } else if (now > timeout) {
 
             errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT\n";
@@ -1826,6 +1826,11 @@ int main(int argc, char **argv, char **envp) {
                ec.message().c_str());
   }
 #endif
+
+  std::set<std::string> loaded_fns;
+  for (const auto &fn : *mainModule) {
+    if (!fn.isDeclaration()) loaded_fns.insert(fn.getName());
+  }
 
   ProgInfo progInfo;
   if (!ProgramInfo.empty()) {
@@ -1992,7 +1997,8 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
-  MOpts.OutputStaticAnalysis = handler->createOutputDir();
+  MOpts.OutputSource = handler->createOutputDir();
+  MOpts.LoadedFnNames = &loaded_fns;
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
