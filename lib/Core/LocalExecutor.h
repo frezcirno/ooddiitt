@@ -114,8 +114,8 @@ protected:
                          std::string name,
                          WObjectPair &wop);
 
-  void initializeGlobalValues(ExecutionState &state, llvm::Function *fn);
-  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn);
+  void newUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);

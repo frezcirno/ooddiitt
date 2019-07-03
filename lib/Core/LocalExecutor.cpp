@@ -328,7 +328,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
   return false;
 }
 
-void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn, unsigned counter) {
+void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
 
   Module *m = kmodule->module;
   for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
@@ -717,16 +717,17 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
-void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) {
+void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
+  assert(state.isUnconstrainGlobals());
+
+  std::string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string gb_name = mo->name;
-    std::string fn_name = fn->getName();
 
-    if (state.isUnconstrainGlobals() &&
-        (gb_name.size() > 0) &&
+    if ((gb_name.size() > 0) &&
         (gb_name.at(0) != '.') &&
         (fn == nullptr || progInfo->isGlobalInput(fn_name, gb_name))) {
       // global may already have a value in this state.
@@ -735,12 +736,6 @@ void LocalExecutor::initializeGlobalValues(ExecutionState &state, Function *fn) 
         state.addressSpace.unbindObject(mo);
       }
       makeSymbolic(state, mo);
-    } else if (v->hasInitializer()) {
-      assert(state.isConcrete(mo));
-      const ObjectState *os = state.addressSpace.findObject(mo);
-      assert(os != nullptr);
-      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-      initializeGlobalObject(state, wos, v->getInitializer(), 0);
     }
   }
 }
@@ -860,8 +855,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     outs() << interpreterHandler->flags_to_string(state->getUnconstraintFlags()) << '\n';
     outs().flush();
 
-    // setup global state
-    initializeGlobalValues(*state, fn);
+    // unconstrain global state
+    if (state->isUnconstrainGlobals()) unconstrainGlobals(*state, fn);
 
     // create parameter values
     unsigned index = 0;
@@ -977,8 +972,6 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
     state->symPathOS = symPathWriter->open();
   if (statsTracker)
     statsTracker->framePushed(*state, nullptr);
-
-  initializeGlobalValues(*state, f);
 
   assert(arguments.size() == f->arg_size() && "wrong number of arguments");
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
@@ -1158,13 +1151,14 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // check for exceeding maximum time
     clock_gettime(CLOCK_MONOTONIC, &tm);
     now = (uint64_t) tm.tv_sec;
-    if (now > heartbeat) {
-      interpreterHandler->resetWatchDogTimer();
-      heartbeat = now + HEARTBEAT_INTERVAL;
-    } else if (now > stopTime) {
+
+    if (now > stopTime) {
       os << "    * max time elapsed\n";
       os.flush();
       halt = HaltReason::TimeOut;
+    } else if (now > heartbeat) {
+      interpreterHandler->resetWatchDogTimer();
+      heartbeat = now + HEARTBEAT_INTERVAL;
     }
     checkMemoryFnUsage(kf);
   }
@@ -1807,6 +1801,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if ((!state.isStubCallees() && isInModule) ||
           specialFunctionHandler->isSpecial(fn) ||
           kmodule->isInternalFunction(fn)) {
+
         Executor::executeInstruction(state, ki);
         return;
       }
@@ -1875,7 +1870,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // unconstrain global variables
       if (isInModule && state.isUnconstrainGlobals()) {
-        unconstrainGlobals(state, fn, counter);
+        newUnconstrainedGlobalValues(state, fn, counter);
       }
 
       // now get the return type
