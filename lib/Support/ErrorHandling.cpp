@@ -169,7 +169,7 @@ void klee::klee_error(const char *msg, ...) {
   va_start(ap, msg);
   klee_vfmessage(stderr, errorPrefix, msg, ap);
   va_end(ap);
-  exit(1);
+  exit(2);
 }
 
 void klee::klee_warning(const char *msg, ...) {

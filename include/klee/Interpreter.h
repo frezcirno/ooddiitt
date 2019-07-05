@@ -66,6 +66,13 @@ public:
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
+  virtual bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths)
+    { return false; };
+  virtual bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths)
+    { return false; };
+  virtual bool removeRestartStates()
+    { return false; };
+
   std::string flags_to_string(UnconstraintFlagsT flags) const {
 
     const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
@@ -142,7 +149,6 @@ public:
     void *heap_base;
     ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
-    std::vector<unsigned> skipBlocks;
     ExecModeID mode;
     bool verbose;
 

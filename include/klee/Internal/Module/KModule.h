@@ -48,12 +48,29 @@ namespace klee {
   class M2MPaths : public std::map<unsigned,std::set<std::string> > {
   public:
     size_t size() const { unsigned result = 0; for (auto itr : *this) { result += itr.second.size(); } return result; }
-    bool empty() const  { return size() == 0; }
+    bool empty() const {
+      auto itr = this->begin();
+      auto end = this->end();
+      while (itr != end) {
+        if (!itr->second.empty()) return false;
+        itr++;
+      }
+      return true;
+    }
+
+    bool empty(unsigned fnID) {
+      const auto &itr = this->find(fnID);
+      if (itr != this->end()) {
+        return itr->second.empty();
+      }
+      return true;
+    }
+
     void clean() {
       auto itr = this->begin();
       auto end = this->end();
       while (itr != end) {
-        if (itr->second.size() == 0) itr = erase(itr);
+        if (itr->second.empty()) itr = erase(itr);
         else ++itr;
       }
     }
@@ -131,7 +148,7 @@ namespace klee {
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
-    void constructSortedBBlocks(std::deque<const llvm::BasicBlock*> &sortedList, const llvm::BasicBlock *entry = nullptr);
+    void constructSortedBBlocks(std::deque<unsigned> &sortedList, const llvm::BasicBlock *entry = nullptr);
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
 

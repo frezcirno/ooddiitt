@@ -88,11 +88,6 @@ namespace {
           cl::desc("verbose output text"),
           cl::init(false));
 
-  cl::opt<std::string>
-  SkipStartingBlocks("skip-starting-blocks",
-                     cl::init(""),
-                     cl::desc("When fragmenting, do not start from these block ids"));
-
   cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
@@ -278,6 +273,7 @@ private:
   char **m_argv;
 
   std::map<std::string,unsigned> terminationCounters;
+  std::set<std::string> savedRestartStates;
 
 public:
   PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
@@ -321,6 +317,9 @@ public:
   void getTerminationMessages(std::vector<std::string> &messages) override;
   unsigned getTerminationCount(const std::string &message) override;
 
+  bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) override;
+  bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) override;
+  bool removeRestartStates() override;
 };
 
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
@@ -825,11 +824,8 @@ void PGKleeHandler::getKTestFilesInDir(std::string directoryPath,
           results.push_back(f);
     }
   }
-
   if (ec) {
-    llvm::errs() << "ERROR: unable to read output directory: " << directoryPath
-                 << ": " << ec.message() << "\n";
-    exit(1);
+    klee_error("ERROR: unable to read output directory: %s, error=%s", directoryPath.c_str(), ec.message().c_str());
   }
 }
 
@@ -903,6 +899,79 @@ void PGKleeHandler::getTerminationMessages(std::vector<std::string> &messages) {
 
 unsigned PGKleeHandler::getTerminationCount(const std::string &message) {
   return terminationCounters[message];
+}
+
+
+bool PGKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) {
+
+  std::string fn_name = fn->getName();
+  std::string pathname = getOutputFilename(fn_name + "-state.json");
+  std::ifstream fin(pathname.c_str());
+  if (fin) {
+    Json::Value root = Json::objectValue;
+    fin >> root;
+
+    worklist.clear();
+    paths.clear();
+
+    Json::Value &worklistNode = root["worklist"];
+    if (worklistNode.isArray()) {
+      for (unsigned idx = 0, end = worklistNode.size(); idx < end; ++idx) {
+        worklist.push_back(worklistNode[idx].asUInt());
+      }
+    }
+
+    Json::Value &pathsNode = root["paths"];
+    if (pathsNode.isArray()) {
+      for (unsigned idx = 0, end = pathsNode.size(); idx < end; ++idx) {
+        paths.insert(pathsNode[idx].asString());
+      }
+    }
+
+    return true;
+  }
+  return false;
+}
+
+bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) {
+
+  std::string fn_name = fn->getName();
+  std::string pathname = getOutputFilename(fn_name + "-state.json");
+  std::ofstream fout(pathname.c_str());
+  if (fout) {
+    Json::Value root = Json::objectValue;
+
+    Json::Value &worklistNode = root["worklist"] = Json::arrayValue;
+    for (const auto &id : worklist) {
+      worklistNode.append(id);
+    }
+
+    Json::Value &pathsNode = root["paths"] = Json::arrayValue;
+    for (const auto &path : paths) {
+      pathsNode.append(path);
+    }
+
+    // write the constructed json object to file
+    Json::StreamWriterBuilder builder;
+    builder["commentStyle"] = "None";
+    builder["indentation"] = indentation;
+    std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+
+    writer.get()->write(root, &fout);
+    fout << std::endl;
+
+    savedRestartStates.insert(pathname);
+    return true;
+  }
+  return false;
+}
+
+bool PGKleeHandler::removeRestartStates() {
+
+  for (const auto &pathname : savedRestartStates) {
+    boost::filesystem::remove(pathname);
+  }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1238,14 +1307,18 @@ void stop_forking() {
   theInterpreter->setInhibitForking(true);
 }
 
+
+static int exit_code = 0;
+
 static void interrupt_handle() {
   if (!interrupted && theInterpreter) {
     llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
     halt_execution();
     sys::SetInterruptFunction(interrupt_handle);
+    exit_code = 3;
   } else {
-    llvm::errs() << "KLEE: ctrl-c detected, exiting.\n";
-    exit(1);
+    llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
+    exit(4);
   }
   interrupted = true;
 }
@@ -1695,6 +1768,7 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
+  exit_code = 0;
 
   pid_t pid_watchdog = 0;
   if (Watchdog) {
@@ -1749,20 +1823,27 @@ int main(int argc, char **argv, char **envp) {
 
           } else if (now > timeout) {
 
-            errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT\n";
-            kill(pid, SIGINT);
+            unsigned tries = 0;
 
             // Ideally this triggers a dump, which may take a while,
             // so try and give the process extra time to clean up.
-            for (unsigned counter = 0; counter < 30; counter++) {
-              sleep(1);
-              res = waitpid(pid, &status, WNOHANG);
-              if (res < 0) {
-                return 1;
-              } else if (res==pid && WIFEXITED(status)) {
-                return WEXITSTATUS(status);
+            while (tries <= 2) {
+
+              tries += 1;
+              kill(pid, SIGINT);
+              errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT(" << tries << ")\n";
+
+              for (unsigned counter = 0; counter < 30; counter++) {
+                sleep(1);
+                res = waitpid(pid, &status, WNOHANG);
+                if (res < 0) {
+                  return 1;
+                } else if (res==pid && WIFEXITED(status)) {
+                  return WEXITSTATUS(status);
+                }
               }
             }
+
             errs() << "KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n";
             kill(pid, SIGKILL);
             return 1; // what more can we do
@@ -1854,8 +1935,7 @@ int main(int argc, char **argv, char **envp) {
 
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
-    if (r != 0)
-      return r;
+    klee_error("Failed initializing posix runtime, error=%d", r);
   }
 
   std::string LibraryDir = PGKleeHandler::getRunTimeLibraryPath(argv[0]);
@@ -1972,16 +2052,6 @@ int main(int argc, char **argv, char **envp) {
   IOpts.verbose = Verbose;
   IOpts.mode = ExecMode;
 
-  if (!SkipStartingBlocks.empty()) {
-
-    // parse list of block identifiers
-    std::vector<std::string> blocks;
-    boost::split(blocks, SkipStartingBlocks, boost::is_any_of(", "));
-    for (const auto &block : blocks) {
-      IOpts.skipBlocks.push_back((unsigned) stoi(block));
-    }
-  }
-
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 
@@ -2096,13 +2166,17 @@ int main(int argc, char **argv, char **envp) {
   }
   handler->getInfoStream() << stats.str();
 
+
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right
   // This is preventing the module from being
   // deleted automatically
   BufferPtr.take();
 #endif
+
+  // if clean exit, then remove stale restart states.
+  if (exit_code == 0) handler->removeRestartStates();
   delete handler;
 
-  return 0;
+  return exit_code;
 }

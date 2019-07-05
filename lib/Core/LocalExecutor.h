@@ -140,7 +140,7 @@ protected:
   unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
   unsigned numStatesWithLoopSig(unsigned loopSig) const;
 
-  void getReachablePaths(const std::string &fn_name, M2MPaths &paths) const;
+  void getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const;
   void getAllPaths(M2MPaths &paths) const;
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
   bool removeCoveredRemainingPaths(ExecutionState &state);

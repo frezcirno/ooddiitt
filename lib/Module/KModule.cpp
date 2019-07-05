@@ -1118,7 +1118,7 @@ bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *
   return false;
 }
 
-void KFunction::constructSortedBBlocks(deque<const BasicBlock*> &sortedList, const BasicBlock *entry) {
+void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicBlock *entry) {
 
   set<const BasicBlock*> visited;
   deque<const BasicBlock*> worklist;
@@ -1135,7 +1135,8 @@ void KFunction::constructSortedBBlocks(deque<const BasicBlock*> &sortedList, con
 
     const BasicBlock *bb = worklist.front();
     worklist.pop_front();
-    sortedList.push_back(bb);
+    const auto &itr = mapMarkers.find(bb);
+    if (itr != mapMarkers.end() and !itr->second.empty()) sortedList.push_back(itr->second.front());
 
     const TerminatorInst *tinst = bb->getTerminator();
     for (unsigned index = 0, end = tinst->getNumSuccessors(); index < end; ++index) {

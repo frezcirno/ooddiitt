@@ -800,7 +800,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
   }
 
   std::string name = fn->getName();
-  getReachablePaths(name, pathsRemaining);
+  getReachablePaths(name, pathsRemaining, false);
   pathsFaulting.clear(0);
   faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
@@ -1049,38 +1049,48 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned 
 void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) {
 
   assert(initialState.isUnconstrainLocals());
+  unsigned fnID = kf->fnID;
 
-  // create a worklist of basicblocks sorted by distance from entry
-  std::deque<const llvm::BasicBlock*> worklist;
-  kf->constructSortedBBlocks(worklist);
+  // try to load a restart state, if that fails, then generate a new worklist and keep existing remaining paths
+  std::deque<unsigned> worklist;
+  if (!interpreterHandler->loadRestartState(kf->function, worklist, pathsRemaining[fnID])) {
+    // create a worklist of basicblocks marker ids sorted by distance from entry
+    kf->constructSortedBBlocks(worklist);
+  }
 
   while (!worklist.empty() && !haltExecution) {
 
-    // of our objective is just local coverage, then we're done
-    if (doLocalCoverage && pathsRemaining.empty())
+    // ff our objective is just local coverage, then we're done
+    if (doLocalCoverage && pathsRemaining.empty(fnID))
       break;
 
-    const BasicBlock *startBB = worklist.front();
+    unsigned startID = worklist.front();
     worklist.pop_front();
+    const auto &itr = kf->mapBBlocks.find(startID);
+    if (itr != kf->mapBBlocks.end()) {
+      const BasicBlock *startBB = itr->second;
 
-    if (startBB != &kf->function->getEntryBlock()) {
-      if (doLocalCoverage && !reachesRemainingPath(kf, startBB)) {
-        continue;
-      }
+      if (startBB != &kf->function->getEntryBlock()) {
+        if (doLocalCoverage && !reachesRemainingPath(kf, startBB)) {
+          continue;
+        }
 
-      llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-      unsigned block_id = 0;
-      os << "    starting from: ";
-      if (kf->mapMarkers[startBB].empty()) {
-        os << "unmarked block";
-      } else {
-        block_id = kf->mapMarkers[startBB].front();
-        os << block_id;
+        llvm::raw_ostream &os = interpreterHandler->getInfoStream();
+        unsigned block_id = 0;
+        os << "    starting from: ";
+        if (kf->mapMarkers[startBB].empty()) {
+          os << "unmarked block";
+        } else {
+          block_id = kf->mapMarkers[startBB].front();
+          os << block_id;
+        }
+        os << "\n";
+        os.flush();
       }
-      os << "\n";
-      os.flush();
+      interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
+      runFnFromBlock(kf, initialState, startBB);
+      interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
     }
-    runFnFromBlock(kf, initialState, startBB);
   }
 }
 
@@ -1132,7 +1142,10 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
   llvm::raw_ostream &os = interpreterHandler->getInfoStream();
 
-  while (!states.empty() && !haltExecution && halt == HaltReason::OK && !(doLocalCoverage && pathsRemaining.empty())) {
+  while (!states.empty() &&
+         !haltExecution &&
+         halt == HaltReason::OK &&
+         !(doLocalCoverage && pathsRemaining.empty(kf->fnID))) {
 
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
@@ -1360,7 +1373,7 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   return counter;
 }
 
-void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths) const {
+void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const {
 
   paths.empty();
 
@@ -1373,15 +1386,17 @@ void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &path
     }
   }
 
-  // and then every path from call graph decendents
-  auto reachableFns = progInfo->getReachableFns(fn_name);
-  if (reachableFns != nullptr) {
-    for (const auto &name : *reachableFns) {
-      unsigned id = progInfo->getFnID(name);
-      if (id != 0 && id != fnID) {
-        const auto fn_paths = progInfo->get_m2m_paths(fn_name);
-        if (fn_paths != nullptr) {
-          paths[fnID] = *fn_paths;
+  if (transClosure) {
+    // and then every path from call graph decendents
+    auto reachableFns = progInfo->getReachableFns(fn_name);
+    if (reachableFns != nullptr) {
+      for (const auto &name : *reachableFns) {
+        unsigned id = progInfo->getFnID(name);
+        if (id != 0 && id != fnID) {
+          const auto fn_paths = progInfo->get_m2m_paths(fn_name);
+          if (fn_paths != nullptr) {
+            paths[fnID] = *fn_paths;
+          }
         }
       }
     }
