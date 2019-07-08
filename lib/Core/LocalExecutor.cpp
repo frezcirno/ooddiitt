@@ -852,8 +852,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     unconstraintFlags |= desc.unconstraintFlags;
     state->setUnconstraintFlags(unconstraintFlags);
 
+#if 0 == 1
     outs() << interpreterHandler->flags_to_string(state->getUnconstraintFlags()) << '\n';
     outs().flush();
+#endif
 
     // unconstrain global state
     if (state->isUnconstrainGlobals()) unconstrainGlobals(*state, fn);
@@ -877,15 +879,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     }
     runFn(kf, *state, starting_block);
   }
-
-  // now consider our stashed faulting states
-  for (ExecutionState *state : faulting_state_stash) {
-    if (removeCoveredRemainingPaths(*state)) {
-      interpreterHandler->processTestCase(*state);
-    }
-    delete state;
-  }
-  faulting_state_stash.clear();
 
   outs() << name;
   if (doLocalCoverage) {
@@ -1076,13 +1069,11 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
         }
 
         llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-        unsigned block_id = 0;
         os << "    starting from: ";
-        if (kf->mapMarkers[startBB].empty()) {
-          os << "unmarked block";
+        if (!kf->mapMarkers[startBB].empty()) {
+          os << kf->mapMarkers[startBB].front();
         } else {
-          block_id = kf->mapMarkers[startBB].front();
-          os << block_id;
+          os << "unmarked block";
         }
         os << "\n";
         os.flush();
@@ -1099,6 +1090,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
 
+  std::set<const KInstruction*> initializingInstructs;
+
   unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(start)];
   initState->pc = &kf->instructions[entry];
 
@@ -1112,7 +1105,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     }
 
     // unconstrain local variables
-    prepareLocalSymbolics(kf, *initState);
+    prepareLocalSymbolics(kf, *initState, initializingInstructs);
 
     // if jumping into the interior of a loop, push required loop frames
     std::vector<const BasicBlock*> hdrs;
@@ -1150,14 +1143,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
-    try {
-      executeInstruction(*state, ki);
-    } catch (bad_expression &e) {
-      halt = HaltReason::InvalidExpr;
-      os << "    * uninitialized expression, restarting execution\n";
-      os.flush();
+    if (initializingInstructs.count(ki) == 0) {
+      try {
+        executeInstruction(*state, ki);
+      } catch (bad_expression &e) {
+        halt = HaltReason::InvalidExpr;
+        os << "    * uninitialized expression, restarting execution\n";
+        os.flush();
+      }
     }
-
     processTimers(state, 0);
     updateStates(state);
 
@@ -1188,6 +1182,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
   delete processTree;
   processTree = nullptr;
+
+  // now consider our stashed faulting states
+  for (ExecutionState *state : faulting_state_stash) {
+    if (removeCoveredRemainingPaths(*state)) {
+      interpreterHandler->processTestCase(*state);
+    }
+    delete state;
+  }
+  faulting_state_stash.clear();
 
   return halt;
 }
@@ -1599,9 +1602,13 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
   Executor::transferToBasicBlock(dst, src, state);
 }
 
-void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) {
+void LocalExecutor::prepareLocalSymbolics(KFunction *kf,
+                                          ExecutionState &state,
+                                          std::set<const KInstruction*> &initializingInstructs) {
 
   assert(state.isUnconstrainLocals());
+  initializingInstructs.clear();
+
 
   // iterate over the entry block and execute allocas
   Function *fn = kf->function;
@@ -1624,6 +1631,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
 
         bool to_symbolic = !ki->inst->getName().empty();
         executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
+        initializingInstructs.insert(ki);
       }
     }
 
@@ -1646,6 +1654,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
         (void) bc;
         ref<Expr> result = eval(ki, 0, state).value;
         bindLocal(ki, state, result);
+        initializingInstructs.insert(ki);
 
       } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
 
@@ -1660,6 +1669,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
             // after the last store, no need to scan further into entry block
             --numArgs;
           }
+          initializingInstructs.insert(ki);
         }
       } else if (const GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(cur)) {
 
@@ -1684,6 +1694,7 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf, ExecutionState &state) 
           }
           base = AddExpr::create(base, offset);
           bindLocal(ki, state, base);
+          initializingInstructs.insert(ki);
         } else {
           klee_warning("Unable to resolve gep base during preparation of local symbolics");
         }

@@ -29,11 +29,11 @@ static const char *warningOncePrefix = "WARNING ONCE";
 static const char *errorPrefix = "ERROR";
 static const char *notePrefix = "NOTE";
 
-static std::string output_dir;
-static std::string output_prefix;
-static FILE* message_file = NULL;
-static FILE* warning_file = NULL;
-static bool initialized = false;
+//static std::string output_dir;
+//static std::string output_prefix;
+//static FILE* message_file = NULL;
+//static FILE* warning_file = NULL;
+//static bool initialized = false;
 
 namespace {
 cl::opt<bool> WarningsOnlyToFile(
@@ -106,15 +106,18 @@ static void klee_vfmessage(FILE *fp, const char *pfx, const char *msg,
   fdos.flush();
 }
 
+#if 0 == 1
 void klee::init_error_handling(const char *dir, const char *prefix) {
 
   output_dir = dir;
   output_prefix = prefix;
   initialized = true;
 }
+#endif
 
 void klee::term_error_handling() {
 
+#if 0 == 1
   if (message_file != NULL) {
     fclose(message_file);
     message_file = NULL;
@@ -123,8 +126,10 @@ void klee::term_error_handling() {
     fclose(warning_file);
     warning_file = NULL;
   }
+#endif
 }
 
+#if 0 == 1
 FILE *get_message_file() {
 
   if (message_file == nullptr) {
@@ -156,11 +161,12 @@ FILE *get_warning_file() {
   }
   return warning_file;
 }
+#endif
 
 void klee::klee_message(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vfmessage(get_message_file(), NULL, msg, ap);
+  klee_vfmessage(stdout, NULL, msg, ap);
   va_end(ap);
 }
 
@@ -175,7 +181,7 @@ void klee::klee_error(const char *msg, ...) {
 void klee::klee_warning(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vfmessage(get_warning_file(), warningPrefix, msg, ap);
+  klee_vfmessage(stdout, warningPrefix, msg, ap);
   va_end(ap);
 }
 
@@ -196,7 +202,7 @@ void klee::klee_warning_once(const void *id, const char *msg, ...) {
     keys.insert(key);
     va_list ap;
     va_start(ap, msg);
-    klee_vfmessage(get_warning_file(), warningOncePrefix, msg, ap);
+    klee_vfmessage(stdout, warningOncePrefix, msg, ap);
     va_end(ap);
   }
 }

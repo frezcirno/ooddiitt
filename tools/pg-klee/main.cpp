@@ -391,6 +391,8 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 
   outs() << "output directory: " << outputDirectory << '\n';
 
+#if 0 == 1
+
   // initialize error handling
   std::string prefix = OutputPrefix;
   if (prefix.empty()) {
@@ -406,8 +408,14 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
   }
 
   // open info
-  m_infoFile = openOutputFile(ifilename);
-
+  if (outs().is_displayed()) {
+#endif
+    m_infoFile = &outs();
+#if 0 == 1
+  } else {
+    m_infoFile = openOutputFile(ifilename);
+  }
+#endif
   if (IndentJson) indentation = "  ";
 }
 
@@ -415,7 +423,9 @@ PGKleeHandler::~PGKleeHandler() {
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
   term_error_handling();
-  delete m_infoFile;
+  if (!outs().is_displayed()) {
+    delete m_infoFile;
+  }
 }
 
 std::string PGKleeHandler::getTypeName(const Type *Ty) const {
@@ -1766,6 +1776,12 @@ int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
+  // write out command line info, for reference
+  for (int i=0; i<argc; i++) {
+    outs() << argv[i] << (i+1<argc ? " ":"\n");
+  }
+  outs() << "PID: " << getpid() << "\n";
+
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   exit_code = 0;
@@ -2054,11 +2070,6 @@ int main(int argc, char **argv, char **envp) {
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
-
-  for (int i=0; i<argc; i++) {
-    handler->getInfoStream() << argv[i] << (i+1<argc ? " ":"\n");
-  }
-  handler->getInfoStream() << "PID: " << getpid() << "\n";
 
   Interpreter::ModuleOptions MOpts;
 

@@ -56,7 +56,7 @@ protected:
   void runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker);
   void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
   HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
-  void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState);
+  void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState, std::set<const KInstruction*> &initializingInstructs);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
