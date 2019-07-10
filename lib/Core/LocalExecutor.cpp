@@ -1757,7 +1757,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Br: {
       BranchInst *bi = cast<BranchInst>(i);
       BasicBlock *src = i->getParent();
-      KFunction *kf = state.stack.back().kf;
 
       if (bi->isUnconditional()) {
         BasicBlock *dst = bi->getSuccessor(0);

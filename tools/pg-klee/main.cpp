@@ -261,8 +261,6 @@ namespace {
 class PGKleeHandler : public InterpreterHandler {
 private:
   TreeStreamWriter *m_pathWriter, *m_symPathWriter;
-  llvm::raw_ostream *m_infoFile;
-
   bool create_output_dir;
   SmallString<128> outputDirectory;
 
@@ -284,7 +282,7 @@ public:
   ~PGKleeHandler();
 
   bool createOutputDir() const { return create_output_dir; }
-  llvm::raw_ostream &getInfoStream() const override { return *m_infoFile; }
+  llvm::raw_ostream &getInfoStream() const override { return outs(); }
   unsigned getNumTestCases() const override { return casesGenerated; }
 
   unsigned getNumPathsExplored() { return m_pathsExplored; }
@@ -329,7 +327,6 @@ public:
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
   : m_pathWriter(nullptr),
     m_symPathWriter(nullptr),
-    m_infoFile(nullptr),
     create_output_dir(false),
     outputDirectory(),
     casesGenerated(0),
@@ -394,32 +391,6 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
   }
 
   outs() << "output directory: " << outputDirectory << '\n';
-
-#if 0 == 1
-
-  // initialize error handling
-  std::string prefix = OutputPrefix;
-  if (prefix.empty()) {
-    prefix = entry;
-  }
-
-  init_error_handling(outputDirectory.c_str(), prefix.c_str());
-
-  // specialize info name for specialized entry points.
-  std::string ifilename = "info.txt";
-  if (!prefix.empty()) {
-    ifilename = prefix + '-' + ifilename;
-  }
-
-  // open info
-  if (outs().is_displayed()) {
-#endif
-    m_infoFile = &outs();
-#if 0 == 1
-  } else {
-    m_infoFile = openOutputFile(ifilename);
-  }
-#endif
   if (IndentJson) indentation = "  ";
 }
 
@@ -427,9 +398,6 @@ PGKleeHandler::~PGKleeHandler() {
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
   term_error_handling();
-  if (!outs().is_displayed()) {
-    delete m_infoFile;
-  }
 }
 
 std::string PGKleeHandler::getTypeName(const Type *Ty) const {
