@@ -397,7 +397,6 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 PGKleeHandler::~PGKleeHandler() {
   if (m_pathWriter) delete m_pathWriter;
   if (m_symPathWriter) delete m_symPathWriter;
-  term_error_handling();
 }
 
 std::string PGKleeHandler::getTypeName(const Type *Ty) const {
