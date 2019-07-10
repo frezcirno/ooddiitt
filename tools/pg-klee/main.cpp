@@ -178,6 +178,10 @@ namespace {
   ExitOnError("exit-on-error",
               cl::desc("Exit if errors occur"));
 
+  cl::opt<bool>
+  UnconstrainConstGlobals("unconstrain-const-globals",
+                          cl::desc("include constants in global unconstrained state"),
+                          cl::init(false));
 
   enum LibcType {
     NoLibc, KleeLibc, UcLibc
@@ -1562,7 +1566,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   Json::Value &globalRoot = root["globals"];
   Json::Value::Members gbls = globalRoot.getMemberNames();
   for (const auto gbl : gbls) {
-    if (!globalRoot[gbl]["type"]["isConst"].asBool()) {
+    if (UnconstrainConstGlobals || !globalRoot[gbl]["type"]["isConst"].asBool()) {
       global_vars.insert(gbl);
     }
   }

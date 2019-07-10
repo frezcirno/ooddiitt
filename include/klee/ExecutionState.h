@@ -40,13 +40,13 @@ struct InstructionInfo;
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 
 struct LoopFrame {
-  const llvm::BasicBlock *hdr;
+  const llvm::Loop *loop;
   unsigned counter;
   const unsigned loopSignature;
 
-  LoopFrame(const llvm::BasicBlock *bb, unsigned loopSig) : hdr(bb), counter(0), loopSignature(loopSig)
+  LoopFrame(const llvm::Loop *l, unsigned loopSig) : loop(l), counter(0), loopSignature(loopSig)
     { assert(loopSig != INVALID_LOOP_SIGNATURE); }
-  LoopFrame(const LoopFrame &s) : hdr(s.hdr), counter(s.counter), loopSignature(s.loopSignature)
+  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter), loopSignature(s.loopSignature)
     { assert(s.loopSignature != INVALID_LOOP_SIGNATURE); }
 };
 

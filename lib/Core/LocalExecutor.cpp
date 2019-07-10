@@ -727,10 +727,8 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string gb_name = mo->name;
 
-    if ((gb_name.size() > 0) &&
-        (gb_name.at(0) != '.') &&
-        (fn == nullptr || progInfo->isGlobalInput(fn_name, gb_name))) {
-      // global may already have a value in this state.
+    if ((gb_name.size() > 0) && (gb_name.at(0) != '.') && (progInfo->isGlobalInput(fn_name, gb_name))) {
+      // global may already have a value in this state. if so unlink it.
       const ObjectState *os = state.addressSpace.findObject(mo);
       if (os != nullptr) {
         state.addressSpace.unbindObject(mo);
@@ -858,7 +856,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 #endif
 
     // unconstrain global state
-    if (state->isUnconstrainGlobals()) unconstrainGlobals(*state, fn);
+    if (state->isUnconstrainGlobals()) {
+      unconstrainGlobals(*state, fn);
+    }
 
     // create parameter values
     unsigned index = 0;
@@ -1091,6 +1091,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   ExecutionState *initState = new ExecutionState(initial);
 
   std::set<const KInstruction*> initializingInstructs;
+  const BasicBlock *fn_entry = &kf->function->getEntryBlock();
 
   unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(start)];
   initState->pc = &kf->instructions[entry];
@@ -1109,13 +1110,14 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
     // if jumping into the interior of a loop, push required loop frames
     std::vector<const BasicBlock*> hdrs;
+#if 0 == 1
     kf->findContainingLoops(start, hdrs);
-
     // create loop frames in order
     StackFrame &sf = initState->stack.back();
     for (auto itr = hdrs.begin(), end = hdrs.end(); itr != end; ++itr) {
       sf.loopFrames.emplace_back(LoopFrame(*itr, getNextLoopSignature()));
     }
+#endif
   }
 
   processTree = new PTree(initState);
@@ -1143,7 +1145,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
-    if (initializingInstructs.count(ki) == 0) {
+    if (start != fn_entry || initializingInstructs.count(ki) == 0) {
       try {
         executeInstruction(*state, ki);
       } catch (bad_expression &e) {
@@ -1307,6 +1309,8 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
   // expensive, so do not do this very often
   if ((stats::instructions & 0xFFF) == 0) {
     if (kf != nullptr) {
+// RLR TODO: restore loop throttling
+#if 0 == 1
       for (const auto pair : kf->loopInfo) {
         const BasicBlock *hdr = pair.first;
         unsigned num = numStatesInLoop(hdr);
@@ -1317,6 +1321,7 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
           os << "terminated " << killed << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
         }
       }
+#endif
     }
   }
 }
@@ -1329,6 +1334,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
   for (ExecutionState *state : states) {
     if (!state->stack.empty()) {
       const StackFrame &sf = state->stack.back();
+#if 0 == 1
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
@@ -1337,6 +1343,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
           killed++;
         }
       }
+#endif
     }
   }
   return killed;
@@ -1349,10 +1356,12 @@ unsigned LocalExecutor::numStatesInLoop(const BasicBlock *hdr) const {
     if (!state->stack.empty()) {
       const StackFrame &sf = state->stack.back();
       if (!sf.loopFrames.empty()) {
+#if 0 == 1
         const LoopFrame &lf = sf.loopFrames.back();
         if (lf.hdr == hdr) {
           ++counter;
         }
+#endif
       }
     }
   }
@@ -1608,7 +1617,6 @@ void LocalExecutor::prepareLocalSymbolics(KFunction *kf,
 
   assert(state.isUnconstrainLocals());
   initializingInstructs.clear();
-
 
   // iterate over the entry block and execute allocas
   Function *fn = kf->function;

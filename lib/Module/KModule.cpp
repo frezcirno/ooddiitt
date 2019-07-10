@@ -55,13 +55,12 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <getopt.h>
 #include <boost/algorithm/string.hpp>
-
-#include "llvm/IR/Instructions.h"
 
 using namespace llvm;
 using namespace klee;
@@ -325,21 +324,25 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // invariant transformations that we will end up doing later so that
   // optimize is seeing what is as close as possible to the final
   // module.
-  PassManager pm;
-  pm.add(new RaiseAsmPass());
-  if (opts.CheckDivZero) pm.add(new DivCheckPass());
-  Interpreter *i = ih->getInterpreter();
+  {
+    PassManager pm;
+    pm.add(new RaiseAsmPass());
+    if (opts.CheckDivZero) {
+      pm.add(new DivCheckPass());
+    }
+    Interpreter *i = ih->getInterpreter();
 
-  // don't use the overshift pass in zop mode, incorrectly terminates paths
-  if (opts.CheckOvershift && i != nullptr &&  i->getOptions().mode != Interpreter::zop) {
-    pm.add(new OvershiftCheckPass());
+    // don't use the overshift pass in zop mode, incorrectly terminates paths
+    if (opts.CheckOvershift && i != nullptr &&  i->getOptions().mode != Interpreter::zop) {
+      pm.add(new OvershiftCheckPass());
+    }
+    // FIXME: This false here is to work around a bug in
+    // IntrinsicLowering which caches values which may eventually be
+    // deleted (via RAUW). This can be removed once LLVM fixes this
+    // issue.
+    pm.add(new IntrinsicCleanerPass(*targetData, false));
+    pm.run(*module);
   }
-  // FIXME: This false here is to work around a bug in
-  // IntrinsicLowering which caches values which may eventually be
-  // deleted (via RAUW). This can be removed once LLVM fixes this
-  // issue.
-  pm.add(new IntrinsicCleanerPass(*targetData, false));
-  pm.run(*module);
 
   if (opts.Optimize)
     Optimize(module, opts.EntryPoint);
@@ -400,28 +403,23 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // linked in something with intrinsics but any external calls are
   // going to be unresolved. We really need to handle the intrinsics
   // directly I think?
-  PassManager pm3;
-  pm3.add(createCFGSimplificationPass());
-  switch(SwitchType) {
-  case eSwitchTypeInternal: break;
-  case eSwitchTypeSimple: pm3.add(new LowerSwitchPass()); break;
-  case eSwitchTypeLLVM:  pm3.add(createLowerSwitchPass()); break;
-  default: klee_error("invalid --switch-type");
+  {
+    PassManager pm;
+    pm.add(createCFGSimplificationPass());
+    pm.add(createLoopSimplifyPass());
+
+    switch (SwitchType) {
+    case eSwitchTypeInternal: break;
+    case eSwitchTypeSimple: pm.add(new LowerSwitchPass());
+      break;
+    case eSwitchTypeLLVM: pm.add(createLowerSwitchPass());
+      break;
+    default: klee_error("invalid --switch-type");
+    }
+    pm.add(new IntrinsicCleanerPass(*targetData));
+    pm.add(new PhiCleanerPass());
+    pm.run(*module);
   }
-  pm3.add(new IntrinsicCleanerPass(*targetData));
-  pm3.add(new PhiCleanerPass());
-  pm3.run(*module);
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 3)
-  // For cleanliness see if we can discard any of the functions we
-  // forced to import.
-  Function *f;
-  f = module->getFunction("memcpy");
-  if (f && f->use_empty()) f->eraseFromParent();
-  f = module->getFunction("memmove");
-  if (f && f->use_empty()) f->eraseFromParent();
-  f = module->getFunction("memset");
-  if (f && f->use_empty()) f->eraseFromParent();
-#endif
 
   infos = new InstructionInfoTable(module);
 
@@ -660,7 +658,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
 #endif
 
   // for each function in the main module
-  std::vector<std::string> bb_conflicts;
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
 
     KFunction *kf = *it;
@@ -701,7 +698,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
                   unsigned val1 = (unsigned) arg1->getUniqueInteger().getZExtValue();
 
                   if (val0 != kf->fnID) {
-                    klee_warning("conflicting marker function id, recieved %d, expected %d", val0, kf->fnID);
+                    klee_warning("conflicting marker function id, received %d, expected %d", val0, kf->fnID);
                   }
                   bbIDs.push_back(val1);
                   kf->mapBBlocks[val1] = &bb;
@@ -741,7 +738,17 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
         }
         kf->mapMarkers[&bb] = bbIDs;
       }
+      kf->domTree.runOnFunction(*fn);
+      auto &base = kf->loopInfo.getBase();
+      base.Analyze(kf->domTree.getBase());
 
+      outs() << fn_name << ":";
+      for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
+        outs() << kf->loopInfo.getLoopDepth(bb_itr) << " ";
+      }
+      outs() << '\n';
+
+#if 0 == 1
       // find all (possibly nested) loop headers
       kf->findLoops();
 
@@ -766,6 +773,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
           }
         }
       }
+#endif
     }
   }
 
@@ -965,7 +973,7 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-
+#if 0 == 1
 void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLoopInfo &info) {
 
   // insert hdr in body
@@ -995,6 +1003,7 @@ void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLo
     }
   }
 }
+#endif
 
 bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
 
@@ -1024,6 +1033,7 @@ bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const ll
   return false;
 }
 
+#if 0 == 1
 void KFunction::findLoops() {
 
   llvm::DominatorTree domTree;
@@ -1036,12 +1046,12 @@ void KFunction::findLoops() {
     for (const BasicBlock *succ : successors) {
       if (domTree.dominates(succ, &bb)) {
         KLoopInfo &info = loopInfo[succ];
-        info.srcs.insert(&bb);
         addLoopBodyBBs(succ, &bb, info);
       }
     }
   }
 }
+#endif
 
 void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) const {
 
@@ -1065,6 +1075,7 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
   }
 }
 
+#if 0 == 1
 void KFunction::findContainingLoops(const llvm::BasicBlock *bb, vector<const BasicBlock*> &hdrs) {
 
   hdrs.clear();
@@ -1093,28 +1104,31 @@ void KFunction::findContainingLoops(const llvm::BasicBlock *bb, vector<const Bas
     allLoops.erase(max_hdr);
   }
 }
+#endif
 
 bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 
   assert(isLoopHeader(hdr));
-
+#if 0 == 1
   const auto &pr = loopInfo.find(hdr);
   if (pr != loopInfo.end()) {
     const KLoopInfo &info = pr->second;
     return info.bbs.find(bb) != info.bbs.end();
   }
+#endif
   return false;
 }
 
 bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
 
   assert(isLoopHeader(hdr));
-
+#if 0 == 1
   const auto &pr = loopInfo.find(hdr);
   if (pr != loopInfo.end()) {
     const KLoopInfo &info = pr->second;
     return info.exits.find(bb) != info.exits.end();
   }
+#endif
   return false;
 }
 
