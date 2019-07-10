@@ -126,7 +126,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocationDepth),
-  nextLoopSignature(INVALID_LOOP_SIGNATURE),
+//  nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(opts.pinfo),
   maxStatesInLoop(10000),
   baseState(nullptr),
@@ -1368,6 +1368,7 @@ unsigned LocalExecutor::numStatesInLoop(const BasicBlock *hdr) const {
   return counter;
 }
 
+#if 0 == 1
 unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
 
   unsigned counter = 0;
@@ -1384,6 +1385,7 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
   }
   return counter;
 }
+#endif
 
 void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const {
 
@@ -1595,7 +1597,7 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
 
       } else {
         // this is a new loop
-        sf.loopFrames.emplace_back(LoopFrame(dst, getNextLoopSignature()));
+        sf.loopFrames.emplace_back(LoopFrame(dst));
       }
     } else if (!sf.loopFrames.empty()) {
 
