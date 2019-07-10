@@ -42,12 +42,9 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 struct LoopFrame {
   const llvm::Loop *loop;
   unsigned counter;
-//  const unsigned loopSignature;
 
-  LoopFrame(const llvm::Loop *l, unsigned loopSig) : loop(l), counter(0) /*, loopSignature(loopSig) */
-    { /* assert(loopSig != INVALID_LOOP_SIGNATURE); */ }
-  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter) /*, loopSignature(s.loopSignature) */
-    { /* assert(s.loopSignature != INVALID_LOOP_SIGNATURE); */ }
+  LoopFrame(const llvm::Loop *l) : loop(l), counter(0) {}
+  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter) {}
 };
 
 struct StackFrame {

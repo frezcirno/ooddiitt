@@ -134,11 +134,9 @@ protected:
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;
-//  unsigned getNextLoopSignature() { return ++nextLoopSignature; }
   void checkMemoryFnUsage(KFunction *kf = nullptr);
-  unsigned numStatesInLoop(const llvm::BasicBlock *hdr) const;
-  unsigned decimateStatesInLoop(const llvm::BasicBlock *hdr, unsigned skip_counter = 0);
-//  unsigned numStatesWithLoopSig(unsigned loopSig) const;
+  unsigned numStatesInLoop(const llvm::Loop *loop) const;
+  unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
 
   void getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const;
   void getAllPaths(M2MPaths &paths) const;
@@ -157,8 +155,7 @@ protected:
   M2MPaths pathsRemaining;
   M2MPaths pathsFaulting;
   std::set<ExecutionState*> faulting_state_stash;
-//  unsigned nextLoopSignature;
-  std::map<const llvm::BasicBlock*, unsigned> forkCounter;
+  std::map<const llvm::Loop*, unsigned> loopForkCounter;
   ProgInfo *progInfo;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;

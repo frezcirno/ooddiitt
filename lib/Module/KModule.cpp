@@ -217,32 +217,6 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
   }
 }
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 3)
-static void forceImport(Module *m, const char *name, LLVM_TYPE_Q Type *retType,
-                        ...) {
-  // If module lacks an externally visible symbol for the name then we
-  // need to create one. We have to look in the symbol table because
-  // we want to check everything (global variables, functions, and
-  // aliases).
-
-  Value *v = m->getValueSymbolTable().lookup(name);
-  GlobalValue *gv = dyn_cast_or_null<GlobalValue>(v);
-
-  if (!gv || gv->hasInternalLinkage()) {
-    va_list ap;
-
-    va_start(ap, retType);
-    vector<LLVM_TYPE_Q Type *> argTypes;
-    while (LLVM_TYPE_Q Type *t = va_arg(ap, LLVM_TYPE_Q Type*))
-      argTypes.push_back(t);
-    va_end(ap);
-
-    m->getOrInsertFunction(name, FunctionType::get(retType, argTypes, false));
-  }
-}
-#endif
-
-
 void KModule::addInternalFunction(string functionName) {
   Function* internalFunction = module->getFunction(functionName);
   if (!internalFunction) {
@@ -385,12 +359,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     intrinsicLib += "-64";
   }
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3,3)
   intrinsicLib += ".bc";
-#else
-  intrinsicLib += ".bca";
-#endif
-
   llvm::sys::path::append(LibPath,intrinsicLib);
   module = linkWithLibrary(module, LibPath.str());
 
@@ -738,42 +707,11 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
         }
         kf->mapMarkers[&bb] = bbIDs;
       }
+
+      // generate loop information for this fn
       kf->domTree.runOnFunction(*fn);
       auto &base = kf->loopInfo.getBase();
       base.Analyze(kf->domTree.getBase());
-
-      outs() << fn_name << ":";
-      for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
-        outs() << kf->loopInfo.getLoopDepth(bb_itr) << " ";
-      }
-      outs() << '\n';
-
-#if 0 == 1
-      // find all (possibly nested) loop headers
-      kf->findLoops();
-
-      // iterate over each loop and each basic block to
-      // find the exit nodes
-      for (auto pr : kf->loopInfo) {
-
-        const BasicBlock *hdr = pr.first;
-        KLoopInfo &info = kf->loopInfo[hdr];
-
-        for (const BasicBlock *bb : info.bbs) {
-          BasicBlocks successors;
-          kf->getSuccessorBBs(bb, successors);
-
-          // if any successor is not in loop, then
-          // it is an exit node
-          for (const auto succ : successors) {
-            if (!kf->isInLoop(hdr, succ)) {
-              info.exits.insert(bb);
-              break;
-            }
-          }
-        }
-      }
-#endif
     }
   }
 
@@ -973,38 +911,6 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-#if 0 == 1
-void KFunction::addLoopBodyBBs(const BasicBlock *hdr, const BasicBlock *src, KLoopInfo &info) {
-
-  // insert hdr in body
-  info.bbs.insert(hdr);
-
-  // start with the source of loop backedge
-  BasicBlocks worklist;
-  worklist.insert(src);
-
-  while (!worklist.empty()) {
-
-    // select an item from the worklist
-    auto itr = worklist.begin();
-    const BasicBlock *bb = *itr;
-    worklist.erase(itr);
-
-    // if item is not already in the body,
-    // item preds to worklist, and item to body
-    auto result = info.bbs.insert(bb);
-    if (result.second) {
-
-      BasicBlocks preds;
-      getPredecessorBBs(bb, preds);
-      for (auto pred : preds) {
-        worklist.insert(pred);
-      }
-    }
-  }
-}
-#endif
-
 bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
 
   // setup for BFS traversal of CFG
@@ -1033,26 +939,6 @@ bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const ll
   return false;
 }
 
-#if 0 == 1
-void KFunction::findLoops() {
-
-  llvm::DominatorTree domTree;
-  domTree.runOnFunction(*function);
-
-  for (const BasicBlock &bb : *function) {
-
-    BasicBlocks successors;
-    getSuccessorBBs(&bb, successors);
-    for (const BasicBlock *succ : successors) {
-      if (domTree.dominates(succ, &bb)) {
-        KLoopInfo &info = loopInfo[succ];
-        addLoopBodyBBs(succ, &bb, info);
-      }
-    }
-  }
-}
-#endif
-
 void KFunction::getSuccessorBBs(const BasicBlock *bb, BasicBlocks &successors) const {
 
   successors.clear();
@@ -1073,63 +959,6 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
       predecessors.insert(*itr);
     }
   }
-}
-
-#if 0 == 1
-void KFunction::findContainingLoops(const llvm::BasicBlock *bb, vector<const BasicBlock*> &hdrs) {
-
-  hdrs.clear();
-
-  BasicBlocks allLoops;
-  for (const auto pair : loopInfo) {
-    if (pair.second.bbs.count(pair.first) > 0) {
-      allLoops.insert(pair.first);
-    }
-  }
-
-  while (!allLoops.empty()) {
-
-    unsigned max_size = 0;
-    const BasicBlock *max_hdr = nullptr;
-    for (auto hdr : allLoops) {
-      KLoopInfo &info = loopInfo[hdr];
-      unsigned size = (unsigned) info.bbs.size();
-      if (size > max_size) {
-        max_size = size;
-        max_hdr = hdr;
-      }
-    }
-    assert(max_hdr != nullptr);
-    hdrs.push_back(max_hdr);
-    allLoops.erase(max_hdr);
-  }
-}
-#endif
-
-bool KFunction::isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
-
-  assert(isLoopHeader(hdr));
-#if 0 == 1
-  const auto &pr = loopInfo.find(hdr);
-  if (pr != loopInfo.end()) {
-    const KLoopInfo &info = pr->second;
-    return info.bbs.find(bb) != info.bbs.end();
-  }
-#endif
-  return false;
-}
-
-bool KFunction::isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const {
-
-  assert(isLoopHeader(hdr));
-#if 0 == 1
-  const auto &pr = loopInfo.find(hdr);
-  if (pr != loopInfo.end()) {
-    const KLoopInfo &info = pr->second;
-    return info.exits.find(bb) != info.exits.end();
-  }
-#endif
-  return false;
 }
 
 void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicBlock *entry) {

@@ -296,7 +296,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     // ensure this is a simple expression, i.e. only concats of constant reads in the tree of subexprs
     bool simple = true;
 
-// RLR TODO: detect unconstrained pointer
+    // RLR TODO: detect unconstrained pointer
 #if 0 == 1
     std::deque<ref<Expr> > worklist = {e};
     while (simple && !worklist.empty()) {
@@ -850,11 +850,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     unconstraintFlags |= desc.unconstraintFlags;
     state->setUnconstraintFlags(unconstraintFlags);
 
-#if 0 == 1
-    outs() << interpreterHandler->flags_to_string(state->getUnconstraintFlags()) << '\n';
-    outs().flush();
-#endif
-
     // unconstrain global state
     if (state->isUnconstrainGlobals()) {
       unconstrainGlobals(*state, fn);
@@ -1109,15 +1104,17 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     prepareLocalSymbolics(kf, *initState, initializingInstructs);
 
     // if jumping into the interior of a loop, push required loop frames
-    std::vector<const BasicBlock*> hdrs;
-#if 0 == 1
-    kf->findContainingLoops(start, hdrs);
-    // create loop frames in order
-    StackFrame &sf = initState->stack.back();
-    for (auto itr = hdrs.begin(), end = hdrs.end(); itr != end; ++itr) {
-      sf.loopFrames.emplace_back(LoopFrame(*itr, getNextLoopSignature()));
+    // create frames for each intermidiate loop
+    std::vector<const llvm::Loop*> loops;
+    const llvm::Loop *curr = kf->loopInfo.getLoopFor(start);
+    while (curr != nullptr) {
+      loops.push_back(curr);
+      curr = curr->getParentLoop();
     }
-#endif
+    StackFrame &sf = initState->stack.back();
+    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+      sf.loopFrames.emplace_back(LoopFrame(*itr));
+    }
   }
 
   processTree = new PTree(initState);
@@ -1172,7 +1169,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     checkMemoryFnUsage(kf);
   }
 
-  forkCounter.clear();
+  loopForkCounter.clear();
   for (ExecutionState *state : states) {
     terminateState(*state, "flushing states on halt");
   }
@@ -1233,7 +1230,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
     updateStates(state);
   }
 
-  forkCounter.clear();
+  loopForkCounter.clear();
 
   // libc initializer should not have forked any additional states
   if (states.size() > 1) {
@@ -1309,24 +1306,45 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
   // expensive, so do not do this very often
   if ((stats::instructions & 0xFFF) == 0) {
     if (kf != nullptr) {
-// RLR TODO: restore loop throttling
-#if 0 == 1
-      for (const auto pair : kf->loopInfo) {
-        const BasicBlock *hdr = pair.first;
-        unsigned num = numStatesInLoop(hdr);
-        if (num > maxStatesInLoop) {
-          unsigned killed = decimateStatesInLoop(hdr, 99);
 
-          llvm::raw_ostream &os = getHandler().getInfoStream();
-          os << "terminated " << killed << " states in loop: " << kf->mapMarkers[hdr].front() << "\n";
+      // get a vector of all loops in fn
+      std::deque<const Loop*> worklist;
+      for (const Loop *root : kf->loopInfo) {
+        worklist.push_back(root);
+      }
+
+      std::vector<const Loop*> all_loops;
+      while (!worklist.empty()) {
+        const Loop *curr = worklist.front();
+        worklist.pop_front();
+        all_loops.push_back(curr);
+        for (const Loop *child : *curr) {
+          worklist.push_back(child);
         }
       }
-#endif
+
+      for (const Loop *loop : all_loops) {
+        unsigned num = numStatesInLoop(loop);
+        if (num > maxStatesInLoop) {
+          unsigned killed = decimateStatesInLoop(loop, 99);
+
+          // try to get a marker number for this basic block
+          unsigned marker = 0;
+          llvm::raw_ostream &os = getHandler().getInfoStream();
+          auto itr = kf->mapMarkers.find(loop->getHeader());
+          if (itr != kf->mapMarkers.end()) {
+            if (!itr->second.empty()) {
+              marker = itr->second.front();
+            }
+          }
+          os << "terminated " << killed << " states in loop: " << marker << "\n";
+        }
+      }
     }
   }
 }
 
-unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned skip_counter) {
+unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_counter) {
 
   unsigned counter = 0;
   unsigned killed = 0;
@@ -1334,42 +1352,20 @@ unsigned LocalExecutor::decimateStatesInLoop(const BasicBlock *hdr, unsigned ski
   for (ExecutionState *state : states) {
     if (!state->stack.empty()) {
       const StackFrame &sf = state->stack.back();
-#if 0 == 1
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
-        if ((lf.hdr == hdr) && (++counter % skip_counter != 0)) {
+        if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
           state->status = ExecutionState::StateStatus::Decimated;
           terminateState(*state, "decimated");
           killed++;
         }
       }
-#endif
     }
   }
   return killed;
 }
 
-unsigned LocalExecutor::numStatesInLoop(const BasicBlock *hdr) const {
-
-  unsigned counter = 0;
-  for (const ExecutionState *state : states) {
-    if (!state->stack.empty()) {
-      const StackFrame &sf = state->stack.back();
-      if (!sf.loopFrames.empty()) {
-#if 0 == 1
-        const LoopFrame &lf = sf.loopFrames.back();
-        if (lf.hdr == hdr) {
-          ++counter;
-        }
-#endif
-      }
-    }
-  }
-  return counter;
-}
-
-#if 0 == 1
-unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
+unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
 
   unsigned counter = 0;
   for (const ExecutionState *state : states) {
@@ -1377,15 +1373,12 @@ unsigned LocalExecutor::numStatesWithLoopSig(unsigned loopSig) const {
       const StackFrame &sf = state->stack.back();
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
-        if (lf.loopSignature == loopSig) {
-          ++counter;
-        }
+        if (lf.loop == loop) ++counter;
       }
     }
   }
   return counter;
 }
-#endif
 
 void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const {
 
@@ -1583,30 +1576,63 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
 void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
 
   // if src and dst bbs have the same parent, then this is a branch
-  // update the loop frame
   if (dst->getParent() == src->getParent()) {
+
+    // update the loop frame
     StackFrame &sf = state.stack.back();
     KFunction *kf = sf.kf;
 
-    if (kf->isLoopHeader(dst)) {
-      if (kf->isInLoop(dst, src)) {
+    const llvm::Loop *src_loop = kf->loopInfo.getLoopFor(src);
+    const llvm::Loop *dst_loop = kf->loopInfo.getLoopFor(dst);
 
-        // completed a cycle
-        assert(!sf.loopFrames.empty() && "cycled an empty loop");
-        ++sf.loopFrames.back().counter;
+    if (src_loop == dst_loop) {
+      // either source and destination are not in a loop,
+      // or they are in the same loop
+      if (dst_loop != nullptr) {
 
-      } else {
-        // this is a new loop
-        sf.loopFrames.emplace_back(LoopFrame(dst));
+       // both in a loop, if the dest is the loop header, then we have completed a cycle
+       if (dst_loop->getHeader() == dst && !sf.loopFrames.empty()) {
+         LoopFrame &lf = sf.loopFrames.back();
+         if (lf.loop == dst_loop) lf.counter += 1;
+       }
       }
-    } else if (!sf.loopFrames.empty()) {
+    } else {
+      // source and destination loop are different
+      // we either entered a new loop, or exited the previous loop (or both?)
+      if (src_loop == nullptr) {
 
-      LoopFrame *lf = &sf.loopFrames.back();
-      const BasicBlock *hdr = lf->hdr;
-      if (!kf->isInLoop(hdr, dst)) {
+        // entered new loop
+        sf.loopFrames.emplace_back(LoopFrame(dst_loop));
+      } else if (dst_loop == nullptr) {
 
-        // just left the loop
+        // left the prior loop
         sf.loopFrames.pop_back();
+      } else {
+        // neither empty implies we just changed loops
+        if (src_loop->contains(dst_loop)) {
+
+          // create frames for each intermidiate loop
+          const llvm::Loop *curr = dst_loop;
+          std::vector<const llvm::Loop*> loops;
+          while (curr != src_loop) {
+            loops.push_back(curr);
+            curr = curr->getParentLoop();
+          }
+          for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+            sf.loopFrames.emplace_back(LoopFrame(*itr));
+          }
+
+        } else if (dst_loop->contains(src_loop)) {
+
+          // pop loops from frame until we get to the source
+          const llvm::Loop *prior = nullptr;
+          while (!sf.loopFrames.empty() && prior != src_loop) {
+            prior = sf.loopFrames.back().loop;
+            sf.loopFrames.pop_back();
+          }
+        } else {
+          klee_error("loop transition between unrelated loops");
+        }
       }
     }
   }
@@ -1764,10 +1790,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               StackFrame &sf = states[index]->stack.back();
               if (!sf.loopFrames.empty()) {
                 LoopFrame &lf = sf.loopFrames.back();
-                ++forkCounter[lf.hdr];
-                if (kf->isLoopExit(lf.hdr, src) && kf->isInLoop(lf.hdr, dst)) {
-
-                  if (lf.counter > maxLoopIteration && forkCounter[lf.hdr] > maxLoopForks){
+                ++loopForkCounter[lf.loop];
+                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
+                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
 
                     // finally consider terminating the state.
                     terminateState(*states[index], "loop throttled");

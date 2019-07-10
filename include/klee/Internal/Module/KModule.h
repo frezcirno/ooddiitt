@@ -100,15 +100,6 @@ namespace klee {
     }
   };
 
-#if 0 == 1
-  struct KLoopInfo {
-    std::set<const llvm::BasicBlock*> bbs;
-    std::set<const llvm::BasicBlock*> exits;
-    KLoopInfo()                   { }
-    KLoopInfo(const KLoopInfo &s) { bbs = s.bbs; exits = s.exits; }
-  };
-#endif
-
   struct KFunction {
     llvm::Function *function;
 
@@ -128,7 +119,6 @@ namespace klee {
     const KFunction *annotationKFn;
 
     // loop analysis
-//    std::map<const llvm::BasicBlock*,KLoopInfo> loopInfo;
     llvm::DominatorTree domTree;
     llvm::LoopInfo loopInfo;
 
@@ -144,15 +134,10 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-//    void findLoops();
     bool isLoopHeader(const llvm::BasicBlock *bb) const
       { const auto *L = loopInfo.getLoopFor(bb); return (L && L->getHeader() == bb); }
-    bool isInLoop(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
-//    void findContainingLoops(const llvm::BasicBlock *bb, std::vector<const llvm::BasicBlock*> &hdrs);
-    bool isLoopExit(const llvm::BasicBlock *hdr, const llvm::BasicBlock *bb) const;
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
-//    void addLoopBodyBBs(const llvm::BasicBlock *hdr, const llvm::BasicBlock *src, KLoopInfo &info);
     void constructSortedBBlocks(std::deque<unsigned> &sortedList, const llvm::BasicBlock *entry = nullptr);
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
