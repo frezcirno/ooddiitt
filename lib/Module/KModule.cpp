@@ -57,6 +57,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/ADT/PostOrderIterator.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <getopt.h>
@@ -963,31 +964,16 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
 
 void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicBlock *entry) {
 
-  set<const BasicBlock*> visited;
-  deque<const BasicBlock*> worklist;
-
   sortedList.clear();
   if (entry == nullptr) {
     entry = &function->getEntryBlock();
   }
 
-  visited.insert(entry);
-  worklist.push_back(entry);
-
-  while (!worklist.empty()) {
-
-    const BasicBlock *bb = worklist.front();
-    worklist.pop_front();
+  ReversePostOrderTraversal<const BasicBlock*> RPO(entry);
+  for (const auto &bb : RPO) {
     const auto &itr = mapMarkers.find(bb);
-    if (itr != mapMarkers.end() and !itr->second.empty()) sortedList.push_back(itr->second.front());
-
-    const TerminatorInst *tinst = bb->getTerminator();
-    for (unsigned index = 0, end = tinst->getNumSuccessors(); index < end; ++index) {
-      const BasicBlock *next = tinst->getSuccessor(index);
-      if (visited.count(next) == 0) {
-        visited.insert(next);
-        worklist.push_back(next);
-      }
+    if (itr != mapMarkers.end() && !itr->second.empty()) {
+      sortedList.push_back(itr->second.front());
     }
   }
 }

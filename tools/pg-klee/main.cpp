@@ -275,7 +275,6 @@ private:
   char **m_argv;
 
   std::map<std::string,unsigned> terminationCounters;
-  std::set<std::string> savedRestartStates;
 
 public:
   PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
@@ -321,7 +320,7 @@ public:
 
   bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) override;
   bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) override;
-  bool removeRestartStates() override;
+  bool removeRestartState(const llvm::Function *fn) override;
 };
 
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
@@ -940,19 +939,16 @@ bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<
 
     writer.get()->write(root, &fout);
     fout << std::endl;
-
-    savedRestartStates.insert(pathname);
     return true;
   }
   return false;
 }
 
-bool PGKleeHandler::removeRestartStates() {
+bool PGKleeHandler::removeRestartState(const llvm::Function *fn) {
 
-  for (const auto &pathname : savedRestartStates) {
-    boost::filesystem::remove(pathname);
-  }
-  return true;
+  std::string fn_name = fn->getName();
+  std::string pathname = getOutputFilename(fn_name + "-state.json");
+  boost::filesystem::remove(pathname);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1747,12 +1743,6 @@ int main(int argc, char **argv, char **envp) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  // write out command line info, for reference
-  for (int i=0; i<argc; i++) {
-    outs() << argv[i] << (i+1<argc ? " ":"\n");
-  }
-  outs() << "PID: " << getpid() << "\n";
-
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   exit_code = 0;
@@ -1847,6 +1837,12 @@ int main(int argc, char **argv, char **envp) {
     // then this is the forked child
     pid_watchdog = getppid();
   }
+
+  // write out command line info, for reference
+  for (int i=0; i<argc; i++) {
+    outs() << argv[i] << (i+1<argc ? " ":"\n");
+  }
+  outs() << "PID: " << getpid() << "\n";
 
   // Load the bytecode...
   std::string ErrorMsg;
@@ -2156,8 +2152,6 @@ int main(int argc, char **argv, char **envp) {
   BufferPtr.take();
 #endif
 
-  // if clean exit, then remove stale restart states.
-  if (exit_code == 0) handler->removeRestartStates();
   delete handler;
 
   return exit_code;

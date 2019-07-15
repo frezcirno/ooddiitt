@@ -1041,9 +1041,14 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
 
   // try to load a restart state, if that fails, then generate a new worklist and keep existing remaining paths
   std::deque<unsigned> worklist;
-  if (!interpreterHandler->loadRestartState(kf->function, worklist, pathsRemaining[fnID])) {
+  if (interpreterHandler->loadRestartState(kf->function, worklist, pathsRemaining[fnID])) {
+
+    // top element must have failed, so discard
+    if (!worklist.empty()) worklist.pop_front();
+  } else {
     // create a worklist of basicblocks marker ids sorted by distance from entry
     kf->constructSortedBBlocks(worklist);
+    interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
   }
 
   while (!worklist.empty() && !haltExecution) {
@@ -1073,11 +1078,11 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
         os << "\n";
         os.flush();
       }
-      interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
       runFnFromBlock(kf, initialState, startBB);
       interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
     }
   }
+  if (!haltExecution) interpreterHandler->removeRestartState(kf->function);
 }
 
 LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
