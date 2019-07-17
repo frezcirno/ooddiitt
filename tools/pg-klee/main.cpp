@@ -275,6 +275,7 @@ private:
   char **m_argv;
 
   std::map<std::string,unsigned> terminationCounters;
+  std::set<std::string> savedRestartStateFiles;
 
 public:
   PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry);
@@ -320,7 +321,7 @@ public:
 
   bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) override;
   bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) override;
-  bool removeRestartState(const llvm::Function *fn) override;
+  bool removeRestartStates() override;
 };
 
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
@@ -361,9 +362,12 @@ PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::str
 
   boost::filesystem::path p(outputDirectory.str());
   if (create_output_dir) {
+
+    boost::system::error_code ec;
+
     // create an empty directory
-    boost::filesystem::remove_all(p);
-    boost::filesystem::create_directories(p);
+    boost::filesystem::remove_all(p, ec);
+    boost::filesystem::create_directories(p, ec);
   } else {
 
     // error if the directory does not exist
@@ -939,16 +943,21 @@ bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<
 
     writer.get()->write(root, &fout);
     fout << std::endl;
+    savedRestartStateFiles.insert(pathname);
     return true;
   }
   return false;
 }
 
-bool PGKleeHandler::removeRestartState(const llvm::Function *fn) {
+bool PGKleeHandler::removeRestartStates() {
 
-  std::string fn_name = fn->getName();
-  std::string pathname = getOutputFilename(fn_name + "-state.json");
-  boost::filesystem::remove(pathname);
+  for (const auto &filename : savedRestartStateFiles) {
+    if (boost::filesystem::exists(filename)) {
+      boost::system::error_code ec;
+      boost::filesystem::remove(filename, ec);
+    }
+  }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1288,16 +1297,21 @@ void stop_forking() {
 static int exit_code = 0;
 
 static void interrupt_handle() {
-  if (!interrupted && theInterpreter) {
-    llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
-    halt_execution();
-    sys::SetInterruptFunction(interrupt_handle);
-    exit_code = 3;
+
+  if (theInterpreter == nullptr) {
+    llvm::errs() << "KLEE: ctrl-c received without interpreter\n";
   } else {
-    llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
-    exit(4);
+    if (!interrupted) {
+      llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
+      halt_execution();
+//      sys::SetInterruptFunction(interrupt_handle);
+      exit_code = 3;
+    } else {
+      llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
+      exit(4);
+    }
+    interrupted = true;
   }
-  interrupted = true;
 }
 
 static void interrupt_handle_watchdog() {
@@ -2096,54 +2110,40 @@ int main(int argc, char **argv, char **envp) {
   delete theInterpreter;
   theInterpreter = nullptr;
 
-  uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
-  uint64_t queriesValid = *theStatisticManager->getStatisticByName("QueriesValid");
-  uint64_t queriesInvalid = *theStatisticManager->getStatisticByName("QueriesInvalid");
-  uint64_t queryCounterexamples = *theStatisticManager->getStatisticByName("QueriesCEX");
-  uint64_t queryConstructs = *theStatisticManager->getStatisticByName("QueriesConstructs");
-  uint64_t instructions = *theStatisticManager->getStatisticByName("Instructions");
-  uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
-
-  handler->getInfoStream() << "KLEE: done: explored paths = " << 1 + forks << "\n";
-
-  // Write some extra information in the info file which users won't
-  // necessarily care about or understand.
-  if (queries) {
-    handler->getInfoStream()
-      << "KLEE: done: avg. constructs per query = "
-      << queryConstructs / queries << "\n";
-  }
-  handler->getInfoStream()
-    << "KLEE: done: total queries = " << queries << "\n"
-    << "KLEE: done: valid queries = " << queriesValid << "\n"
-    << "KLEE: done: invalid queries = " << queriesInvalid << "\n"
-    << "KLEE: done: query cex = " << queryCounterexamples << "\n";
-
-  std::vector<std::string> termination_messages;
-  handler->getTerminationMessages(termination_messages);
-  for (const auto &message : termination_messages) {
-    handler->getInfoStream() << "PG-KLEE: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
-  }
-
-  std::stringstream stats;
-  stats << "\n";
-  stats << "KLEE: done: total instructions = "
-        << instructions << "\n";
-  stats << "KLEE: done: completed paths = "
-        << handler->getNumPathsExplored() << "\n";
-  stats << "KLEE: done: generated tests = "
-        << handler->getNumTestCases() << "\n";
-
   // only display stats if output was appended (i.e. actual se was performed)
   if (EntryPoint != "void") {
 
-    bool useColors = llvm::outs().is_displayed();
-    if (useColors) llvm::outs().changeColor(llvm::raw_ostream::GREEN, true, false);
-    llvm::outs() << stats.str();
-    if (useColors) llvm::outs().resetColor();
-  }
-  handler->getInfoStream() << stats.str();
+    std::vector<std::string> termination_messages;
+    handler->getTerminationMessages(termination_messages);
+    for (const auto &message : termination_messages) {
+      outs() << "PG-KLEE: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
+    }
 
+    uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
+    uint64_t queriesValid = *theStatisticManager->getStatisticByName("QueriesValid");
+    uint64_t queriesInvalid = *theStatisticManager->getStatisticByName("QueriesInvalid");
+    uint64_t queryCounterexamples = *theStatisticManager->getStatisticByName("QueriesCEX");
+    uint64_t queryConstructs = *theStatisticManager->getStatisticByName("QueriesConstructs");
+    uint64_t instructions = *theStatisticManager->getStatisticByName("Instructions");
+    uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
+
+    outs() << "PG-KLEE: done: explored paths = " << 1 + forks << "\n";
+
+    // Write some extra information in the info file which users won't
+    // necessarily care about or understand.
+    if (queries) {
+      outs() << "PG-KLEE: done: avg. constructs per query = " << queryConstructs / queries << "\n";
+    }
+    outs()
+      << "PG-KLEE: done: total queries = " << queries << "\n"
+      << "PG-KLEE: done: valid queries = " << queriesValid << "\n"
+      << "PG-KLEE: done: invalid queries = " << queriesInvalid << "\n"
+      << "PG-KLEE: done: query cex = " << queryCounterexamples << "\n";
+
+    outs() << "PG-KLEE: done: total instructions = " << instructions << "\n";
+    outs() << "PG-KLEE: done: completed paths = " << handler->getNumPathsExplored() << "\n";
+    outs() << "PG-KLEE: done: generated tests = " << handler->getNumTestCases() << "\n";
+  }
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right

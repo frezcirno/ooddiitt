@@ -1082,7 +1082,10 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
     }
   }
-  if (!haltExecution) interpreterHandler->removeRestartState(kf->function);
+  if (!haltExecution) {
+    // completed all paths, so remove the restart state
+    interpreterHandler->removeRestartStates();
+  }
 }
 
 LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
@@ -1109,7 +1112,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     prepareLocalSymbolics(kf, *initState, initializingInstructs);
 
     // if jumping into the interior of a loop, push required loop frames
-    // create frames for each intermidiate loop
+    // create frames for each intermediate loop
     std::vector<const llvm::Loop*> loops;
     const llvm::Loop *curr = kf->loopInfo.getLoopFor(start);
     while (curr != nullptr) {

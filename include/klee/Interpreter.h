@@ -70,7 +70,7 @@ public:
     { return false; };
   virtual bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths)
     { return false; };
-  virtual bool removeRestartState(const llvm::Function *fn)
+  virtual bool removeRestartStates()
     { return false; };
 
   std::string flags_to_string(UnconstraintFlagsT flags) const {
