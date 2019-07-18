@@ -388,6 +388,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
+    pm.add(new SplitInitPass(this));
     pm.run(*module);
   }
 

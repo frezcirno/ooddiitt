@@ -133,7 +133,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false),
-  verbose(opts.verbose)  {
+  verbose(opts.verbose),
+  altStartBB(nullptr) {
 
   memory->setBaseAddr(heap_base);
   tsolver = new TimedSolver(solver, coreSolverTimeout);
@@ -236,7 +237,7 @@ void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
                                          const llvm::Type *type,
                                          MemKind kind,
                                          KInstruction *target,
-                                        bool symbolic) {
+                                         bool symbolic) {
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
   MemoryObject *mo =
@@ -1024,12 +1025,14 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned 
     } else {
       const auto &itr = kf->mapBBlocks.find(starting_marker);
       if (itr != kf->mapBBlocks.end()) {
+        initialState.startingMarker = starting_marker;
         runFnFromBlock(kf, initialState, itr->second);
       } else {
         klee_error("requested starting marker not found");
       }
     }
   } else {
+    initialState.startingMarker = 0;
     runFnFromBlock(kf, initialState, &fn->getEntryBlock());
   }
 }
@@ -1053,36 +1056,26 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
 
   while (!worklist.empty() && !haltExecution) {
 
-    // ff our objective is just local coverage, then we're done
-    if (doLocalCoverage && pathsRemaining.empty(fnID))
-      break;
+    // if our objective is just local coverage, then we're done
+    if (pathsRemaining.empty(fnID)) {
+      worklist.clear();
+    } else {
 
-    unsigned startID = worklist.front();
-    worklist.pop_front();
-    const auto &itr = kf->mapBBlocks.find(startID);
-    if (itr != kf->mapBBlocks.end()) {
-      const BasicBlock *startBB = itr->second;
-
-      if (startBB != &kf->function->getEntryBlock()) {
-        if (doLocalCoverage && !reachesRemainingPath(kf, startBB)) {
-          continue;
+      unsigned startID = worklist.front();
+      worklist.pop_front();
+      const auto &itr = kf->mapBBlocks.find(startID);
+      if (itr != kf->mapBBlocks.end()) {
+        const BasicBlock *startBB = itr->second;
+        if (reachesRemainingPath(kf, startBB)) {
+          outs() << "    starting from: " << startID << '\n';
+          initialState.startingMarker = startID;
+          runFnFromBlock(kf, initialState, startBB);
         }
-
-        llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-        os << "    starting from: ";
-        if (!kf->mapMarkers[startBB].empty()) {
-          os << kf->mapMarkers[startBB].front();
-        } else {
-          os << "unmarked block";
-        }
-        os << "\n";
-        os.flush();
       }
-      runFnFromBlock(kf, initialState, startBB);
       interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
     }
   }
-  if (!haltExecution) {
+  if (worklist.empty()) {
     // completed all paths, so remove the restart state
     interpreterHandler->removeRestartStates();
   }
@@ -1092,24 +1085,11 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
   // set new initial program counter
   ExecutionState *initState = new ExecutionState(initial);
-
-  std::set<const KInstruction*> initializingInstructs;
   const BasicBlock *fn_entry = &kf->function->getEntryBlock();
 
-  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(start)];
-  initState->pc = &kf->instructions[entry];
+  if (start != fn_entry) {
 
-  if (initState->isUnconstrainLocals()) {
-
-    // record starting marker
-    if (kf->mapMarkers[start].empty()) {
-      initState->startingMarker = (unsigned) -1;
-    } else {
-      initState->startingMarker = kf->mapMarkers[start].front();
-    }
-
-    // unconstrain local variables
-    prepareLocalSymbolics(kf, *initState, initializingInstructs);
+    altStartBB = start;
 
     // if jumping into the interior of a loop, push required loop frames
     // create frames for each intermediate loop
@@ -1123,7 +1103,13 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
       sf.loopFrames.emplace_back(LoopFrame(*itr));
     }
+  } else {
+    altStartBB = nullptr;
   }
+
+  // start from function entry
+  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
+  initState->pc = &kf->instructions[entry];
 
   processTree = new PTree(initState);
   initState->ptreeNode = processTree->root;
@@ -1140,8 +1126,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   uint64_t heartbeat = now + HEARTBEAT_INTERVAL;
   HaltReason halt = HaltReason::OK;
 
-  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-
   while (!states.empty() &&
          !haltExecution &&
          halt == HaltReason::OK &&
@@ -1150,14 +1134,12 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
-    if (start != fn_entry || initializingInstructs.count(ki) == 0) {
-      try {
-        executeInstruction(*state, ki);
-      } catch (bad_expression &e) {
-        halt = HaltReason::InvalidExpr;
-        os << "    * uninitialized expression, restarting execution\n";
-        os.flush();
-      }
+    try {
+      executeInstruction(*state, ki);
+    } catch (bad_expression &e) {
+      halt = HaltReason::InvalidExpr;
+      outs() << "    * uninitialized expression, restarting execution\n";
+      outs().flush();
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1167,8 +1149,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     now = (uint64_t) tm.tv_sec;
 
     if (now > stopTime) {
-      os << "    * max time elapsed\n";
-      os.flush();
+      outs() << "    * max time elapsed\n";
+      outs().flush();
       halt = HaltReason::TimeOut;
     } else if (now > heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1338,14 +1320,13 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
 
           // try to get a marker number for this basic block
           unsigned marker = 0;
-          llvm::raw_ostream &os = getHandler().getInfoStream();
           auto itr = kf->mapMarkers.find(loop->getHeader());
           if (itr != kf->mapMarkers.end()) {
             if (!itr->second.empty()) {
               marker = itr->second.front();
             }
           }
-          os << "terminated " << killed << " states in loop: " << marker << "\n";
+          outs() << "terminated " << killed << " states in loop: " << marker << "\n";
         }
       }
     }
@@ -1647,108 +1628,6 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
   Executor::transferToBasicBlock(dst, src, state);
 }
 
-void LocalExecutor::prepareLocalSymbolics(KFunction *kf,
-                                          ExecutionState &state,
-                                          std::set<const KInstruction*> &initializingInstructs) {
-
-  assert(state.isUnconstrainLocals());
-  initializingInstructs.clear();
-
-  // iterate over the entry block and execute allocas
-  Function *fn = kf->function;
-  if (fn->size() > 0) {
-
-    // loop through twice, the first time we only perform allocations
-    KInstIterator pc = kf->instructions;
-    const Instruction *end = fn->getEntryBlock().getTerminator();
-    const Instruction *cur = nullptr;
-    while (cur != end) {
-      KInstruction *ki = pc;
-      ++pc;
-      cur = ki->inst;
-      if (const AllocaInst *ai = dyn_cast<AllocaInst>(cur)) {
-        Type *alloc_type = ai->getAllocatedType();
-        unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(alloc_type);
-        if (ai->isArrayAllocation()) {
-          assert("resolve array allocation");
-        }
-
-        bool to_symbolic = !ki->inst->getName().empty();
-        executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
-        initializingInstructs.insert(ki);
-      }
-    }
-
-    // the second time, we perform initializations
-    pc = kf->instructions;
-    cur = nullptr;
-    unsigned numArgs = (unsigned) fn->arg_size();
-    while (cur != end && numArgs > 0) {
-      KInstruction *ki = pc;
-      ++pc;
-      cur = ki->inst;
-
-      if (const AllocaInst *ai = dyn_cast<AllocaInst>(cur)) {
-
-        (void) ai;
-        // skip over it
-
-      } else if (const BitCastInst *bc = dyn_cast<BitCastInst>(cur)) {
-
-        (void) bc;
-        ref<Expr> result = eval(ki, 0, state).value;
-        bindLocal(ki, state, result);
-        initializingInstructs.insert(ki);
-
-      } else if (const StoreInst *si = dyn_cast<StoreInst>(cur)) {
-
-        // the first numArg store operations setup the arguments
-        if (numArgs > 0) {
-          const Value *v = si->getValueOperand();
-          if (v->hasName()) {
-            std::string name = v->getName().str();
-            ref<Expr> base = eval(ki, 1, state).value;
-            ref<Expr> value = eval(ki, 0, state).value;
-            executeWriteMemoryOperation(state, base, value, ki, name);
-            // after the last store, no need to scan further into entry block
-            --numArgs;
-          }
-          initializingInstructs.insert(ki);
-        }
-      } else if (const GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(cur)) {
-
-        (void) gep;
-        KGEPInstruction *kgepi = static_cast<KGEPInstruction *>(ki);
-        ref<Expr> base = eval(ki, 0, state).value;
-        ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
-
-        ObjectPair op;
-        ResolveResult result = resolveMO(state, base, op);
-        if (result == ResolveResult::OK) {
-          for (auto it = kgepi->indices.begin(), ie = kgepi->indices.end(); it != ie; ++it) {
-            uint64_t elementSize = it->second;
-            ref<Expr> index = eval(ki, it->first, state).value;
-
-            offset = AddExpr::create(offset,
-                                     MulExpr::create(Expr::createSExtToPointerWidth(index),
-                                                     Expr::createPointer(elementSize)));
-          }
-          if (kgepi->offset) {
-            offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
-          }
-          base = AddExpr::create(base, offset);
-          bindLocal(ki, state, base);
-          initializingInstructs.insert(ki);
-        } else {
-          klee_warning("Unable to resolve gep base during preparation of local symbolics");
-        }
-      } else {
-        klee_warning("Unexpected instruction during preparation of local symbolics");
-      }
-    }
-  }
-}
-
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
@@ -1767,7 +1646,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       BasicBlock *src = i->getParent();
 
       if (bi->isUnconditional()) {
-        BasicBlock *dst = bi->getSuccessor(0);
+        BasicBlock *dst;
+        if (altStartBB != nullptr) {
+          assert(state.isUnconstrainLocals());
+          dst = const_cast<BasicBlock*>(altStartBB);
+          altStartBB = nullptr;
+        } else {
+          dst = bi->getSuccessor(0);
+        }
         transferToBasicBlock(dst, src, state);
 
       } else {
@@ -2029,7 +1915,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         assert("resolve array allocation");
       }
 
-      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki);
+      bool to_symbolic = !libc_initializing && state.isUnconstrainLocals() && !ai->getName().empty();
+      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
       break;
     }
 

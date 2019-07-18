@@ -13,6 +13,7 @@ klee_add_component(kleeModule
   KInstruction.cpp
   KModule.cpp
   LowerSwitch.cpp
+  SplitInit.cpp
   ModuleUtil.cpp
   Optimize.cpp
   PhiCleaner.cpp

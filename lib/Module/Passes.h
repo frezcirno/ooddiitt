@@ -12,28 +12,22 @@
 
 #include "klee/Config/Version.h"
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
-#else
-#include "llvm/Constants.h"
-#include "llvm/Instructions.h"
-#include "llvm/Module.h"
-#endif
 #include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/Pass.h"
+
+#include <klee/Internal/Module/KModule.h>
+
+#include <set>
 
 namespace llvm {
   class Function;
   class Instruction;
   class Module;
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-  class TargetData;
-#else
   class DataLayout;
-#endif
   class TargetLowering;
   class Type;
 }
@@ -179,6 +173,22 @@ private:
                      llvm::BasicBlock *origBlock,
                      llvm::BasicBlock *defaultBlock);
 };
+
+
+/// LowerSwitchPass - Replace all SwitchInst instructions with chained branch
+/// instructions.  Note that this cannot be a BasicBlock pass because it
+/// modifies the CFG!
+class SplitInitPass : public llvm::FunctionPass {
+public:
+  static char ID; // Pass identification, replacement for typeid
+  SplitInitPass(KModule *km);
+  bool runOnFunction(llvm::Function &F) override;
+
+private:
+  std::set<llvm::Function*> markerFunctions;
+};
+
+
 
 }
 
