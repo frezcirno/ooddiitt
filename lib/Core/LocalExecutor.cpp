@@ -59,6 +59,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
+#include "llvm/Support/TimeValue.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -67,8 +68,6 @@
 #endif
 
 #include <fstream>
-#include <chrono>
-#include <iomanip>
 
 using namespace llvm;
 
@@ -1111,11 +1110,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
-  struct timespec tm;
-  clock_gettime(CLOCK_MONOTONIC, &tm);
-  uint64_t now = (uint64_t) tm.tv_sec;
-  uint64_t stopTime = timeout == 0 ? UINT64_MAX : now + timeout;
-  uint64_t heartbeat = now + HEARTBEAT_INTERVAL;
+  sys::TimeValue heartbeat_interval((sys::TimeValue::SecondsType) HEARTBEAT_TIMEOUT);
+  sys::TimeValue timeout_interval((sys::TimeValue::SecondsType) timeout);
+  sys::TimeValue now = sys::TimeValue::now();
+  sys::TimeValue stopTime = sys::TimeValue::MaxTime;
+  if (timeout > 0) {
+    stopTime = now + timeout_interval;
+  }
+  sys::TimeValue heartbeatTime = now + heartbeat_interval;
+
   HaltReason halt = HaltReason::OK;
 
   while (!states.empty() &&
@@ -1137,16 +1140,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     updateStates(state);
 
     // check for exceeding maximum time
-    clock_gettime(CLOCK_MONOTONIC, &tm);
-    now = (uint64_t) tm.tv_sec;
+    now = sys::TimeValue::now();
 
     if (now > stopTime) {
       outs() << "    * max time elapsed\n";
       outs().flush();
       halt = HaltReason::TimeOut;
-    } else if (now > heartbeat) {
+    } else if (now > heartbeatTime) {
       interpreterHandler->resetWatchDogTimer();
-      heartbeat = now + HEARTBEAT_INTERVAL;
+      sys::TimeValue heartbeatTime = now + heartbeat_interval;
     }
     checkMemoryFnUsage(kf);
   }

@@ -43,6 +43,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Support/TimeValue.h"
 
 #include <openssl/sha.h>
 #include <boost/algorithm/hex.hpp>
@@ -1795,9 +1796,8 @@ int main(int argc, char **argv, char **envp) {
       sa.sa_sigaction = handle_usr1_signal;
       sigaction(SIGUSR1, &sa, nullptr);
 
-      struct timespec tm;
-      clock_gettime(CLOCK_MONOTONIC, &tm);
-      uint64_t timeout = (uint64_t) tm.tv_sec + HEARTBEAT_TIMEOUT;
+      sys::TimeValue heartbeat_interval((sys::TimeValue::SecondsType) HEARTBEAT_TIMEOUT);
+      sys::TimeValue timeout = sys::TimeValue::now() + heartbeat_interval;
 
       // Simple stupid code...
       while (true) {
@@ -1820,12 +1820,11 @@ int main(int argc, char **argv, char **envp) {
           return WEXITSTATUS(status);
         } else {
 
-          clock_gettime(CLOCK_MONOTONIC, &tm);
-          uint64_t now = (uint64_t) tm.tv_sec;
+          sys::TimeValue now = sys::TimeValue::now();
 
           if (reset_watchdog_timer) {
 
-            timeout = now + HEARTBEAT_TIMEOUT;
+            timeout = now + heartbeat_interval;
             reset_watchdog_timer = false;
 
           } else if (now > timeout) {
