@@ -15,10 +15,8 @@
 #ifndef KLEE_LOCAL_EXECUTOR_H
 #define KLEE_LOCAL_EXECUTOR_H
 
-#include "TimedSolver.h"
 #include "Executor.h"
 #include "klee/Internal/System/Memory.h"
-#include "llvm/Analysis/Dominators.h"
 #include "tuple"
 
 namespace klee {
@@ -56,7 +54,6 @@ protected:
   void runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker);
   void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
   HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
-  void prepareLocalSymbolics(KFunction *kf, ExecutionState &initialState, std::set<const KInstruction*> &initializingInstructs);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
@@ -147,7 +144,6 @@ protected:
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   void InspectSymbolicSolutions(const ExecutionState *state);
 
-  TimedSolver *tsolver;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;

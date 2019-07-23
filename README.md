@@ -121,6 +121,7 @@ sudo stow --dir=/usr/local/stow stp
 ```
 git clone https://github.com/Z3Prover/z3.git
 cd z3
+git checkout z3-4.7.1
 mkdir cmake-build-release
 cd cmake-build-release
 

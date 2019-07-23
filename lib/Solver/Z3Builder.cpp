@@ -39,7 +39,7 @@ void custom_z3_error_handler(Z3_context ctx, Z3_error_code ec) {
 #endif
   // FIXME: This is kind of a hack. The value comes from the enum
   // Z3_CANCELED_MSG but this isn't currently exposed by Z3's C API
-  if (strcmp(errorMsg, "canceled") == 0) {
+  if (strcmp(errorMsg, "canceled") == 0 || strcmp(errorMsg, "(resource limits reached)")) {
     // Solver timeout is not a fatal error
     return;
   }

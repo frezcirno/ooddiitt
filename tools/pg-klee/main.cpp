@@ -258,6 +258,14 @@ namespace {
 
 /***/
 
+std::string currentISO8601TimeUTC() {
+  auto now = std::chrono::system_clock::now();
+  auto itt = std::chrono::system_clock::to_time_t(now);
+  std::ostringstream ss;
+  ss << std::put_time(gmtime(&itt), "%FT%TZ");
+  return ss.str();
+}
+
 class PGKleeHandler : public InterpreterHandler {
 private:
   TreeStreamWriter *m_pathWriter, *m_symPathWriter;
@@ -865,6 +873,7 @@ bool PGKleeHandler::resetWatchDogTimer() const {
   // signal the watchdog process
   if (pid_watchdog != 0) {
     kill(pid_watchdog, SIGUSR1);
+    errs() << "PG-KLEE: " << currentISO8601TimeUTC() << ": txed reset signal\n";
     return true;
   }
   return false;
@@ -888,6 +897,7 @@ unsigned PGKleeHandler::getTerminationCount(const std::string &message) {
 
 bool PGKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) {
 
+#if 0 == 1
   std::string fn_name = fn->getName();
   std::string pathname = getOutputFilename(fn_name + "-state.json");
   std::ifstream fin(pathname.c_str());
@@ -914,11 +924,13 @@ bool PGKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsign
 
     return true;
   }
+#endif
   return false;
 }
 
 bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) {
 
+#if 0 == 1
   std::string fn_name = fn->getName();
   std::string pathname = getOutputFilename(fn_name + "-state.json");
   std::ofstream fout(pathname.c_str());
@@ -931,7 +943,7 @@ bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<
     }
 
     Json::Value &pathsNode = root["paths"] = Json::arrayValue;
-    for (const auto &path : paths) {
+n    for (const auto &path : paths) {
       pathsNode.append(path);
     }
 
@@ -946,17 +958,20 @@ bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<
     savedRestartStateFiles.insert(pathname);
     return true;
   }
+#endif
   return false;
 }
 
 bool PGKleeHandler::removeRestartStates() {
 
+#if 0 == 1
   for (const auto &filename : savedRestartStateFiles) {
     if (boost::filesystem::exists(filename)) {
       boost::system::error_code ec;
       boost::filesystem::remove(filename, ec);
     }
   }
+#endif
   return true;
 }
 
@@ -1304,7 +1319,7 @@ static void interrupt_handle() {
     if (!interrupted) {
       llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
       halt_execution();
-//      sys::SetInterruptFunction(interrupt_handle);
+      sys::SetInterruptFunction(interrupt_handle);
       exit_code = 3;
     } else {
       llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
@@ -1675,6 +1690,7 @@ volatile bool reset_watchdog_timer = false;
 static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care_either) {
   if (signal == SIGUSR1) {
     reset_watchdog_timer = true;
+    errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": rxed reset signal\n";
   }
 }
 
@@ -1762,10 +1778,10 @@ int main(int argc, char **argv, char **envp) {
   exit_code = 0;
 
   pid_t pid_watchdog = 0;
-  if (Watchdog) {
+  if (Watchdog > 0) {
 
     int pid = fork();
-    if (pid<0) {
+    if (pid < 0) {
       klee_error("unable to fork watchdog");
     } else if (pid > 0) {
       reset_watchdog_timer = false;
@@ -1821,8 +1837,8 @@ int main(int argc, char **argv, char **envp) {
             while (tries <= 2) {
 
               tries += 1;
-              kill(pid, SIGINT);
-              errs() << "KLEE: WATCHDOG: timer expired, attempting halt via INT(" << tries << ")\n";
+              errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": timer expired, attempting halt via INT(" << tries << ")\n";
+              kill(-pid, SIGINT);
 
               for (unsigned counter = 0; counter < 30; counter++) {
                 sleep(1);
@@ -1835,8 +1851,8 @@ int main(int argc, char **argv, char **envp) {
               }
             }
 
-            errs() << "KLEE: WATCHDOG: kill(9)ing child (I did ask nicely)\n";
-            kill(pid, SIGKILL);
+            errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": kill(9)ing child (I did ask nicely)\n";
+            kill(-pid, SIGKILL);
             return 1; // what more can we do
           }
         }
@@ -1845,9 +1861,11 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
+  // create our own process group
+  setpgid(0, 0);
   sys::SetInterruptFunction(interrupt_handle);
 
-  if (Watchdog) {
+  if (Watchdog > 0) {
     // then this is the forked child
     pid_watchdog = getppid();
   }

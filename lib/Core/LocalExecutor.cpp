@@ -126,18 +126,16 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocationDepth),
-//  nextLoopSignature(INVALID_LOOP_SIGNATURE),
   progInfo(opts.pinfo),
   maxStatesInLoop(10000),
   baseState(nullptr),
   heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false),
-  verbose(opts.verbose),
-  altStartBB(nullptr) {
+  altStartBB(nullptr),
+  verbose(opts.verbose) {
 
   memory->setBaseAddr(heap_base);
-  tsolver = new TimedSolver(solver, coreSolverTimeout);
   switch (opts.mode) {
     case ExecModeID::zop:
       doSaveComplete = true;
@@ -161,9 +159,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
 
 LocalExecutor::~LocalExecutor() {
 
-  delete tsolver;
-  tsolver = nullptr;
-
   if (statsTracker) {
     statsTracker->done();
   }
@@ -184,8 +179,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
     getSymbolicSolution(state, in);
   }
 
-  bool result = false;
-  if (tsolver->mayBeTrue(state, e, result) && result) {
+  if (solver->mayBeTrue(state, e)) {
     addConstraint(state, e);
 
     if (VerifyConstraints) {
@@ -219,12 +213,11 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
   }
 
   // not a const address, so we have to ask the solver
-  solver->setTimeout(coreSolverTimeout);
   bool result = false;
   if (!state.addressSpace.resolveOne(state, solver, address, true, op, result)) {
 
     ref<ConstantExpr> caddr;
-    if (tsolver->getValue(state, address, caddr)) {
+    if (solver->getValue(state, address, caddr)) {
       return resolveMO(state, caddr, op);
     }
   }
@@ -322,8 +315,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
       ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
       ref<Expr> eqMax = EqExpr::create(e, max);
 
-      bool result = false;
-      return tsolver->mayBeTrue(state, eqMax, result) && result;
+      return solver->mayBeTrue(state, eqMax);
     }
   }
   return false;
@@ -578,7 +570,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   offsetExpr = toUnique(*currState, offsetExpr);
   if (!isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> cex;
-    if (tsolver->getValue(*currState, offsetExpr, cex)) {
+    if (solver->getValue(*currState, offsetExpr, cex)) {
 
       ref<Expr> eq = EqExpr::create(offsetExpr, cex);
       if (!addConstraintOrTerminate(*currState, eq)) {
@@ -1137,9 +1129,9 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     try {
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
-      halt = HaltReason::InvalidExpr;
-      outs() << "    * uninitialized expression, restarting execution\n";
-      outs().flush();
+      terminateState(*state, "uninitialized expression");
+    } catch (solver_failure &e) {
+      terminateState(*state, "solver failure");
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1202,8 +1194,6 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
   libc_initializing = true;
 
-  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-
   while (libc_initializing) {
 
     ExecutionState *state;
@@ -1213,8 +1203,11 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
     try {
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
-      os << "    * uninitialized expression, restarting execution\n";
-      os.flush();
+      outs() << "    * uninitialized expression, restarting execution\n";
+      outs().flush();
+    } catch (solver_failure &e) {
+      outs() << "solver failure\n";
+      outs().flush();
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1530,11 +1523,10 @@ ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<E
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e)) {
     result = CE;
   } else {
-    if (tsolver->getValue(state, e, result)) {
+    if (solver->getValue(state, e, result)) {
 
-      bool answer = false;
       ref<Expr> eq = EqExpr::create(e, result);
-      if (tsolver->mustBeTrue(state, eq, answer) && !answer) {
+      if (!solver->mustBeTrue(state, eq)) {
         addConstraint(state, eq);
       }
     }
@@ -1548,15 +1540,10 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
   if (isa<ConstantExpr>(e)) {
     result = true;
   } else {
-
     ref<ConstantExpr> value;
-    if (tsolver->getValue(state, e, value)) {
-
-      bool answer = false;
+    if (solver->getValue(state, e, value)) {
       ref<Expr> eq = EqExpr::create(e, value);
-      if (tsolver->mustBeTrue(state, eq, answer)) {
-        result = answer;
-      }
+      result = solver->mustBeTrue(state, eq);
     }
   }
   return result;
@@ -1783,8 +1770,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               const ObjectState *orgOS = op.second;
 
               ref<Expr> e = orgOS->getBoundsCheckPointer(exp_addr);
-              bool result = false;
-              if (tsolver->mayBeTrue(state, e, result) && result) {
+              if (solver->mayBeTrue(state, e)) {
                 addConstraint(state, e);
 
                 ref<ConstantExpr> address = ensureUnique(state, exp_addr);
@@ -1874,12 +1860,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 bool result = false;
                 for (unsigned try_size = 16; !result && try_size <= 64536; try_size *= 2) {
                   min_size = ConstantExpr::create(try_size, w);
-                  bool success = tsolver->mayBeTrue(state, UltExpr::create(size, min_size), result);
-                  assert(success && "FIXME: Unhandled solver failure");
+                  result = solver->mayBeTrue(state, UltExpr::create(size, min_size));
                 }
                 if (result) {
                   addConstraint(*sp.second, UltExpr::create(size, min_size));
-                  bool success = tsolver->getValue(*sp.second, size, min_size);
+                  bool success = solver->getValue(*sp.second, size, min_size);
                   assert(success && "FIXME: solver just said mayBeTrue");
                   ref<Expr> eq = EqExpr::create(size, min_size);
                   addConstraint(*sp.second, eq);
@@ -1950,8 +1935,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // this is a base pointer into a lazy init with a non-zero offset,
         // then this could be a memory bounds fail.
         if (doSaveFault && mo->kind == MemKind::lazy) {
-          bool ans = false;
-          if (tsolver->mayBeTrue(state, Expr::createIsZero(offset), ans) && ans) {
+          if (solver->mayBeTrue(state, Expr::createIsZero(offset))) {
 
             // generate a test case
             const KInstruction *prior = state.instFaulting;
@@ -1970,11 +1954,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned bytes = Expr::getMinBytesForWidth(width);
 
           // base must point into an allocation
-          bool answer;
           ref<Expr> mc = os->getBoundsCheckPointer(base, bytes);
 
-          if (tsolver->mustBeTrue(state, mc, answer) && !answer) {
-            if (tsolver->mayBeTrue(state, mc, answer) && answer) {
+          if (!solver->mustBeTrue(state, mc)) {
+            if (solver->mayBeTrue(state, mc)) {
               addConstraint(state, mc);
             }
           }
@@ -2057,8 +2040,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 // only record if this is a pointer to the beginning of a memory object
                 ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
 
-                bool result = false;
-                if (tsolver->mayBeTrue(state, is_zero, result) && result) {
+                if (solver->mayBeTrue(state, is_zero)) {
                   ObjectState *wos = state.addressSpace.getWriteable(mo, os);
                   wos->types.push_back(destTy);
                 }

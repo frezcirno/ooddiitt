@@ -369,7 +369,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       interpreterHandler->getOutputFilename(ALL_QUERIES_KQUERY_FILE_NAME),
       interpreterHandler->getOutputFilename(SOLVER_QUERIES_KQUERY_FILE_NAME));
 
-  this->solver = new TimingSolver(solver, EqualitySubstitution);
+  this->solver = new TimingSolver(solver, MaxCoreSolverTime, EqualitySubstitution);
   memory = new MemoryManager(&arrayCache);
 
   if (optionIsSet(DebugPrintInstructions, FILE_ALL) ||
@@ -810,12 +810,7 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
     }
   }
 
-  double timeout = coreSolverTimeout;
-  if (isSeeding)
-    timeout *= it->second.size();
-  solver->setTimeout(timeout);
   bool success = solver->evaluate(current, condition, res);
-  solver->setTimeout(0);
   if (!success) {
     current.pc = current.prevPC;
     terminateStateEarly(current, "Query timed out (fork).");
@@ -1035,11 +1030,8 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
 
   if (verify_constraints) {
     // verify that this condition is satisfyable
-    solver->setTimeout(coreSolverTimeout);
     bool valid;
-    bool success = solver->mayBeTrue(state, condition, valid);
-    solver->setTimeout(0);
-    assert(success && valid);
+    assert(solver->mayBeTrue(state, condition, valid) && valid);
   }
 
   state.addConstraint(condition);
@@ -1145,7 +1137,6 @@ ref<Expr> Executor::toUnique(const ExecutionState &state,
   if (!isa<ConstantExpr>(e)) {
 
     ref<ConstantExpr> value;
-    solver->setTimeout(coreSolverTimeout);
     if (solver->getValue(state, e, value)) {
       bool answer;
       ref<Expr> eq = EqExpr::create(e, value);
@@ -1153,7 +1144,6 @@ ref<Expr> Executor::toUnique(const ExecutionState &state,
         result = value;
       }
     }
-    solver->setTimeout(0);
   }
   return result;
 }
@@ -3337,12 +3327,10 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // fast path: single in-bounds resolution
   ObjectPair op;
   bool success;
-  solver->setTimeout(coreSolverTimeout);
   if (!state.addressSpace.resolveOne(state, solver, address, false, op, success)) {
     address = toConstant(state, address, "resolveOne failure");
     success = state.addressSpace.resolveOne(cast<ConstantExpr>(address), op);
   }
-  solver->setTimeout(0);
 
   if (success) {
     const MemoryObject *mo = op.first;
@@ -3355,9 +3343,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     ref<Expr> offset = mo->getOffsetExpr(address);
 
     bool inBounds;
-    solver->setTimeout(coreSolverTimeout);
     bool success = solver->mustBeTrue(state, os->getBoundsCheckOffset(offset, bytes), inBounds);
-    solver->setTimeout(0);
     if (!success) {
       state.pc = state.prevPC;
       terminateStateEarly(state, "Query timed out (bounds check).");
@@ -3390,10 +3376,8 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // resolution with out of bounds)
 
   ResolutionList rl;
-  solver->setTimeout(coreSolverTimeout);
   bool incomplete = state.addressSpace.resolve(state, solver, address, rl,
                                                0, coreSolverTimeout);
-  solver->setTimeout(0);
 
   // XXX there is some query wasteage here. who cares?
   ExecutionState *unbound = &state;
@@ -3736,13 +3720,10 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
     visible_sizes[idx] = visible_size;
   }
 
-  solver->setTimeout(coreSolverTimeout);
   bool success = solver->getInitialValues(state, objects, values);
-  solver->setTimeout(0);
   if (!success) {
     klee_warning("unable to compute initial values (invalid constraints?)!");
-    ExprPPrinter::printQuery(llvm::errs(), state.constraints,
-                             ConstantExpr::alloc(0, Expr::Bool));
+    ExprPPrinter::printQuery(llvm::errs(), state.constraints, ConstantExpr::alloc(0, Expr::Bool));
     return false;
   }
 
