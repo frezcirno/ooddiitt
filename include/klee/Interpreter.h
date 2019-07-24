@@ -35,8 +35,8 @@ class MemoryObject;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
-#define HEARTBEAT_INTERVAL   (1)        // secs
-#define HEARTBEAT_TIMEOUT    (5 * 60)   // secs
+#define HEARTBEAT_INTERVAL   (10)        // secs
+#define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_LOCAL_FLAG  (1)

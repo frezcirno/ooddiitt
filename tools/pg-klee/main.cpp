@@ -24,7 +24,8 @@
 #include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/System/Memory.h"
-#include <klee/Internal/Module/KInstruction.h>
+#include "klee/Internal/Module/KInstruction.h"
+#include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
@@ -43,7 +44,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
-#include "llvm/Support/TimeValue.h"
 
 #include <openssl/sha.h>
 #include <boost/algorithm/hex.hpp>
@@ -1796,8 +1796,9 @@ int main(int argc, char **argv, char **envp) {
       sa.sa_sigaction = handle_usr1_signal;
       sigaction(SIGUSR1, &sa, nullptr);
 
-      sys::TimeValue heartbeat_interval((sys::TimeValue::SecondsType) HEARTBEAT_TIMEOUT);
-      sys::TimeValue timeout = sys::TimeValue::now() + heartbeat_interval;
+      MonotonicTimer timer;
+      const unsigned tid_watchdog = 1;
+      timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
 
       // Simple stupid code...
       while (true) {
@@ -1820,14 +1821,13 @@ int main(int argc, char **argv, char **envp) {
           return WEXITSTATUS(status);
         } else {
 
-          sys::TimeValue now = sys::TimeValue::now();
-
+          unsigned expired = timer.expired();
           if (reset_watchdog_timer) {
 
-            timeout = now + heartbeat_interval;
+            timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
             reset_watchdog_timer = false;
 
-          } else if (now > timeout) {
+          } else if (expired == tid_watchdog) {
 
             unsigned tries = 0;
 

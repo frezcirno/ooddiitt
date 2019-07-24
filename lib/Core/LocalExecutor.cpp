@@ -59,7 +59,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
-#include "llvm/Support/TimeValue.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -1110,14 +1109,12 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
 
-  sys::TimeValue heartbeat_interval((sys::TimeValue::SecondsType) HEARTBEAT_TIMEOUT);
-  sys::TimeValue timeout_interval((sys::TimeValue::SecondsType) timeout);
-  sys::TimeValue now = sys::TimeValue::now();
-  sys::TimeValue stopTime = sys::TimeValue::MaxTime;
-  if (timeout > 0) {
-    stopTime = now + timeout_interval;
-  }
-  sys::TimeValue heartbeatTime = now + heartbeat_interval;
+  MonotonicTimer timer;
+  const unsigned tid_timeout = 1;
+  const unsigned tid_heartbeat = 2;
+
+  if (timeout > 0) timer.set(tid_timeout, timeout);
+  timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
 
   HaltReason halt = HaltReason::OK;
 
@@ -1139,16 +1136,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     processTimers(state, 0);
     updateStates(state);
 
-    // check for exceeding maximum time
-    now = sys::TimeValue::now();
-
-    if (now > stopTime) {
+    // check for expired timers
+    unsigned expired = timer.expired();
+    if (expired == tid_timeout) {
       outs() << "    * max time elapsed\n";
       outs().flush();
       halt = HaltReason::TimeOut;
-    } else if (now > heartbeatTime) {
+    } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
-      sys::TimeValue heartbeatTime = now + heartbeat_interval;
+      timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
     }
     checkMemoryFnUsage(kf);
   }
@@ -1740,7 +1736,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee function, then let the standard executor handle it
+
       bool isInModule = kmodule->isModuleFunction(fn);
+      if (!state.isStubCallees() && isInModule) {
+        outs() << "break";
+      }
+
+      if (specialFunctionHandler->isSpecial(fn)) {
+        outs() << "break";
+      }
+
+      if (kmodule->isInternalFunction(fn)) {
+        outs() << "break";
+      }
+
       if ((!state.isStubCallees() && isInModule) ||
           specialFunctionHandler->isSpecial(fn) ||
           kmodule->isInternalFunction(fn)) {
