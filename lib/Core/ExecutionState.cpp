@@ -94,7 +94,8 @@ ExecutionState::ExecutionState(void *base_addr) :
     startingMarker(0),
     endingMarker(0),
     allBranchCounter(0),
-    unconBranchCounter(0)
+    unconBranchCounter(0),
+    branched_at(nullptr)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -139,7 +140,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     itraces(state.itraces),
     selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
-    unconBranchCounter(state.unconBranchCounter)
+    unconBranchCounter(state.unconBranchCounter),
+    branched_at(state.branched_at)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -211,7 +213,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     itraces(state.itraces),
     selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
-    unconBranchCounter(state.unconBranchCounter)
+    unconBranchCounter(state.unconBranchCounter),
+    branched_at(state.branched_at)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -223,6 +226,7 @@ ExecutionState *ExecutionState::branch() {
   depth++;
 
   ExecutionState *falseState = new ExecutionState(*this);
+  falseState->branched_at = pc;
   falseState->coveredNew = false;
   falseState->coveredLines.clear();
 

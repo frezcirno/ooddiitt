@@ -188,12 +188,11 @@ namespace klee {
     Cell *constantTable;
 
     // Mark function with functionName as part of the KLEE runtime
-    void addInternalFunction(std::string functionName);
-    void addInternalFunction(llvm::Function *fn);
-    bool isInternalFunction(const llvm::Function *fn)
+    void addInternalFunction(llvm::Function *fn) { internalFunctions.insert(fn); }
+    bool isInternalFunction(const llvm::Function *fn) const
       { return internalFunctions.find(fn) != internalFunctions.end(); }
-
-    bool isModuleFunction(const llvm::Function *fn) const;
+    bool isModuleFunction(const llvm::Function *fn) const
+      { return functionMap.find(const_cast<llvm::Function*>(fn)) != functionMap.end();}
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 

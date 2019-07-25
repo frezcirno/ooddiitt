@@ -88,7 +88,7 @@ cl::opt<bool>
 
 cl::opt<unsigned>
   LazyAllocationCount("lazy-allocation-count",
-                       cl::init(8),
+                       cl::init(4),
                        cl::desc("Number of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
@@ -101,10 +101,10 @@ cl::opt<unsigned>
                         cl::init(4),
                         cl::desc("Depth of items to lazy initialize pointer"));
 
-cl::opt<bool>
+cl::opt<unsigned>
     LazyAllocationExt("lazy-allocation-ext",
-                        cl::init(true),
-                        cl::desc("extend lazy allocation to include existing memory objects of same type"));
+                      cl::init(2),
+                      cl::desc("number of lazy allocations to include existing memory objects of same type"));
 
 cl::opt<unsigned>
     MaxLoopIteration("max-loop-iteration",
@@ -130,8 +130,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false),
-  altStartBB(nullptr),
-  verbose(opts.verbose) {
+  altStartBB(nullptr) {
 
   memory->setBaseAddr(heap_base);
   switch (opts.mode) {
@@ -151,7 +150,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
       klee_error("invalid execution mode");
   }
 
-  ut_concrete_offset = ut_unique_offset = ut_symbolic_offset = 0;
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -280,40 +278,43 @@ void LocalExecutor::executeFree(ExecutionState &state,
 
 bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
 
-  Expr::Width width = Context::get().getPointerWidth();
-  if (e->getWidth() == width) {
+  if (!isa<ConstantExpr>(e)) {
 
-    e = state.constraints.simplifyExpr(e);
+    Expr::Width width = Context::get().getPointerWidth();
+    if (e->getWidth() == width) {
 
-    // ensure this is a simple expression, i.e. only concats of constant reads in the tree of subexprs
-    bool simple = true;
+      e = state.constraints.simplifyExpr(e);
 
-    // RLR TODO: detect unconstrained pointer
+      // ensure this is a simple expression, i.e. only concats of constant reads in the tree of subexprs
+      bool simple = true;
+
+      // RLR TODO: detect unconstrained pointer
 #if 0 == 1
-    std::deque<ref<Expr> > worklist = {e};
-    while (simple && !worklist.empty()) {
-      ref<Expr> child = worklist.front();
-      worklist.pop_front();
-      Expr::Kind k = child->getKind();W
-      if (k == Expr::Kind::Concat) {
-        for (unsigned idx = 0, end = child->getNumKids(); idx < end; ++idx) {
-          worklist.push_back(child->getKid(idx));
-        }
-      } else if (k == Expr::Kind::Read) {
-        if ((child->getNumKids() != 1) || (child->getKid(0)->getKind() != Expr::Kind::Constant)) {
+      std::deque<ref<Expr> > worklist = {e};
+      while (simple && !worklist.empty()) {
+        ref<Expr> child = worklist.front();
+        worklist.pop_front();
+        Expr::Kind k = child->getKind();W
+        if (k == Expr::Kind::Concat) {
+          for (unsigned idx = 0, end = child->getNumKids(); idx < end; ++idx) {
+            worklist.push_back(child->getKid(idx));
+          }
+        } else if (k == Expr::Kind::Read) {
+          if ((child->getNumKids() != 1) || (child->getKid(0)->getKind() != Expr::Kind::Constant)) {
+            simple = false;
+          }
+        } else {
           simple = false;
         }
-      } else {
-        simple = false;
       }
-    }
 #endif
 
-    if (simple) {
-      ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
-      ref<Expr> eqMax = EqExpr::create(e, max);
+      if (simple) {
+        ref<ConstantExpr> max = Expr::createPointer(width == Expr::Int32 ? UINT32_MAX : UINT64_MAX);
+        ref<Expr> eqMax = EqExpr::create(e, max);
 
-      return solver->mayBeTrue(state, eqMax);
+        return solver->mayBeTrue(state, eqMax);
+      }
     }
   }
   return false;
@@ -419,76 +420,70 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   ref<Expr> e = os->read(offsetExpr, width);
   bindLocal(target, *currState, e);
 
-  if (countLoadIndirection(type) > 1) {
+  if ((countLoadIndirection(type) > 1) && isUnconstrainedPtr(*currState, e)) {
+    // this is an unconstrained ptr-ptr. this could be either a null ptr or
+    // allocate something behind the pointer
 
-    if (isa<ConstantExpr>(offsetExpr)) {
-      ut_concrete_offset += 1;
-    } else if (isUnique(*currState, offsetExpr)) {
-      ut_unique_offset += 1;
+    // count current depth of lazy allocations
+    unsigned depth = 0;
+    for (auto end = (unsigned) mo->name.size(); depth < end && mo->name.at(depth) == '*'; ++depth);
+
+    ref<ConstantExpr> null = Expr::createPointer(0);
+    ref<Expr> eqNull = EqExpr::create(e, null);
+
+    if (depth >= maxLazyDepth) {
+
+      // too deep. no more forking for this pointer.
+      addConstraintOrTerminate(*currState, eqNull);
+
     } else {
-      ut_symbolic_offset += 1;
-    }
 
-    if (isUnconstrainedPtr(*currState, e)) {
-      // this is an unconstrained ptr-ptr. this could be either a null ptr or
-      // allocate something behind the pointer
+      StatePair sp = fork(*currState, eqNull, true);
+      ExecutionState *next_fork = sp.second;
 
-      // count current depth of lazy allocations
-      unsigned depth = 0;
-      for (auto end = (unsigned) mo->name.size(); depth < end && mo->name.at(depth) == '*'; ++depth);
+      // in the true case, ptr is null, so nothing further to do
 
-      ref<ConstantExpr> null = Expr::createPointer(0);
-      ref<Expr> eqNull = EqExpr::create(e, null);
+      // in the false case, allocate new memory for the ptr and
+      // constrain the ptr to point to it.
+      if (next_fork != nullptr) {
 
-      if (depth >= maxLazyDepth) {
+        // pointer may not be null
+        Type *subtype = type->getPointerElementType()->getPointerElementType();
+        if (subtype->isFirstClassType()) {
 
-        // too deep. no more forking for this pointer.
-        addConstraintOrTerminate(*currState, eqNull);
+          if (LazyAllocationExt > 0) {
 
-      } else {
+            unsigned counter = 0;
 
-        StatePair sp = fork(*currState, eqNull, true);
-        ExecutionState *next_fork = sp.second;
+            // consider any existing objects in memory of the same type
+            std::vector<ObjectPair> listOPs;
+            sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
+            for (const auto &pr : listOPs) {
 
-        // in the true case, ptr is null, so nothing further to do
+              if (next_fork == nullptr || counter >= LazyAllocationExt) break;
 
-        // in the false case, allocate new memory for the ptr and
-        // constrain the ptr to point to it.
-        if (next_fork != nullptr) {
+              const MemoryObject *existingMO = pr.first;
+              if (existingMO->kind == MemKind::lazy) {
 
-          // pointer may not be null
-          Type *subtype = type->getPointerElementType()->getPointerElementType();
-          if (subtype->isFirstClassType()) {
-            if (LazyAllocationExt) {
-
-              // consider any existing objects in memory of the same type
-              std::vector<ObjectPair> listOPs;
-              sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
-              for (const auto &pr : listOPs) {
-                if (next_fork == nullptr)
-                  break;
-                const MemoryObject *existingMO = pr.first;
-                if (existingMO->kind == MemKind::lazy) {
-
-                  // fork a new state
-                  ref<ConstantExpr> ptr = existingMO->getBaseExpr();
-                  ref<Expr> eq = EqExpr::create(e, ptr);
-                  StatePair sp2 = fork(*next_fork, eq, true);
-                  next_fork = sp2.second;
-                }
+                // fork a new state
+                ref<ConstantExpr> ptr = existingMO->getBaseExpr();
+                ref<Expr> eq = EqExpr::create(e, ptr);
+                StatePair sp2 = fork(*next_fork, eq, true);
+                counter += 1;
+                next_fork = sp2.second;
               }
             }
+          }
 
-            if (next_fork != nullptr) {
+          if (next_fork != nullptr) {
 
-              // finally, try with a new object
-              MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                                '*' + mo->name, 0, lazyAllocationCount);
-              bindObjectInState(*next_fork, newMO);
-              ref<ConstantExpr> ptr = newMO->getBaseExpr();
-              ref<Expr> eq = EqExpr::create(e, ptr);
-              addConstraintOrTerminate(*next_fork, eq);
-            }
+            // finally, try with a new object
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
+                                              '*' + mo->name, 0, lazyAllocationCount);
+            bindObjectInState(*next_fork, newMO);
+            ref<ConstantExpr> ptr = newMO->getBaseExpr();
+            ref<Expr> eq = EqExpr::create(e, ptr);
+            addConstraintOrTerminate(*next_fork, eq);
           }
         }
       }
@@ -874,27 +869,19 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
   }
   outs() << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
 
-  outs() << "constant offset isUnconstrained=" << ut_concrete_offset << ", ";
-  outs() << "unique offset isUnconstrained=" << ut_unique_offset << ", ";
-  outs() << "symbolic offset isUnconstrained=" << ut_symbolic_offset << '\n';
-
-  if (interpreterOpts.verbose) {
-    for (auto itr : pathsRemaining) {
-      if (!itr.second.empty()) {
-        outs() << "remaining=" << itr.first << ':';
-        bool first = true;
-        for (auto m : itr.second) {
-          if (!first)
-            outs() << ',';
-          first = false;
-          outs() << m;
-        }
-        outs() << '\n';
+  for (const auto &itr : pathsRemaining) {
+    if (!itr.second.empty()) {
+      std::stringstream ss;
+      ss << "remaining=" << itr.first << ':';
+      bool first = true;
+      for (auto m : itr.second) {
+        if (!first) ss << ',';
+        first = false;
+        ss << m;
       }
+      outs() << ss.str() << '\n';
     }
   }
-
-  outs().flush();
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
@@ -1040,7 +1027,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
   if (interpreterHandler->loadRestartState(kf->function, worklist, pathsRemaining[fnID])) {
 
     // top element must have failed, so discard
-    if (!worklist.empty()) worklist.pop_front();
+    outs() << "Resuming from prior saved state\n";
   } else {
     // create a worklist of basicblocks marker ids sorted by distance from entry
     kf->constructSortedBBlocks(worklist);
@@ -1060,7 +1047,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       if (itr != kf->mapBBlocks.end()) {
         const BasicBlock *startBB = itr->second;
         if (reachesRemainingPath(kf, startBB)) {
-          outs() << "    starting from: " << startID << '\n';
+          outs() << "starting from: " << startID << " (remaining=" << worklist.size() << ")\n";
           initialState.startingMarker = startID;
           runFnFromBlock(kf, initialState, startBB);
         }
@@ -1142,8 +1129,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // check for expired timers
     unsigned expired = timer.expired();
     if (expired == tid_timeout) {
-      outs() << "    * max time elapsed\n";
-      outs().flush();
       halt = HaltReason::TimeOut;
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1288,7 +1273,7 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
   Executor::checkMemoryUsage();
 
   // expensive, so do not do this very often
-  if ((stats::instructions & 0xFFF) == 0) {
+  if ((maxStatesInLoop > 0) && (stats::instructions & 0xFFF) == 0) {
     if (kf != nullptr) {
 
       // get a vector of all loops in fn
@@ -1297,6 +1282,7 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
         worklist.push_back(root);
       }
 
+      // loops may be nested, so do a dfs
       std::vector<const Loop*> all_loops;
       while (!worklist.empty()) {
         const Loop *curr = worklist.front();
@@ -1847,6 +1833,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             MemKind kind = MemKind::lazy;
             unsigned count = lazyAllocationCount;
 
+#if 0 == 1
             // special handling for zopc_malloc. argument contains the allocation size
             if (fnName == "zopc_malloc") {
               kind = MemKind::heap;
@@ -1879,6 +1866,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 }
               }
             }
+#endif
             Type *subtype = ty->getPointerElementType();
 
             MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);

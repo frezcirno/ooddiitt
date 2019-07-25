@@ -218,20 +218,6 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
   }
 }
 
-void KModule::addInternalFunction(string functionName) {
-  Function* internalFunction = module->getFunction(functionName);
-  if (internalFunction == nullptr) {
-    errs() << "Failed to add internal function " << functionName << ". Not found.";
-    return;
-  }
-  addInternalFunction(internalFunction);
-}
-
-void KModule::addInternalFunction(Function *fn) {
-  outs() << "Added internal function " << fn->getName().str() << '\n';
-  internalFunctions.insert(fn);
-}
-
 void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
@@ -607,10 +593,6 @@ bool KModule::MatchSignature(const Type *type, const Function *annotFn) const {
     return index == 1;
   }
   return false;
-}
-
-bool KModule::isModuleFunction(const llvm::Function *fn) const {
-  return functionMap.find(const_cast<Function*>(fn)) != functionMap.end();
 }
 
 void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info) {

@@ -148,15 +148,13 @@ public:
     ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
-    bool verbose;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
         createOutputDir(false),
         heap_base(nullptr),
         pinfo(nullptr),
-        mode(Interpreter::zop),
-        verbose(false)
+        mode(Interpreter::zop)
     {}
   };
 

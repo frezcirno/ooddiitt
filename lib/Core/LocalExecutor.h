@@ -168,12 +168,6 @@ protected:
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;
-  bool verbose;
-
-  // some misc stats
-  unsigned ut_symbolic_offset;
-  unsigned ut_unique_offset;
-  unsigned ut_concrete_offset;
 };
 
 

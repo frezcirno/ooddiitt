@@ -85,11 +85,6 @@ namespace {
               cl::init("prog-info.json"));
 
   cl::opt<bool>
-  Verbose("verbose",
-          cl::desc("verbose output text"),
-          cl::init(false));
-
-  cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
              cl::init(false));
@@ -898,9 +893,7 @@ unsigned PGKleeHandler::getTerminationCount(const std::string &message) {
 
 bool PGKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) {
 
-#if 0 == 1
-  std::string fn_name = fn->getName();
-  std::string pathname = getOutputFilename(fn_name + "-state.json");
+  std::string pathname = getOutputFilename(fn->getName().str() + "-state.json");
   std::ifstream fin(pathname.c_str());
   if (fin) {
     Json::Value root = Json::objectValue;
@@ -925,15 +918,12 @@ bool PGKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsign
 
     return true;
   }
-#endif
   return false;
 }
 
 bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) {
 
-#if 0 == 1
-  std::string fn_name = fn->getName();
-  std::string pathname = getOutputFilename(fn_name + "-state.json");
+  std::string pathname = getOutputFilename(fn->getName().str() + "-state.json");
   std::ofstream fout(pathname.c_str());
   if (fout) {
     Json::Value root = Json::objectValue;
@@ -944,7 +934,7 @@ bool PGKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<
     }
 
     Json::Value &pathsNode = root["paths"] = Json::arrayValue;
-n    for (const auto &path : paths) {
+    for (const auto &path : paths) {
       pathsNode.append(path);
     }
 
@@ -959,20 +949,17 @@ n    for (const auto &path : paths) {
     savedRestartStateFiles.insert(pathname);
     return true;
   }
-#endif
   return false;
 }
 
 bool PGKleeHandler::removeRestartStates() {
 
-#if 0 == 1
   for (const auto &filename : savedRestartStateFiles) {
     if (boost::filesystem::exists(filename)) {
       boost::system::error_code ec;
       boost::filesystem::remove(filename, ec);
     }
   }
-#endif
   return true;
 }
 
@@ -2058,7 +2045,6 @@ int main(int argc, char **argv, char **envp) {
     klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
   }
   IOpts.pinfo = &progInfo;
-  IOpts.verbose = Verbose;
   IOpts.mode = ExecMode;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);

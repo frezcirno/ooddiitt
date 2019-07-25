@@ -206,6 +206,7 @@ public:
   M2MPaths selected_paths;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
+  const KInstruction* branched_at;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
