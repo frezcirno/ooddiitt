@@ -1922,11 +1922,6 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
-  std::set<std::string> loaded_fns;
-  for (const auto &fn : *mainModule) {
-    if (!fn.isDeclaration()) loaded_fns.insert(fn.getName());
-  }
-
   ProgInfo progInfo;
   if (!ProgramInfo.empty()) {
 
@@ -2077,7 +2072,6 @@ int main(int argc, char **argv, char **envp) {
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
   MOpts.OutputSource = handler->createOutputDir();
-  MOpts.LoadedFnNames = &loaded_fns;
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 

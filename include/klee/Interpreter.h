@@ -105,14 +105,12 @@ public:
     bool CheckDivZero;
     bool CheckOvershift;
     bool OutputSource;
-    std::set<std::string> *LoadedFnNames;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
         CheckOvershift(false),
-        OutputSource(false),
-        LoadedFnNames(nullptr)
+        OutputSource(false)
       {}
   };
 

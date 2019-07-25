@@ -220,16 +220,15 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
 
 void KModule::addInternalFunction(string functionName) {
   Function* internalFunction = module->getFunction(functionName);
-  if (!internalFunction) {
-    KLEE_DEBUG(klee_warning(
-        "Failed to add internal function %s. Not found.", functionName));
-    return ;
+  if (internalFunction == nullptr) {
+    errs() << "Failed to add internal function " << functionName << ". Not found.";
+    return;
   }
   addInternalFunction(internalFunction);
 }
 
 void KModule::addInternalFunction(Function *fn) {
-  KLEE_DEBUG(klee_message("Added function %s.", fn->getName().str()));
+  outs() << "Added internal function " << fn->getName().str() << '\n';
   internalFunctions.insert(fn);
 }
 
@@ -239,7 +238,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   // gather a list of original module functions
   set<const Function*> orig_functions;
-  set<const Function*> annot_functions;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
     if (!fn->isDeclaration()) {
@@ -478,14 +476,12 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       continue;
 
     Function *fn = static_cast<Function *>(it);
-    if (opts.LoadedFnNames != nullptr) {
-      std::string fn_name = fn->getName();
-      if (opts.LoadedFnNames->count(fn_name) == 0) {
-        addInternalFunction(fn);
-      }
-    } else if (orig_functions.count(fn) == 0) {
+
+    // if we just added this function, then its either klee runtime or an intrinsic
+    if (orig_functions.count(fn) == 0) {
       addInternalFunction(fn);
     }
+
     KFunction *kf = new KFunction(fn, this);
 
     for (unsigned i=0; i<kf->numInstructions; ++i) {
@@ -636,7 +632,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
     string fn_name = fn->getName().str();
     kf->fnID = info.getFnID(fn_name);
 
-    if (!isInternalFunction(fn) && kf->fnID != 0) {
+    if (kf->fnID != 0) {
 
       set<unsigned> fn_bbs;
 

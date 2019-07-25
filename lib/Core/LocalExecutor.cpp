@@ -880,14 +880,17 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
   if (interpreterOpts.verbose) {
     for (auto itr : pathsRemaining) {
-      outs() << itr.first << ':';
-      bool first = true;
-      for (auto m : itr.second) {
-        if (!first) outs() << ',';
-        first = false;
-        outs() << m;
+      if (!itr.second.empty()) {
+        outs() << "remaining=" << itr.first << ':';
+        bool first = true;
+        for (auto m : itr.second) {
+          if (!first)
+            outs() << ',';
+          first = false;
+          outs() << m;
+        }
+        outs() << '\n';
       }
-      outs() << '\n';
     }
   }
 
@@ -1738,20 +1741,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // this is an internal klee function, then let the standard executor handle it
 
       bool isInModule = kmodule->isModuleFunction(fn);
-      if (!state.isStubCallees() && isInModule) {
-        outs() << "break";
-      }
-
-      if (specialFunctionHandler->isSpecial(fn)) {
-        outs() << "break";
-      }
-
-      if (kmodule->isInternalFunction(fn)) {
-        outs() << "break";
-      }
-
       if ((!state.isStubCallees() && isInModule) ||
           specialFunctionHandler->isSpecial(fn) ||
+          libc_initializing ||
           kmodule->isInternalFunction(fn)) {
 
         Executor::executeInstruction(state, ki);
