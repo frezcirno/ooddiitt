@@ -2676,35 +2676,6 @@ void Executor::checkMemoryUsage() {
         // just guess at how many to kill
         unsigned numStates = states.size();
 
-        // RLR TODO: debug
-        std::map<const KInstruction*,unsigned> counters;
-        for (const auto &state : states) {
-          counters[state->branched_at] += 1;
-        }
-
-        for (const auto pr : counters) {
-          outs() << "line: " << pr.first->info->assemblyLine << ',' << pr.second << '\n';
-        }
-
-        std::map<std::string,unsigned> trace_counter;
-        for (const auto &state : states) {
-
-          std::stringstream ss;
-          if (state->trace.size() > 0) {
-            unsigned fnID = state->trace.front().first;
-            ss << fnID << ':';
-            for (auto itr = state->trace.begin(), end = state->trace.end(); itr != end; ++itr) {
-              assert(itr->first == fnID);
-              ss << '.' << std::to_string(itr->second);
-            }
-            ss << '.';
-            trace_counter[ss.str()] += 1;
-          }
-        }
-        for (const auto &pr : trace_counter) {
-          outs() << pr.first << ": " << pr.second << '\n';
-        }
-
         unsigned toKill = std::max(1U, numStates - numStates * MaxMemory / mbs);
         klee_warning("killing %d states (over memory cap)", toKill);
         std::vector<ExecutionState *> arr(states.begin(), states.end());

@@ -1047,7 +1047,8 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
       if (itr != kf->mapBBlocks.end()) {
         const BasicBlock *startBB = itr->second;
         if (reachesRemainingPath(kf, startBB)) {
-          outs() << "starting from: " << startID << " (remaining=" << worklist.size() << ")\n";
+          outs() << "starting from: " << startID;
+          outs() << " (remaining wklst=" << worklist.size() << ",paths=" << pathsRemaining.size() << ")\n";
           initialState.startingMarker = startID;
           runFnFromBlock(kf, initialState, startBB);
         }
