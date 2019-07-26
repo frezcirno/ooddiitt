@@ -67,6 +67,7 @@
 #endif
 
 #include <fstream>
+#include <boost/algorithm/string.hpp>
 
 using namespace llvm;
 
@@ -784,7 +785,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
   }
 
   std::string name = fn->getName();
-  getReachablePaths(name, pathsRemaining, false);
+
+  // try to get the target paths from the handler.
+  // if handler does not have targets, then get all m2m paths
+  if (!interpreterHandler->loadTargetPaths(pathsRemaining[kf->fnID])) {
+    getReachablePaths(name, pathsRemaining, false);
+  }
   pathsFaulting.clear(0);
   faulting_state_stash.clear();
   auto num_reachable_paths = pathsRemaining.size();
@@ -1029,7 +1035,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
     // top element must have failed, so discard
     outs() << "Resuming from prior saved state\n";
   } else {
-    // create a worklist of basicblocks marker ids sorted by distance from entry
+    // create a worklist of marker ids sorted by distance from entry
     kf->constructSortedBBlocks(worklist);
     interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
   }
@@ -1425,6 +1431,44 @@ bool LocalExecutor::reachesRemainingPath(const KFunction *kf, const llvm::BasicB
   return result;
 }
 
+bool LocalExecutor::isPathOverlap(const std::string &first, const std::string &second) const {
+
+  size_t pos = second.find('.', 1);
+  while (pos != std::string::npos) {
+    std::string tmp = second.substr(0, pos + 1);
+    if (boost::algorithm::ends_with(first, tmp)) return true;
+    pos = second.find('.', pos + 1);
+  }
+  return false;
+}
+
+
+bool LocalExecutor::isOnRemainingPath(const ExecutionState &state, const KFunction *kf) const {
+
+  if (state.stack.back().itrace.size() > 0) {
+
+    unsigned fnID = kf->fnID;
+    const auto &itr = pathsRemaining.find(fnID);
+    if (itr != pathsRemaining.end()) {
+
+      std::stringstream ss;
+      ss << '.';
+      for (const auto &id : state.stack.back().itrace) {
+        ss << id << '.';
+      }
+
+      std::string trace = ss.str();
+      for (const auto &path : itr->second) {
+        if (isPathOverlap(trace, path)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
 bool LocalExecutor::removeCoveredRemainingPaths(ExecutionState &state) {
 
   bool result = false;
@@ -1537,7 +1581,7 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
   return result;
 }
 
-void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) {
+void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
 
   // if src and dst bbs have the same parent, then this is a branch
   if (dst->getParent() == src->getParent()) {
@@ -1600,7 +1644,7 @@ void LocalExecutor::transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock
       }
     }
   }
-  Executor::transferToBasicBlock(dst, src, state);
+  Executor::transferToBasicBlock(state, src, dst);
 }
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
@@ -1629,11 +1673,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           dst = bi->getSuccessor(0);
         }
-        transferToBasicBlock(dst, src, state);
+        transferToBasicBlock(state, src, dst);
 
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
         assert(bi->getCondition() == bi->getOperand(0) && "Wrong operand index!");
+        const KFunction *kf = kmodule->functionMap[src->getParent()];
         state.allBranchCounter++;
         ref<Expr> cond = eval(ki, 0, state).value;
         Executor::StatePair branches = fork(state, cond, false);
@@ -1642,7 +1687,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         // requires that we still be in the context of the branch
         // instruction (it reuses its statistic id). Should be cleaned
         // up with convenient instruction specific data.
-        if (statsTracker && state.stack.back().kf->trackCoverage)
+        if (statsTracker && kf->trackCoverage)
           statsTracker->markBranchVisited(branches.first, branches.second);
 
         ExecutionState *states[2] = { branches.first, branches.second };
@@ -1651,19 +1696,27 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
             BasicBlock *dst = bi->getSuccessor(index);
-            transferToBasicBlock(dst, src, *states[index]);
 
-            if (bothSatisfyable) {
-              states[index]->unconBranchCounter++;
-              StackFrame &sf = states[index]->stack.back();
-              if (!sf.loopFrames.empty()) {
-                LoopFrame &lf = sf.loopFrames.back();
-                ++loopForkCounter[lf.loop];
-                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
-                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
+            // if we have unconstrained locals, but the destination block cannot reach a remaining
+            // path, then there is no point in continuing this state
+            if (states[index]->isUnconstrainLocals() &&
+                !(reachesRemainingPath(kf, dst) || isOnRemainingPath(*states[index], kf) )) {
+              terminateState(*states[index], "remaining paths are unreachable");
+            } else {
+              transferToBasicBlock(*states[index], src, dst);
 
-                    // finally consider terminating the state.
-                    terminateState(*states[index], "loop throttled");
+              if (bothSatisfyable) {
+                states[index]->unconBranchCounter++;
+                StackFrame &sf = states[index]->stack.back();
+                if (!sf.loopFrames.empty()) {
+                  LoopFrame &lf = sf.loopFrames.back();
+                  ++loopForkCounter[lf.loop];
+                  if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
+                    if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
+
+                      // finally consider terminating the state.
+                      terminateState(*states[index], "loop throttled");
+                    }
                   }
                 }
               }

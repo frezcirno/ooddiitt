@@ -81,8 +81,13 @@ namespace {
 
   cl::opt<std::string>
   ProgramInfo("prog-info",
-              cl::desc("json formated info from static analysis"),
+              cl::desc("json formatted info from static analysis"),
               cl::init("prog-info.json"));
+
+cl::opt<std::string>
+    TargetPaths("target-paths",
+                cl::desc("m2m paths targeted for test generation"),
+                cl::init(""));
 
   cl::opt<bool>
   IndentJson("indent-json",
@@ -326,6 +331,7 @@ public:
   bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) override;
   bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) override;
   bool removeRestartStates() override;
+  bool loadTargetPaths(std::set<std::string> &paths) override;
 };
 
 PGKleeHandler::PGKleeHandler(int argc, char **argv, ProgInfo &pi, const std::string &entry)
@@ -961,6 +967,26 @@ bool PGKleeHandler::removeRestartStates() {
     }
   }
   return true;
+}
+
+bool PGKleeHandler::loadTargetPaths(std::set<std::string> &paths) {
+
+  if (!TargetPaths.empty()) {
+    paths.clear();
+
+    std::ifstream fin(TargetPaths);
+    if (fin) {
+      Json::Value root = Json::objectValue;
+      fin >> root;
+      if (root.isArray()) {
+        for (unsigned idx = 0, end = root.size(); idx < end; ++idx) {
+          paths.insert(root[idx].asString());
+        }
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 //===----------------------------------------------------------------------===//

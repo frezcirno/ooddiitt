@@ -130,7 +130,7 @@ protected:
                              const llvm::Twine &longMessage = "") override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state) override;
+  void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) override;
   void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::Loop *loop) const;
   unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
@@ -138,6 +138,8 @@ protected:
   void getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const;
   void getAllPaths(M2MPaths &paths) const;
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
+  bool isOnRemainingPath(const ExecutionState &state, const KFunction *kf) const;
+  bool isPathOverlap(const std::string &first, const std::string &second) const;
   bool removeCoveredRemainingPaths(ExecutionState &state);
   bool addCoveredFaultingPaths(const ExecutionState &state);
 

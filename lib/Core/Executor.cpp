@@ -1339,7 +1339,7 @@ void Executor::executeCall(ExecutionState &state,
     }
 
     if (InvokeInst *ii = dyn_cast<InvokeInst>(i))
-      transferToBasicBlock(ii->getNormalDest(), i->getParent(), state);
+      transferToBasicBlock(state, i->getParent(), ii->getNormalDest());
   } else {
     // FIXME: I'm not really happy about this reliance on prevPC but it is ok, I
     // guess. This just done to avoid having to pass KInstIterator everywhere
@@ -1440,8 +1440,7 @@ void Executor::executeCall(ExecutionState &state,
   }
 }
 
-void Executor::transferToBasicBlock(BasicBlock *dst, BasicBlock *src,
-                                    ExecutionState &state) {
+void Executor::transferToBasicBlock(ExecutionState &state, BasicBlock *src, BasicBlock *dst) {
   // Note that in general phi nodes can reuse phi values from the same
   // block but the incoming value is the eval() result *before* the
   // execution of any phi nodes. this is pathological and doesn't
@@ -1548,7 +1547,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         statsTracker->framePopped(state);
 
       if (InvokeInst *ii = dyn_cast<InvokeInst>(caller)) {
-        transferToBasicBlock(ii->getNormalDest(), caller->getParent(), state);
+        transferToBasicBlock(state, caller->getParent(), ii->getNormalDest());
       } else {
         state.pc = kcaller;
         ++state.pc;
@@ -1619,7 +1618,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::Br: {
     BranchInst *bi = cast<BranchInst>(i);
     if (bi->isUnconditional()) {
-      transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
+      transferToBasicBlock(state, bi->getParent(), bi->getSuccessor(0));
     } else {
       // FIXME: Find a way that we don't have this hidden dependency.
       assert(bi->getCondition() == bi->getOperand(0) &&
@@ -1635,9 +1634,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         statsTracker->markBranchVisited(branches.first, branches.second);
 
       if (branches.first)
-        transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), *branches.first);
+        transferToBasicBlock(*branches.first, bi->getParent(), bi->getSuccessor(0));
       if (branches.second)
-        transferToBasicBlock(bi->getSuccessor(1), bi->getParent(), *branches.second);
+        transferToBasicBlock(*branches.second, bi->getParent(), bi->getSuccessor(1));
     }
     break;
   }
@@ -1658,7 +1657,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 #else
       unsigned index = si->findCaseValue(ci);
 #endif
-      transferToBasicBlock(si->getSuccessor(index), si->getParent(), state);
+      transferToBasicBlock(state, si->getParent(), si->getSuccessor(index));
     } else {
       // Handle possible different branch targets
 
@@ -1761,7 +1760,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
            it != ie; ++it) {
         ExecutionState *es = *bit;
         if (es)
-          transferToBasicBlock(*it, bb, *es);
+          transferToBasicBlock(*es, bb, *it);
         ++bit;
       }
     }

@@ -67,11 +67,11 @@ public:
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
   virtual bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths)
-    { return false; };
+    { return false; }
   virtual bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths)
-    { return false; };
-  virtual bool removeRestartStates()
-    { return false; };
+    { return false; }
+  virtual bool removeRestartStates() { return false; }
+  virtual bool loadTargetPaths(std::set<std::string> &paths) { return false; }
 
   std::string flags_to_string(UnconstraintFlagsT flags) const {
 
