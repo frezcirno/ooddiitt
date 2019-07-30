@@ -56,6 +56,12 @@ namespace {
                    cl::desc("Silently terminate paths with an infeasible "
                             "condition given to klee_assume() rather than "
                             "emitting an error (default=false)"));
+
+  cl::opt<bool>
+  StubMemAlloc("stub-mem-alloc",
+               cl::init(false),
+               cl::desc("stub memory allocation functions"));
+
 }
 
 
@@ -189,12 +195,13 @@ int SpecialFunctionHandler::size() {
 SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor)
   : executor(_executor), lcl_exec(nullptr) {}
 
-
 void SpecialFunctionHandler::prepare() {
+
   unsigned N = size();
 
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
+
     Function *f = executor.kmodule->module->getFunction(hi.name);
     
     // No need to create if the function doesn't exist, since it cannot
@@ -226,9 +233,9 @@ void SpecialFunctionHandler::bind() {
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
     Function *f = executor.kmodule->module->getFunction(hi.name);
-    
-    if (f && (!hi.doNotOverride || f->isDeclaration()))
+    if (f && (!hi.doNotOverride || f->isDeclaration())) {
       handlers[f] = std::make_pair(hi.handler, hi.hasReturnValue);
+    }
   }
 }
 
@@ -255,8 +262,13 @@ bool SpecialFunctionHandler::handle(ExecutionState &state,
 
 bool SpecialFunctionHandler::isSpecial(llvm::Function *f) {
 
-  handlers_ty::iterator it = handlers.find(f);
-  return (it != handlers.end());
+  static std::set<std::string> alloc_fns = {"calloc", "malloc", "realloc", "free"};
+
+  if (StubMemAlloc && alloc_fns.count(f->getName()) > 0) {
+    return false;
+  }
+  const auto &itr = handlers.find(f);
+  return (itr != handlers.end());
 }
 
 /****/

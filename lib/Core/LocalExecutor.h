@@ -170,6 +170,7 @@ protected:
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;
+  bool timeout_disabled;
 };
 
 

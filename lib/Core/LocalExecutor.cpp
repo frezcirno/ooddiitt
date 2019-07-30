@@ -11,7 +11,6 @@
 #include "Context.h"
 #include "CoreStats.h"
 #include "ExternalDispatcher.h"
-#include "ImpliedValue.h"
 #include "MemoryManager.h"
 #include "PTree.h"
 #include "Searcher.h"
@@ -27,15 +26,10 @@
 #include "klee/Interpreter.h"
 #include "klee/TimerStatIncrementer.h"
 #include "klee/CommandLine.h"
-#include "klee/Common.h"
 #include "klee/util/Assignment.h"
-#include "klee/util/ExprPPrinter.h"
-#include "klee/util/ExprSMTLIBPrinter.h"
 #include "klee/util/ExprUtil.h"
-#include "klee/util/GetElementPtrTypeIterator.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/RNG.h"
 #include "klee/Internal/Module/Cell.h"
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/Module/KInstruction.h"
@@ -43,18 +37,13 @@
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/FloatEvaluation.h"
 #include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/System/Time.h"
 #include "klee/Internal/System/MemoryUsage.h"
-#include "klee/Internal/System/ProgInfo.h"
-#include "klee/SolverStats.h"
-#include "klee/Internal/System/debugbreak.h"
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
@@ -89,8 +78,13 @@ cl::opt<bool>
 
 cl::opt<unsigned>
   LazyAllocationCount("lazy-allocation-count",
-                       cl::init(4),
+                       cl::init(8),
                        cl::desc("Number of items to lazy initialize pointer"));
+
+cl::opt<unsigned>
+  LazyAllocationOffset("lazy-allocation-offset",
+                       cl::init(0),
+                       cl::desc("index into lazy allocation to return"));
 
 cl::opt<unsigned>
   MinLazyAllocationSize("min-lazy-allocation-size",
@@ -98,24 +92,25 @@ cl::opt<unsigned>
                         cl::desc("minimum size of a lazy allocation"));
 
 cl::opt<unsigned>
-    LazyAllocationDepth("lazy-allocation-depth",
+  LazyAllocationDepth("lazy-allocation-depth",
                         cl::init(4),
                         cl::desc("Depth of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
-    LazyAllocationExt("lazy-allocation-ext",
-                      cl::init(2),
-                      cl::desc("number of lazy allocations to include existing memory objects of same type"));
+  LazyAllocationExt("lazy-allocation-ext",
+                    cl::init(2),
+               cl::desc("number of lazy allocations to include existing memory objects of same type"));
 
 cl::opt<unsigned>
-    MaxLoopIteration("max-loop-iteration",
-                      cl::init(4),
-                      cl::desc("Number of loop iterations"));
+  MaxLoopIteration("max-loop-iteration",
+                    cl::init(4),
+                    cl::desc("Number of loop iterations"));
 
 cl::opt<unsigned>
-    MaxLoopForks("max-loop-forks",
+  MaxLoopForks("max-loop-forks",
                   cl::init(16),
                   cl::desc("Number of forks within loop body"));
+
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx,
                              const InterpreterOptions &opts,
@@ -131,7 +126,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx,
   heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false),
-  altStartBB(nullptr) {
+  altStartBB(nullptr),
+  timeout_disabled(false) {
 
   memory->setBaseAddr(heap_base);
   switch (opts.mode) {
@@ -482,7 +478,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
             MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                               '*' + mo->name, 0, lazyAllocationCount);
             bindObjectInState(*next_fork, newMO);
-            ref<ConstantExpr> ptr = newMO->getBaseExpr();
+            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / LazyAllocationCount));
             ref<Expr> eq = EqExpr::create(e, ptr);
             addConstraintOrTerminate(*next_fork, eq);
           }
@@ -1056,6 +1052,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
           outs() << "starting from: " << startID;
           outs() << " (remaining wklst=" << worklist.size() << ",paths=" << pathsRemaining.size() << ")\n";
           initialState.startingMarker = startID;
+
           runFnFromBlock(kf, initialState, startBB);
         }
       }
@@ -1136,7 +1133,8 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // check for expired timers
     unsigned expired = timer.expired();
     if (expired == tid_timeout) {
-      halt = HaltReason::TimeOut;
+      if (timeout_disabled) timer.set(tid_timeout, timeout);
+      else halt = HaltReason::TimeOut;
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
@@ -1779,11 +1777,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee function, then let the standard executor handle it
-
       bool isInModule = kmodule->isModuleFunction(fn);
-      if ((!state.isStubCallees() && isInModule) ||
+      if (libc_initializing ||
+          (!state.isStubCallees() && isInModule) ||
           specialFunctionHandler->isSpecial(fn) ||
-          libc_initializing ||
           kmodule->isInternalFunction(fn)) {
 
         Executor::executeInstruction(state, ki);
@@ -1885,7 +1882,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (sp.second != nullptr) {
 
             MemKind kind = MemKind::lazy;
-            unsigned count = lazyAllocationCount;
 
 #if 0 == 1
             // special handling for zopc_malloc. argument contains the allocation size
@@ -1921,12 +1917,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               }
             }
 #endif
+            // RLR TODO: this is only returning new objects.
+            // should it also return existing objects?
+
             Type *subtype = ty->getPointerElementType();
 
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, LazyAllocationCount);
             bindObjectInState(*sp.second, newMO);
 
-            ref<ConstantExpr> ptr = newMO->getBaseExpr();
+            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / LazyAllocationCount));
             ref<Expr> eq = EqExpr::create(retExpr, ptr);
             addConstraint(*sp.second, eq);
           }

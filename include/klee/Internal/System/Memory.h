@@ -136,6 +136,11 @@ public:
   ref<ConstantExpr> getBaseExpr() const {
     return ConstantExpr::create(address, Context::get().getPointerWidth());
   }
+
+  ref<ConstantExpr> getOffsetIntoExpr(uint64_t offset) const {
+    return ConstantExpr::create(address + offset, Context::get().getPointerWidth());
+  }
+
 //  ref<ConstantExpr> getSizeExpr() const {
 //    return ConstantExpr::create(visible_size, Context::get().getPointerWidth());
 //  }

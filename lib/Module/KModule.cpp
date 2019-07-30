@@ -218,6 +218,16 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
   }
 }
 
+bool KModule::addInternalFunction(string name) {
+
+  Function *fn = module->getFunction(name);
+  if (fn != nullptr) {
+    addInternalFunction(fn);
+    return true;
+  }
+  return false;
+}
+
 void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
@@ -455,7 +465,10 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   kleeMergeFn = module->getFunction("klee_merge");
 
   /* Build shadow structures */
-  infos = new InstructionInfoTable(module);  
+  infos = new InstructionInfoTable(module);
+
+  // never stub some functions
+  addInternalFunction("__ctype_b_loc");
   
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
     if (it->isDeclaration())
