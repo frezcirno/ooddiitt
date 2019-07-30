@@ -184,7 +184,7 @@ namespace {
   cl::opt<bool>
   SuppressExternalWarnings("suppress-external-warnings",
 			   cl::init(false),
-			   cl::desc("Supress warnings about calling external functions."));
+			   cl::desc("Suppress warnings about calling external functions."));
 
   cl::opt<bool>
   AllExternalWarnings("all-external-warnings",
