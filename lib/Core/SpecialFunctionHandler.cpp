@@ -264,9 +264,8 @@ bool SpecialFunctionHandler::isSpecial(llvm::Function *f) {
 
   static std::set<std::string> alloc_fns = {"calloc", "malloc", "realloc", "free"};
 
-  if (StubMemAlloc && alloc_fns.count(f->getName()) > 0) {
-    return false;
-  }
+  if (f == nullptr) return false;
+  if (StubMemAlloc && f->hasName() && alloc_fns.count(f->getName()) > 0)  return false;
   const auto &itr = handlers.find(f);
   return (itr != handlers.end());
 }

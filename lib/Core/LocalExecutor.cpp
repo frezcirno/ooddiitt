@@ -1777,7 +1777,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if subfunctions are not stubbed, this is a special function, or
       // this is an internal klee function, then let the standard executor handle it
-      bool isInModule = kmodule->isModuleFunction(fn);
+      bool isInModule = (fn != nullptr) && kmodule->isModuleFunction(fn);
       if (libc_initializing ||
           (!state.isStubCallees() && isInModule) ||
           specialFunctionHandler->isSpecial(fn) ||

@@ -191,7 +191,7 @@ namespace klee {
     bool addInternalFunction(std::string name);
     void addInternalFunction(llvm::Function *fn) { internalFunctions.insert(fn); }
     bool isInternalFunction(const llvm::Function *fn) const
-      { return internalFunctions.find(fn) != internalFunctions.end(); }
+      { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
     bool isModuleFunction(const llvm::Function *fn) const
       { return functionMap.find(const_cast<llvm::Function*>(fn)) != functionMap.end();}
 
