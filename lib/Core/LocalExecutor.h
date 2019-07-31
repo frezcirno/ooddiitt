@@ -37,7 +37,7 @@ public:
                              const InterpreterOptions &opts,
                              InterpreterHandler *ih)
     { return new klee::LocalExecutor(ctx, opts, ih); }
-  
+
   LocalExecutor(llvm::LLVMContext &ctx,
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie);
@@ -83,7 +83,7 @@ protected:
                                    ref<Expr> value,
                                    KInstruction *target,
                                    const std::string name);
-  
+
   ObjectState *makeSymbolic(ExecutionState &state,
                             const MemoryObject *mo);
 
@@ -130,7 +130,7 @@ protected:
                              const llvm::Twine &longMessage = "") override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) override;
+  void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst);
   void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::Loop *loop) const;
   unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);

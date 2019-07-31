@@ -87,24 +87,24 @@ cl::opt<unsigned>
                        cl::desc("index into lazy allocation to return"));
 
 cl::opt<unsigned>
-  MinLazyAllocationSize("min-lazy-allocation-size",
+  MinLazyAllocationSize("lazy-allocation-minsize",
                         cl::init(0),
                         cl::desc("minimum size of a lazy allocation"));
 
 cl::opt<unsigned>
   LazyAllocationDepth("lazy-allocation-depth",
-                        cl::init(4),
-                        cl::desc("Depth of items to lazy initialize pointer"));
+                      cl::init(4),
+                      cl::desc("Depth of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
   LazyAllocationExt("lazy-allocation-ext",
                     cl::init(2),
-               cl::desc("number of lazy allocations to include existing memory objects of same type"));
+                    cl::desc("number of lazy allocations to include existing memory objects of same type"));
 
 cl::opt<unsigned>
   MaxLoopIteration("max-loop-iteration",
-                    cl::init(4),
-                    cl::desc("Number of loop iterations"));
+                   cl::init(4),
+                   cl::desc("Number of loop iterations"));
 
 cl::opt<unsigned>
   MaxLoopForks("max-loop-forks",
@@ -112,9 +112,7 @@ cl::opt<unsigned>
                   cl::desc("Number of forks within loop body"));
 
 
-LocalExecutor::LocalExecutor(LLVMContext &ctx,
-                             const InterpreterOptions &opts,
-                             InterpreterHandler *ih) :
+LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(LazyAllocationCount),
   maxLoopIteration(MaxLoopIteration),
@@ -478,7 +476,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
             MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
                                               '*' + mo->name, 0, lazyAllocationCount);
             bindObjectInState(*next_fork, newMO);
-            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / LazyAllocationCount));
+            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / LazyAllocationCount));
             ref<Expr> eq = EqExpr::create(e, ptr);
             addConstraintOrTerminate(*next_fork, eq);
           }
@@ -561,10 +559,12 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   if (!isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> cex;
     if (solver->getValue(*currState, offsetExpr, cex)) {
-
       ref<Expr> eq = EqExpr::create(offsetExpr, cex);
-      if (!addConstraintOrTerminate(*currState, eq)) {
-        return false;
+      if (!solver->mustBeTrue(*currState, eq)) {
+        klee_warning("Concretized offset on write");
+        if (!addConstraintOrTerminate(*currState, eq)) {
+          return false;
+        }
       }
       offsetExpr = cex;
     } else {
@@ -893,7 +893,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   // force deterministic initialization of memory objects
 //  srand(1);
 //  srandom(1);
-  
+
   MemoryObject *argvMO = nullptr;
   KFunction *kf = kmodule->functionMap[f];
   LLVMContext &ctx = kmodule->module->getContext();
@@ -906,7 +906,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   // doing we lay out the environments at the end of the argv array
   // (both are terminated by a null). There is also a final terminating
   // null that uclibc seems to expect, possibly the ELF header?
-  
+
   int envc;
   for (envc=0; envp[envc]; ++envc) ;
 
@@ -919,24 +919,24 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
       argvMO =
       memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
                        Type::getInt8Ty(ctx), MemKind::param, first, 8);
-      
+
       if (!argvMO)
         klee_error("Could not allocate memory for function arguments");
-      
+
       arguments.emplace_back(argvMO->getBaseExpr());
-      
+
       if (++ai!=ae) {
         uint64_t envp_start = argvMO->address + (argc+1)*NumPtrBytes;
         arguments.emplace_back(Expr::createPointer(envp_start));
-        
+
         if (++ai!=ae)
           klee_error("invalid main function (expect 0-3 arguments)");
       }
     }
   }
-  
+
   ExecutionState *state = new ExecutionState(*baseState, kf, name);
-  
+
   if (pathWriter)
     state->pathOS = pathWriter->open();
   if (symPathWriter)
@@ -947,10 +947,10 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   assert(arguments.size() == f->arg_size() && "wrong number of arguments");
   for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
     bindArgument(kf, i, *state, arguments[i]);
-  
+
   if (argvMO) {
     ObjectState *argvOS = bindObjectInState(*state, argvMO);
-    
+
     for (int i=0; i<argc+1+envc+1+1; i++) {
       if (i==argc || i>=argc+1+envc) {
         // Write NULL pointer
@@ -958,7 +958,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
       } else {
         char *s = i<argc ? argv[i] : envp[i-(argc+1)];
         int j, len = strlen(s);
-        
+
         MemoryObject *arg =
         memory->allocate(len + 1, Type::getInt8Ty(ctx), MemKind::param, state->pc->inst, 8);
         if (!arg)
@@ -966,15 +966,15 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
         ObjectState *os = bindObjectInState(*state, arg);
         for (j=0; j<len+1; j++)
           os->write8(j, s[j]);
-        
+
         // Write pointer to newly allocated and initialised argv/envp c-string
         argvOS->write(i * NumPtrBytes, arg->getBaseExpr());
       }
     }
   }
-  
+
   runFn(kf, *state, 0);
-  
+
   // hack to clear memory objects
   delete memory;
   memory = new MemoryManager(nullptr);
@@ -983,7 +983,7 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   legalFunctions.clear();
   globalObjects.clear();
   globalAddresses.clear();
-  
+
   if (statsTracker) {
     statsTracker->done();
   }
@@ -1581,63 +1581,66 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
 
 void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
 
-  // if src and dst bbs have the same parent, then this is a branch
-  if (dst->getParent() == src->getParent()) {
+  // skip loop accounting if this is the jump from init block
+  if (altStartBB != nullptr) {
+    // if src and dst bbs have the same parent, then this is a branch
+    if (dst->getParent() == src->getParent()) {
 
-    // update the loop frame
-    StackFrame &sf = state.stack.back();
-    KFunction *kf = sf.kf;
+      // update the loop frame
+      StackFrame &sf = state.stack.back();
+      KFunction *kf = sf.kf;
 
-    const llvm::Loop *src_loop = kf->loopInfo.getLoopFor(src);
-    const llvm::Loop *dst_loop = kf->loopInfo.getLoopFor(dst);
+      const llvm::Loop *src_loop = kf->loopInfo.getLoopFor(src);
+      const llvm::Loop *dst_loop = kf->loopInfo.getLoopFor(dst);
 
-    if (src_loop == dst_loop) {
-      // either source and destination are not in a loop,
-      // or they are in the same loop
-      if (dst_loop != nullptr) {
+      if (src_loop == dst_loop) {
+        // either source and destination are not in a loop,
+        // or they are in the same loop
+        if (dst_loop != nullptr) {
 
-       // both in a loop, if the dest is the loop header, then we have completed a cycle
-       if (dst_loop->getHeader() == dst && !sf.loopFrames.empty()) {
-         LoopFrame &lf = sf.loopFrames.back();
-         if (lf.loop == dst_loop) lf.counter += 1;
-       }
-      }
-    } else {
-      // source and destination loop are different
-      // we either entered a new loop, or exited the previous loop (or both?)
-      if (src_loop == nullptr) {
-
-        // entered new loop
-        sf.loopFrames.emplace_back(LoopFrame(dst_loop));
-      } else if (dst_loop == nullptr) {
-
-        // left the prior loop
-        sf.loopFrames.pop_back();
+         // both in a loop, if the dest is the loop header, then we have completed a cycle
+         if (dst_loop->getHeader() == dst && !sf.loopFrames.empty()) {
+           LoopFrame &lf = sf.loopFrames.back();
+           if (lf.loop == dst_loop) lf.counter += 1;
+         }
+        }
       } else {
-        // neither empty implies we just changed loops
-        if (src_loop->contains(dst_loop)) {
+        // source and destination loop are different
+        // we either entered a new loop, or exited the previous loop (or both?)
+        if (src_loop == nullptr) {
 
-          // create frames for each intermidiate loop
-          const llvm::Loop *curr = dst_loop;
-          std::vector<const llvm::Loop*> loops;
-          while (curr != src_loop) {
-            loops.push_back(curr);
-            curr = curr->getParentLoop();
-          }
-          for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-            sf.loopFrames.emplace_back(LoopFrame(*itr));
-          }
+          // entered new loop
+          sf.loopFrames.emplace_back(LoopFrame(dst_loop));
+        } else if (dst_loop == nullptr) {
 
-        } else if (dst_loop->contains(src_loop)) {
-
-          // pop loops from frame until we get to the source
-          const llvm::Loop *prior = nullptr;
-          while (!sf.loopFrames.empty() && prior != src_loop) {
-            prior = sf.loopFrames.back().loop;
-            sf.loopFrames.pop_back();
-          }
+          // left the prior loop
+          sf.loopFrames.pop_back();
         } else {
-          klee_error("loop transition between unrelated loops");
+          // neither empty implies we just changed loops
+          if (src_loop->contains(dst_loop)) {
+
+            // create frames for each intermidiate loop
+            const llvm::Loop *curr = dst_loop;
+            std::vector<const llvm::Loop*> loops;
+            while (curr != src_loop) {
+              loops.push_back(curr);
+              curr = curr->getParentLoop();
+            }
+            for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+              sf.loopFrames.emplace_back(LoopFrame(*itr));
+            }
+
+          } else if (dst_loop->contains(src_loop)) {
+
+            // pop loops from frame until we get to the source
+            const llvm::Loop *prior = nullptr;
+            while (!sf.loopFrames.empty() && prior != src_loop) {
+              prior = sf.loopFrames.back().loop;
+              sf.loopFrames.pop_back();
+            }
+          } else {
+            klee_error("loop transition between unrelated loops");
+          }
         }
       }
     }
@@ -1667,11 +1670,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (altStartBB != nullptr) {
           assert(state.isUnconstrainLocals());
           dst = const_cast<BasicBlock*>(altStartBB);
-          altStartBB = nullptr;
         } else {
           dst = bi->getSuccessor(0);
         }
+        // set alternate start to null after transfer, used as flag
         transferToBasicBlock(state, src, dst);
+        altStartBB = nullptr;
 
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
@@ -1935,7 +1939,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 
     // Memory instructions...
-      
+
     case Instruction::Alloca: {
       AllocaInst *ai = cast<AllocaInst>(i);
 
@@ -1989,7 +1993,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         }
 
-        base = AddExpr::create(base, offset);
+        ref<Expr> addr = AddExpr::create(base, offset);
 
         // if we are in zop mode, insure the pointer is inbounds
         if (doAssumeInBounds) {
@@ -1998,7 +2002,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned bytes = Expr::getMinBytesForWidth(width);
 
           // base must point into an allocation
-          ref<Expr> mc = os->getBoundsCheckPointer(base, bytes);
+          ref<Expr> mc = os->getBoundsCheckPointer(addr, bytes);
 
           if (!solver->mustBeTrue(state, mc)) {
             if (solver->mayBeTrue(state, mc)) {
@@ -2007,7 +2011,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         }
 
-        bindLocal(ki, state, base);
+        bindLocal(ki, state, addr);
       } else {
 
         // invalid memory access, fault at ki and base
@@ -2024,7 +2028,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       executeReadMemoryOperation(state, base, type, ki);
       break;
     }
-      
+
     case Instruction::Store: {
       StoreInst *si = cast<StoreInst>(i);
       const Value *v = si->getValueOperand();
@@ -2032,7 +2036,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (v->hasName()) {
         name = v->getName();
       }
-      
+
       ref<Expr> base = eval(ki, 1, state).value;
       ref<Expr> value = eval(ki, 0, state).value;
       executeWriteMemoryOperation(state, base, value, ki, name);
@@ -2160,7 +2164,7 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   }
   return counter;
 }
-  
+
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
                                       InterpreterHandler *ih) {

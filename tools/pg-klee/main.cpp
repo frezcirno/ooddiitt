@@ -84,10 +84,15 @@ namespace {
               cl::desc("json formatted info from static analysis"),
               cl::init("prog-info.json"));
 
-cl::opt<std::string>
-    TargetPaths("target-paths",
-                cl::desc("m2m paths targeted for test generation"),
-                cl::init(""));
+  cl::opt<std::string>
+  TargetPaths("target-paths",
+              cl::desc("m2m paths targeted for test generation (comma separated)"),
+              cl::init(""));
+
+  cl::opt<std::string>
+  TargetPathsFile("target-paths-file",
+              cl::desc("m2m paths targeted for test generation, read from file"),
+              cl::init(""));
 
   cl::opt<bool>
   IndentJson("indent-json",
@@ -316,9 +321,7 @@ public:
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
   // load a .path file
-  static void loadPathFile(std::string name,
-                           std::vector<bool> &buffer);
-
+  static void loadPathFile(std::string name, std::vector<bool> &buffer);
   static void getKTestFilesInDir(std::string directoryPath,
                                  std::vector<std::string> &results);
 
@@ -852,7 +855,7 @@ std::string PGKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   {
     KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
                          "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0, 
+    libDir = toolRoot.str().substr(0,
                toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
     llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
   }
@@ -971,10 +974,19 @@ bool PGKleeHandler::removeRestartStates() {
 
 bool PGKleeHandler::loadTargetPaths(std::set<std::string> &paths) {
 
+  bool result = false;
   if (!TargetPaths.empty()) {
     paths.clear();
 
-    std::ifstream fin(TargetPaths);
+    std::vector<std::string> entries;
+    boost::split(entries, TargetPaths, [](char c){return c == ',';});
+    for (const auto &entry: entries) {
+      paths.insert(entry);
+    }
+    result = true;
+  } else if (!TargetPathsFile.empty()) {
+    paths.clear();
+    std::ifstream fin(TargetPathsFile);
     if (fin) {
       Json::Value root = Json::objectValue;
       fin >> root;
@@ -983,10 +995,10 @@ bool PGKleeHandler::loadTargetPaths(std::set<std::string> &paths) {
           paths.insert(root[idx].asString());
         }
       }
-      return true;
+      result = true;
     }
   }
-  return false;
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1741,7 +1753,7 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
     // parse out the progression phases
     std::vector<std::string> phases;
     boost::split(phases, str, [](char c){return c == ',';});
-    for (auto phase: phases) {
+    for (const auto &phase: phases) {
 
       // loop through each phase in progression
       UnconstraintFlagsT flags;
@@ -1961,7 +1973,7 @@ int main(int argc, char **argv, char **envp) {
   }
 
   std::string LibraryDir = PGKleeHandler::getRunTimeLibraryPath(argv[0]);
- 
+
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
     break;
