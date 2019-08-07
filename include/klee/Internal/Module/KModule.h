@@ -167,7 +167,7 @@ namespace klee {
 #else
     llvm::DataLayout *targetData;
 #endif
-    
+
     // Some useful functions to know the address of
     llvm::Function *kleeMergeFn;
 
@@ -221,14 +221,16 @@ namespace klee {
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
     // marker function names
-    const static std::string fn_major_marker;
-    const static std::string fn_minor_marker;
-    const static std::string fn_calltag;
-    bool isMarkerFn(std::string fn) const { return fn_markers.count(fn) != 0; }
-    const std::set<std::string> &getFnMarkers() const { return fn_markers; }
+    bool isMarkerFnName(const std::string &name) const { return marker_fn_names.count(name) != 0; }
+    bool isMarkerFn(const llvm::Function *fn) const { return marker_fns.count(fn) != 0; }
+    bool isSkippedFnName(const std::string &name) const { return skip_fn_names.count(name) != 0; }
+    bool isSkippedFn(const llvm::Function *fn) const { return skip_fns.count(fn) != 0; }
 
   private:
-    const static std::set<std::string> fn_markers;
+    const static std::set<std::string> marker_fn_names;
+    const static std::set<std::string> skip_fn_names;
+    std::set<const llvm::Function*> marker_fns;
+    std::set<const llvm::Function*> skip_fns;
 };
 } // End klee namespace
 

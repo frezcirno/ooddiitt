@@ -82,7 +82,7 @@ namespace {
 
   cl::list<string>
   MergeAtExit("merge-at-exit");
-    
+
   cl::opt<bool>
   OutputSource("output-source",
                cl::desc("Write the assembly for the final transformed source"),
@@ -95,30 +95,24 @@ namespace {
 
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
-             cl::values(clEnumValN(eSwitchTypeSimple, "simple", 
+             cl::values(clEnumValN(eSwitchTypeSimple, "simple",
                                    "lower to ordered branches"),
-                        clEnumValN(eSwitchTypeLLVM, "llvm", 
+                        clEnumValN(eSwitchTypeLLVM, "llvm",
                                    "lower using LLVM"),
-                        clEnumValN(eSwitchTypeInternal, "internal", 
+                        clEnumValN(eSwitchTypeInternal, "internal",
                                    "execute switch internally"),
                         clEnumValEnd),
              cl::init(eSwitchTypeInternal));
-  
+
   cl::opt<bool>
-  DebugPrintEscapingFunctions("debug-print-escaping-functions", 
+  DebugPrintEscapingFunctions("debug-print-escaping-functions",
                               cl::desc("Print functions whose address is taken."));
 }
 
 
 // static data
-const std::string KModule::fn_major_marker = "__MARK__";
-const std::string KModule::fn_minor_marker = "__mark__";
-const std::string KModule::fn_calltag = "__calltag__";
-const std::set<std::string> KModule::fn_markers = {
-  fn_major_marker,
-  fn_minor_marker,
-  fn_calltag
-};
+const std::set<std::string> KModule::marker_fn_names = { "__MARK__", "__mark__", "__calltag__" };
+const std::set<std::string> KModule::skip_fn_names = { "__init_markers__", "__term_markers__" };
 
 KModule::KModule(Module *_module)
   : module(_module),
@@ -153,20 +147,20 @@ extern void Optimize(Module *, const string &EntryPoint);
 
 // what a hack
 static Function *getStubFunctionForCtorList(Module *m,
-                                            GlobalVariable *gv, 
+                                            GlobalVariable *gv,
                                             string name) {
   assert(!gv->isDeclaration() && !gv->hasInternalLinkage() &&
          "do not support old LLVM style constructor/destructor lists");
-  
+
   vector<LLVM_TYPE_Q Type*> nullary;
 
   Function *fn = Function::Create(FunctionType::get(Type::getVoidTy(m->getContext()),
 						    nullary, false),
-				  GlobalVariable::InternalLinkage, 
+				  GlobalVariable::InternalLinkage,
 				  name,
                               m);
   BasicBlock *bb = BasicBlock::Create(m->getContext(), "entry", fn);
-  
+
   // From lli:
   // Should be an array of '{ int, void ()* }' structs.  The first value is
   // the init priority, which we ignore.
@@ -175,8 +169,8 @@ static Function *getStubFunctionForCtorList(Module *m,
     for (unsigned i=0; i<arr->getNumOperands(); i++) {
       ConstantStruct *cs = cast<ConstantStruct>(arr->getOperand(i));
       assert(cs->getNumOperands()==2 && "unexpected element in ctor initializer list");
-      
-      Constant *fp = cs->getOperand(1);      
+
+      Constant *fp = cs->getOperand(1);
       if (!fp->isNullValue()) {
         if (llvm::ConstantExpr *ce = dyn_cast<llvm::ConstantExpr>(fp))
           fp = ce->getOperand(0);
@@ -189,7 +183,7 @@ static Function *getStubFunctionForCtorList(Module *m,
       }
     }
   }
-  
+
   ReturnInst::Create(m->getContext(), bb);
 
   return fn;
@@ -198,7 +192,7 @@ static Function *getStubFunctionForCtorList(Module *m,
 static void injectStaticConstructorsAndDestructors(Module *m) {
   GlobalVariable *ctors = m->getNamedGlobal("llvm.global_ctors");
   GlobalVariable *dtors = m->getNamedGlobal("llvm.global_dtors");
-  
+
   if (ctors || dtors) {
     Function *mainFn = m->getFunction("main");
     if (!mainFn)
@@ -241,10 +235,23 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
   }
 
+  // find each marker function and add to set
+  for (const auto &name : marker_fn_names) {
+    if (const Function *fn = module->getFunction(name)) {
+      marker_fns.insert(fn);
+    }
+  }
+
+  for (const auto &name : skip_fn_names) {
+    if (const Function *fn = module->getFunction(name)) {
+      skip_fns.insert(fn);
+    }
+  }
+
   if (!MergeAtExit.empty()) {
     Function *mergeFn = module->getFunction("klee_merge");
     if (!mergeFn) {
-      LLVM_TYPE_Q llvm::FunctionType *Ty = 
+      LLVM_TYPE_Q llvm::FunctionType *Ty =
         FunctionType::get(Type::getVoidTy(ctx),
                           vector<LLVM_TYPE_Q Type*>(), false);
       mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage,
@@ -469,7 +476,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   // never stub some functions
   addInternalFunction("__ctype_b_loc");
-  
+
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
     if (it->isDeclaration())
       continue;
@@ -649,8 +656,7 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
             if (called != nullptr) {
 
               // check the name, number of arguments, and the return type
-              if (isMarkerFn(called->getName()) && (called->arg_size() == 2)
-                  && (called->getReturnType()->isVoidTy())) {
+              if (isMarkerFn(called) && (called->arg_size() == 2) && (called->getReturnType()->isVoidTy())) {
 
                 // extract the two literal arguments
                 const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
@@ -792,7 +798,7 @@ KConstant* KModule::getKConstant(Constant *c) {
 unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
   KConstant *kc = getKConstant(c);
   if (kc)
-    return kc->id;  
+    return kc->id;
 
   unsigned id = constants.size();
   kc = new KConstant(c, id, ki);
@@ -830,7 +836,7 @@ static int getOperandNum(Value *v,
 }
 
 KFunction::KFunction(llvm::Function *_function,
-                     KModule *km) 
+                     KModule *km)
   : function(_function),
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
@@ -855,7 +861,7 @@ KFunction::KFunction(llvm::Function *_function,
       registerMap[static_cast<Instruction *>(it)] = rnum++;
   }
   numRegisters = rnum;
-  
+
   unsigned i = 0;
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     for (auto it = bbit->begin(), ie = bbit->end(); it != ie; ++it) {

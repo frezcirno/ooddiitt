@@ -1149,6 +1149,8 @@ static const char *modelledExternals[] = {
   "__mark__",
   "__MARK__",
   "__calltag__",
+  "__init_markers__",
+  "__term_markers__",
 
   // special pgklee functions
   "pgklee_hard_assume",

@@ -733,16 +733,6 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
     addr_offset = heap_base;
   }
 
-  // get a set of marker functions
-  for (std::string fn_name : kmodule->getFnMarkers()) {
-    Function *fn = module->getFunction(fn_name);
-    if (fn != nullptr) {
-      if ((fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
-        markerFunctions.insert(fn);
-      }
-    }
-  }
-
   // prepare a generic initial state
   baseState = new ExecutionState(addr_offset);
   baseState->maxLoopIteration = maxLoopIteration;
@@ -1765,8 +1755,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         // if this is a call to a mark() variant, then log the marker to state
-        if (markerFunctions.count(fn) > 0) {
-
+        if (kmodule->isMarkerFn(fn)) {
           const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
           const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
           if ((arg0 != nullptr) && (arg1 != nullptr)) {
@@ -1776,6 +1765,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             state.addMarker(fnID, bbID);
             return;
           }
+        }
+
+        if (kmodule->isSkippedFn(fn)) {
+          return;
         }
       }
 

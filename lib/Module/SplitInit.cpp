@@ -23,16 +23,8 @@ namespace klee {
 
 char SplitInitPass::ID = 0;
 
-SplitInitPass::SplitInitPass(KModule *km) : FunctionPass(ID) {
+SplitInitPass::SplitInitPass(KModule *km) : kmodule(km), FunctionPass(ID) {
 
-  for (std::string fn_name : km->getFnMarkers()) {
-    Function *fn = km->module->getFunction(fn_name);
-    if (fn != nullptr) {
-      if ((fn->arg_size() == 2) && (fn->getReturnType()->isVoidTy())) {
-        markerFunctions.insert(fn);
-      }
-    }
-  }
 }
 
 bool SplitInitPass::runOnFunction(Function &F) {
@@ -46,7 +38,7 @@ bool SplitInitPass::runOnFunction(Function &F) {
     unsigned opcode = itr->getOpcode();
     if (opcode == Instruction::Call) {
       const CallSite cs(itr);
-      if (markerFunctions.count(cs.getCalledFunction()) > 0) {
+      if (kmodule->isMarkerFn(cs.getCalledFunction())) {
         entry.splitBasicBlock(itr);
         changed = true;
         break;

@@ -162,7 +162,6 @@ protected:
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
   bool libc_initializing;
-  std::set<llvm::Function*> markerFunctions;
   const llvm::BasicBlock *altStartBB;
 
   // behavior conditioned by exec mode
