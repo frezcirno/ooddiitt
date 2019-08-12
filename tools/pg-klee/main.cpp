@@ -655,12 +655,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
           obj["name"] = mo->name;
           obj["kind"] = mo->getKindAsStr();
           obj["count"] = mo->count;
-          const ObjectState *os = state.addressSpace.findObject(mo);
-          std::string type = "?unknown?";
-          if (os != nullptr) {
-            type = getTypeName(os->getLastType());
-          }
-          obj["type"] = type;
+          obj["type"] = mo->type;
 
           // scale to 32 or 64 bits
           unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -695,7 +690,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
             obj["count"] = mo->count;
             obj["physical_size"] = mo->size;
             obj["visible_size"] = os->visible_size;
-            obj["type"] = getTypeName(os->getLastType());
+            obj["type"] = getTypeName(mo->type);
             obj["type_history"] = Json::arrayValue;
             for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
               obj["type_history"].append(getTypeName(*itr));

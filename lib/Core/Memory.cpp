@@ -46,18 +46,18 @@ namespace {
 
 /***/
 
-ObjectHolder::ObjectHolder(const ObjectHolder &b) : os(b.os) { 
-  if (os) ++os->refCount; 
+ObjectHolder::ObjectHolder(const ObjectHolder &b) : os(b.os) {
+  if (os) ++os->refCount;
 }
 
-ObjectHolder::ObjectHolder(ObjectState *_os) : os(_os) { 
-  if (os) ++os->refCount; 
+ObjectHolder::ObjectHolder(ObjectState *_os) : os(_os) {
+  if (os) ++os->refCount;
 }
 
-ObjectHolder::~ObjectHolder() { 
-  if (os && --os->refCount==0) delete os; 
+ObjectHolder::~ObjectHolder() {
+  if (os && --os->refCount==0) delete os;
 }
-  
+
 ObjectHolder &ObjectHolder::operator=(const ObjectHolder &b) {
   if (b.os) ++b.os->refCount;
   if (os && --os->refCount==0) delete os;
@@ -92,7 +92,7 @@ void MemoryObject::getAllocInfo(std::string &result) const {
   } else {
     info << " (no allocation info)";
   }
-  
+
   info.flush();
 }
 
@@ -119,7 +119,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates = UpdateList(array, 0);
   }
   memset(concreteStore, 0, mo->size);
-  types.push_back(mo->created_type);
+  types.insert(mo->type);
 }
 
 
@@ -139,10 +139,10 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, mo->size);
-  types.push_back(mo->created_type);
+  types.insert(mo->type);
 }
 
-ObjectState::ObjectState(const ObjectState &os) 
+ObjectState::ObjectState(const ObjectState &os)
   : copyOnWriteOwner(0),
     refCount(0),
     object(os.object),
@@ -198,7 +198,7 @@ const UpdateList &ObjectState::getUpdates() const {
   // Constant arrays are created lazily.
   if (!updates.root) {
     // Collect the list of writes, with the oldest writes first.
-    
+
     // FIXME: We should be able to do this more efficiently, we just need to be
     // careful to get the interaction with the cache right. In particular we
     // should avoid creating UpdateNode instances we never use.
@@ -269,7 +269,7 @@ void ObjectState::initializeToZero() {
   memset(concreteStore, 0, object->size);
 }
 
-void ObjectState::initializeToRandom() {  
+void ObjectState::initializeToRandom() {
   makeConcrete();
   for (unsigned i=0; i<object->size; i++) {
     // randomly selected by 256 sided die
@@ -292,10 +292,10 @@ void ObjectState::fastRangeCheckOffset(ref<Expr> offset,
   *size_r = object->size;
 }
 
-void ObjectState::flushRangeForRead(unsigned rangeBase, 
+void ObjectState::flushRangeForRead(unsigned rangeBase,
                                     unsigned rangeSize) const {
   if (!flushMask) flushMask = new BitArray(object->size, true);
- 
+
   for (unsigned offset=rangeBase; offset<rangeBase+rangeSize; offset++) {
     if (!isByteFlushed(offset)) {
       if (isByteConcrete(offset)) {
@@ -309,10 +309,10 @@ void ObjectState::flushRangeForRead(unsigned rangeBase,
 
       flushMask->unset(offset);
     }
-  } 
+  }
 }
 
-void ObjectState::flushRangeForWrite(unsigned rangeBase, 
+void ObjectState::flushRangeForWrite(unsigned rangeBase,
                                      unsigned rangeSize) {
   if (!flushMask) flushMask = new BitArray(object->size, true);
 
@@ -339,7 +339,7 @@ void ObjectState::flushRangeForWrite(unsigned rangeBase,
         setKnownSymbolic(offset, 0);
       }
     }
-  } 
+  }
 }
 
 bool ObjectState::isByteConcrete(unsigned offset) const {
@@ -359,7 +359,7 @@ bool ObjectState::isByteWritten(unsigned offset) const {
 }
 
 void ObjectState::resetBytesWritten() {
-  
+
   delete writtenMask;
   writtenMask = nullptr;
 }
@@ -436,10 +436,10 @@ ref<Expr> ObjectState::read8(unsigned offset) const {
     return knownSymbolics[offset];
   } else {
     assert(isByteFlushed(offset) && "unflushed byte without cache value");
-    
-    return ReadExpr::create(getUpdates(), 
+
+    return ReadExpr::create(getUpdates(),
                             ConstantExpr::create(offset, Expr::Int32));
-  }    
+  }
 }
 
 ref<Expr> ObjectState::read8(ref<Expr> offset) const {
@@ -451,11 +451,11 @@ ref<Expr> ObjectState::read8(ref<Expr> offset) const {
   if (size>4096) {
     std::string allocInfo;
     object->getAllocInfo(allocInfo);
-    klee_warning_once(0, "flushing %d bytes on read, may be slow and/or crash: %s", 
+    klee_warning_once(0, "flushing %d bytes on read, may be slow and/or crash: %s",
                       size,
                       allocInfo.c_str());
   }
-  
+
   return ReadExpr::create(getUpdates(), ZExtExpr::create(offset, Expr::Int32));
 }
 
@@ -475,7 +475,7 @@ void ObjectState::write8(unsigned offset, ref<Expr> value) {
     write8(offset, (uint8_t) CE->getZExtValue(8));
   } else {
     setKnownSymbolic(offset, value.get());
-      
+
     markByteSymbolic(offset);
     markByteUnflushed(offset);
     markByteWritten(offset);
@@ -530,8 +530,8 @@ ref<Expr> ObjectState::read(ref<Expr> offset, Expr::Width width) const {
   ref<Expr> Res(0);
   for (unsigned i = 0; i != NumBytes; ++i) {
     unsigned idx = Context::get().isLittleEndian() ? i : (NumBytes - i - 1);
-    ref<Expr> Byte = read8(AddExpr::create(offset, 
-                                           ConstantExpr::create(idx, 
+    ref<Expr> Byte = read8(AddExpr::create(offset,
+                                           ConstantExpr::create(idx,
                                                                 Expr::Int32)));
     Res = i ? ConcatExpr::create(Byte, Res) : Byte;
   }
@@ -615,7 +615,7 @@ void ObjectState::write(unsigned offset, ref<Expr> value) {
     unsigned idx = Context::get().isLittleEndian() ? i : (NumBytes - i - 1);
     write8(offset + idx, ExtractExpr::create(value, 8 * i, Expr::Int8));
   }
-} 
+}
 
 void ObjectState::write16(unsigned offset, uint16_t value) {
   unsigned NumBytes = 2;

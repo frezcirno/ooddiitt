@@ -301,7 +301,7 @@ namespace {
                          cl::desc("Stop execution after specified number of instructions (default=0 (off))"),
                          cl::init(0));
 #endif
-  
+
   cl::opt<unsigned>
   MaxForks("max-forks",
            cl::desc("Only fork this many times (default=-1 (off))"),
@@ -596,7 +596,7 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
        i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     size_t globalObjectAlignment = getAllocationAlignment(v);
-    
+
     if (i->isDeclaration()) {
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
@@ -657,7 +657,7 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
       if (!mo)
         llvm::report_fatal_error("out of memory");
       mo->name = v->getName();
-      mo->created_type = ty;
+      mo->type = ty;
       mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
@@ -672,7 +672,7 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
   for (Module::alias_iterator i = m->alias_begin(), ie = m->alias_end();
        i != ie; ++i) {
     // Map the alias to its aliasee's address. This works because we have
-    // addresses for everything, even undefined functions. 
+    // addresses for everything, even undefined functions.
     globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i),
 	  evalConstant(i->getAliasee())));
   }
@@ -3131,7 +3131,7 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
                                          const MemoryObject *mo,
                                          const Array *array) {
   ObjectState *os = array ? new ObjectState(mo, array) : new ObjectState(mo);
-  
+
   state.addressSpace.bindObject(mo, os);
 
   // Its possible that multiple bindings of the same mo in the state
@@ -3313,7 +3313,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                                       ref<Expr> address,
                                       ref<Expr> value /* undef if read */,
                                       KInstruction *target /* undef if write */) {
-  
+
   Expr::Width type = (isWrite ? value->getWidth() :
                      getWidthForLLVMType(target->inst->getType()));
   unsigned bytes = Expr::getMinBytesForWidth(type);

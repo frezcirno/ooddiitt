@@ -111,8 +111,8 @@ namespace {
 
 
 // static data
-const std::set<std::string> KModule::marker_fn_names = { "__MARK__", "__mark__", "__calltag__" };
-const std::set<std::string> KModule::skip_fn_names = { "__init_markers__", "__term_markers__" };
+const std::set<std::string> KModule::marker_fn_names =
+    { "__MARK__", "__mark__", "__calltag__", "__init_markers__", "__term_markers__" };
 
 KModule::KModule(Module *_module)
   : module(_module),
@@ -239,12 +239,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   for (const auto &name : marker_fn_names) {
     if (const Function *fn = module->getFunction(name)) {
       marker_fns.insert(fn);
-    }
-  }
-
-  for (const auto &name : skip_fn_names) {
-    if (const Function *fn = module->getFunction(name)) {
-      skip_fns.insert(fn);
     }
   }
 

@@ -52,7 +52,7 @@ public:
   mutable std::string name;
 
   MemKind kind;
-  const llvm::Type *created_type;
+  const llvm::Type *type;
   unsigned count;
 
   /// true if created by us.
@@ -65,7 +65,7 @@ public:
   /// should be either the allocating instruction or the global object
   /// it was allocated for (or whatever else makes sense).
   const llvm::Value *allocSite;
-  
+
   /// A list of boolean expressions the user has requested be true of
   /// a counterexample. Mutable since we play a little fast and loose
   /// with allowing it to be added to during execution (although
@@ -79,24 +79,24 @@ public:
 public:
   // XXX this is just a temp hack, should be removed
   explicit
-  MemoryObject(uint64_t _address) 
+  MemoryObject(uint64_t _address)
     : refCount(0),
-      id(counter++), 
+      id(counter++),
       address(_address),
       size(0),
       created_size(0),
       name("hack"),
       kind(MemKind::fixed),
-      created_type(nullptr),
+      type(nullptr),
       count(0),
       parent(NULL),
       allocSite(0) {
   }
 
   MemoryObject(uint64_t _address, unsigned _size, size_t _align,
-               const llvm::Type *type, MemKind _kind,
+               const llvm::Type *_type, MemKind _kind,
                const llvm::Value *_allocSite, MemoryManager *_parent)
-    : refCount(0), 
+    : refCount(0),
       id(counter++),
       address(_address),
       size(_size),
@@ -104,11 +104,11 @@ public:
       align(_align),
       name(""),
       kind(_kind),
-      created_type(type),
+      type(_type),
       count(0),
       fake_object(false),
       isUserSpecified(false),
-      parent(_parent), 
+      parent(_parent),
       allocSite(_allocSite) {
   }
 
@@ -194,14 +194,14 @@ private:
 
   // mutable because we may need flush during read of const
   mutable UpdateList updates;
-  
+
   BitArray *writtenMask;
 
 public:
     //RLR TODO: evaluate whether symboliclyWritten is still needed.
   bool symboliclyWritten;
   unsigned visible_size;
-  std::vector<const llvm::Type*> types;
+  std::set<const llvm::Type*> types;
   bool readOnly;
 
 public:
@@ -232,13 +232,7 @@ public:
   bool isWritten() const { return writtenMask != nullptr; }
   unsigned getPhysicalSize() const { return object->size; }
   unsigned getVisibleSize() const { return visible_size; }
-  const llvm::Type *getLastType() const { if (!types.empty()) return types.back(); return nullptr; }
-  bool referencedAs(const llvm::Type *type) const
-    { for (auto itr = types.cbegin(), end = types.cend(); itr != end; ++itr) {
-        if (*itr == type) return true;
-      }
-      return false;
-    }
+  bool referencedAs(const llvm::Type *type) const { return types.count(type) > 0; }
 
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;
@@ -300,7 +294,7 @@ private:
   void makeSymbolic();
 
 
-  void fastRangeCheckOffset(ref<Expr> offset, unsigned *base_r, 
+  void fastRangeCheckOffset(ref<Expr> offset, unsigned *base_r,
                             unsigned *size_r) const;
   void flushRangeForRead(unsigned rangeBase, unsigned rangeSize) const;
   void flushRangeForWrite(unsigned rangeBase, unsigned rangeSize);
@@ -317,11 +311,11 @@ private:
 
   void print();
   ArrayCache *getArrayCache() const;
-  
+
   bool isByteWritten(unsigned offset) const;
   void markByteWritten(unsigned offset);
 };
-  
+
 } // End klee namespace
 
 #endif

@@ -194,6 +194,9 @@ namespace klee {
       { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
     bool isModuleFunction(const llvm::Function *fn) const
       { return functionMap.find(const_cast<llvm::Function*>(fn)) != functionMap.end();}
+    bool isMarkedFunction(const llvm::Function *fn) const
+      { const auto &itr = functionMap.find(const_cast<llvm::Function*>(fn));
+        return (itr != functionMap.end() && itr->second->fnID != 0); }
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
@@ -223,14 +226,10 @@ namespace klee {
     // marker function names
     bool isMarkerFnName(const std::string &name) const { return marker_fn_names.count(name) != 0; }
     bool isMarkerFn(const llvm::Function *fn) const { return marker_fns.count(fn) != 0; }
-    bool isSkippedFnName(const std::string &name) const { return skip_fn_names.count(name) != 0; }
-    bool isSkippedFn(const llvm::Function *fn) const { return skip_fns.count(fn) != 0; }
 
   private:
     const static std::set<std::string> marker_fn_names;
-    const static std::set<std::string> skip_fn_names;
     std::set<const llvm::Function*> marker_fns;
-    std::set<const llvm::Function*> skip_fns;
 };
 } // End klee namespace
 

@@ -681,7 +681,7 @@ bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
                                       std::string name,
                                       WObjectPair &wop) {
 
-  MemoryObject *mo = memory->allocate(origMO->size, origMO->created_type, origMO->kind, allocSite, origMO->align);
+  MemoryObject *mo = memory->allocate(origMO->size, origMO->type, origMO->kind, allocSite, origMO->align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic duplication");
     return false;
@@ -1734,57 +1734,56 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       const CallSite cs(i);
       std::string fnName = "@unknown";
+      bool isInModule = false;
+      bool isMarked = false;
+      bool noReturn =  false;
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
         fnName = fn->getName();
-
-        // if this function does not return, (exit, abort, zopc_exit, etc)
-        // then this state has completed
-        if (fnName != "__uClibc_main" && fn->hasFnAttribute(Attribute::NoReturn)) {
-
-          static std::set<std::string> exit_fns = {"zopc_exit", "exit", "abort"};
-
-          if (exit_fns.count(fnName) > 0) {
-            terminateStateOnExit(state);
-          } else if (fnName == "__assert_fail") {
-            terminateStateOnError(state, "assertion failed", TerminateReason::Assert);
-          } else {
-            terminateStateOnError(state, "unknown exit", TerminateReason::Unhandled);
-          }
-          return;
-        }
+        isInModule = kmodule->isModuleFunction(fn);
+        if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
+        noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
 
         // if this is a call to a mark() variant, then log the marker to state
         if (kmodule->isMarkerFn(fn)) {
-          const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
-          const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
-          if ((arg0 != nullptr) && (arg1 != nullptr)) {
-            unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-            unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-
-            state.addMarker(fnID, bbID);
-            return;
+          if ((fn->arg_size() == 2) && fn->getReturnType()->isVoidTy()) {
+            const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
+            const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
+            if ((arg0 != nullptr) && (arg1 != nullptr)) {
+              unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
+              unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
+              state.addMarker(fnID, bbID);
+            }
           }
-        }
-
-        if (kmodule->isSkippedFn(fn)) {
           return;
         }
       }
 
-      // if subfunctions are not stubbed, this is a special function, or
-      // this is an internal klee function, then let the standard executor handle it
-      bool isInModule = (fn != nullptr) && kmodule->isModuleFunction(fn);
-      if (libc_initializing ||
-          (!state.isStubCallees() && isInModule) ||
-          specialFunctionHandler->isSpecial(fn) ||
-          kmodule->isInternalFunction(fn)) {
-
+      // note that fn can be null in the case of an indirect call
+      // if libc is initializing or this is a special function then let the standard executor handle the call
+      if (libc_initializing || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }
 
-      // we will be simulating a stubbed subfunction.
+      // if not stubbing callees and target is in the module
+      if (!state.isStubCallees() && isInModule) {
+        if (noReturn && !isMarked) {
+          terminateStateOnExit(state);
+        } else {
+          Executor::executeInstruction(state, ki);
+        }
+        return;
+      }
+
+      // either stubbed callees or target is not in the module
+      if (noReturn) {
+        terminateStateOnExit(state);
+        return;
+      }
+
+      // we will be substituting an unconstraining stub subfunction.
+
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
 
@@ -2076,16 +2075,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               }
 
               // pointed type change
-              if (srcPtd != destPtd) {
-
-                // only record if this is a pointer to the beginning of a memory object
-                ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
-
-                if (solver->mayBeTrue(state, is_zero)) {
-                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-                  wos->types.push_back(destTy);
-                }
-              }
+              // RLR TODO: remove type history
+//              if (srcPtd != destPtd) {
+//
+//                // only record if this is a pointer to the beginning of a memory object
+//                ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
+//
+//                if (solver->mayBeTrue(state, is_zero)) {
+//                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+//                  wos->types.insert(destTy);
+//                }
+//              }
             }
           }
         }
@@ -2119,10 +2119,8 @@ void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
       const MemoryObject *mo = sym.first;
       const ObjectState *os = state->addressSpace.findObject(mo);
 
-      assert(os->getLastType() != nullptr);
-
       std::string name = mo->name;
-      const llvm::Type *type = os->getLastType();
+      const llvm::Type *type = mo->type;
       std::vector<unsigned char> &data = sym.second;
       (void) type;
       (void) data;

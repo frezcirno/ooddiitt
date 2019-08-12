@@ -38,7 +38,8 @@ bool SplitInitPass::runOnFunction(Function &F) {
     unsigned opcode = itr->getOpcode();
     if (opcode == Instruction::Call) {
       const CallSite cs(itr);
-      if (kmodule->isMarkerFn(cs.getCalledFunction())) {
+      Function *called = cs.getCalledFunction();
+      if (kmodule->isMarkerFn(called) && (called->arg_size() == 2) && (called->getReturnType()->isVoidTy())) {
         entry.splitBasicBlock(itr);
         changed = true;
         break;
