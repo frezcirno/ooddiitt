@@ -1260,16 +1260,15 @@ void Executor::printDebugInstructions(ExecutionState &state) {
 }
 
 void Executor::stepInstruction(ExecutionState &state) {
+
   printDebugInstructions(state);
-  if (statsTracker)
-    statsTracker->stepInstruction(state);
+  if (statsTracker) statsTracker->stepInstruction(state);
 
   ++stats::instructions;
   state.prevPC = state.pc;
   ++state.pc;
 
-  if (stats::instructions==StopAfterNInstructions)
-    haltExecution = true;
+  if (stats::instructions == StopAfterNInstructions) haltExecution = true;
 }
 
 void Executor::executeCall(ExecutionState &state,

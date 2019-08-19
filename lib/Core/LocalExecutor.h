@@ -82,7 +82,7 @@ protected:
                                    ref<Expr> address,
                                    ref<Expr> value,
                                    KInstruction *target,
-                                   const std::string name);
+                                   const std::string &name);
 
   ObjectState *makeSymbolic(ExecutionState &state,
                             const MemoryObject *mo);
@@ -91,9 +91,16 @@ protected:
                             llvm::Type *type,
                             const llvm::Value *allocSite,
                             MemKind kind,
-                            std::string name,
+                            const std::string &name,
                             size_t align = 0,
                             unsigned count = 1);
+
+  void expandLazyAllocation(ExecutionState &state,
+                            ref<Expr> addr,
+                            bool restart,
+                            const llvm::Type *type,
+                            KInstruction *target,
+                            const std::string &name);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,

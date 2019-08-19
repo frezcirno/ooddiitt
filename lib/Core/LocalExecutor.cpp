@@ -416,82 +416,94 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
   bindLocal(target, *currState, e);
 
   if ((countLoadIndirection(type) > 1) && isUnconstrainedPtr(*currState, e)) {
-    // this is an unconstrained ptr-ptr. this could be either a null ptr or
-    // allocate something behind the pointer
 
-    // count current depth of lazy allocations
-    unsigned depth = 0;
-    for (auto end = (unsigned) mo->name.size(); depth < end && mo->name.at(depth) == '*'; ++depth);
+    // this is an unconstrained ptr-ptr.
+    expandLazyAllocation(state, e, false, type->getPointerElementType(), target, mo->name);
+  }
+  return true;
+}
 
-    ref<ConstantExpr> null = Expr::createPointer(0);
-    ref<Expr> eqNull = EqExpr::create(e, null);
+void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, bool restart,
+                                         const llvm::Type *type, KInstruction *target, const std::string &name) {
 
-    if (depth >= maxLazyDepth) {
+  // count current depth of lazy allocations
+  unsigned depth = 0;
+  for (auto end = (unsigned) name.size(); depth < end && name.at(depth) == '*'; ++depth);
 
-      // too deep. no more forking for this pointer.
-      addConstraintOrTerminate(*currState, eqNull);
+  ref<ConstantExpr> null = Expr::createPointer(0);
+  ref<Expr> eqNull = EqExpr::create(addr, null);
 
-    } else {
+  if (depth >= maxLazyDepth) {
 
-      StatePair sp = fork(*currState, eqNull, true);
-      ExecutionState *next_fork = sp.second;
+    // too deep. no more forking for this pointer.
+    addConstraintOrTerminate(state, eqNull);
+    if (restart) state.restartInstruction();
 
-      // in the true case, ptr is null, so nothing further to do
+  } else {
 
-      // in the false case, allocate new memory for the ptr and
-      // constrain the ptr to point to it.
-      if (next_fork != nullptr) {
+    StatePair sp = fork(state, eqNull, true);
 
-        // pointer may not be null
-        Type *subtype = type->getPointerElementType()->getPointerElementType();
-        if (subtype->isFirstClassType()) {
+    // in the true case, ptr is null, so nothing further to do
+    if (restart && sp.first != nullptr) sp.first->restartInstruction();
 
-          if (LazyAllocationExt > 0) {
+    ExecutionState *next_fork = sp.second;
 
-            unsigned counter = 0;
+    // in the false case, allocate new memory for the ptr and
+    // constrain the ptr to point to it.
+    if (next_fork != nullptr) {
 
-            // consider any existing objects in memory of the same type
-            std::vector<ObjectPair> listOPs;
-            sp.second->addressSpace.getMemoryObjects(listOPs, subtype);
-            for (const auto &pr : listOPs) {
+      if (restart) next_fork->restartInstruction();
 
-              if (next_fork == nullptr || counter >= LazyAllocationExt) break;
+      // pointer may not be null
+      Type *base_type = type->getPointerElementType();
+      if (base_type->isFirstClassType()) {
 
-              const MemoryObject *existingMO = pr.first;
-              if (existingMO->kind == MemKind::lazy) {
+        if (LazyAllocationExt > 0) {
 
-                // fork a new state
-                ref<ConstantExpr> ptr = existingMO->getBaseExpr();
-                ref<Expr> eq = EqExpr::create(e, ptr);
-                StatePair sp2 = fork(*next_fork, eq, true);
-                counter += 1;
-                next_fork = sp2.second;
-              }
+          unsigned counter = 0;
+
+          // consider any existing objects in memory of the same type
+          std::vector<ObjectPair> listOPs;
+          sp.second->addressSpace.getMemoryObjects(listOPs, base_type);
+          for (const auto &pr : listOPs) {
+
+            if (next_fork == nullptr || counter >= LazyAllocationExt) break;
+
+            const MemoryObject *existingMO = pr.first;
+            if (existingMO->kind == MemKind::lazy) {
+
+              // fork a new state
+              ref<ConstantExpr> ptr = existingMO->getBaseExpr();
+              ref<Expr> eq = EqExpr::create(addr, ptr);
+              StatePair sp2 = fork(*next_fork, eq, true);
+              counter += 1;
+              next_fork = sp2.second;
+              if (restart && next_fork != nullptr) next_fork->restartInstruction();
             }
           }
+        }
 
-          if (next_fork != nullptr) {
+        if (next_fork != nullptr) {
 
-            // finally, try with a new object
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, target->inst, MemKind::lazy,
-                                              '*' + mo->name, 0, lazyAllocationCount);
-            bindObjectInState(*next_fork, newMO);
-            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / LazyAllocationCount));
-            ref<Expr> eq = EqExpr::create(e, ptr);
-            addConstraintOrTerminate(*next_fork, eq);
-          }
+          // finally, try with a new object
+          MemoryObject *newMO = allocMemory(*sp.second, base_type, target->inst, MemKind::lazy,
+                                            '*' + name, 0, lazyAllocationCount);
+          bindObjectInState(*next_fork, newMO);
+          ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / LazyAllocationCount));
+          ref<Expr> eq = EqExpr::create(addr, ptr);
+          addConstraintOrTerminate(*next_fork, eq);
+          if (restart) next_fork->restartInstruction();
         }
       }
     }
   }
-  return true;
 }
 
 bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
                                                 ref<Expr> address,
                                                 ref<Expr> value,
                                                 KInstruction *target,
-                                                const std::string name) {
+                                                const std::string &name) {
 
   ObjectPair op;
 
@@ -620,7 +632,7 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
                                          llvm::Type *type,
                                          const llvm::Value *allocSite,
                                          MemKind kind,
-                                         std::string name,
+                                         const std::string &name,
                                          size_t align,
                                          unsigned count) {
 
@@ -1949,65 +1961,71 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
       ref<Expr> base = eval(ki, 0, state).value;
-      ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
 
-      ObjectPair op;
-      ResolveResult result = resolveMO(state, base, op);
-      if (result == ResolveResult::OK) {
-        const MemoryObject *mo = op.first;
-        const ObjectState *os = op.second;
-
-        assert(i->getType()->isPtrOrPtrVectorTy());
-
-        for (auto it = kgepi->indices.begin(), ie = kgepi->indices.end(); it != ie; ++it) {
-          uint64_t elementSize = it->second;
-          ref<Expr> index = eval(ki, it->first, state).value;
-
-          offset = AddExpr::create(offset,
-                                   MulExpr::create(Expr::createSExtToPointerWidth(index),
-                                                 Expr::createPointer(elementSize)));
-        }
-        if (kgepi->offset) {
-          offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
-        }
-
-        // if we are looking for faults and
-        // this is a base pointer into a lazy init with a non-zero offset,
-        // then this could be a memory bounds fail.
-        if (doSaveFault && mo->kind == MemKind::lazy) {
-          if (solver->mayBeTrue(state, Expr::createIsZero(offset))) {
-
-            // generate a test case
-            const KInstruction *prior = state.instFaulting;
-            state.instFaulting = ki;
-            interpreterHandler->processTestCase(state);
-            state.instFaulting = prior;
-          }
-        }
-
-        ref<Expr> addr = AddExpr::create(base, offset);
-
-        // if we are in zop mode, insure the pointer is inbounds
-        if (doAssumeInBounds) {
-
-          Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
-          unsigned bytes = Expr::getMinBytesForWidth(width);
-
-          // base must point into an allocation
-          ref<Expr> mc = os->getBoundsCheckPointer(addr, bytes);
-
-          if (!solver->mustBeTrue(state, mc)) {
-            if (solver->mayBeTrue(state, mc)) {
-              addConstraint(state, mc);
-            }
-          }
-        }
-
-        bindLocal(ki, state, addr);
+      if (isUnconstrainedPtr(state, base)) {
+        expandLazyAllocation(state, base, true, i->getType(), ki, i->getName());
       } else {
 
-        // invalid memory access, fault at ki and base
-        terminateStateOnFault(state, ki, "GEP resolveMO");
+        ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
+
+        ObjectPair op;
+        ResolveResult result = resolveMO(state, base, op);
+        if (result == ResolveResult::OK) {
+          const MemoryObject *mo = op.first;
+          const ObjectState *os = op.second;
+
+          assert(i->getType()->isPtrOrPtrVectorTy());
+
+          for (auto it = kgepi->indices.begin(), ie = kgepi->indices.end(); it != ie; ++it) {
+            uint64_t elementSize = it->second;
+            ref<Expr> index = eval(ki, it->first, state).value;
+
+            offset = AddExpr::create(offset,
+                                     MulExpr::create(Expr::createSExtToPointerWidth(index),
+                                                   Expr::createPointer(elementSize)));
+          }
+          if (kgepi->offset) {
+            offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
+          }
+
+          // if we are looking for faults and
+          // this is a base pointer into a lazy init with a non-zero offset,
+          // then this could be a memory bounds fail.
+          if (doSaveFault && mo->kind == MemKind::lazy) {
+            if (solver->mayBeTrue(state, Expr::createIsZero(offset))) {
+
+              // generate a test case
+              const KInstruction *prior = state.instFaulting;
+              state.instFaulting = ki;
+              interpreterHandler->processTestCase(state);
+              state.instFaulting = prior;
+            }
+          }
+
+          ref<Expr> addr = AddExpr::create(base, offset);
+
+          // if we are in zop mode, insure the pointer is inbounds
+          if (doAssumeInBounds) {
+
+            Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
+            unsigned bytes = Expr::getMinBytesForWidth(width);
+
+            // base must point into an allocation
+            ref<Expr> mc = os->getBoundsCheckPointer(addr, bytes);
+
+            if (!solver->mustBeTrue(state, mc)) {
+              if (solver->mayBeTrue(state, mc)) {
+                addConstraint(state, mc);
+              }
+            }
+          }
+
+          bindLocal(ki, state, addr);
+        } else {
+
+          // invalid memory access, fault at ki and base
+          terminateStateOnFault(state, ki, "GEP resolveMO");
+        }
       }
       break;
     }

@@ -119,6 +119,8 @@ public:
     return result;
   }
 
+  void restartInstruction() { pc = prevPC; }
+
   // Execution - Control Flow specific
 
   /// @brief Pointer to instruction to be executed after the current
@@ -186,9 +188,9 @@ public:
 
   /// @brief Set of used array names for this state.  Used to avoid collisions.
   std::set<std::string> arrayNames;
-  
+
   std::map<std::string, unsigned> callTargetCounter;
-  
+
   std::string name;
   bool isProcessed;
   unsigned lazyAllocationCount;
