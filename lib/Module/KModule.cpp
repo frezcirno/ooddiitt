@@ -222,6 +222,29 @@ bool KModule::addInternalFunction(string name) {
   return false;
 }
 
+
+static set<string> never_stub = {
+    "__ctype_b_loc" //,
+    "memset",
+    "memchr",
+    "memcmp",
+    "memcpy",
+    "strchr",
+    "strcmp",
+    "strcpy",
+    "strcspn",
+    "strdup",
+    "strlen",
+    "strncmp",
+    "strncpy",
+    "strnlen",
+    "strnlen",
+    "strpbrk",
+    "strrchr",
+    "strspn",
+    "strstr"
+};
+
 void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   LLVMContext &ctx = module->getContext();
@@ -469,7 +492,9 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   infos = new InstructionInfoTable(module);
 
   // never stub some functions
-  addInternalFunction("__ctype_b_loc");
+  for (const auto &fn_name : never_stub) {
+    addInternalFunction(fn_name);
+  }
 
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
     if (it->isDeclaration())

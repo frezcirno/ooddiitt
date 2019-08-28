@@ -289,7 +289,7 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
       while (simple && !worklist.empty()) {
         ref<Expr> child = worklist.front();
         worklist.pop_front();
-        Expr::Kind k = child->getKind();W
+        Expr::Kind k = child->getKind();
         if (k == Expr::Kind::Concat) {
           for (unsigned idx = 0, end = child->getNumKids(); idx < end; ++idx) {
             worklist.push_back(child->getKid(idx));
@@ -482,13 +482,13 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
             }
           }
         }
-
         if (next_fork != nullptr) {
 
           // finally, try with a new object
-          MemoryObject *newMO = allocMemory(*sp.second, base_type, target->inst, MemKind::lazy,
+          MemoryObject *newMO = allocMemory(*next_fork, base_type, target->inst, MemKind::lazy,
                                             '*' + name, 0, lazyAllocationCount);
           bindObjectInState(*next_fork, newMO);
+
           ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / LazyAllocationCount));
           ref<Expr> eq = EqExpr::create(addr, ptr);
           addConstraintOrTerminate(*next_fork, eq);
@@ -1122,6 +1122,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
+
     try {
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
