@@ -846,6 +846,13 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     }
 
     // create parameter values
+    // RLR TODO:  if this is main, special case the argument construction
+    // symbolic argc, symbolic argv,
+    // argc constrained 1 .. N
+    // argv[0] -> binary name
+    // argv[1 .. N - 1] = symbolic value
+    // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
+
     unsigned index = 0;
     for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
 
