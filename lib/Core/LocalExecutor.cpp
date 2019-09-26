@@ -712,6 +712,10 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
   return allocas.find(mo) != allocas.end();
 }
 
+bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
+  return false;
+}
+
 void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
   assert(state.isUnconstrainGlobals());
@@ -847,27 +851,32 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
     // create parameter values
     // RLR TODO:  if this is main, special case the argument construction
-    // symbolic argc, symbolic argv,
-    // argc constrained 1 .. N
-    // argv[0] -> binary name
-    // argv[1 .. N - 1] = symbolic value
-    // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
+    if (isMainEntry(fn)) {
 
-    unsigned index = 0;
-    for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
+      // symbolic argc, symbolic argv,
+      // argc constrained 1 .. N
+      // argv[0] -> binary name
+      // argv[1 .. N - 1] = symbolic value
+      // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
 
-      const Argument &arg = *ai;
-      std::string argName = arg.getName();
-      Type *argType = arg.getType();
-      size_t argAlign = arg.getParamAlignment();
+    } else {
 
-      WObjectPair wop;
-      if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
-        klee_error("failed to allocate function parameter");
-      }
-      Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
+      unsigned index = 0;
+      for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
+
+        const Argument &arg = *ai;
+        std::string argName = arg.getName();
+        Type *argType = arg.getType();
+        size_t argAlign = arg.getParamAlignment();
+
+        WObjectPair wop;
+        if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
+          klee_error("failed to allocate function parameter");
+        }
+        Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
         ref<Expr> e = wop.second->read(0, width);
-      bindArgument(kf, index, *state, e);
+        bindArgument(kf, index, *state, e);
+      }
     }
     runFn(kf, *state, starting_block);
   }

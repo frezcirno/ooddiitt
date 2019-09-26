@@ -224,7 +224,7 @@ bool KModule::addInternalFunction(string name) {
 
 
 static set<string> never_stub = {
-    "__ctype_b_loc" //,
+    "__ctype_b_loc",
     "memset",
     "memchr",
     "memcmp",

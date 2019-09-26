@@ -151,6 +151,7 @@ protected:
   bool addCoveredFaultingPaths(const ExecutionState &state);
 
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
+  bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
 
   unsigned lazyAllocationCount;
