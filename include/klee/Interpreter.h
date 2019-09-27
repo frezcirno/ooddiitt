@@ -124,7 +124,8 @@ public:
 
   enum ExecModeID {
       none, // undefined
-      zop,  // interpreter should execute module in zop mode
+      zop,  // interpreter should execute module for zop input generation
+      cbert, // interpreter should execute module for cbert input generation
       fault // interpreter should execute module to find faults
   };
 
@@ -148,13 +149,15 @@ public:
     ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
+    llvm::Function *userMain;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
         createOutputDir(false),
         heap_base(nullptr),
         pinfo(nullptr),
-        mode(Interpreter::zop)
+        mode(Interpreter::zop),
+        userMain(nullptr)
     {}
   };
 
@@ -178,7 +181,7 @@ public:
 
   const InterpreterOptions &getOptions() const { return interpreterOpts; }
 
-  /// Register the module to be executed.  
+  /// Register the module to be executed.
   ///
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
@@ -225,7 +228,7 @@ public:
   virtual unsigned getPathStreamID(const ExecutionState &state) = 0;
 
   virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
-  
+
   virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = STP) = 0;
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;

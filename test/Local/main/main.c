@@ -1,12 +1,22 @@
 
+#include <stdio.h>
+#include <klee/pg-klee.h>
 
 int main(int argc, char *argv[]) {
 
-  int ret = 0;
-  for (int index = 0; index < argc; index++) {
+  for (int index = 1; index < argc; index++) {
     if (*argv[index] == 'y') {
-      ret += 1;
+      klee_message("yes");
+    } else {
+      klee_message("no");
     }
   }
-  return ret;
+
+  // int ret = 0;
+  // for (int index = 0; index < argc; index++) {
+  //   if (*argv[index] == 'y') {
+  //     ret += 1;
+  //   }
+  // }
+  return 0;
 }

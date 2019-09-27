@@ -26,14 +26,14 @@ namespace klee {
   class ExecutionState;
   struct KInstruction;
   template<typename T> class ref;
-  
+
   class SpecialFunctionHandler {
   public:
     typedef void (SpecialFunctionHandler::*Handler)(ExecutionState &state,
-                                                    KInstruction *target, 
-                                                    std::vector<ref<Expr> > 
+                                                    KInstruction *target,
+                                                    std::vector<ref<Expr> >
                                                       &arguments);
-    typedef std::map<const llvm::Function*, 
+    typedef std::map<const llvm::Function*,
                      std::pair<Handler,bool> > handlers_ty;
 
     handlers_ty handlers;
@@ -86,7 +86,7 @@ namespace klee {
     /// prepared for execution.
     void bind();
 
-    bool handle(ExecutionState &state, 
+    bool handle(ExecutionState &state,
                 llvm::Function *f,
                 KInstruction *target,
                 std::vector< ref<Expr> > &arguments);
@@ -96,7 +96,7 @@ namespace klee {
     /* Convenience routines */
 
     std::string readStringAtAddress(ExecutionState &state, ref<Expr> address);
-    
+
     /* Handlers */
 
 #define HANDLER(name) void name(ExecutionState &state, \
@@ -109,7 +109,7 @@ namespace klee {
     HANDLER(handleCalloc);
     HANDLER(handleCheckMemoryAccess);
     HANDLER(handleDefineFixedObject);
-    HANDLER(handleDelete);    
+    HANDLER(handleDelete);
     HANDLER(handleDeleteArray);
     HANDLER(handleExit);
     HANDLER(handleAliasFunction);
@@ -136,6 +136,7 @@ namespace klee {
     HANDLER(handleSilentExit);
     HANDLER(handleStackTrace);
     HANDLER(handleUnderConstrained);
+    HANDLER(handleMessage);
     HANDLER(handleWarning);
     HANDLER(handleWarningOnce);
     HANDLER(handleAddOverflow);

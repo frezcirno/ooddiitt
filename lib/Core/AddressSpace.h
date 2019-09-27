@@ -24,15 +24,15 @@ namespace klee {
   template<class T> class ref;
 
   typedef std::pair<const MemoryObject*, const ObjectState*> ObjectPair;
-  typedef std::vector<ObjectPair> ResolutionList;  
+  typedef std::vector<ObjectPair> ResolutionList;
 
   /// Function object ordering MemoryObject's by address.
   struct MemoryObjectLT {
     bool operator()(const MemoryObject *a, const MemoryObject *b) const;
   };
-  
+
   typedef ImmutableMap<const MemoryObject*, ObjectHolder, MemoryObjectLT> MemoryMap;
-  
+
   class AddressSpace {
   private:
     /// Epoch counter used to control ownership of objects.
@@ -40,8 +40,8 @@ namespace klee {
     uint64_t base_addr;
 
     /// Unsupported, use copy constructor
-    AddressSpace &operator=(const AddressSpace&); 
-    
+    AddressSpace &operator=(const AddressSpace&);
+
   public:
     /// The MemoryObject -> ObjectState map that constitutes the
     /// address space.
@@ -51,7 +51,7 @@ namespace klee {
     ///
     /// \invariant forall o in objects, o->copyOnWriteOwner <= cowKey
     MemoryMap objects;
-    
+
   public:
     AddressSpace(void *addr) : cowKey(1), base_addr((uint64_t) addr) {}
     AddressSpace(const AddressSpace &b) : cowKey(++b.cowKey), base_addr(b.base_addr), objects(b.objects) { }
@@ -65,13 +65,13 @@ namespace klee {
     /// Resolve address to an ObjectPair in result.
     ///
     /// \param state The state this address space is part of.
-    /// \param solver A solver used to determine possible 
+    /// \param solver A solver used to determine possible
     ///               locations of the \a address.
     /// \param address The address to search for.
-    /// \param[out] result An ObjectPair this address can resolve to 
+    /// \param[out] result An ObjectPair this address can resolve to
     ///               (when returning true).
     /// \return true iff an object was found at \a address.
-    bool resolveOne(ExecutionState &state, 
+    bool resolveOne(ExecutionState &state,
                     TimingSolver *solver,
                     ref<Expr> address,
                     bool optimistic,
@@ -80,14 +80,14 @@ namespace klee {
 
     /// Resolve address to a list of ObjectPairs it can point to. If
     /// maxResolutions is non-zero then no more than that many pairs
-    /// will be returned. 
+    /// will be returned.
     ///
     /// \return true iff the resolution is incomplete (maxResolutions
     /// is non-zero and the search terminated early, or a query timed out).
     bool resolve(ExecutionState &state,
                  TimingSolver *solver,
-                 ref<Expr> address, 
-                 ResolutionList &rl, 
+                 ref<Expr> address,
+                 ResolutionList &rl,
                  unsigned maxResolutions=0,
                  double timeout=0.);
 
@@ -124,10 +124,11 @@ namespace klee {
     /// potentially copied) if the memory values are different from
     /// the current concrete values.
     ///
-    /// \retval true The copy succeeded. 
+    /// \retval true The copy succeeded.
     /// \retval false The copy failed because a read-only object was modified.
     bool copyInConcretes();
     void getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type = nullptr) const;
+    const MemoryObject *findMemoryObjectByName(const std::string &name) const;
   };
 } // End klee namespace
 

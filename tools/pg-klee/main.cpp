@@ -125,6 +125,7 @@ namespace {
            cl::desc("pg-klee execution mode"),
            cl::values(
                clEnumValN(Interpreter::ExecModeID::zop, "zop", "configure for zop input generation"),
+               clEnumValN(Interpreter::ExecModeID::cbert, "cbert", "configure for cbert input generation"),
                clEnumValN(Interpreter::ExecModeID::fault, "fault", "configure for fault finding"),
                clEnumValEnd),
            cl::init(Interpreter::ExecModeID::none));
@@ -1501,30 +1502,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   const FunctionType *ft = uclibcMainFn->getFunctionType();
   assert(ft->getNumParams() == 7);
 
-  std::string new_entry = "__user_" + UserMain;
-  UserMain = new_entry;
-
-  std::vector<LLVM_TYPE_Q Type*> fArgs;
-  fArgs.push_back(ft->getParamType(1)); // argc
-  fArgs.push_back(ft->getParamType(2)); // argv
-  Function *stub = Function::Create(FunctionType::get(Type::getInt32Ty(ctx), fArgs, false),
-                                    GlobalVariable::ExternalLinkage,
-                                    UserMain,
-                                    mainModule);
-  BasicBlock *bb = BasicBlock::Create(ctx, "entry", stub);
-
-  std::vector<llvm::Value*> args;
-  args.push_back(llvm::ConstantExpr::getBitCast(userMainFn, ft->getParamType(0)));
-  args.push_back(static_cast<Argument *>(stub->arg_begin())); // argc
-  args.push_back(static_cast<Argument *>(++stub->arg_begin())); // argv
-  args.push_back(Constant::getNullValue(ft->getParamType(3))); // app_init
-  args.push_back(Constant::getNullValue(ft->getParamType(4))); // app_fini
-  args.push_back(Constant::getNullValue(ft->getParamType(5))); // rtld_fini
-  args.push_back(Constant::getNullValue(ft->getParamType(6))); // stack_end
-  CallInst::Create(uclibcMainFn, args, "", bb);
-
-  new UnreachableInst(ctx, bb);
-
   // and trivialize functions we will never use
   std::set<std::string> trivialize_fns {
     "isatty",
@@ -1956,12 +1933,15 @@ int main(int argc, char **argv, char **envp) {
       load_prog_info(root, progInfo);
     }
   }
-  if (progInfo.empty()) {
-    klee_error("program info json repository is required");
-  }
 
-  if (!progInfo.isChecksum(calcChecksum(InputFile))) {
-    klee_error("program signature does not match info data");
+  if (ExecMode == Interpreter::ExecModeID::zop) {
+    if (progInfo.empty()) {
+      klee_error("program info json repository is required");
+    } else {
+      if (!progInfo.isChecksum(calcChecksum(InputFile))) {
+        klee_error("program signature does not match info data");
+      }
+    }
   }
 
   if (WithPOSIXRuntime) {
@@ -2018,6 +1998,7 @@ int main(int argc, char **argv, char **envp) {
   }
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
+
   Function *mainFn = mainModule->getFunction(UserMain);
 
   // FIXME: Change me to std types.
@@ -2081,6 +2062,7 @@ int main(int argc, char **argv, char **envp) {
   }
   IOpts.pinfo = &progInfo;
   IOpts.mode = ExecMode;
+  IOpts.userMain = mainFn;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
@@ -2114,16 +2096,19 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // select program entry point
-  if (EntryPoint.empty()) {
-    theInterpreter->runFunctionAsMain(mainFn, pArgc, pArgv, pEnvp);
-  } else {
-    std::string entryName = EntryPoint;
-    Function *entryFn = mainModule->getFunction(entryName);
-    if (entryFn != nullptr) {
-      theInterpreter->runFunctionUnconstrained(entryFn, starting_marker);
-    } else if (EntryPoint != "void") {
-      klee_error("Unable to find function: %s", EntryPoint.c_str());
+  Function *entryFn = mainFn;
+  if (!EntryPoint.empty()) {
+    if (EntryPoint == "void") {
+      entryFn = nullptr;
+    } else {
+      entryFn = mainModule->getFunction(EntryPoint);
+      if (entryFn == nullptr) {
+        klee_error("Unable to find function: %s", EntryPoint.c_str());
+      }
     }
+  }
+  if (entryFn != nullptr) {
+    theInterpreter->runFunctionUnconstrained(mainFn, starting_marker);
   }
 
   t[1] = time(nullptr);

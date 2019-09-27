@@ -346,6 +346,17 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
   }
 }
 
+const MemoryObject *AddressSpace::findMemoryObjectByName(const std::string &name) const {
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    if (mo->name == name)
+      return mo;
+  }
+  return nullptr;
+}
+
+
 /***/
 
 bool MemoryObjectLT::operator()(const MemoryObject *a, const MemoryObject *b) const {

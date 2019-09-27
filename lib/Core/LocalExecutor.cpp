@@ -58,6 +58,8 @@
 #include <fstream>
 #include <boost/algorithm/string.hpp>
 
+#define LEN_CMDLINE_ARGS 8
+
 using namespace llvm;
 
 namespace klee {
@@ -70,6 +72,11 @@ public:
   bad_expression() : std::runtime_error("null expression") {}
   bad_expression(const char *msg) : std::runtime_error(msg) {}
 };
+
+cl::opt<unsigned>
+    SymArgs("sym-args",
+            cl::init(0),
+            cl::desc("Number of command line arguments"));
 
 cl::opt<bool>
   VerifyConstraints("verify-constraints",
@@ -124,8 +131,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false),
-  altStartBB(nullptr),
-  timeout_disabled(false) {
+  altStartBB(nullptr) {
 
   memory->setBaseAddr(heap_base);
   switch (opts.mode) {
@@ -134,6 +140,12 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       doSaveFault = false;
       doAssumeInBounds = true;
       doLocalCoverage = true;
+      break;
+    case ExecModeID::cbert:
+      doSaveComplete = true;
+      doSaveFault = false;
+      doAssumeInBounds = true;
+      doLocalCoverage = false;
       break;
     case ExecModeID::fault:
       doSaveComplete = false;
@@ -713,6 +725,37 @@ bool LocalExecutor::isLocallyAllocated(const ExecutionState &state, const Memory
 }
 
 bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
+
+  // check if this is the user main function
+  if ((fn != nullptr) && (interpreterOpts.userMain == fn)) {
+
+    // must return an integer
+    if (fn->getReturnType()->isIntegerTy()) {
+
+      // accept two arguments
+      const auto &args = fn->getArgumentList();
+      if (args.size() == 2) {
+
+        // first arg must be an int
+        const auto &argc = args.front();
+        if (argc.getType()->isIntegerTy()) {
+
+          // second arg must be a char**
+          const auto &argv = args.back();
+          const Type *argv_type = argv.getType();
+          if (argv_type->isPointerTy()) {
+            argv_type = argv_type->getPointerElementType();
+            if (argv_type->isPointerTy()) {
+              argv_type = argv_type->getPointerElementType();
+              if (argv_type->isIntegerTy(8))
+                // this is it!
+                return true;
+            }
+          }
+        }
+      }
+    }
+  }
   return false;
 }
 
@@ -726,6 +769,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string gb_name = mo->name;
 
+    // RLR TODO: this need a permanate fix witthout progInfo
     if ((gb_name.size() > 0) && (gb_name.at(0) != '.') && (progInfo->isGlobalInput(fn_name, gb_name))) {
       // global may already have a value in this state. if so unlink it.
       const ObjectState *os = state.addressSpace.findObject(mo);
@@ -788,10 +832,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
   std::string name = fn->getName();
 
-  // try to get the target paths from the handler.
-  // if handler does not have targets, then get all m2m paths
-  if (!interpreterHandler->loadTargetPaths(pathsRemaining[kf->fnID])) {
-    getReachablePaths(name, pathsRemaining, false);
+  if (doLocalCoverage) {
+    // try to get the target paths from the handler.
+    // if handler does not have targets, then get all m2m paths
+    if (!interpreterHandler->loadTargetPaths(pathsRemaining[kf->fnID])) {
+      getReachablePaths(name, pathsRemaining, false);
+    }
   }
   pathsFaulting.clear(0);
   faulting_state_stash.clear();
@@ -828,17 +874,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       pathsRemaining.clear(kf->fnID);
     }
 
-    if (doLocalCoverage) {
-
-      // done if our objective is local coverage and there are no paths remaining
-      if (pathsRemaining.empty()) break;
-    } else {
-
-      // otherwise, if no prior progression phase terminated a pending state,
-      // then we have covered every feasible path
-      // RLR TODO: in non coverage modes, consider termination cases
-      break;
-    }
+    // done if our objective is local coverage and there are no paths remaining
+    if (doLocalCoverage && pathsRemaining.empty()) break;
 
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
@@ -850,14 +887,72 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     }
 
     // create parameter values
-    // RLR TODO:  if this is main, special case the argument construction
+    // if this is main, special case the argument construction
     if (isMainEntry(fn)) {
 
       // symbolic argc, symbolic argv,
-      // argc constrained 1 .. N
+      const auto &args = fn->getArgumentList();
+      const Argument &argc = args.front();
+      const Argument &argv = args.back();
+
+      // argc constrained 1 .. SymArgs + 1
+      WObjectPair wopArgc;
+      Type *argType = argc.getType();
+      allocSymbolic(*state, argType, &argc, MemKind::param, "argc", wopArgc, argc.getParamAlignment());
+      ref<Expr> eArgc = wopArgc.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      bindArgument(kf, 0, *state, eArgc);
+
+      state->addConstraint(EqExpr::create(ConstantExpr::create(SymArgs + 1, Expr::Int32), eArgc));
+//      state->addConstraint(SltExpr::create(ConstantExpr::create(0, Expr::Int32), eArgc));
+//      state->addConstraint(SgeExpr::create(ConstantExpr::create(SymArgs + 1, Expr::Int32), eArgc));
+
+      unsigned ptr_width =  Context::get().getPointerWidth();
+
+      // push the binary name into the state
+      std::string md_name = kmodule->module->getModuleIdentifier();
+      const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, false);
+
+      // now for argv
+      WObjectPair wopArgv_array;
+      argType = argv.getType()->getPointerElementType();
+      allocSymbolic(*state, argType, &argv, MemKind::param, "argv_array", wopArgv_array, 0, SymArgs + 1);
+
       // argv[0] -> binary name
-      // argv[1 .. N - 1] = symbolic value
-      // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
+      // argv[1 .. SymArgs] = symbolic value
+
+      // despite being symbolic, argv[0] always points to program name
+      state->addConstraint(EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
+
+      // allocate the command line arg strings
+      for (unsigned index = 0; index < SymArgs; index++) {
+
+        WObjectPair wopArgv_body;
+        std::string argName = "argv_" + itostr(index + 1);
+        allocSymbolic(*state, argType->getPointerElementType(), &argv, MemKind::param, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
+        // null terminate the string
+        state->addConstraint(EqExpr::create(
+                               wopArgv_body.second->read8(LEN_CMDLINE_ARGS),
+                               ConstantExpr::create(0, Expr::Int8))
+                             );
+
+        // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
+        // that would be ideal, but currently cannot deal with the two-value pointer...
+        ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index + 1), ptr_width);
+        state->addConstraint(EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
+//        ref<Expr> e1 = SltExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc);
+//        ref<Expr> eq_string = EqExpr::create(ptr, wopArgv_body.first->getBaseExpr());
+//        ref<Expr> eq_null = EqExpr::create(ptr, ConstantExpr::createPointer(0));
+//        state->addConstraint(OrExpr::create(AndExpr::create(e1, eq_string), eq_null));
+      }
+
+      // and finally, the pointer to the argv array
+      WObjectPair wopArgv;
+      argType = argv.getType();
+      allocSymbolic(*state, argType, &argv, MemKind::param, "argv", wopArgv, argv.getParamAlignment(), 1);
+
+      state->addConstraint(EqExpr::create(wopArgv.second->read(0, ptr_width), wopArgv_array.first->getBaseExpr()));
+      ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      bindArgument(kf, 1, *state, eArgv);
 
     } else {
 
@@ -873,8 +968,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
         if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
           klee_error("failed to allocate function parameter");
         }
-        Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(argType);
-        ref<Expr> e = wop.second->read(0, width);
+        ref<Expr> e = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
         bindArgument(kf, index, *state, e);
       }
     }
@@ -906,105 +1000,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
 
-  std::vector<ref<Expr> > arguments;
-
-  // force deterministic initialization of memory objects
-//  srand(1);
-//  srandom(1);
-
-  MemoryObject *argvMO = nullptr;
-  KFunction *kf = kmodule->functionMap[f];
-  LLVMContext &ctx = kmodule->module->getContext();
-  assert(kf && "main not found in this compilation unit");
-
-  std::string name = f->getName();
-  getAllPaths(pathsRemaining);
-
-  // In order to make uclibc happy and be closer to what the system is
-  // doing we lay out the environments at the end of the argv array
-  // (both are terminated by a null). There is also a final terminating
-  // null that uclibc seems to expect, possibly the ELF header?
-
-  int envc;
-  for (envc=0; envp[envc]; ++envc) ;
-
-  unsigned NumPtrBytes = Context::get().getPointerWidth() / 8;
-  Function::arg_iterator ai = f->arg_begin(), ae = f->arg_end();
-  if (ai!=ae) {
-    arguments.emplace_back(ConstantExpr::alloc(argc, Expr::Int32));
-    if (++ai!=ae) {
-      Instruction *first = static_cast<Instruction *>(f->begin()->begin());
-      argvMO =
-      memory->allocate((argc + 1 + envc + 1 + 1) * NumPtrBytes,
-                       Type::getInt8Ty(ctx), MemKind::param, first, 8);
-
-      if (!argvMO)
-        klee_error("Could not allocate memory for function arguments");
-
-      arguments.emplace_back(argvMO->getBaseExpr());
-
-      if (++ai!=ae) {
-        uint64_t envp_start = argvMO->address + (argc+1)*NumPtrBytes;
-        arguments.emplace_back(Expr::createPointer(envp_start));
-
-        if (++ai!=ae)
-          klee_error("invalid main function (expect 0-3 arguments)");
-      }
-    }
-  }
-
-  ExecutionState *state = new ExecutionState(*baseState, kf, name);
-
-  if (pathWriter)
-    state->pathOS = pathWriter->open();
-  if (symPathWriter)
-    state->symPathOS = symPathWriter->open();
-  if (statsTracker)
-    statsTracker->framePushed(*state, nullptr);
-
-  assert(arguments.size() == f->arg_size() && "wrong number of arguments");
-  for (unsigned i = 0, e = f->arg_size(); i != e; ++i)
-    bindArgument(kf, i, *state, arguments[i]);
-
-  if (argvMO) {
-    ObjectState *argvOS = bindObjectInState(*state, argvMO);
-
-    for (int i=0; i<argc+1+envc+1+1; i++) {
-      if (i==argc || i>=argc+1+envc) {
-        // Write NULL pointer
-        argvOS->write(i * NumPtrBytes, Expr::createPointer(0));
-      } else {
-        char *s = i<argc ? argv[i] : envp[i-(argc+1)];
-        int j, len = strlen(s);
-
-        MemoryObject *arg =
-        memory->allocate(len + 1, Type::getInt8Ty(ctx), MemKind::param, state->pc->inst, 8);
-        if (!arg)
-          klee_error("Could not allocate memory for function arguments");
-        ObjectState *os = bindObjectInState(*state, arg);
-        for (j=0; j<len+1; j++)
-          os->write8(j, s[j]);
-
-        // Write pointer to newly allocated and initialised argv/envp c-string
-        argvOS->write(i * NumPtrBytes, arg->getBaseExpr());
-      }
-    }
-  }
-
-  runFn(kf, *state, 0);
-
-  // hack to clear memory objects
-  delete memory;
-  memory = new MemoryManager(nullptr);
-
-  // clean up global objects
-  legalFunctions.clear();
-  globalObjects.clear();
-  globalAddresses.clear();
-
-  if (statsTracker) {
-    statsTracker->done();
-  }
 }
 
 void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker) {
@@ -1152,8 +1147,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
     // check for expired timers
     unsigned expired = timer.expired();
     if (expired == tid_timeout) {
-      if (timeout_disabled) timer.set(tid_timeout, timeout);
-      else halt = HaltReason::TimeOut;
+      halt = HaltReason::TimeOut;
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
@@ -1254,7 +1248,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
   }
 
   if (state.status == ExecutionState::StateStatus::Completed) {
-    if (removeCoveredRemainingPaths(state)) {
+    if (!doLocalCoverage || removeCoveredRemainingPaths(state)) {
       interpreterHandler->processTestCase(state);
     }
   } else {
