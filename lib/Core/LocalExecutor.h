@@ -51,9 +51,9 @@ public:
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
 protected:
-  void runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker);
-  void runFnEachBlock(KFunction *kf, ExecutionState &initialState);
-  HaltReason runFnFromBlock(KFunction *kf, ExecutionState &initialState, const llvm::BasicBlock *start);
+  void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates, unsigned starting_marker);
+  void runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
+  HaltReason runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates, const llvm::BasicBlock *start);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);

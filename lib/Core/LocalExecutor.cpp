@@ -761,7 +761,7 @@ bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
 
 void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
-  assert(state.isUnconstrainGlobals());
+  assert(unconstraintFlags.isUnconstrainGlobals());
 
   std::string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
@@ -859,10 +859,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     }
   }
 
+  std::vector<ExecutionState*> init_states;
+
   // iterate through each phase of unconstrained progression
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
     const auto &desc = *itr;
+    init_states.clear();
+    init_states.resize(SymArgs + 1, nullptr);
 
     // initialize a common initial state
     ExecutionState *state = new ExecutionState(*baseState, kf, name);
@@ -879,10 +883,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
-    state->setUnconstraintFlags(unconstraintFlags);
 
     // unconstrain global state
-    if (state->isUnconstrainGlobals()) {
+    if (unconstraintFlags.isUnconstrainGlobals()) {
       unconstrainGlobals(*state, fn);
     }
 
@@ -902,20 +905,16 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       ref<Expr> eArgc = wopArgc.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
       bindArgument(kf, 0, *state, eArgc);
 
-      state->addConstraint(EqExpr::create(ConstantExpr::create(SymArgs + 1, Expr::Int32), eArgc));
-//      state->addConstraint(SltExpr::create(ConstantExpr::create(0, Expr::Int32), eArgc));
-//      state->addConstraint(SgeExpr::create(ConstantExpr::create(SymArgs + 1, Expr::Int32), eArgc));
-
       unsigned ptr_width =  Context::get().getPointerWidth();
 
       // push the binary name into the state
       std::string md_name = kmodule->module->getModuleIdentifier();
       const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, false);
 
-      // now for argv
+      // get an array for the argv pointers
       WObjectPair wopArgv_array;
       argType = argv.getType()->getPointerElementType();
-      allocSymbolic(*state, argType, &argv, MemKind::param, "argv_array", wopArgv_array, 0, SymArgs + 1);
+      allocSymbolic(*state, argType, &argv, MemKind::fixed, "argv_array", wopArgv_array, 0, SymArgs + 2);
 
       // argv[0] -> binary name
       // argv[1 .. SymArgs] = symbolic value
@@ -923,36 +922,44 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       // despite being symbolic, argv[0] always points to program name
       state->addConstraint(EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
 
-      // allocate the command line arg strings
-      for (unsigned index = 0; index < SymArgs; index++) {
-
-        WObjectPair wopArgv_body;
-        std::string argName = "argv_" + itostr(index + 1);
-        allocSymbolic(*state, argType->getPointerElementType(), &argv, MemKind::param, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
-        // null terminate the string
-        state->addConstraint(EqExpr::create(
-                               wopArgv_body.second->read8(LEN_CMDLINE_ARGS),
-                               ConstantExpr::create(0, Expr::Int8))
-                             );
-
-        // argv[n] constrained to [(argc >= n + 1) and argv[n] == buffer] or [argv[n] = null]
-        // that would be ideal, but currently cannot deal with the two-value pointer...
-        ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index + 1), ptr_width);
-        state->addConstraint(EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
-//        ref<Expr> e1 = SltExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc);
-//        ref<Expr> eq_string = EqExpr::create(ptr, wopArgv_body.first->getBaseExpr());
-//        ref<Expr> eq_null = EqExpr::create(ptr, ConstantExpr::createPointer(0));
-//        state->addConstraint(OrExpr::create(AndExpr::create(e1, eq_string), eq_null));
-      }
-
-      // and finally, the pointer to the argv array
+      // and finally, the pointer to the argv array to be passed as param to main
       WObjectPair wopArgv;
       argType = argv.getType();
       allocSymbolic(*state, argType, &argv, MemKind::param, "argv", wopArgv, argv.getParamAlignment(), 1);
 
-      state->addConstraint(EqExpr::create(wopArgv.second->read(0, ptr_width), wopArgv_array.first->getBaseExpr()));
       ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      state->addConstraint(EqExpr::create(wopArgv_array.first->getBaseExpr(), eArgv));
       bindArgument(kf, 1, *state, eArgv);
+
+      // allocate the command line arg strings for each starting state
+      init_states[0] = state;
+      for (unsigned index = 1; index <= SymArgs; index++) {
+
+        ExecutionState *prev = init_states[index - 1];
+        ExecutionState *curr = init_states[index] = new ExecutionState(*prev);
+
+        WObjectPair wopArgv_body;
+        std::string argName = "argv_" + itostr(index);
+        allocSymbolic(*curr, argType->getPointerElementType(), &argv, MemKind::fixed, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
+        // null terminate the string
+        curr->addConstraint(EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
+
+        // and constrain pointer in argv array to point to body
+        ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
+        curr->addConstraint(EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
+      }
+
+      for (unsigned index = 0; index <= SymArgs; index++) {
+        // for each state constrain argc
+        ExecutionState *curr = init_states[index];
+        curr->addConstraint(EqExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc));
+
+        // and the remainor of the argv array should be null
+        for (unsigned idx = index; idx <= SymArgs; idx++) {
+          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx + 1), ptr_width);
+          curr->addConstraint(EqExpr::create(ptr, ConstantExpr::createPointer(0)));
+        }
+      }
 
     } else {
 
@@ -971,8 +978,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
         ref<Expr> e = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
         bindArgument(kf, index, *state, e);
       }
+      init_states.push_back(state);
     }
-    runFn(kf, *state, starting_block);
+    runFn(kf, init_states, starting_block);
   }
 
   outs() << name;
@@ -1002,8 +1010,9 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
 
 }
 
-void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned starting_marker) {
+void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states, unsigned starting_marker) {
 
+  assert(!init_states.empty());
   Function *fn = kf->function;
 
   llvm::raw_ostream &os = interpreterHandler->getInfoStream();
@@ -1014,27 +1023,25 @@ void LocalExecutor::runFn(KFunction *kf, ExecutionState &initialState, unsigned 
   // optimization and such.
   initTimers();
 
-  if (initialState.isUnconstrainLocals()) {
+  if (unconstraintFlags.isUnconstrainLocals()) {
     if (starting_marker == 0) {
-      runFnEachBlock(kf, initialState);
+      runFnEachBlock(kf, init_states);
     } else {
       const auto &itr = kf->mapBBlocks.find(starting_marker);
       if (itr != kf->mapBBlocks.end()) {
-        initialState.startingMarker = starting_marker;
-        runFnFromBlock(kf, initialState, itr->second);
+        runFnFromBlock(kf, init_states, itr->second);
       } else {
         klee_error("requested starting marker not found");
       }
     }
   } else {
-    initialState.startingMarker = 0;
-    runFnFromBlock(kf, initialState, &fn->getEntryBlock());
+    runFnFromBlock(kf, init_states, &fn->getEntryBlock());
   }
 }
 
-void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) {
+void LocalExecutor::runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
-  assert(initialState.isUnconstrainLocals());
+  assert(unconstraintFlags.isUnconstrainLocals());
   unsigned fnID = kf->fnID;
 
   // try to load a restart state, if that fails, then generate a new worklist and keep existing remaining paths
@@ -1064,9 +1071,7 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
         if (reachesRemainingPath(kf, startBB)) {
           outs() << "starting from: " << startID;
           outs() << " (remaining wklst=" << worklist.size() << ",paths=" << pathsRemaining.size() << ")\n";
-          initialState.startingMarker = startID;
-
-          runFnFromBlock(kf, initialState, startBB);
+          runFnFromBlock(kf, init_states, startBB);
         }
       }
       interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
@@ -1078,11 +1083,11 @@ void LocalExecutor::runFnEachBlock(KFunction *kf, ExecutionState &initialState) 
   }
 }
 
-LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, ExecutionState &initial, const BasicBlock *start) {
+LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &init_states, const BasicBlock *start) {
 
-  // set new initial program counter
-  ExecutionState *initState = new ExecutionState(initial);
   const BasicBlock *fn_entry = &kf->function->getEntryBlock();
+  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
+  std::vector<const llvm::Loop*> loops;
 
   if (start != fn_entry) {
 
@@ -1090,31 +1095,46 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, Execution
 
     // if jumping into the interior of a loop, push required loop frames
     // create frames for each intermediate loop
-    std::vector<const llvm::Loop*> loops;
     const llvm::Loop *curr = kf->loopInfo.getLoopFor(start);
     while (curr != nullptr) {
       loops.push_back(curr);
       curr = curr->getParentLoop();
     }
-    StackFrame &sf = initState->stack.back();
-    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-      sf.loopFrames.emplace_back(LoopFrame(*itr));
-    }
   } else {
     altStartBB = nullptr;
   }
 
-  // start from function entry
-  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
-  initState->pc = &kf->instructions[entry];
+  // initialize the starting set of initial states
+  assert(states.empty());
+  assert(addedStates.empty());
+  assert(removedStates.empty());
 
-  processTree = new PTree(initState);
-  initState->ptreeNode = processTree->root;
+  ExecutionState *root_state = nullptr;
+  for (unsigned idx = 0, end = init_states.size(); idx < end; idx++) {
+    ExecutionState *state = new ExecutionState(*init_states[idx]);
+    if (idx == 0) {
+      root_state = state;
+      processTree = new PTree(root_state);
+      root_state->ptreeNode = processTree->root;
+      root_state->ptreeNode->data = nullptr;
+    } else {
+      assert(root_state != nullptr);
+      root_state->ptreeNode->data = nullptr;
+      std::pair<PTree::Node*, PTree::Node*> result = processTree->split(root_state->ptreeNode, root_state, state);
+      root_state->ptreeNode = result.first;
+      state->ptreeNode = result.second;
+    }
 
-  states.insert(initState);
+    StackFrame &sf = state->stack.back();
+    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+      sf.loopFrames.emplace_back(LoopFrame(*itr));
+    }
+    state->pc = &kf->instructions[entry];
+    addedStates.push_back(state);
+  }
+
   searcher = constructUserSearcher(*this);
-  std::vector<ExecutionState *> newStates(states.begin(), states.end());
-  searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
+  updateStates(nullptr);
 
   MonotonicTimer timer;
   const unsigned tid_timeout = 1;
@@ -1681,7 +1701,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (bi->isUnconditional()) {
         BasicBlock *dst;
         if (altStartBB != nullptr) {
-          assert(state.isUnconstrainLocals());
+          assert(unconstraintFlags.isUnconstrainLocals());
           dst = const_cast<BasicBlock*>(altStartBB);
         } else {
           dst = bi->getSuccessor(0);
@@ -1714,7 +1734,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             // if we have unconstrained locals, but the destination block cannot reach a remaining
             // path, then there is no point in continuing this state
-            if (states[index]->isUnconstrainLocals() &&
+            if (unconstraintFlags.isUnconstrainLocals() &&
                 !(reachesRemainingPath(kf, dst) || isOnRemainingPath(*states[index], kf) )) {
               terminateState(*states[index], "remaining paths are unreachable");
             } else {
@@ -1776,6 +1796,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
               unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
               state.addMarker(fnID, bbID);
+              if (state.startingMarker != 0) state.startingMarker = bbID;
             }
           }
           return;
@@ -1790,7 +1811,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       // if not stubbing callees and target is in the module
-      if (!state.isStubCallees() && isInModule) {
+      if (!unconstraintFlags.isStubCallees() && isInModule) {
         if (noReturn && !isMarked) {
           terminateStateOnExit(state);
         } else {
@@ -1868,7 +1889,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       // unconstrain global variables
-      if (isInModule && state.isUnconstrainGlobals()) {
+      if (isInModule && unconstraintFlags.isUnconstrainGlobals()) {
         newUnconstrainedGlobalValues(state, fn, counter);
       }
 
@@ -1963,7 +1984,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         assert("resolve array allocation");
       }
 
-      bool to_symbolic = !libc_initializing && state.isUnconstrainLocals() && !ai->getName().empty();
+      bool to_symbolic = !libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty();
       executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
       break;
     }

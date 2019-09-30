@@ -90,8 +90,7 @@ private:
   ExecutionState &operator=(const ExecutionState &);
 
   std::map<std::string, std::string> fnAliases;
-  static unsigned long lastUsedStateSignature;
-  UnconstraintFlagsT unconstraint_flags;
+//  static unsigned long lastUsedStateSignature;
 
 public:
 
@@ -202,7 +201,6 @@ public:
   const KInstruction *instFaulting;
   unsigned startingMarker;
   unsigned endingMarker;
-  unsigned long stateSignature;
   std::deque<std::pair<unsigned,unsigned> > trace;
   M2MPaths itraces;
   M2MPaths selected_paths;
@@ -213,16 +211,6 @@ public:
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
-
-  bool isStubCallees() const          { return unconstraint_flags.test(UNCONSTRAIN_STUB_FLAG); }
-  bool isUnconstrainGlobals() const   { return unconstraint_flags.test(UNCONSTRAIN_GLOBAL_FLAG); }
-  bool isUnconstrainLocals() const    { return unconstraint_flags.test(UNCONSTRAIN_LOCAL_FLAG); }
-
-  void setStubCallees(bool b = true)          { unconstraint_flags.set(UNCONSTRAIN_STUB_FLAG, b); }
-  void setUnconstrainGlobals(bool b = true)   { unconstraint_flags.set(UNCONSTRAIN_GLOBAL_FLAG, b); }
-  void setUnconstrainLocals(bool b = true)    { unconstraint_flags.set(UNCONSTRAIN_LOCAL_FLAG, b); }
-  void setUnconstraintFlags(const UnconstraintFlagsT &b) { unconstraint_flags = b; }
-  const UnconstraintFlagsT &getUnconstraintFlags() const { return unconstraint_flags; }
 
   ExecutionState(void *base_addr); // : ptreeNode(0) {}
   ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &name);

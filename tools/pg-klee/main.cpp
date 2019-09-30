@@ -588,8 +588,12 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       root["maxLazyDepth"] = state.maxLazyDepth;
       root["startingMarker"] = state.startingMarker;
       root["endingMarker"] = state.endingMarker;
-      root["unconstraintFlags"] = state.getUnconstraintFlags().to_string();
-      root["unconstraintDescription"] = flags_to_string(state.getUnconstraintFlags());
+
+      const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
+      if (flags != nullptr) {
+        root["unconstraintFlags"] = flags->to_string();
+        root["unconstraintDescription"] = flags_to_string(*flags);
+      }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = state.get_status();
       if (state.instFaulting != nullptr) {

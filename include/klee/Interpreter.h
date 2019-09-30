@@ -41,7 +41,18 @@ typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolut
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_LOCAL_FLAG  (1)
 #define UNCONSTRAIN_STUB_FLAG   (2)
-typedef std::bitset<8> UnconstraintFlagsT;
+
+class UnconstraintFlagsT : public std::bitset<8> {
+
+public:
+  bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
+  bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
+  bool isUnconstrainLocals() const    { return test(UNCONSTRAIN_LOCAL_FLAG); }
+
+  void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
+  void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
+  void setUnconstrainLocals(bool b = true)    { set(UNCONSTRAIN_LOCAL_FLAG, b); }
+};
 
 class InterpreterHandler {
 public:
@@ -235,6 +246,8 @@ public:
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res) = 0;
+
+  virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
 };
 
 } // End klee namespace
