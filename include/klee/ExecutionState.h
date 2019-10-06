@@ -50,6 +50,8 @@ struct LoopFrame {
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
+  // RLR TODO: Debug
+  std::string fn_name;
   CallPathNode *callPathNode;
 
   std::set<const MemoryObject *> allocas;

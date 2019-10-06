@@ -1165,7 +1165,7 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vect
     stepInstruction(*state);
 
     try {
-      if (ki->info->assemblyLine == 2240) {
+      if (ki->info->assemblyLine == 577) {
         outs() << "here\n";
       }
       executeInstruction(*state, ki);
@@ -1797,6 +1797,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (fn != nullptr) {
         fnName = fn->getName();
 
+        if (fnName.find("printf") != std::string::npos) {
+          Type *ty = cs->getType();
+          if (!ty->isVoidTy()) {
+
+            Expr::Width width = kmodule->targetData->getTypeStoreSizeInBits(ty);
+            ref<Expr> retExpr = ConstantExpr::create(1, width);
+            bindLocal(ki, state, retExpr);
+          }
+          klee_warning("calling %s", fnName.c_str());
+          return;
+        }
+
         // RLR TODO: debug
         if (fnName == "print_numbers") state.isInteresting = true;
 
@@ -1924,7 +1936,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "0"), wop)) {
           klee_error("failed to allocate called function parameter");
         }
-        Expr::Width width = (unsigned) kmodule->targetData->getTypeAllocSizeInBits(ty);
+        Expr::Width width = kmodule->targetData->getTypeStoreSizeInBits(ty);
         ref<Expr> retExpr = wop.second->read(0, width);
         bindLocal(ki, state, retExpr);
 
