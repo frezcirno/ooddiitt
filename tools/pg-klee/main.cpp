@@ -97,7 +97,7 @@ namespace {
   cl::opt<bool>
   IndentJson("indent-json",
              cl::desc("indent emitted json for readability"),
-             cl::init(false));
+             cl::init(true));
 
   cl::opt<std::string>
   EntryPoint("entry-point",
@@ -580,6 +580,7 @@ void PGKleeHandler::processTestCase(ExecutionState &state) {
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
       root["entryFn"] = state.name;
+      root["isInteresting"] = state.isInteresting;
       root["testID"] = testID;
       root["argC"] = m_argc;
       root["lazyAllocationCount"] = state.lazyAllocationCount;

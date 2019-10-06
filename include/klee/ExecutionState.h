@@ -192,6 +192,7 @@ public:
 
   std::string name;
   bool isProcessed;
+  bool isInteresting;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;

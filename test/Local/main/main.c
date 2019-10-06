@@ -4,13 +4,16 @@
 
 int main(int argc, char *argv[]) {
 
-  for (int index = 1; index < argc; index++) {
-    if (*argv[index] == 'y') {
-      klee_message("yes");
-    } else {
-      klee_message("no");
-    }
-  }
+  klee_message(argv[0]);
+
+
+  // for (int index = 1; index < argc; index++) {
+  //   if (*argv[index] == 'y') {
+  //     klee_message("yes");
+  //   } else {
+  //     klee_message("no");
+  //   }
+  // }
 
   // int ret = 0;
   // for (int index = 0; index < argc; index++) {

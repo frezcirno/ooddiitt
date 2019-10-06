@@ -591,6 +591,7 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
   // need address of a global in order to initialize some other one.
 
   // allocate memory objects for all globals
+  bool failed_global = false;
   for (Module::const_global_iterator i = m->global_begin(),
          e = m->global_end();
        i != e; ++i) {
@@ -643,12 +644,13 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
         } else {
           addr = externalDispatcher->resolveSymbol(i->getName());
         }
-        if (!addr)
-          klee_error("unable to load symbol(%s) while initializing globals.",
-                     i->getName().data());
-
-        for (unsigned offset=0; offset<mo->size; offset++)
-          os->write8(offset, ((unsigned char*)addr)[offset]);
+        if (!addr) {
+          klee_warning("unable to load symbol(%s) while initializing globals.", i->getName().data());
+          failed_global = true;
+        } else {
+          for (unsigned offset = 0; offset < mo->size; offset++)
+            os->write8(offset, ((unsigned char *) addr)[offset]);
+        }
       }
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
@@ -666,6 +668,10 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
       if (!i->hasInitializer())
           os->initializeToRandom();
     }
+  }
+
+  if (failed_global) {
+    klee_error("unable to load a symbol while initializing globals.");
   }
 
   // link aliases to their definitions (if bound)

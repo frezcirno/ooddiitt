@@ -57,8 +57,10 @@
 
 #include <fstream>
 #include <boost/algorithm/string.hpp>
+#include <llvm/IR/Intrinsics.h>
 
-#define LEN_CMDLINE_ARGS 8
+//#define LEN_CMDLINE_ARGS 8
+#define LEN_CMDLINE_ARGS 1
 
 using namespace llvm;
 
@@ -76,7 +78,7 @@ public:
 cl::opt<unsigned>
     SymArgs("sym-args",
             cl::init(0),
-            cl::desc("Number of command line arguments"));
+            cl::desc("Maximum number of command line arguments"));
 
 cl::opt<bool>
   VerifyConstraints("verify-constraints",
@@ -940,9 +942,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
         WObjectPair wopArgv_body;
         std::string argName = "argv_" + itostr(index);
-        allocSymbolic(*curr, argType->getPointerElementType(), &argv, MemKind::fixed, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
+        argType = argv.getType()->getPointerElementType()->getPointerElementType();
+        allocSymbolic(*curr, argType, &argv, MemKind::fixed, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
         // null terminate the string
         curr->addConstraint(EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
+
+        // RLR TODO: Debug
+        curr->addConstraint(UgeExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create('0', Expr::Int8)));
+        curr->addConstraint(UleExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create('9', Expr::Int8)));
 
         // and constrain pointer in argv array to point to body
         ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
@@ -980,7 +987,11 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       }
       init_states.push_back(state);
     }
-    runFn(kf, init_states, starting_block);
+
+    // RLR TODO: DEBUG
+    std::vector<ExecutionState*> tmp_states;
+    tmp_states.push_back(init_states.back());
+    runFn(kf, tmp_states, starting_block);
   }
 
   outs() << name;
@@ -1116,7 +1127,6 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vect
       root_state = state;
       processTree = new PTree(root_state);
       root_state->ptreeNode = processTree->root;
-      root_state->ptreeNode->data = nullptr;
     } else {
       assert(root_state != nullptr);
       root_state->ptreeNode->data = nullptr;
@@ -1155,6 +1165,9 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vect
     stepInstruction(*state);
 
     try {
+      if (ki->info->assemblyLine == 2240) {
+        outs() << "here\n";
+      }
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {
       terminateState(*state, "uninitialized expression");
@@ -1783,6 +1796,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
         fnName = fn->getName();
+
+        // RLR TODO: debug
+        if (fnName == "print_numbers") state.isInteresting = true;
+
         isInModule = kmodule->isModuleFunction(fn);
         if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
@@ -1801,11 +1818,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
           return;
         }
+
+        // if this is an intrinsic function, let the standard executor handle it
+        if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) {
+          Executor::executeInstruction(state, ki);
+          return;
+        }
       }
 
       // note that fn can be null in the case of an indirect call
       // if libc is initializing or this is a special function then let the standard executor handle the call
-      if (libc_initializing || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
+      if (fn == nullptr || libc_initializing || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
         Executor::executeInstruction(state, ki);
         return;
       }
