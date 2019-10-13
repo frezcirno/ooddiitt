@@ -6,4 +6,4 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_subdirectory(pg-klee)
+add_subdirectory(brt-klee)

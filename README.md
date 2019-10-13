@@ -1,6 +1,6 @@
-# How to build pg-klee
+# How to build brt-klee
 
-This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building pg-klee and its dependencies.
+This is a collection of our notes about the installation of [KLEE](https://klee.github.io/). This document contains a step by step recipe for building brt-klee and its dependencies.
 
 ----------
 
@@ -8,9 +8,10 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 
 ### The resulting directory structure:
 ```
-pg-klee
+pse-tools
 ├── klee
 ├── pg-klee
+├── brt-klee
 ├── klee-uclibc (linux only)
 ├── llvm-3.4
 ├── minisat
@@ -29,9 +30,9 @@ pg-klee
 
 ## Ubuntu (with stow)
 
-### Notes:  
+### Notes:
 
-some areas to update: need 32bit dev libraries, curses, run ldconfig after installing new dynamic libs. 
+some areas to update: need 32bit dev libraries, curses, run ldconfig after installing new dynamic libs.
 On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.conf.d
 
 ### Step 1: Install required tools for the build
@@ -176,11 +177,11 @@ cmake -G "Ninja" \
 sudo stow --dir=/usr/local/stow klee
 ```
 
-### Step 8: pg-klee
+### Step 8: brt-klee
 
 ```
-git clone https://github.gatech.edu/arktos/pg-klee.git
-cd pg-klee
+git clone https://github.gatech.edu/arktos/brt-klee.git
+cd brt-klee
 mkdir cmake-build-release
 cd cmake-build-release
 
@@ -201,7 +202,7 @@ cmake -G "Ninja" \
  -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
  ..
 
-sudo stow --dir=/usr/local/stow pg-klee
+sudo stow --dir=/usr/local/stow pse-tools
 ```
 
 Run `ldconfig` to update shared library cache
@@ -209,7 +210,7 @@ Run `ldconfig` to update shared library cache
 
 -----------
 
-## MacOS (with homebrew)
+## MacOS (with homebrew)  NO LONGER SUPPORTED
 
 ### Step 1: Install required tools for the build
 

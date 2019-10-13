@@ -40,7 +40,7 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE_C
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flags_override.cmake")
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_flags_override.cmake")
-project(pg-klee CXX C)
+project(brt-klee CXX C)
 
 ###############################################################################
 # Project version
@@ -50,8 +50,8 @@ set(KLEE_VERSION_MINOR 3)
 set(KLEE_VERSION_PATCH 1)
 set(KLEE_VERSION_TWEAK 0)
 set(KLEE_VERSION "${KLEE_VERSION_MAJOR}.${KLEE_VERSION_MINOR}.${KLEE_VERSION_PATCH}.${KLEE_VERSION_TWEAK}")
-message(STATUS "PG-KLEE version ${KLEE_VERSION}")
-set(PACKAGE_STRING "\"PG-KLEE ${KLEE_VERSION}\"")
+message(STATUS "BRT-KLEE version ${KLEE_VERSION}")
+set(PACKAGE_STRING "\"BRT-KLEE ${KLEE_VERSION}\"")
 set(PACKAGE_URL "\"https://klee.github.io\"")
 
 ################################################################################
@@ -433,7 +433,7 @@ endif()
 OPTION(ENABLE_TCMALLOC "Enable TCMalloc support" OFF)
 if (ENABLE_TCMALLOC)
   message(STATUS "TCMalloc support enabled")
-  set (CMAKE_REQUIRED_INCLUDES "/usr/local/include")  
+  set (CMAKE_REQUIRED_INCLUDES "/usr/local/include")
   set(TCMALLOC_HEADER "gperftools/malloc_extension.h")
   check_include_file_cxx("${TCMALLOC_HEADER}" HAVE_GPERFTOOLS_MALLOC_EXTENSION_H)
   if (${HAVE_GPERFTOOLS_MALLOC_EXTENSION_H})
@@ -773,4 +773,4 @@ endif()
 ################################################################################
 # Miscellaneous install
 ################################################################################
-install(FILES include/klee/klee.h DESTINATION include/klee RENAME pg-klee.h)
+install(FILES include/klee/klee.h DESTINATION include/klee RENAME brt-klee.h)
