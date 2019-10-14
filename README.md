@@ -177,7 +177,7 @@ cmake -G "Ninja" \
 sudo stow --dir=/usr/local/stow klee
 ```
 
-### Step 8: brt-klee
+### Step 8: brt-
 
 ```
 git clone https://github.gatech.edu/arktos/brt-klee.git

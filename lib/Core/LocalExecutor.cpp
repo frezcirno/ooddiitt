@@ -59,8 +59,8 @@
 #include <boost/algorithm/string.hpp>
 #include <llvm/IR/Intrinsics.h>
 
-//#define LEN_CMDLINE_ARGS 8
-#define LEN_CMDLINE_ARGS 1
+#define LEN_CMDLINE_ARGS 8
+#define MIN_LAZY_STRING_LEN 9
 
 using namespace llvm;
 
@@ -87,7 +87,7 @@ cl::opt<bool>
 
 cl::opt<unsigned>
   LazyAllocationCount("lazy-allocation-count",
-                       cl::init(8),
+                       cl::init(1),
                        cl::desc("Number of items to lazy initialize pointer"));
 
 cl::opt<unsigned>
@@ -498,12 +498,17 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
         }
         if (next_fork != nullptr) {
 
+          // calc lazyAllocationCount by type i8* (string, byte buffer) gets more
+          unsigned count = LazyAllocationCount;
+          if (base_type->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
+            count = MIN_LAZY_STRING_LEN;
+          }
+
           // finally, try with a new object
-          MemoryObject *newMO = allocMemory(*next_fork, base_type, target->inst, MemKind::lazy,
-                                            '*' + name, 0, lazyAllocationCount);
+          MemoryObject *newMO = allocMemory(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, 0, count);
           bindObjectInState(*next_fork, newMO);
 
-          ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / LazyAllocationCount));
+          ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / count));
           ref<Expr> eq = EqExpr::create(addr, ptr);
           addConstraintOrTerminate(*next_fork, eq);
           if (restart) next_fork->restartInstruction();
@@ -657,10 +662,11 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     }
       size = (unsigned) (kmodule->targetData->getTypeStoreSize(type) * count);
   } else {
+
+    size = (Context::get().getPointerWidth()/8) * count;
     if (align == 0) {
       align = 8;
     }
-    size = lazyAllocationCount * count;
   }
   unsigned created_size = size;
 
@@ -771,7 +777,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
     MemoryObject *mo = globalObjects.find(v)->second;
     std::string gb_name = mo->name;
 
-    // RLR TODO: this need a permanate fix witthout progInfo
+    // RLR TODO: this need a permanent fix without progInfo
     if ((gb_name.size() > 0) && (gb_name.at(0) != '.') && (progInfo->isGlobalInput(fn_name, gb_name))) {
       // global may already have a value in this state. if so unlink it.
       const ObjectState *os = state.addressSpace.findObject(mo);
@@ -868,7 +874,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
     const auto &desc = *itr;
     init_states.clear();
-    init_states.resize(SymArgs + 1, nullptr);
 
     // initialize a common initial state
     ExecutionState *state = new ExecutionState(*baseState, kf, name);
@@ -894,6 +899,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
     // create parameter values
     // if this is main, special case the argument construction
     if (isMainEntry(fn)) {
+
+      init_states.resize(SymArgs + 1, nullptr);
 
       // symbolic argc, symbolic argv,
       const auto &args = fn->getArgumentList();
@@ -947,10 +954,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
         // null terminate the string
         curr->addConstraint(EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
 
-        // RLR TODO: Debug
-        curr->addConstraint(UgeExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create('0', Expr::Int8)));
-        curr->addConstraint(UleExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create('9', Expr::Int8)));
-
         // and constrain pointer in argv array to point to body
         ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
         curr->addConstraint(EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
@@ -987,11 +990,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       }
       init_states.push_back(state);
     }
-
-    // RLR TODO: DEBUG
-    std::vector<ExecutionState*> tmp_states;
-    tmp_states.push_back(init_states.back());
-    runFn(kf, tmp_states, starting_block);
+    runFn(kf, init_states, starting_block);
   }
 
   outs() << name;
@@ -1809,9 +1808,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           return;
         }
 
-        // RLR TODO: debug
-        if (fnName == "print_numbers") state.isInteresting = true;
-
         isInModule = kmodule->isModuleFunction(fn);
         if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
@@ -1892,6 +1888,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
                 Type *eleType = argType->getPointerElementType();
                 unsigned eleSize;
+
+                // reconsider LazyAllocationCount for fallback size here...
                 if (eleType->isSized()) {
                   eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
                 } else {
@@ -1997,10 +1995,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             Type *subtype = ty->getPointerElementType();
 
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, LazyAllocationCount);
+            // LazyAllocationCount needs to be expanded for string and buffer types.
+            unsigned count = LazyAllocationCount;
+            if (subtype->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
+              count = MIN_LAZY_STRING_LEN;
+            }
+            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
             bindObjectInState(*sp.second, newMO);
 
-            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / LazyAllocationCount));
+            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / count));
             ref<Expr> eq = EqExpr::create(retExpr, ptr);
             addConstraint(*sp.second, eq);
           }
@@ -2152,6 +2155,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 klee_warning("lazy init size too small for bitcast");
               }
 
+              // RLR TODO:  type aware allocation size
               destSize *= lazyAllocationCount;
               destSize = std::min(destSize, mo->size);
               if (destSize > os->visible_size) {

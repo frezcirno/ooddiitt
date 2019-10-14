@@ -133,7 +133,7 @@ namespace {
   cl::opt<bool>
   NoAddressSpace("no-address-space",
                  cl::desc("do not emit address space map with test cases"),
-                 cl::init(false));
+                 cl::init(true));
 
   cl::opt<std::string>
   RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
@@ -2075,7 +2075,7 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::ModuleOptions MOpts;
 
   MOpts.LibraryDir = LibraryDir;
-  MOpts.EntryPoint = UserMain;
+  MOpts.EntryPoint = EntryPoint;
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
@@ -2113,7 +2113,7 @@ int main(int argc, char **argv, char **envp) {
     }
   }
   if (entryFn != nullptr) {
-    theInterpreter->runFunctionUnconstrained(mainFn, starting_marker);
+    theInterpreter->runFunctionUnconstrained(entryFn, starting_marker);
   }
 
   t[1] = time(nullptr);
