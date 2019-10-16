@@ -47,14 +47,18 @@ StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
   : caller(_caller), kf(_kf), callPathNode(nullptr),
     numRegs(kf->numRegisters),
     minDistToUncoveredOnReturn(0), varargs(nullptr) {
+#ifdef _DEBUG
   if (_kf->function->hasName()) fn_name = _kf->function->getName().str();
+#endif
   locals = new Cell[numRegs];
 }
 
 StackFrame::StackFrame(const StackFrame &s)
   : caller(s.caller),
     kf(s.kf),
+#ifdef _DEBUG
     fn_name(s.fn_name),
+#endif
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
@@ -87,15 +91,12 @@ ExecutionState::ExecutionState(void *base_addr) :
     ptreeNode(0),
     name("_germinal_"),
     isProcessed(false),
-    isInteresting(false),
     lazyAllocationCount(0),
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
     status(Pending),
     instFaulting(nullptr),
-    startingMarker(0),
-    endingMarker(0),
     allBranchCounter(0),
     unconBranchCounter(0),
     branched_at(nullptr)
@@ -129,7 +130,6 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
     isProcessed(state.isProcessed),
-    isInteresting(state.isInteresting),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
@@ -137,11 +137,9 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     status(state.status),
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
-    startingMarker(state.startingMarker),
-    endingMarker(state.endingMarker),
     trace(state.trace),
+    assembly_trace(state.assembly_trace),
     itraces(state.itraces),
-    selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -199,7 +197,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     isProcessed(state.isProcessed),
-    isInteresting(state.isInteresting),
     lazyAllocationCount(state.lazyAllocationCount),
     maxLoopIteration(state.maxLoopIteration),
     maxLoopForks(state.maxLoopForks),
@@ -207,11 +204,9 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     status(state.status),
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
-    startingMarker(state.startingMarker),
-    endingMarker(state.endingMarker),
     trace(state.trace),
+    assembly_trace(state.assembly_trace),
     itraces(state.itraces),
-    selected_paths(state.selected_paths),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)

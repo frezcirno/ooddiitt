@@ -47,13 +47,14 @@ public:
   const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
-  void runFunctionUnconstrained(llvm::Function *f, unsigned starting_marker) override;
+  void runFunctionUnconstrained(llvm::Function *f) override;
+  void runFunctionTestCase(const TestCase &test) override;
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
 protected:
-  void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates, unsigned starting_marker);
-  void runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
-  HaltReason runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates, const llvm::BasicBlock *start);
+  void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
+// DELETEME:  void runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
+// DELETEME: HaltReason runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
 
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
@@ -142,6 +143,8 @@ protected:
   unsigned numStatesInLoop(const llvm::Loop *loop) const;
   unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
 
+  // RLR TODO: not needed for cbert
+#if 0 == 1
   void getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const;
   void getAllPaths(M2MPaths &paths) const;
   bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
@@ -149,6 +152,7 @@ protected:
   bool isPathOverlap(const std::string &first, const std::string &second) const;
   bool removeCoveredRemainingPaths(ExecutionState &state);
   bool addCoveredFaultingPaths(const ExecutionState &state);
+#endif
 
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
@@ -158,11 +162,11 @@ protected:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
-  M2MPaths pathsRemaining;
-  M2MPaths pathsFaulting;
+// DELETEME:  M2MPaths pathsRemaining;
+// DELETEME:  M2MPaths pathsFaulting;
   std::set<ExecutionState*> faulting_state_stash;
   std::map<const llvm::Loop*, unsigned> loopForkCounter;
-  ProgInfo *progInfo;
+// DELETEME:  ProgInfo *progInfo;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;
   void *heap_base;
@@ -170,10 +174,10 @@ protected:
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
   bool libc_initializing;
-  const llvm::BasicBlock *altStartBB;
+// DELETEME:  const llvm::BasicBlock *altStartBB;
 
   // behavior conditioned by exec mode
-  bool doSaveComplete;
+// DELETEME:  bool doSaveComplete;
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;

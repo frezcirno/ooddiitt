@@ -50,8 +50,10 @@ struct LoopFrame {
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
-  // RLR TODO: Debug
+
+#ifdef _DEBUG
   std::string fn_name;
+#endif
   CallPathNode *callPathNode;
 
   std::set<const MemoryObject *> allocas;
@@ -103,7 +105,8 @@ public:
     TerminateEarly,
     TerminateError,
     Decimated,
-    TerminateDiscard
+    TerminateDiscard,
+    Invalid
   };
 
   std::string get_status() const {
@@ -116,9 +119,28 @@ public:
     case TerminateError: result = "error"; break;
     case Decimated: result = "decimate"; break;
     case TerminateDiscard: result = "discard"; break;
+    case Invalid: result = "invalid"; break;
     }
     return result;
   }
+
+  static StateStatus to_status(std::string &str) {
+    StateStatus result = StateStatus::Invalid;
+    static std::map<std::string,StateStatus> lookup =
+        {
+          {"pending", Pending},
+          {"completed", Completed},
+          {"faulted", Faulted},
+          {"early", TerminateEarly},
+          {"error", TerminateError},
+          {"decimate", Decimated},
+          {"discard", TerminateDiscard},
+        };
+    const auto &pr = lookup.find(str);
+    if (pr != lookup.end()) result = pr->second;
+    return result;
+  }
+
 
   void restartInstruction() { pc = prevPC; }
 
@@ -194,7 +216,6 @@ public:
 
   std::string name;
   bool isProcessed;
-  bool isInteresting;
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
@@ -202,11 +223,9 @@ public:
   StateStatus status;
   std::string terminationMessage;
   const KInstruction *instFaulting;
-  unsigned startingMarker;
-  unsigned endingMarker;
   std::deque<std::pair<unsigned,unsigned> > trace;
+  std::deque<unsigned> assembly_trace;
   M2MPaths itraces;
-  M2MPaths selected_paths;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
   const KInstruction* branched_at;

@@ -10,6 +10,7 @@
 #define KLEE_INTERPRETER_H
 
 #include "klee/Internal/System/ProgInfo.h"
+#include "TestCase.h"
 
 #include <vector>
 #include <string>
@@ -39,7 +40,7 @@ typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolut
 #define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
-#define UNCONSTRAIN_LOCAL_FLAG  (1)
+//#define UNCONSTRAIN_LOCAL_FLAG  (1)
 #define UNCONSTRAIN_STUB_FLAG   (2)
 
 class UnconstraintFlagsT : public std::bitset<8> {
@@ -47,11 +48,11 @@ class UnconstraintFlagsT : public std::bitset<8> {
 public:
   bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
   bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
-  bool isUnconstrainLocals() const    { return test(UNCONSTRAIN_LOCAL_FLAG); }
+//  bool isUnconstrainLocals() const    { return test(UNCONSTRAIN_LOCAL_FLAG); }
 
   void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
   void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
-  void setUnconstrainLocals(bool b = true)    { set(UNCONSTRAIN_LOCAL_FLAG, b); }
+//  void setUnconstrainLocals(bool b = true)    { set(UNCONSTRAIN_LOCAL_FLAG, b); }
 };
 
 class InterpreterHandler {
@@ -73,7 +74,7 @@ public:
   virtual void getTerminationMessages(std::vector<std::string> &messages) {};
   virtual unsigned getTerminationCount(const std::string &message) { return 0; }
 
-  virtual void processTestCase(ExecutionState &state) = 0;
+  virtual void processTestCase(ExecutionState &state) {};
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
@@ -88,7 +89,7 @@ public:
 
     const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
         std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
-        std::make_pair(UNCONSTRAIN_LOCAL_FLAG, "locals,"),
+//        std::make_pair(UNCONSTRAIN_LOCAL_FLAG, "locals,"),
         std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
     };
 
@@ -135,9 +136,8 @@ public:
 
   enum ExecModeID {
       none, // undefined
-      zop,  // interpreter should execute module for zop input generation
-      cbert, // interpreter should execute module for cbert input generation
-      fault // interpreter should execute module to find faults
+      igen,  // interpreter should execute module for cbert input generation
+      rply, // interpreter should execute module for cbert replay
   };
 
   struct ProgressionDesc {
@@ -167,7 +167,7 @@ public:
         createOutputDir(false),
         heap_base(nullptr),
         pinfo(nullptr),
-        mode(Interpreter::zop),
+        mode(Interpreter::none),
         userMain(nullptr)
     {}
   };
@@ -224,7 +224,9 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f, unsigned starting_marker) { };
+  virtual void runFunctionUnconstrained(llvm::Function *f) { };
+
+  virtual void runFunctionTestCase(const TestCase &test) {};
 
   /*** Runtime options ***/
 

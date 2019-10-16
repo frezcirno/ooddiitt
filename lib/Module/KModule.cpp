@@ -323,10 +323,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     if (opts.CheckDivZero) {
       pm.add(new DivCheckPass());
     }
-    Interpreter *i = ih->getInterpreter();
-
-    // don't use the overshift pass in zop mode, incorrectly terminates paths
-    if (opts.CheckOvershift && i != nullptr &&  i->getOptions().mode != Interpreter::zop) {
+    if (opts.CheckOvershift) {
       pm.add(new OvershiftCheckPass());
     }
     // FIXME: This false here is to work around a bug in
@@ -514,6 +511,11 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       ki->info = &infos->getInfo(ki->inst);
     }
 
+    // generate loop information for this fn
+    kf->domTree.runOnFunction(*fn);
+    auto &base = kf->loopInfo.getBase();
+    base.Analyze(kf->domTree.getBase());
+
     functions.push_back(kf);
     functionMap.insert(make_pair(fn, kf));
   }
@@ -533,6 +535,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     mapNameToType[name] = type;
   }
 
+#if 0 == 1
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     const Function *fn = kf->function;
@@ -569,6 +572,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       }
     }
   }
+#endif
 
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
@@ -634,7 +638,8 @@ bool KModule::MatchSignature(const Type *type, const Function *annotFn) const {
   return false;
 }
 
-void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info) {
+#if 0 == 1
+void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
 
   // RLR TODO: move to llvm static analysis pass
 #if 0  == 1
@@ -726,10 +731,6 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
         kf->mapMarkers[&bb] = bbIDs;
       }
 
-      // generate loop information for this fn
-      kf->domTree.runOnFunction(*fn);
-      auto &base = kf->loopInfo.getBase();
-      base.Analyze(kf->domTree.getBase());
     }
   }
 
@@ -760,6 +761,8 @@ void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, Interpreter
   }
 #endif
 }
+
+#endif
 
 // RLR TODO: move to llvm static analysis pass
 #if 0 == 1
@@ -979,6 +982,7 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
   }
 }
 
+#if 0 == 1
 void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicBlock *entry) {
 
   sortedList.clear();
@@ -994,3 +998,5 @@ void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicB
     }
   }
 }
+
+#endif

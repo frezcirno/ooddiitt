@@ -123,8 +123,8 @@ namespace klee {
     llvm::LoopInfo loopInfo;
 
     // marker info
-    std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
-    std::map<unsigned, const llvm::BasicBlock*> mapBBlocks;
+// DELETEME:    std::map<const llvm::BasicBlock*,std::vector<unsigned> > mapMarkers;
+// DELETEME:    std::map<unsigned, const llvm::BasicBlock*> mapBBlocks;
 
   private:
     KFunction(const KFunction&);
@@ -138,7 +138,7 @@ namespace klee {
       { const auto *L = loopInfo.getLoopFor(bb); return (L && L->getHeader() == bb); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
-    void constructSortedBBlocks(std::deque<unsigned> &sortedList, const llvm::BasicBlock *entry = nullptr);
+// DELETEME:    void constructSortedBBlocks(std::deque<unsigned> &sortedList, const llvm::BasicBlock *entry = nullptr);
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
   };
 
@@ -194,15 +194,15 @@ namespace klee {
       { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
     bool isModuleFunction(const llvm::Function *fn) const
       { return functionMap.find(const_cast<llvm::Function*>(fn)) != functionMap.end();}
-    bool isMarkedFunction(const llvm::Function *fn) const
-      { const auto &itr = functionMap.find(const_cast<llvm::Function*>(fn));
-        return (itr != functionMap.end() && itr->second->fnID != 0); }
+//    bool isMarkedFunction(const llvm::Function *fn) const
+//      { const auto &itr = functionMap.find(const_cast<llvm::Function*>(fn));
+//        return (itr != functionMap.end() && itr->second->fnID != 0); }
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
     bool MatchSignature(const llvm::Function *fn, const llvm::Function *annotFn) const;
     bool MatchSignature(const llvm::Type *type, const llvm::Function *annotFn) const;
-    std::map<const llvm::Type*,KFunction*> mapTypeToAnnotation;
+//    std::map<const llvm::Type*,KFunction*> mapTypeToAnnotation;
 
   private:
 
@@ -217,8 +217,8 @@ namespace klee {
     //
     // FIXME: ihandler should not be here
     void prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ihandler);
-    void prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, const ProgInfo &info);
-    void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
+// DELETEME:    void prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih);
+// DELETEME:    void EmitFunctionSet(llvm::raw_fd_ostream *os, std::string key, std::set<const llvm::Function*> fns, unsigned &counter_keys);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);

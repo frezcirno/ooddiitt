@@ -233,6 +233,7 @@ public:
   unsigned getPhysicalSize() const { return object->size; }
   unsigned getVisibleSize() const { return visible_size; }
   bool referencedAs(const llvm::Type *type) const { return types.count(type) > 0; }
+  bool readConcrete(unsigned offset, std::vector<unsigned char> &data) const;
 
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;

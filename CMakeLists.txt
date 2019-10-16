@@ -141,6 +141,8 @@ else()
     message(FATAL_ERROR "\"${CMAKE_BUILD_TYPE}\" is an invalid build type.\n"
       "Use one of the following build types ${available_build_types}")
   endif()
+
+  add_compile_options("$<$<CONFIG:DEBUG>:-D_DEBUG>")
 endif()
 
 

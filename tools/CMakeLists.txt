@@ -7,3 +7,4 @@
 #
 #===------------------------------------------------------------------------===#
 add_subdirectory(brt-klee)
+add_subdirectory(brt-replay)

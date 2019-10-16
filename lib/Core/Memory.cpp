@@ -192,6 +192,22 @@ ArrayCache *ObjectState::getArrayCache() const {
   return object->parent->getArrayCache();
 }
 
+
+bool ObjectState::readConcrete(unsigned offset, std::vector<unsigned char> &data) const {
+
+  data.clear();
+  unsigned size = object->size - offset;
+  if (concreteStore != nullptr && offset < size) {
+    data.reserve(size - offset);
+    for (unsigned idx = offset; idx < size; ++idx) {
+      data.push_back(concreteStore[idx]);
+    }
+    return true;
+  }
+  return false;
+}
+
+
 /***/
 
 const UpdateList &ObjectState::getUpdates() const {

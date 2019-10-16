@@ -63,10 +63,33 @@
 #define MIN_LAZY_STRING_LEN 9
 
 using namespace llvm;
+using namespace std;
 
 namespace klee {
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
+
+// RLR TODO: this really needs to go somewhere better
+void fromDataString(vector<unsigned char> &data, const string &str) {
+
+  assert(str.size() % 2 == 0);
+  data.clear();
+  data.reserve(str.size() / 2);
+
+  unsigned char val = 0;
+  unsigned counter = 0;
+  for (const auto &ch : str) {
+    unsigned char nibble = 0;
+    if (isdigit(ch)) nibble = ch - '0';
+    else if (ch >= 'A' && ch <= 'F') nibble = ch - 'A' + 10;
+    if (counter++ % 2 == 0) {
+      val = nibble;
+    } else {
+      val = (val << 4) | nibble;
+      data.push_back(val);
+    }
+  }
+}
 
 class bad_expression : public std::runtime_error
 {
@@ -127,33 +150,20 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocationDepth),
-  progInfo(opts.pinfo),
   maxStatesInLoop(10000),
   baseState(nullptr),
   heap_base(opts.heap_base),
   progression(opts.progression),
-  libc_initializing(false),
-  altStartBB(nullptr) {
+  libc_initializing(false) {
 
   memory->setBaseAddr(heap_base);
   switch (opts.mode) {
-    case ExecModeID::zop:
-      doSaveComplete = true;
-      doSaveFault = false;
-      doAssumeInBounds = true;
-      doLocalCoverage = true;
-      break;
-    case ExecModeID::cbert:
-      doSaveComplete = true;
+    case ExecModeID::igen:
       doSaveFault = false;
       doAssumeInBounds = true;
       doLocalCoverage = false;
       break;
-    case ExecModeID::fault:
-      doSaveComplete = false;
-      doSaveFault = true;
-      doAssumeInBounds = false;
-      doLocalCoverage = false;
+    case ExecModeID::rply:
       break;
     default:
       klee_error("invalid execution mode");
@@ -238,11 +248,9 @@ void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
                                          bool symbolic) {
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
-  MemoryObject *mo =
-      memory->allocate(size, type, kind, target->inst, allocationAlignment);
+  MemoryObject *mo = memory->allocate(size, type, kind, target->inst, allocationAlignment);
   if (!mo) {
-    bindLocal(target, state,
-              ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+    bindLocal(target, state, ConstantExpr::alloc(0, Context::get().getPointerWidth()));
   } else {
 
     mo->name = target->inst->getName();
@@ -331,19 +339,21 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
 
 void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
 
+
+  // RLR TODO: replace old proginfo
   Module *m = kmodule->module;
   for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
     MemoryObject *mo = globalObjects.find(v)->second;
 
     std::string varName = mo->name;
-    if ((!varName.empty()) && (varName.at(0) != '.') && progInfo->isGlobalInput(state.name, varName)) {
+    if ((!varName.empty()) && (varName.at(0) != '.') /* && progInfo->isGlobalInput(state.name, varName) */) {
 
       std::string fnName = "unknown";
       bool unconstrain = false;
       if (fn != nullptr) {
         fnName = fn->getName().str();
-        unconstrain = progInfo->isReachableOutput(fnName, varName);
+        unconstrain = /* progInfo->isReachableOutput(fnName, varName) */ true;
       } else {
         fnName = "still_unknown";
         unconstrain = true;
@@ -778,7 +788,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
     std::string gb_name = mo->name;
 
     // RLR TODO: this need a permanent fix without progInfo
-    if ((gb_name.size() > 0) && (gb_name.at(0) != '.') && (progInfo->isGlobalInput(fn_name, gb_name))) {
+    if ((gb_name.size() > 0) && (gb_name.at(0) != '.') /* && (progInfo->isGlobalInput(fn_name, gb_name)) */ ) {
       // global may already have a value in this state. if so unlink it.
       const ObjectState *os = state.addressSpace.findObject(mo);
       if (os != nullptr) {
@@ -793,7 +803,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
 
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
-  kmodule->prepareMarkers(opts, interpreterHandler, *progInfo);
+// DELETEME:  kmodule->prepareMarkers(opts, interpreterHandler);
   specialFunctionHandler->setLocalExecutor(this);
 
   void *addr_offset = nullptr;
@@ -830,7 +840,7 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
-void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_block) {
+void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) {
@@ -840,16 +850,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
   std::string name = fn->getName();
 
-  if (doLocalCoverage) {
-    // try to get the target paths from the handler.
-    // if handler does not have targets, then get all m2m paths
-    if (!interpreterHandler->loadTargetPaths(pathsRemaining[kf->fnID])) {
-      getReachablePaths(name, pathsRemaining, false);
-    }
-  }
-  pathsFaulting.clear(0);
+//  pathsFaulting.clear(0);
   faulting_state_stash.clear();
-  auto num_reachable_paths = pathsRemaining.size();
+//  auto num_reachable_paths = pathsRemaining.size();
 
   if (pathWriter) baseState->pathOS = pathWriter->open();
   if (symPathWriter) baseState->symPathOS = symPathWriter->open();
@@ -881,12 +884,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
 
     // when substituting unconstraining stubs, remaining paths
     // must be filtered to only entry function
+#if 0 == 1
     if (desc.unconstraintFlags.test(UNCONSTRAIN_STUB_FLAG)) {
       pathsRemaining.clear(kf->fnID);
     }
 
     // done if our objective is local coverage and there are no paths remaining
     if (doLocalCoverage && pathsRemaining.empty()) break;
+#endif
 
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
@@ -990,37 +995,107 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn, unsigned starting_blo
       }
       init_states.push_back(state);
     }
-    runFn(kf, init_states, starting_block);
+    runFn(kf, init_states);
   }
-
-  outs() << name;
-  if (doLocalCoverage) {
-    outs() << ": covered "
-           << num_reachable_paths - pathsRemaining.size()
-           << " of " << num_reachable_paths << " reachable m2m path(s)";
-  }
-  outs() << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
-
-  for (const auto &itr : pathsRemaining) {
-    if (!itr.second.empty()) {
-      std::stringstream ss;
-      ss << "remaining=" << itr.first << ':';
-      bool first = true;
-      for (auto m : itr.second) {
-        if (!first) ss << ',';
-        first = false;
-        ss << m;
-      }
-      outs() << ss.str() << '\n';
-    }
-  }
+  outs() << name << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
 
 }
 
-void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states, unsigned starting_marker) {
+void LocalExecutor::runFunctionTestCase(const TestCase &test) {
+
+  Function *fn = kmodule->module->getFunction(test.entry_fn);
+  if (fn == nullptr) return;
+  KFunction *kf = kmodule->functionMap[fn];
+  if (kf == nullptr) return;
+
+  faulting_state_stash.clear();
+
+ // look for a libc initializer, execute if found to initialize the base state
+  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
+  if (libc_init != nullptr) {
+    KFunction *kf_init = kmodule->functionMap[libc_init];
+    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
+    if (statsTracker) statsTracker->framePushed(*state, nullptr);
+    ExecutionState *initState = runLibCInitializer(*state, libc_init);
+    if (initState != nullptr) {
+      delete baseState;
+      baseState = initState;
+    }
+  }
+
+  std::vector<ExecutionState*> init_states;
+  ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
+  if (statsTracker) statsTracker->framePushed(*state, nullptr);
+
+  std::map<std::string,const TestObject*> to_obj;
+  for (const auto &obj : test.objects) {
+    to_obj[obj.name] = &obj;
+  }
+
+  unsigned index = 0;
+  for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
+
+    const Argument &arg = *ai;
+    std::string argName = arg.getName();
+    Type *argType = arg.getType();
+    size_t argAlign = arg.getParamAlignment();
+    vector<unsigned char> data;
+
+    if (argType->isPointerTy()) {
+      const TestObject *v = to_obj["v"];
+      const TestObject *ptr_v = to_obj["*v"];
+      const TestObject *ptr_ptr_v = to_obj["**v"];
+      assert(v && ptr_v);
+
+      MemoryObject *mo_ptr_ptr_v = nullptr;
+      ObjectState *wo_ptr_ptr_v = nullptr;
+      if (ptr_ptr_v != nullptr) {
+        Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
+        unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
+        mo_ptr_ptr_v = allocMemory(*state, char_type, &arg, MemKind::param, "**v", alignment, ptr_ptr_v->count);
+        wo_ptr_ptr_v = bindObjectInState(*state, mo_ptr_ptr_v);
+        // write out the string
+        fromDataString(data, ptr_ptr_v->data);
+        for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
+          wo_ptr_ptr_v->write8(idx, data[idx]);
+        }
+      }
+      Type *ptd_type = argType->getPointerElementType();
+      unsigned alignment = kmodule->targetData->getPrefTypeAlignment(ptd_type);
+      MemoryObject *mo_ptr_v = allocMemory(*state, ptd_type, &arg, MemKind::param, "*v", alignment, ptr_v->count);
+      ObjectState *wo_ptr_v = bindObjectInState(*state, mo_ptr_v);
+      fromDataString(data, ptr_v->data);
+
+      // if ptr-ptr is not null, then need to insert the pointer
+      unsigned copy_end = data.size();
+      if (mo_ptr_ptr_v != nullptr) {
+        copy_end = 8;
+        ref<ConstantExpr> e_ptr_ptr_v = ConstantExpr::createPointer(mo_ptr_ptr_v->address);
+        wo_ptr_v->write(8, e_ptr_ptr_v);
+      }
+
+      for (unsigned idx = 0; idx < copy_end; ++idx) {
+        wo_ptr_v->write8(idx, data[idx]);
+      }
+
+      MemoryObject *mo_v = allocMemory(*state, argType, &arg, MemKind::param, "v", alignment, v->count);
+      ObjectState *wo_v = bindObjectInState(*state, mo_v);
+      ref<ConstantExpr> e_ptr_v = ConstantExpr::createPointer(mo_ptr_v->address);
+      wo_v->write(0, e_ptr_v);
+
+      ref<Expr> e = wo_v->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      bindArgument(kf, index, *state, e);
+
+      init_states.push_back(state);
+      runFn(kf, init_states);
+    }
+  }
+}
+
+void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
   assert(!init_states.empty());
   Function *fn = kf->function;
@@ -1033,86 +1108,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   // optimization and such.
   initTimers();
 
-  if (unconstraintFlags.isUnconstrainLocals()) {
-    if (starting_marker == 0) {
-      runFnEachBlock(kf, init_states);
-    } else {
-      const auto &itr = kf->mapBBlocks.find(starting_marker);
-      if (itr != kf->mapBBlocks.end()) {
-        runFnFromBlock(kf, init_states, itr->second);
-      } else {
-        klee_error("requested starting marker not found");
-      }
-    }
-  } else {
-    runFnFromBlock(kf, init_states, &fn->getEntryBlock());
-  }
-}
-
-void LocalExecutor::runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &init_states) {
-
-  assert(unconstraintFlags.isUnconstrainLocals());
-  unsigned fnID = kf->fnID;
-
-  // try to load a restart state, if that fails, then generate a new worklist and keep existing remaining paths
-  std::deque<unsigned> worklist;
-  if (interpreterHandler->loadRestartState(kf->function, worklist, pathsRemaining[fnID])) {
-
-    // top element must have failed, so discard
-    outs() << "Resuming from prior saved state\n";
-  } else {
-    // create a worklist of marker ids sorted by distance from entry
-    kf->constructSortedBBlocks(worklist);
-    interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
-  }
-
-  while (!worklist.empty() && !haltExecution) {
-
-    // if our objective is just local coverage, then we're done
-    if (pathsRemaining.empty(fnID)) {
-      worklist.clear();
-    } else {
-
-      unsigned startID = worklist.front();
-      worklist.pop_front();
-      const auto &itr = kf->mapBBlocks.find(startID);
-      if (itr != kf->mapBBlocks.end()) {
-        const BasicBlock *startBB = itr->second;
-        if (reachesRemainingPath(kf, startBB)) {
-          outs() << "starting from: " << startID;
-          outs() << " (remaining wklst=" << worklist.size() << ",paths=" << pathsRemaining.size() << ")\n";
-          runFnFromBlock(kf, init_states, startBB);
-        }
-      }
-      interpreterHandler->saveRestartState(kf->function, worklist, pathsRemaining[fnID]);
-    }
-  }
-  if (worklist.empty()) {
-    // completed all paths, so remove the restart state
-    interpreterHandler->removeRestartStates();
-  }
-}
-
-LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &init_states, const BasicBlock *start) {
-
   const BasicBlock *fn_entry = &kf->function->getEntryBlock();
   unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
   std::vector<const llvm::Loop*> loops;
-
-  if (start != fn_entry) {
-
-    altStartBB = start;
-
-    // if jumping into the interior of a loop, push required loop frames
-    // create frames for each intermediate loop
-    const llvm::Loop *curr = kf->loopInfo.getLoopFor(start);
-    while (curr != nullptr) {
-      loops.push_back(curr);
-      curr = curr->getParentLoop();
-    }
-  } else {
-    altStartBB = nullptr;
-  }
 
   // initialize the starting set of initial states
   assert(states.empty());
@@ -1156,18 +1154,19 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vect
 
   while (!states.empty() &&
          !haltExecution &&
-         halt == HaltReason::OK &&
-         !(doLocalCoverage && pathsRemaining.empty(kf->fnID))) {
+         halt == HaltReason::OK /* &&
+         !(doLocalCoverage && pathsRemaining.empty(kf->fnID)) */) {
 
     ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
 
     try {
-      if (ki->info->assemblyLine == 577) {
-        outs() << "here\n";
+      if (ki->info->assemblyLine == UINT32_MAX) {
+        outs() << "break here\n";
       }
       executeInstruction(*state, ki);
+      state->assembly_trace.push_back(ki->info->assemblyLine);
     } catch (bad_expression &e) {
       terminateState(*state, "uninitialized expression");
     } catch (solver_failure &e) {
@@ -1201,15 +1200,15 @@ LocalExecutor::HaltReason LocalExecutor::runFnFromBlock(KFunction *kf, std::vect
   processTree = nullptr;
 
   // now consider our stashed faulting states
+#if 0 == 1
   for (ExecutionState *state : faulting_state_stash) {
     if (removeCoveredRemainingPaths(*state)) {
       interpreterHandler->processTestCase(*state);
     }
     delete state;
   }
+#endif
   faulting_state_stash.clear();
-
-  return halt;
 }
 
 ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, llvm::Function *initializer) {
@@ -1280,15 +1279,17 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
   }
 
   if (state.status == ExecutionState::StateStatus::Completed) {
-    if (!doLocalCoverage || removeCoveredRemainingPaths(state)) {
+    if (!doLocalCoverage /* || removeCoveredRemainingPaths(state) */) {
       interpreterHandler->processTestCase(state);
     }
   } else {
     // its an error state, pending state, or discarded state
     // stash faults for later consideration
+#if 0 == 1
     if (addCoveredFaultingPaths(state)) {
       faulting_state_stash.insert(new ExecutionState(state));
     }
+#endif
   }
   Executor::terminateState(state, message);
 }
@@ -1350,13 +1351,13 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
 
           // try to get a marker number for this basic block
           unsigned marker = 0;
-          auto itr = kf->mapMarkers.find(loop->getHeader());
-          if (itr != kf->mapMarkers.end()) {
-            if (!itr->second.empty()) {
-              marker = itr->second.front();
-            }
-          }
-          outs() << "terminated " << killed << " states in loop: " << marker << "\n";
+          Instruction &i = loop->getHeader()->front();
+
+          std::string loop_id;
+          raw_string_ostream ss(loop_id);
+          loop->getLoopID()->print(ss);
+          ss.flush();
+          outs() << "terminated " << killed << " states in loop: " << loop_id << "\n";
         }
       }
     }
@@ -1398,6 +1399,8 @@ unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
   }
   return counter;
 }
+
+#if 0 == 1
 
 void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const {
 
@@ -1537,7 +1540,6 @@ bool LocalExecutor::removeCoveredRemainingPaths(ExecutionState &state) {
           }
         }
         if (found) {
-          state.selected_paths[fnID].insert(path);
           p_itr = paths.erase(p_itr);
           result = true;
         }
@@ -1591,6 +1593,8 @@ bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
   return result;
 }
 
+#endif
+
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
   ref<ConstantExpr> result;
@@ -1626,6 +1630,7 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
 
 void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
 
+#if 0 == 1
   // skip loop accounting if this is the jump from init block
   if (altStartBB != nullptr) {
     // if src and dst bbs have the same parent, then this is a branch
@@ -1690,6 +1695,7 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
       }
     }
   }
+#endif
   Executor::transferToBasicBlock(state, src, dst);
 }
 
@@ -1712,15 +1718,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       if (bi->isUnconditional()) {
         BasicBlock *dst;
+#if 0 == 1
         if (altStartBB != nullptr) {
           assert(unconstraintFlags.isUnconstrainLocals());
           dst = const_cast<BasicBlock*>(altStartBB);
         } else {
+#endif
           dst = bi->getSuccessor(0);
-        }
+//        }
         // set alternate start to null after transfer, used as flag
         transferToBasicBlock(state, src, dst);
-        altStartBB = nullptr;
+//        altStartBB = nullptr;
 
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
@@ -1746,8 +1754,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             // if we have unconstrained locals, but the destination block cannot reach a remaining
             // path, then there is no point in continuing this state
-            if (unconstraintFlags.isUnconstrainLocals() &&
-                !(reachesRemainingPath(kf, dst) || isOnRemainingPath(*states[index], kf) )) {
+
+            if ( false /* unconstraintFlags.isUnconstrainLocals() &&
+                !(reachesRemainingPath(kf, dst) || isOnRemainingPath(*states[index], kf) ) */ ) {
               terminateState(*states[index], "remaining paths are unreachable");
             } else {
               transferToBasicBlock(*states[index], src, dst);
@@ -1790,7 +1799,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       const CallSite cs(i);
       std::string fnName = "@unknown";
       bool isInModule = false;
-      bool isMarked = false;
+// DELETEME:      bool isMarked = false;
       bool noReturn =  false;
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
@@ -1809,7 +1818,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         isInModule = kmodule->isModuleFunction(fn);
-        if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
+// DELETEME:        if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
 
         // if this is a call to a mark() variant, then log the marker to state
@@ -1821,7 +1830,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
               unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
               state.addMarker(fnID, bbID);
-              if (state.startingMarker != 0) state.startingMarker = bbID;
+              assert(false && "should not be any markers");
             }
           }
           return;
@@ -1843,7 +1852,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if not stubbing callees and target is in the module
       if (!unconstraintFlags.isStubCallees() && isInModule) {
-        if (noReturn && !isMarked) {
+        if (noReturn /* && !isMarked */) {
           terminateStateOnExit(state);
         } else {
           Executor::executeInstruction(state, ki);
@@ -1870,7 +1879,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           const Value *v = cs.getArgument(index);
           Type *argType = v->getType();
 
-          if ((countLoadIndirection(argType) > 0) && !progInfo->isConstParam(fnName, index)) {
+          // RLR TODO: replace proginfo with equivalent
+          if ((countLoadIndirection(argType) > 0) /* && !progInfo->isConstParam(fnName, index) */) {
 
             ref<Expr> exp_addr = eval(ki, index + 1, state).value;
             ObjectPair op;
@@ -2022,8 +2032,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         assert("resolve array allocation");
       }
 
-      bool to_symbolic = !libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty();
+      bool to_symbolic = false /*!libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty() */;
       executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
+
       break;
     }
 
