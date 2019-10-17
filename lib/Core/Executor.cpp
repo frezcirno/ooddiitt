@@ -3221,24 +3221,10 @@ void Executor::executeAlloc(ExecutionState &state,
     return;
   }
 
-  // if this is a heap allocation, clone off a malloc fail state
-  if (kind == MemKind::heap) {
-
-        // RLR TODO: consider reconstructiong as a fork()
-        ExecutionState *failState = state.branch();
-
-        // and split the process true for the new state
-        state.ptreeNode->data = nullptr;
-        std::pair<PTree::Node *, PTree::Node *> res = processTree->split(state.ptreeNode, &state, failState);
-        state.ptreeNode = res.first;
-        failState->ptreeNode = res.second;
-
-        addedStates.push_back(failState);
-        bindLocal(target, *failState, ConstantExpr::createPointer(0));
-  }
-
   // bind the new object into the success state
-  mo->name = target->inst->getName();
+  std::stringstream ss;
+  ss << "dynalloc@" << target->info->assemblyLine;
+  mo->name = ss.str();
   ObjectState *os = bindObjectInState(state, mo);
   if (zeroMemory) {
     os->initializeToZero();

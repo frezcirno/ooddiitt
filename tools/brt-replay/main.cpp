@@ -494,9 +494,11 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
       }
     }
 
-    Json::Value &trace = root["trace"] = Json::arrayValue;
-    for (const unsigned line : state.assembly_trace) {
-      trace.append(line);
+    if (!state.line_trace.empty()) {
+      Json::Value &trace = root["trace"] = Json::arrayValue;
+      for (const unsigned line : state.line_trace) {
+        trace.append(line);
+      }
     }
 
     Json::StreamWriterBuilder builder;

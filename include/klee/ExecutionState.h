@@ -224,7 +224,7 @@ public:
   std::string terminationMessage;
   const KInstruction *instFaulting;
   std::deque<std::pair<unsigned,unsigned> > trace;
-  std::deque<unsigned> assembly_trace;
+  std::deque<unsigned> line_trace;
   M2MPaths itraces;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;

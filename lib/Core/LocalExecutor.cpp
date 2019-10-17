@@ -59,6 +59,7 @@
 #include <boost/algorithm/string.hpp>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/DebugInfo.h>
+#include <csignal>
 
 #define LEN_CMDLINE_ARGS 8
 #define MIN_LAZY_STRING_LEN 9
@@ -99,51 +100,18 @@ public:
   bad_expression(const char *msg) : std::runtime_error(msg) {}
 };
 
-cl::opt<unsigned>
-    SymArgs("sym-args",
-            cl::init(0),
-            cl::desc("Maximum number of command line arguments"));
-
-cl::opt<bool>
-  VerifyConstraints("verify-constraints",
-                    cl::init(false),
-                    cl::desc("Perform additional constraint verification before adding"));
-
-cl::opt<unsigned>
-  LazyAllocationCount("lazy-allocation-count",
-                       cl::init(1),
-                       cl::desc("Number of items to lazy initialize pointer"));
-
-cl::opt<unsigned>
-  LazyAllocationOffset("lazy-allocation-offset",
-                       cl::init(0),
-                       cl::desc("index into lazy allocation to return"));
-
-cl::opt<unsigned>
-  MinLazyAllocationSize("lazy-allocation-minsize",
-                        cl::init(0),
-                        cl::desc("minimum size of a lazy allocation"));
-
-cl::opt<unsigned>
-  LazyAllocationDepth("lazy-allocation-depth",
-                      cl::init(4),
-                      cl::desc("Depth of items to lazy initialize pointer"));
-
-cl::opt<unsigned>
-  LazyAllocationExt("lazy-allocation-ext",
-                    cl::init(2),
-                    cl::desc("number of lazy allocations to include existing memory objects of same type"));
-
-cl::opt<unsigned>
-  MaxLoopIteration("max-loop-iteration",
-                   cl::init(4),
-                   cl::desc("Number of loop iterations"));
-
-cl::opt<unsigned>
-  MaxLoopForks("max-loop-forks",
-                  cl::init(16),
-                  cl::desc("Number of forks within loop body"));
-
+cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
+cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification before adding"));
+cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
+cl::opt<unsigned> MinLazyAllocationSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
+cl::opt<unsigned> LazyAllocationDepth("lazy-allocation-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyAllocationExt("lazy-allocation-ext", cl::init(0), cl::desc("number of lazy allocations to include existing memory objects of same type"));
+cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("Number of loop iterations"));
+cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
+cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
+cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
+cl::opt<string> BreakAt("break-at", cl::init(""), cl::desc("break at the given trace line number"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
@@ -163,8 +131,13 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       doSaveFault = false;
       doAssumeInBounds = true;
       doLocalCoverage = false;
+      doConcreteInterpretation = false;
       break;
     case ExecModeID::rply:
+      doSaveFault = false;
+      doAssumeInBounds = false;
+      doLocalCoverage = false;
+      doConcreteInterpretation = true;
       break;
     default:
       klee_error("invalid execution mode");
@@ -1188,31 +1161,56 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   const unsigned tid_timeout = 1;
   const unsigned tid_heartbeat = 2;
 
+  // parse out the breakat lines
+  set<unsigned> break_lines;
+  if (BreakAt.size() > 0) {
+    vector<string> lines;
+    boost::algorithm::split(lines, BreakAt, boost::algorithm::is_any_of(","), boost::algorithm::token_compress_on);
+    for (const string &line : lines) {
+      break_lines.insert(stoul(line));
+    }
+  }
+  bool tracing = TraceAssembly || TraceStatements;
+
   if (timeout > 0) timer.set(tid_timeout, timeout);
   timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
 
   HaltReason halt = HaltReason::OK;
+  bool enable_state_switching = true;
 
+  ExecutionState *state = nullptr;
   while (!states.empty() &&
          !haltExecution &&
          halt == HaltReason::OK /* &&
          !(doLocalCoverage && pathsRemaining.empty(kf->fnID)) */) {
 
-    ExecutionState *state = &searcher->selectState();
+    if (enable_state_switching || state == nullptr || states.find(state) == states.end()) {
+      state = &searcher->selectState();
+    }
+
+    assert(!doConcreteInterpretation || states.size() == 1);
+
     KInstruction *ki = state->pc;
     stepInstruction(*state);
 
+    unsigned line;
+    if (TraceStatements) {
+      const DebugLoc loc = ki->inst->getDebugLoc();
+      line = loc.getLine();
+    } else {
+      line = ki->info->assemblyLine;
+    }
+    if (tracing && (line != 0) && (state->line_trace.empty() || line != state->line_trace.back())) {
+      state->line_trace.push_back(line);
+    }
+
     try {
-      if (ki->info->assemblyLine == UINT32_MAX) {
-        outs() << "break here\n";
+
+      if (break_lines.find(line) != break_lines.end()) {
+        outs() << "break here!\n";
+        enable_state_switching = false;
       }
       executeInstruction(*state, ki);
-
-      const DebugLoc loc = ki->inst->getDebugLoc();
-      unsigned line = loc.getLine();
-      if (state->assembly_trace.empty() || line != state->assembly_trace.back()) {
-        state->assembly_trace.push_back(line);
-      }
 
     } catch (bad_expression &e) {
       terminateState(*state, "uninitialized expression");

@@ -658,6 +658,13 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
         }
       }
 
+      if (!state.line_trace.empty()) {
+        Json::Value &trace = root["trace"] = Json::arrayValue;
+        for (const unsigned line : state.line_trace) {
+          trace.append(line);
+        }
+      }
+
       // write the constructed json object to file
       Json::StreamWriterBuilder builder;
       builder["commentStyle"] = "None";
@@ -1968,7 +1975,7 @@ int main(int argc, char **argv, char **envp) {
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
-  externalsAndGlobalsCheck(finalModule, handler->createOutputDir());
+  externalsAndGlobalsCheck(finalModule, true);
 
   char buf[256];
   time_t t[2];

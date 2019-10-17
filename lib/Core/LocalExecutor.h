@@ -166,7 +166,6 @@ protected:
 // DELETEME:  M2MPaths pathsFaulting;
   std::set<ExecutionState*> faulting_state_stash;
   std::map<const llvm::Loop*, unsigned> loopForkCounter;
-// DELETEME:  ProgInfo *progInfo;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;
   void *heap_base;
@@ -177,10 +176,10 @@ protected:
 // DELETEME:  const llvm::BasicBlock *altStartBB;
 
   // behavior conditioned by exec mode
-// DELETEME:  bool doSaveComplete;
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;
+  bool doConcreteInterpretation;
 };
 
 
