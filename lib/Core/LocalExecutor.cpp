@@ -516,11 +516,17 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
 
           // finally, try with a new object
           MemoryObject *newMO = allocMemory(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, 0, count);
-          bindObjectInState(*next_fork, newMO);
+          ObjectState *os = bindObjectInState(*next_fork, newMO);
 
           ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / count));
           ref<Expr> eq = EqExpr::create(addr, ptr);
           addConstraintOrTerminate(*next_fork, eq);
+
+          // insure strings are null-terminated
+          if (base_type->isIntegerTy(8)) {
+            next_fork->addConstraint(EqExpr::create(os->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+          }
+
           if (restart) next_fork->restartInstruction();
         }
       }

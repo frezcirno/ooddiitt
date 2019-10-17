@@ -39,7 +39,7 @@ UseIndependentSolver("use-independent-solver",
 llvm::cl::opt<bool>
 DebugValidateSolver("debug-validate-solver",
 		             llvm::cl::init(false));
-  
+
 llvm::cl::opt<int>
 MinQueryTimeToLog("min-query-time-to-log",
                   llvm::cl::init(0),
@@ -60,7 +60,7 @@ UseForkedCoreSolver("use-forked-solver",
              llvm::cl::init(true));
 
 llvm::cl::opt<bool>
-CoreSolverOptimizeDivides("solver-optimize-divides", 
+CoreSolverOptimizeDivides("solver-optimize-divides",
                  llvm::cl::desc("Optimize constant divides into add/shift/multiplies before passing to core SMT solver (default=off)"),
                  llvm::cl::init(false));
 
@@ -120,7 +120,7 @@ llvm::cl::opt<klee::MetaSMTBackendType> MetaSMTBackend(
 #define STP_IS_DEFAULT_STR " (default)"
 #define METASMT_IS_DEFAULT_STR ""
 #define Z3_IS_DEFAULT_STR ""
-#define DEFAULT_CORE_SOLVER STP_SOLVER
+#define DEFAULT_CORE_SOLVER Z3_SOLVER
 #elif ENABLE_Z3
 #define STP_IS_DEFAULT_STR ""
 #define METASMT_IS_DEFAULT_STR ""
