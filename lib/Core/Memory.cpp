@@ -452,9 +452,7 @@ ref<Expr> ObjectState::read8(unsigned offset) const {
     return knownSymbolics[offset];
   } else {
     assert(isByteFlushed(offset) && "unflushed byte without cache value");
-
-    return ReadExpr::create(getUpdates(),
-                            ConstantExpr::create(offset, Expr::Int32));
+    return ReadExpr::create(getUpdates(), ConstantExpr::create(offset, Expr::Int32));
   }
 }
 

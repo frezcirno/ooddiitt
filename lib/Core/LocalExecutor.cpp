@@ -58,6 +58,7 @@
 #include <fstream>
 #include <boost/algorithm/string.hpp>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/DebugInfo.h>
 
 #define LEN_CMDLINE_ARGS 8
 #define MIN_LAZY_STRING_LEN 9
@@ -515,16 +516,16 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
           }
 
           // finally, try with a new object
-          MemoryObject *newMO = allocMemory(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, 0, count);
-          ObjectState *os = bindObjectInState(*next_fork, newMO);
 
-          ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->created_size / count));
+          WObjectPair wop;
+          allocSymbolic(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, wop, 0, count);
+          ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->created_size / count));
           ref<Expr> eq = EqExpr::create(addr, ptr);
           addConstraintOrTerminate(*next_fork, eq);
 
           // insure strings are null-terminated
           if (base_type->isIntegerTy(8)) {
-            next_fork->addConstraint(EqExpr::create(os->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+            next_fork->addConstraint(EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
           }
 
           if (restart) next_fork->restartInstruction();
@@ -1041,64 +1042,98 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     to_obj[obj.name] = &obj;
   }
 
-  unsigned index = 0;
-  for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
+  if (test.entry_fn == "toarith") {
 
-    const Argument &arg = *ai;
+    unsigned index = 0;
+    for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
+
+      const Argument &arg = *ai;
+      std::string argName = arg.getName();
+      Type *argType = arg.getType();
+      size_t argAlign = arg.getParamAlignment();
+      vector<unsigned char> data;
+
+      if (argType->isPointerTy()) {
+        const TestObject *v = to_obj["v"];
+        const TestObject *ptr_v = to_obj["*v"];
+        const TestObject *ptr_ptr_v = to_obj["**v"];
+        assert(v && ptr_v);
+
+        MemoryObject *mo_ptr_ptr_v = nullptr;
+        ObjectState *wo_ptr_ptr_v = nullptr;
+        if (ptr_ptr_v != nullptr) {
+          Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
+          unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
+          mo_ptr_ptr_v = allocMemory(*state, char_type, &arg, MemKind::param, "**v", alignment, ptr_ptr_v->count);
+          wo_ptr_ptr_v = bindObjectInState(*state, mo_ptr_ptr_v);
+          // write out the string
+          fromDataString(data, ptr_ptr_v->data);
+          for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
+            wo_ptr_ptr_v->write8(idx, data[idx]);
+          }
+        }
+        Type *ptd_type = argType->getPointerElementType();
+        unsigned alignment = kmodule->targetData->getPrefTypeAlignment(ptd_type);
+        MemoryObject *mo_ptr_v = allocMemory(*state, ptd_type, &arg, MemKind::param, "*v", alignment, ptr_v->count);
+        ObjectState *wo_ptr_v = bindObjectInState(*state, mo_ptr_v);
+        fromDataString(data, ptr_v->data);
+
+        // if ptr-ptr is not null, then need to insert the pointer
+        unsigned copy_end = data.size();
+        if (mo_ptr_ptr_v != nullptr) {
+          copy_end = 8;
+          ref<ConstantExpr> e_ptr_ptr_v = ConstantExpr::createPointer(mo_ptr_ptr_v->address);
+          wo_ptr_v->write(8, e_ptr_ptr_v);
+        }
+
+        for (unsigned idx = 0; idx < copy_end; ++idx) {
+          wo_ptr_v->write8(idx, data[idx]);
+        }
+
+        MemoryObject *mo_v = allocMemory(*state, argType, &arg, MemKind::param, "v", alignment, v->count);
+        ObjectState *wo_v = bindObjectInState(*state, mo_v);
+        ref<ConstantExpr> e_ptr_v = ConstantExpr::createPointer(mo_ptr_v->address);
+        wo_v->write(0, e_ptr_v);
+
+        ref<Expr> e = wo_v->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+        bindArgument(kf, index, *state, e);
+      }
+    }
+  } else if (test.entry_fn == "set_fields") {
+
+    const Argument &arg = fn->getArgumentList().front();
     std::string argName = arg.getName();
     Type *argType = arg.getType();
     size_t argAlign = arg.getParamAlignment();
+
+    const TestObject *ptr_str = to_obj["*fieldstr"];
+    assert(ptr_str);
+
     vector<unsigned char> data;
 
-    if (argType->isPointerTy()) {
-      const TestObject *v = to_obj["v"];
-      const TestObject *ptr_v = to_obj["*v"];
-      const TestObject *ptr_ptr_v = to_obj["**v"];
-      assert(v && ptr_v);
-
-      MemoryObject *mo_ptr_ptr_v = nullptr;
-      ObjectState *wo_ptr_ptr_v = nullptr;
-      if (ptr_ptr_v != nullptr) {
-        Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
-        unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
-        mo_ptr_ptr_v = allocMemory(*state, char_type, &arg, MemKind::param, "**v", alignment, ptr_ptr_v->count);
-        wo_ptr_ptr_v = bindObjectInState(*state, mo_ptr_ptr_v);
-        // write out the string
-        fromDataString(data, ptr_ptr_v->data);
-        for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
-          wo_ptr_ptr_v->write8(idx, data[idx]);
-        }
-      }
-      Type *ptd_type = argType->getPointerElementType();
-      unsigned alignment = kmodule->targetData->getPrefTypeAlignment(ptd_type);
-      MemoryObject *mo_ptr_v = allocMemory(*state, ptd_type, &arg, MemKind::param, "*v", alignment, ptr_v->count);
-      ObjectState *wo_ptr_v = bindObjectInState(*state, mo_ptr_v);
-      fromDataString(data, ptr_v->data);
-
-      // if ptr-ptr is not null, then need to insert the pointer
-      unsigned copy_end = data.size();
-      if (mo_ptr_ptr_v != nullptr) {
-        copy_end = 8;
-        ref<ConstantExpr> e_ptr_ptr_v = ConstantExpr::createPointer(mo_ptr_ptr_v->address);
-        wo_ptr_v->write(8, e_ptr_ptr_v);
-      }
-
-      for (unsigned idx = 0; idx < copy_end; ++idx) {
-        wo_ptr_v->write8(idx, data[idx]);
-      }
-
-      MemoryObject *mo_v = allocMemory(*state, argType, &arg, MemKind::param, "v", alignment, v->count);
-      ObjectState *wo_v = bindObjectInState(*state, mo_v);
-      ref<ConstantExpr> e_ptr_v = ConstantExpr::createPointer(mo_ptr_v->address);
-      wo_v->write(0, e_ptr_v);
-
-      ref<Expr> e = wo_v->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
-      bindArgument(kf, index, *state, e);
-
-      init_states.push_back(state);
-      runFn(kf, init_states);
+    MemoryObject *mo_ptr_str = nullptr;
+    ObjectState *wo_ptr_str = nullptr;
+    Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
+    unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
+    mo_ptr_str = allocMemory(*state, char_type, &arg, MemKind::param, "*fieldstr", alignment, ptr_str->count);
+    wo_ptr_str = bindObjectInState(*state, mo_ptr_str);
+    // write out the string
+    fromDataString(data, ptr_str->data);
+    for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
+      wo_ptr_str->write8(idx, data[idx]);
     }
+
+    MemoryObject *mo_str = allocMemory(*state, argType, &arg, MemKind::param, "fieldstr", alignment, 1);
+    ObjectState *wo_str = bindObjectInState(*state, mo_str);
+    ref<ConstantExpr> e_ptr_str = ConstantExpr::createPointer(mo_ptr_str->address);
+    wo_str->write(0, e_ptr_str);
+
+    ref<Expr> e = wo_str->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+    bindArgument(kf, 0, *state, e);
   }
+
+  init_states.push_back(state);
+  runFn(kf, init_states);
 }
 
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
@@ -1172,7 +1207,13 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
         outs() << "break here\n";
       }
       executeInstruction(*state, ki);
-      state->assembly_trace.push_back(ki->info->assemblyLine);
+
+      const DebugLoc loc = ki->inst->getDebugLoc();
+      unsigned line = loc.getLine();
+      if (state->assembly_trace.empty() || line != state->assembly_trace.back()) {
+        state->assembly_trace.push_back(line);
+      }
+
     } catch (bad_expression &e) {
       terminateState(*state, "uninitialized expression");
     } catch (solver_failure &e) {

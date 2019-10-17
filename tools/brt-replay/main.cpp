@@ -86,7 +86,7 @@ namespace {
              cl::init(true));
 
 
-cl::opt<std::string> ReplayTest("replay-test", cl::desc("test case to replay"));
+  cl::opt<std::string> ReplayTest("replay-test", cl::desc("test case to replay"));
 
 
   cl::opt<std::string>
@@ -459,24 +459,38 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
     Json::Value root = Json::objectValue;
     // construct the json object representing the results of the test case
 
-    const MemoryObject *mo_ptr_v = state.addressSpace.findMemoryObjectByName("*v");
-    const MemoryObject *mo_ptr_ptr_v = state.addressSpace.findMemoryObjectByName("**v");
+    if (state.name == "toarith") {
 
-    if (mo_ptr_v != nullptr) {
-      const ObjectState *os = state.addressSpace.findObject(mo_ptr_v);
-      if (os != nullptr) {
-        std::vector<unsigned char> data;
-        os->readConcrete(0, data);
-        root["*v"] = toDataString(data);
+      const MemoryObject *mo_ptr_v = state.addressSpace.findMemoryObjectByName("*v");
+      const MemoryObject *mo_ptr_ptr_v = state.addressSpace.findMemoryObjectByName("**v");
+
+      if (mo_ptr_v != nullptr) {
+        const ObjectState *os = state.addressSpace.findObject(mo_ptr_v);
+        if (os != nullptr) {
+          std::vector<unsigned char> data;
+          os->readConcrete(0, data);
+          root["*v"] = toDataString(data);
+        }
       }
-    }
 
-    if (mo_ptr_ptr_v != nullptr) {
-      const ObjectState *os = state.addressSpace.findObject(mo_ptr_ptr_v);
-      if (os != nullptr) {
-        std::vector<unsigned char> data;
-        os->readConcrete(0, data);
-        root["**v"] = toDataString(data);
+      if (mo_ptr_ptr_v != nullptr) {
+        const ObjectState *os = state.addressSpace.findObject(mo_ptr_ptr_v);
+        if (os != nullptr) {
+          std::vector<unsigned char> data;
+          os->readConcrete(0, data);
+          root["**v"] = toDataString(data);
+        }
+      }
+    } else if (state.name == "set_fields") {
+
+      const MemoryObject *mo_max_range = state.addressSpace.findMemoryObjectByName("max_range_endpoint");
+      if (mo_max_range != nullptr) {
+        const ObjectState *os = state.addressSpace.findObject(mo_max_range);
+        if (os != nullptr) {
+          std::vector<unsigned char> data;
+          os->readConcrete(0, data);
+          root["max_range_endpoint"] = toDataString(data);
+        }
       }
     }
 
