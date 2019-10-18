@@ -174,20 +174,6 @@ private:
                      llvm::BasicBlock *defaultBlock);
 };
 
-
-/// LowerSwitchPass - Replace all SwitchInst instructions with chained branch
-/// instructions.  Note that this cannot be a BasicBlock pass because it
-/// modifies the CFG!
-class SplitInitPass : public llvm::FunctionPass {
-public:
-  static char ID; // Pass identification, replacement for typeid
-  SplitInitPass(KModule *km);
-  bool runOnFunction(llvm::Function &F) override;
-
-private:
-  KModule *kmodule;
-};
-
 }
 
 #endif

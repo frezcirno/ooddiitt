@@ -348,10 +348,7 @@ void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function
   }
 }
 
-bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state,
-                                               ref<Expr> address,
-                                               const Type *type,
-                                               KInstruction *target) {
+bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> address, const Type *type, KInstruction *target) {
 
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
@@ -783,7 +780,6 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
 
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
-// DELETEME:  kmodule->prepareMarkers(opts, interpreterHandler);
   specialFunctionHandler->setLocalExecutor(this);
 
   void *addr_offset = nullptr;
@@ -830,12 +826,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
   std::string name = fn->getName();
 
-//  pathsFaulting.clear(0);
   faulting_state_stash.clear();
-//  auto num_reachable_paths = pathsRemaining.size();
-
-  if (pathWriter) baseState->pathOS = pathWriter->open();
-  if (symPathWriter) baseState->symPathOS = symPathWriter->open();
 
   // look for a libc initializer, execute if found to initialize the base state
   Function *libc_init = kmodule->module->getFunction("__uClibc_init");
@@ -861,17 +852,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     // initialize a common initial state
     ExecutionState *state = new ExecutionState(*baseState, kf, name);
     if (statsTracker) statsTracker->framePushed(*state, nullptr);
-
-    // when substituting unconstraining stubs, remaining paths
-    // must be filtered to only entry function
-#if 0 == 1
-    if (desc.unconstraintFlags.test(UNCONSTRAIN_STUB_FLAG)) {
-      pathsRemaining.clear(kf->fnID);
-    }
-
-    // done if our objective is local coverage and there are no paths remaining
-    if (doLocalCoverage && pathsRemaining.empty()) break;
-#endif
 
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
@@ -949,7 +929,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         ExecutionState *curr = init_states[index];
         curr->addConstraint(EqExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc));
 
-        // and the remainor of the argv array should be null
+        // and the remainder of the argv array should be null
         for (unsigned idx = index; idx <= SymArgs; idx++) {
           ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx + 1), ptr_width);
           curr->addConstraint(EqExpr::create(ptr, ConstantExpr::createPointer(0)));
@@ -981,7 +961,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
-
+  assert(false && "deprecated runFunctionAsMain (see runFunctionUnconstrained)");
 }
 
 void LocalExecutor::runFunctionTestCase(const TestCase &test) {
@@ -1179,10 +1159,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   bool enable_state_switching = true;
 
   ExecutionState *state = nullptr;
-  while (!states.empty() &&
-         !haltExecution &&
-         halt == HaltReason::OK /* &&
-         !(doLocalCoverage && pathsRemaining.empty(kf->fnID)) */) {
+  while (!states.empty() && !haltExecution && halt == HaltReason::OK) {
 
     if (enable_state_switching || state == nullptr || states.find(state) == states.end()) {
       state = &searcher->selectState();
@@ -1244,15 +1221,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   delete processTree;
   processTree = nullptr;
 
-  // now consider our stashed faulting states
-#if 0 == 1
-  for (ExecutionState *state : faulting_state_stash) {
-    if (removeCoveredRemainingPaths(*state)) {
-      interpreterHandler->processTestCase(*state);
-    }
-    delete state;
-  }
-#endif
+  // now consider our stashed faulting states?
   faulting_state_stash.clear();
 }
 
@@ -1319,22 +1288,13 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
-  for (auto &sf : state.stack) {
-    state.extractITrace(sf);
-  }
-
   if (state.status == ExecutionState::StateStatus::Completed) {
-    if (!doLocalCoverage /* || removeCoveredRemainingPaths(state) */) {
+    if (!doLocalCoverage) {
       interpreterHandler->processTestCase(state);
     }
   } else {
     // its an error state, pending state, or discarded state
     // stash faults for later consideration
-#if 0 == 1
-    if (addCoveredFaultingPaths(state)) {
-      faulting_state_stash.insert(new ExecutionState(state));
-    }
-#endif
   }
   Executor::terminateState(state, message);
 }
@@ -1445,200 +1405,6 @@ unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
   return counter;
 }
 
-#if 0 == 1
-
-void LocalExecutor::getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const {
-
-  paths.empty();
-
-  // add this functions paths
-  unsigned fnID = progInfo->getFnID(fn_name);
-  if (fnID != 0) {
-    const auto fn_paths = progInfo->get_m2m_paths(fn_name);
-    if (fn_paths != nullptr) {
-      paths[fnID] = *fn_paths;
-    }
-  }
-
-  if (transClosure) {
-    // and then every path from call graph decendents
-    auto reachableFns = progInfo->getReachableFns(fn_name);
-    if (reachableFns != nullptr) {
-      for (const auto &name : *reachableFns) {
-        unsigned id = progInfo->getFnID(name);
-        if (id != 0 && id != fnID) {
-          const auto fn_paths = progInfo->get_m2m_paths(fn_name);
-          if (fn_paths != nullptr) {
-            paths[fnID] = *fn_paths;
-          }
-        }
-      }
-    }
-  }
-}
-
-void LocalExecutor::getAllPaths(M2MPaths &paths) const {
-
-  paths.empty();
-
-  // for each function in the transitive closure, insert m2m paths
-  for (KFunction *kf: kmodule->functions) {
-    Function *fn = kf->function;
-    std::string fn_name = fn->getName();
-    unsigned fnID = progInfo->getFnID(fn_name);
-    if (fnID != 0) {
-      const auto fn_paths = progInfo->get_m2m_paths(fn_name);
-      if (fn_paths != nullptr) {
-        paths[fnID] = *fn_paths;
-      }
-    }
-  }
-}
-
-bool LocalExecutor::reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const {
-
-  // construct a set of m2m path headers
-  std::set<const BasicBlock*> path_headers;
-
-  // iterate through paths remining in this function
-  auto itr1 = pathsRemaining.find(kf->fnID);
-  if (itr1 != pathsRemaining.end()) {
-    for (auto path : itr1->second) {
-
-      // insert head of path into set
-      unsigned head = stoi(path.substr(1, path.find('.', 1)));
-      auto itr2 = kf->mapBBlocks.find(head);
-      if (itr2 != kf->mapBBlocks.end()) {
-        path_headers.insert(itr2->second);
-      }
-    }
-  }
-
-  // return reachability from bb to any of the headers
-  bool result = false;
-  if (!path_headers.empty()) {
-    result = kf->reachesAnyOf(bb, path_headers);
-  }
-  return result;
-}
-
-bool LocalExecutor::isPathOverlap(const std::string &first, const std::string &second) const {
-
-  size_t pos = second.find('.', 1);
-  while (pos != std::string::npos) {
-    std::string tmp = second.substr(0, pos + 1);
-    if (boost::algorithm::ends_with(first, tmp)) return true;
-    pos = second.find('.', pos + 1);
-  }
-  return false;
-}
-
-
-bool LocalExecutor::isOnRemainingPath(const ExecutionState &state, const KFunction *kf) const {
-
-  if (state.stack.back().itrace.size() > 0) {
-
-    unsigned fnID = kf->fnID;
-    const auto &itr = pathsRemaining.find(fnID);
-    if (itr != pathsRemaining.end()) {
-
-      std::stringstream ss;
-      ss << '.';
-      for (const auto &id : state.stack.back().itrace) {
-        ss << id << '.';
-      }
-
-      std::string trace = ss.str();
-      for (const auto &path : itr->second) {
-        if (isPathOverlap(trace, path)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-  return true;
-}
-
-bool LocalExecutor::removeCoveredRemainingPaths(ExecutionState &state) {
-
-  bool result = false;
-
-  // look through each of the functions covered by this state
-  for (auto pr : state.itraces) {
-    unsigned fnID = pr.first;
-    auto itr = pathsRemaining.find(fnID);
-
-    // if the function has paths remaining...
-    if (itr != pathsRemaining.end()) {
-      auto &traces = pr.second;
-      auto &paths = itr->second;
-
-      auto p_itr = paths.begin();
-      while (p_itr != paths.end()) {
-        std::string path = *p_itr;
-        bool found = false;
-        for (const std::string &trace : traces) {
-          if (trace.find(path) != std::string::npos) {
-            found = true;
-            break;
-          }
-        }
-        if (found) {
-          p_itr = paths.erase(p_itr);
-          result = true;
-        }
-        else {
-          ++p_itr;
-        }
-      }
-    }
-  }
-  pathsRemaining.clean();
-  return result;
-}
-
-bool LocalExecutor::addCoveredFaultingPaths(const ExecutionState &state) {
-
-  bool result = false;
-
-  // look through each of the functions covered by this state
-  for (auto pr : state.itraces) {
-    unsigned fnID = pr.first;
-    auto itr = pathsRemaining.find(fnID);
-
-    // if the function has paths remaining...
-    if (itr != pathsRemaining.end()) {
-      auto &traces = pr.second;
-      auto &paths = itr->second;
-
-      auto p_itr = paths.begin();
-      while (p_itr != paths.end()) {
-        std::string path = *p_itr;
-        bool found = false;
-        for (const std::string &trace : traces) {
-          if (trace.find(path) != std::string::npos) {
-            found = true;
-            break;
-          }
-        }
-        if (found) {
-
-          // found a missing covered path.  See if this path is already covered by a prior
-          // faulting path
-          if (!pathsFaulting.contains(fnID, path)) {
-            pathsFaulting[fnID].insert(path);
-            result = true;
-          }
-        }
-        ++p_itr;
-      }
-    }
-  }
-  return result;
-}
-
-#endif
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
@@ -1673,77 +1439,6 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
   return result;
 }
 
-void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
-
-#if 0 == 1
-  // skip loop accounting if this is the jump from init block
-  if (altStartBB != nullptr) {
-    // if src and dst bbs have the same parent, then this is a branch
-    if (dst->getParent() == src->getParent()) {
-
-      // update the loop frame
-      StackFrame &sf = state.stack.back();
-      KFunction *kf = sf.kf;
-
-      const llvm::Loop *src_loop = kf->loopInfo.getLoopFor(src);
-      const llvm::Loop *dst_loop = kf->loopInfo.getLoopFor(dst);
-
-      if (src_loop == dst_loop) {
-        // either source and destination are not in a loop,
-        // or they are in the same loop
-        if (dst_loop != nullptr) {
-
-         // both in a loop, if the dest is the loop header, then we have completed a cycle
-         if (dst_loop->getHeader() == dst && !sf.loopFrames.empty()) {
-           LoopFrame &lf = sf.loopFrames.back();
-           if (lf.loop == dst_loop) lf.counter += 1;
-         }
-        }
-      } else {
-        // source and destination loop are different
-        // we either entered a new loop, or exited the previous loop (or both?)
-        if (src_loop == nullptr) {
-
-          // entered new loop
-          sf.loopFrames.emplace_back(LoopFrame(dst_loop));
-        } else if (dst_loop == nullptr) {
-
-          // left the prior loop
-          sf.loopFrames.pop_back();
-        } else {
-          // neither empty implies we just changed loops
-          if (src_loop->contains(dst_loop)) {
-
-            // create frames for each intermidiate loop
-            const llvm::Loop *curr = dst_loop;
-            std::vector<const llvm::Loop*> loops;
-            while (curr != src_loop) {
-              loops.push_back(curr);
-              curr = curr->getParentLoop();
-            }
-            for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-              sf.loopFrames.emplace_back(LoopFrame(*itr));
-            }
-
-          } else if (dst_loop->contains(src_loop)) {
-
-            // pop loops from frame until we get to the source
-            const llvm::Loop *prior = nullptr;
-            while (!sf.loopFrames.empty() && prior != src_loop) {
-              prior = sf.loopFrames.back().loop;
-              sf.loopFrames.pop_back();
-            }
-          } else {
-            klee_error("loop transition between unrelated loops");
-          }
-        }
-      }
-    }
-  }
-#endif
-  Executor::transferToBasicBlock(state, src, dst);
-}
-
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
@@ -1762,18 +1457,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       BasicBlock *src = i->getParent();
 
       if (bi->isUnconditional()) {
-        BasicBlock *dst;
-#if 0 == 1
-        if (altStartBB != nullptr) {
-          assert(unconstraintFlags.isUnconstrainLocals());
-          dst = const_cast<BasicBlock*>(altStartBB);
-        } else {
-#endif
-          dst = bi->getSuccessor(0);
-//        }
-        // set alternate start to null after transfer, used as flag
+        BasicBlock *dst = bi->getSuccessor(0);
         transferToBasicBlock(state, src, dst);
-//        altStartBB = nullptr;
 
       } else {
         // FIXME: Find a way that we don't have this hidden dependency.
@@ -1795,29 +1480,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         for (unsigned index = 0; index < countof(states); ++index) {
           if (states[index] != nullptr) {
+
             BasicBlock *dst = bi->getSuccessor(index);
+            transferToBasicBlock(*states[index], src, dst);
 
-            // if we have unconstrained locals, but the destination block cannot reach a remaining
-            // path, then there is no point in continuing this state
+            if (bothSatisfyable) {
+              states[index]->unconBranchCounter++;
+              StackFrame &sf = states[index]->stack.back();
+              if (!sf.loopFrames.empty()) {
+                LoopFrame &lf = sf.loopFrames.back();
+                ++loopForkCounter[lf.loop];
+                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
+                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
 
-            if ( false /* unconstraintFlags.isUnconstrainLocals() &&
-                !(reachesRemainingPath(kf, dst) || isOnRemainingPath(*states[index], kf) ) */ ) {
-              terminateState(*states[index], "remaining paths are unreachable");
-            } else {
-              transferToBasicBlock(*states[index], src, dst);
-
-              if (bothSatisfyable) {
-                states[index]->unconBranchCounter++;
-                StackFrame &sf = states[index]->stack.back();
-                if (!sf.loopFrames.empty()) {
-                  LoopFrame &lf = sf.loopFrames.back();
-                  ++loopForkCounter[lf.loop];
-                  if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
-                    if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
-
-                      // finally consider terminating the state.
-                      terminateState(*states[index], "loop throttled");
-                    }
+                    // finally consider terminating the state.
+                    terminateState(*states[index], "loop throttled");
                   }
                 }
               }
@@ -1844,12 +1521,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       const CallSite cs(i);
       std::string fnName = "@unknown";
       bool isInModule = false;
-// DELETEME:      bool isMarked = false;
       bool noReturn =  false;
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
         fnName = fn->getName();
 
+        // RLR TODO: what to do with these?
         if (fnName.find("printf") != std::string::npos) {
           Type *ty = cs->getType();
           if (!ty->isVoidTy()) {
@@ -1863,23 +1540,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         isInModule = kmodule->isModuleFunction(fn);
-// DELETEME:        if (isInModule) isMarked = kmodule->isMarkedFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
-
-        // if this is a call to a mark() variant, then log the marker to state
-        if (kmodule->isMarkerFn(fn)) {
-          if ((fn->arg_size() == 2) && fn->getReturnType()->isVoidTy()) {
-            const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
-            const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
-            if ((arg0 != nullptr) && (arg1 != nullptr)) {
-              unsigned fnID = (unsigned) arg0->getUniqueInteger().getZExtValue();
-              unsigned bbID = (unsigned) arg1->getUniqueInteger().getZExtValue();
-              state.addMarker(fnID, bbID);
-              assert(false && "should not be any markers");
-            }
-          }
-          return;
-        }
 
         // if this is an intrinsic function, let the standard executor handle it
         if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) {
@@ -1897,7 +1558,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       // if not stubbing callees and target is in the module
       if (!unconstraintFlags.isStubCallees() && isInModule) {
-        if (noReturn /* && !isMarked */) {
+        if (noReturn) {
           terminateStateOnExit(state);
         } else {
           Executor::executeInstruction(state, ki);
@@ -1998,69 +1659,36 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (ty->isPointerTy()) {
 
           // two possible returns for a pointer type, nullptr and a valid object
-
           ref<ConstantExpr> null = Expr::createPointer(0);
           ref<Expr> eqNull = EqExpr::create(retExpr, null);
           StatePair sp = fork(state, eqNull, true);
 
           // in the true case, ptr is null, so nothing further to do
-
           // in the false case, allocate new memory for the ptr and
           // constrain the ptr to point to it.
           if (sp.second != nullptr) {
 
-            MemKind kind = MemKind::lazy;
-
-#if 0 == 1
-            // special handling for zopc_malloc. argument contains the allocation size
-            if (fnName == "zopc_malloc") {
-              kind = MemKind::heap;
-              ref<Expr> size = eval(ki, numArgs, *sp.second).value;
-              size = sp.second->constraints.simplifyExpr(size);
-
-              if (ConstantExpr *CE = dyn_cast<ConstantExpr>(size)) {
-                count = (unsigned) CE->getZExtValue();
-              } else {
-
-                // select a smallest size that might be true
-                Expr::Width w = size->getWidth();
-                ref<ConstantExpr> min_size;
-                bool result = false;
-                for (unsigned try_size = 16; !result && try_size <= 64536; try_size *= 2) {
-                  min_size = ConstantExpr::create(try_size, w);
-                  result = solver->mayBeTrue(state, UltExpr::create(size, min_size));
-                }
-                if (result) {
-                  addConstraint(*sp.second, UltExpr::create(size, min_size));
-                  bool success = solver->getValue(*sp.second, size, min_size);
-                  assert(success && "FIXME: solver just said mayBeTrue");
-                  ref<Expr> eq = EqExpr::create(size, min_size);
-                  addConstraint(*sp.second, eq);
-                  count = (unsigned) min_size->getZExtValue();
-                } else {
-                  // too big of an allocation
-                  terminateStateOnFault(*sp.second, ki, "zopc_malloc too large");
-                  return;
-                }
-              }
-            }
-#endif
             // RLR TODO: this is only returning new objects.
             // should it also return existing objects?
 
-            Type *subtype = ty->getPointerElementType();
+            Type *base_type = ty->getPointerElementType();
 
             // LazyAllocationCount needs to be expanded for string and buffer types.
             unsigned count = LazyAllocationCount;
-            if (subtype->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
+            if (base_type->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
               count = MIN_LAZY_STRING_LEN;
             }
-            MemoryObject *newMO = allocMemory(*sp.second, subtype, i, kind, fullName(fnName, counter, "*0"), 0, count);
-            bindObjectInState(*sp.second, newMO);
-
-            ref<ConstantExpr> ptr = newMO->getOffsetIntoExpr(LazyAllocationOffset * (newMO->size / count));
+            // finally, try with a new object
+            WObjectPair wop;
+            allocSymbolic(*sp.second, base_type, i, MemKind::lazy, fullName(fnName, counter, "*0"), wop, 0, count);
+            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->size / count));
             ref<Expr> eq = EqExpr::create(retExpr, ptr);
             addConstraint(*sp.second, eq);
+
+            // insure strings are null-terminated
+            if (base_type->isIntegerTy(8)) {
+              addConstraint(*sp.second, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+            }
           }
         }
       }

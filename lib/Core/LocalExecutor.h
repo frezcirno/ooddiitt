@@ -51,11 +51,11 @@ public:
   void runFunctionTestCase(const TestCase &test) override;
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
+  void setPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated path writer"); }
+  void setSymbolicPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated sympath writer"); }
+
 protected:
   void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
-// DELETEME:  void runFnEachBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
-// DELETEME: HaltReason runFnFromBlock(KFunction *kf, std::vector<ExecutionState*> &initialStates);
-
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
   }
@@ -112,7 +112,6 @@ protected:
                      size_t align = 0,
                      unsigned count = 1);
 
-
   bool duplicateSymbolic(ExecutionState &state,
                          const MemoryObject *mo,
                          const llvm::Value *allocSite,
@@ -138,22 +137,9 @@ protected:
                              const llvm::Twine &longMessage = "") override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst);
   void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::Loop *loop) const;
   unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
-
-  // RLR TODO: not needed for cbert
-#if 0 == 1
-  void getReachablePaths(const std::string &fn_name, M2MPaths &paths, bool transClosure) const;
-  void getAllPaths(M2MPaths &paths) const;
-  bool reachesRemainingPath(const KFunction *kf, const llvm::BasicBlock *bb) const;
-  bool isOnRemainingPath(const ExecutionState &state, const KFunction *kf) const;
-  bool isPathOverlap(const std::string &first, const std::string &second) const;
-  bool removeCoveredRemainingPaths(ExecutionState &state);
-  bool addCoveredFaultingPaths(const ExecutionState &state);
-#endif
-
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
@@ -162,8 +148,6 @@ protected:
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
-// DELETEME:  M2MPaths pathsRemaining;
-// DELETEME:  M2MPaths pathsFaulting;
   std::set<ExecutionState*> faulting_state_stash;
   std::map<const llvm::Loop*, unsigned> loopForkCounter;
   unsigned maxStatesInLoop;
@@ -173,7 +157,6 @@ protected:
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
   bool libc_initializing;
-// DELETEME:  const llvm::BasicBlock *altStartBB;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

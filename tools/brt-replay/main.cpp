@@ -77,40 +77,15 @@ using namespace klee;
 
 namespace {
 
-  cl::opt<std::string>
-  InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
-
-  cl::opt<bool>
-  IndentJson("indent-json",
-             cl::desc("indent emitted json for readability"),
-             cl::init(true));
-
-
+  cl::opt<std::string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<std::string> ReplayTest("replay-test", cl::desc("test case to replay"));
-
-
-  cl::opt<std::string>
-  RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
-
-  cl::opt<std::string>
-  Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-
-  cl::list<std::string>
-  InputArgv(cl::ConsumeAfter,
-            cl::desc("<program arguments>..."));
-
-  cl::opt<bool>
-  NoOutput("no-output",
-           cl::desc("Don't generate test files"));
-
-  cl::opt<bool>
-  WarnAllExternals("warn-all-externals",
-                   cl::desc("Give initial warning for all externals."));
-
-  cl::opt<bool>
-  ExitOnError("exit-on-error",
-              cl::desc("Exit if errors occur"));
-
+  cl::opt<std::string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
+  cl::opt<std::string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+  cl::list<std::string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
+  cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
+  cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
+  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
 
   enum LibcType {
     NoLibc, KleeLibc, UcLibc
@@ -125,52 +100,19 @@ namespace {
 		          clEnumValEnd),
        cl::init(UcLibc));
 
-
   cl::opt<bool>
   WithPOSIXRuntime("posix-runtime",
 		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
 		cl::init(false));
 
-  cl::opt<bool>
-  OptimizeModule("optimize",
-                 cl::desc("Optimize before execution"),
-		 cl::init(false));
-
-  cl::opt<bool>
-  CheckDivZero("check-div-zero",
-               cl::desc("Inject checks for division-by-zero"),
-               cl::init(false));
-
-  cl::opt<bool>
-  CheckOvershift("check-overshift",
-               cl::desc("Inject checks for overshift"),
-               cl::init(false));
-
-  cl::opt<std::string>
-  OutputCreate("output-create",
-               cl::desc("recreate output directory (if it exists)"),
-               cl::init(""));
-
-  cl::opt<std::string>
-  OutputAppend("output-append",
-               cl::desc("add to existing output directory (fail if does not exist)"),
-               cl::init(""));
-
-  cl::opt<std::string>
-  OutputPrefix("output-prefix",
-               cl::desc("prefix for message files"),
-               cl::init(""));
-
-  cl::list<std::string>
-  LinkLibraries("link-llvm-lib",
-		cl::desc("Link the given libraries before execution"),
-		cl::value_desc("library file"));
-
-  cl::opt<unsigned>
-  Watchdog("watchdog",
-           cl::desc("Use a watchdog process to monitor se. (default = 0 secs"),
-           cl::init(0));
-
+  cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
+  cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
+  cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
+  cl::opt<std::string> OutputCreate("output-create", cl::desc("recreate output directory (if it exists)"), cl::init(""));
+  cl::opt<std::string> OutputAppend("output-append", cl::desc("add to existing output directory (fail if does not exist)"), cl::init(""));
+  cl::opt<std::string> OutputPrefix("output-prefix", cl::desc("prefix for message files"), cl::init(""));
+  cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
 }
 
 /***/
@@ -1130,161 +1072,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
-#if 0 == 1
-
-void accumulate_transitive_closure(const std::map<std::string,std::set<std::string> > &map_callees,
-                                   const std::string &fn,
-                                   std::set<std::string> &callees) {
-
-  const auto &itr = map_callees.find(fn);
-  if (itr != map_callees.end()) {
-    for (const auto &child : itr->second) {
-      if (callees.count(child) == 0) {
-        callees.insert(child);
-        accumulate_transitive_closure(map_callees, child, callees);
-      }
-    }
-  }
-}
-
-void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
-
-  // complete progInfo from json structure
-
-  // get a list of non-const global variables defined in this module
-  std::set<std::string> global_vars;
-  Json::Value &globalRoot = root["globals"];
-  Json::Value::Members gbls = globalRoot.getMemberNames();
-  for (const auto gbl : gbls) {
-    if (UnconstrainConstGlobals || !globalRoot[gbl]["type"]["isConst"].asBool()) {
-      global_vars.insert(gbl);
-    }
-  }
-
-  Json::Value &chksum = root["checksum"];
-  if (chksum.isString()) progInfo.setChecksum(chksum.asString());
-
-  // need a map of callees per function
-  std::map<std::string,std::set<std::string> > map_callees;
-
-  Json::Value &fnsRoot = root["functions"];
-  Json::Value::Members fns = fnsRoot.getMemberNames();
-  for (const auto &fn : fns) {
-
-    // find the constant function params
-    Json::Value &fnRoot = fnsRoot[fn];
-    Json::Value &params = fnRoot["params"];
-    unsigned id = fnRoot["fnID"].asUInt();
-    progInfo.setFnID(fn, id);
-
-    if (params.isArray()) {
-      for (unsigned index = 0, end = params.size(); index < end; ++index) {
-
-        Json::Value &param = params[index];
-        if (!param["isOutput"].asBool()) {
-          Json::Value &type = param["type"];
-          if (type.isMember("isConst") && type["isConst"].asBool()) {
-            progInfo.setConstParam(fn, index);
-          }
-        }
-      }
-    }
-
-    // get all of the functions direct callees
-    Json::Value &callTargets = fnRoot["callTargets"];
-    if (callTargets.isArray()) {
-      for (unsigned index = 0, end = callTargets.size(); index < end; ++index) {
-        Json::Value &target = callTargets[index];
-        map_callees[fn].insert(target.asString());
-      }
-    }
-
-    // find the referenced global variables
-    Json::Value &globals = fnRoot["globalRefs"];
-    if (globals.isArray()) {
-      for (unsigned index = 0, end = globals.size(); index < end; ++index) {
-        Json::Value &global = globals[index];
-        if (global["isInput"].asBool()) {
-          std::string name = global["name"].asString();
-          if (global_vars.count(name) > 0) {
-            progInfo.setGlobalInput(fn, name);
-          }
-        }
-        if (global["isOutput"].asBool()) {
-          std::string name = global["name"].asString();
-          if (global_vars.count(name) > 0) {
-            progInfo.setOutput(fn, name);
-          }
-        }
-      }
-    }
-
-    // add the markers
-    Json::Value &markers = fnRoot["marks"];
-    if (markers.isArray()) {
-      for (unsigned index = 0, end = markers.size(); index < end; ++index) {
-        Json::Value &marker = markers[index];
-        progInfo.add_marker(fn, marker.asUInt());
-      }
-    }
-
-    // then finally, add the m2m paths
-    Json::Value &m2m_paths = fnRoot["m2m_paths"];
-    if (m2m_paths.isArray()) {
-      for (unsigned index1 = 0, end1 = m2m_paths.size(); index1 < end1; ++index1) {
-        Json::Value &path = m2m_paths[index1];
-        if (path.isArray()) {
-          std::stringstream ss;
-          ss << '.';
-          for (unsigned index2 = 0, end2 = path.size(); index2 < end2; ++index2) {
-            Json::Value &marker = path[index2];
-            ss << marker.asUInt() << '.';
-          }
-          progInfo.add_m2m_path(fn, ss.str());
-        }
-      }
-    }
-  }
-
-  // now that we have a map of direct callees, we do a dfs to find all reachable callees
-  for (const auto &itr : map_callees) {
-    const std::string &fn = itr.first;
-    std::set<std::string> callees;
-    accumulate_transitive_closure(map_callees, fn, callees);
-
-    progInfo.setReachableFn(fn, fn);
-    for (const auto &callee : callees) {
-      progInfo.setReachableFn(fn, callee);
-    }
-  }
-
-  // get the prototypes, if that's all we have
-  Json::Value &protosRoot = root["prototypes"];
-  Json::Value::Members protos = protosRoot.getMemberNames();
-  for (const auto fn : protos) {
-
-    // find the constant function params
-    Json::Value &fnRoot = protosRoot[fn];
-    Json::Value &params = fnRoot["params"];
-    progInfo.setFnID(fn, 0);
-
-    if (params.isArray()) {
-      for (unsigned index = 0, end = params.size(); index < end; ++index) {
-
-        Json::Value &param = params[index];
-        if (!param["isOutput"].asBool()) {
-          Json::Value &type = param["type"];
-          if (type.isMember("isConst") && type["isConst"].asBool()) {
-            progInfo.setConstParam(fn, index);
-          }
-        }
-      }
-    }
-  }
-}
-#endif
-
-
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -1333,65 +1120,6 @@ void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
       names.insert(itr->getName());
     }
   }
-}
-
-bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &progression, const std::string &str) {
-
-  bool result = false;
-  if (str.empty()) {
-    // default progression
-    UnconstraintFlagsT flags;
-    progression.emplace_back(60, flags);
-//    flags.set(UNCONSTRAIN_GLOBAL_FLAG);
-//    progression.emplace_back(60, flags);
-//    flags.reset();
-//    flags.set(UNCONSTRAIN_LOCAL_FLAG);
-//    progression.emplace_back(60, flags);
-//    flags.reset();
-//    flags.set(UNCONSTRAIN_STUB_FLAG);
-//    progression.emplace_back(60, flags);
-    result = true;
-  } else {
-
-    // parse out the progression phases
-    std::vector<std::string> phases;
-    boost::split(phases, str, [](char c){return c == ',';});
-    for (const auto &phase: phases) {
-
-      // loop through each phase in progression
-      UnconstraintFlagsT flags;
-      unsigned timeout = 60;
-
-      // parse out the phase
-      bool done = false;
-      for (auto itr = phase.begin(), end = phase.end(); (!done) && itr != end; ++itr) {
-
-        if (*itr == ':') {
-          // rest of string is a unsigned timeout
-          timeout = (unsigned) std::stoi(std::string(itr + 1, end));
-          char suffix = (char) tolower(phase.back());
-          if (suffix == 'm') {
-            timeout *= 60;
-          } else if (suffix == 'h') {
-            timeout *= (60 * 60);
-          }
-          done = true;
-        } else if (*itr == 'g') {
-          flags.set(UNCONSTRAIN_GLOBAL_FLAG);
-//        } else if (*itr == 'l') {
-//          flags.set(UNCONSTRAIN_LOCAL_FLAG);
-        } else if (*itr == 's') {
-          flags.set(UNCONSTRAIN_STUB_FLAG);
-        } else if (*itr != 'i') {
-          // invalid character
-          return false;
-        }
-      }
-      progression.emplace_back(timeout, flags);
-    }
-    result = (phases.size() == progression.size());
-  }
-  return result;
 }
 
 int main(int argc, char **argv, char **envp) {
@@ -1602,10 +1330,6 @@ int main(int argc, char **argv, char **envp) {
     outs() << "Linking in library: " << libFilename << '\n';
     mainModule = klee::linkWithLibrary(mainModule, libFilename);
   }
-  // Get the desired main function.  klee_main initializes uClibc
-  // locale and other data and then calls main.
-
-//  Function *mainFn = mainModule->getFunction(UserMain);
 
   // FIXME: Change me to std types.
   int pArgc;
@@ -1652,16 +1376,11 @@ int main(int argc, char **argv, char **envp) {
   void *heap_base = &_end;
 
   Interpreter::InterpreterOptions IOpts;
-//  IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   IOpts.createOutputDir = handler->createOutputDir();
 
   // RLR TODO: consider removing heap_base
   IOpts.heap_base = (void *) ((uint64_t) heap_base);
-//  if (!parseUnconstraintProgression(IOpts.progression, Progression)) {
-//    klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
-//  }
   IOpts.mode = Interpreter::ExecModeID::rply;
-//  IOpts.userMain = mainFn;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
@@ -1669,7 +1388,6 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::ModuleOptions MOpts;
 
   MOpts.LibraryDir = LibraryDir;
-//  MOpts.EntryPoint = EntryPoint;
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;

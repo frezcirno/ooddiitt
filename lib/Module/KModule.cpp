@@ -80,19 +80,9 @@ namespace {
     eSwitchTypeInternal
   };
 
-  cl::list<string>
-  MergeAtExit("merge-at-exit");
-
-  cl::opt<bool>
-  OutputSource("output-source",
-               cl::desc("Write the assembly for the final transformed source"),
-               cl::init(false));
-
-  cl::opt<bool>
-  OutputModule("output-module",
-               cl::desc("Write the bitcode for the final transformed module"),
-               cl::init(false));
-
+  cl::list<string> MergeAtExit("merge-at-exit");
+  cl::opt<bool> OutputSource("output-source", cl::desc("Write the assembly for the final transformed source"), cl::init(false));
+  cl::opt<bool> OutputModule("output-module", cl::desc("Write the bitcode for the final transformed module"), cl::init(false));
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple",
@@ -104,15 +94,8 @@ namespace {
                         clEnumValEnd),
              cl::init(eSwitchTypeInternal));
 
-  cl::opt<bool>
-  DebugPrintEscapingFunctions("debug-print-escaping-functions",
-                              cl::desc("Print functions whose address is taken."));
+  cl::opt<bool> DebugPrintEscapingFunctions("debug-print-escaping-functions", cl::desc("Print functions whose address is taken."));
 }
-
-
-// static data
-const std::set<std::string> KModule::marker_fn_names =
-    { "__MARK__", "__mark__", "__calltag__", "__init_markers__", "__term_markers__" };
 
 KModule::KModule(Module *_module)
   : module(_module),
@@ -258,13 +241,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
   }
 
-  // find each marker function and add to set
-  for (const auto &name : marker_fn_names) {
-    if (const Function *fn = module->getFunction(name)) {
-      marker_fns.insert(fn);
-    }
-  }
-
   if (!MergeAtExit.empty()) {
     Function *mergeFn = module->getFunction("klee_merge");
     if (!mergeFn) {
@@ -403,7 +379,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
-    pm.add(new SplitInitPass(this));
     pm.run(*module);
   }
 
@@ -419,61 +394,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         delete os;
     }
   }
-
-  // RLR TODO: move to llvm static analysis pass
-# if 0 == 1
-  if (OutputStatic) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("structs.json", true);
-    if (os != nullptr) {
-
-      llvm::TypeFinder typeFinder;
-      typeFinder.run(*module, false);
-
-      *os << "{";
-      unsigned struct_cnt = 0;
-      for (auto type : typeFinder) {
-
-        if (StructType *st = dyn_cast<StructType>(type)) {
-
-          if (st->hasName()) {
-            string name = st->getName();
-            if (struct_cnt++ > 0)
-              *os << ",";
-
-            *os << "\n  \"" << name << "\": {\n    \"size\": ";
-
-            const StructLayout *targetStruct = targetData->getStructLayout(st);
-            uint64_t size = targetStruct->getSizeInBytes();
-
-            *os << size << ",\n    \"types\": [";
-            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-              if (idx > 0) *os << ", ";
-              *os << "\"" << ih->getTypeName(st->getElementType(idx)) << "\"";
-            }
-            *os << "],\n";
-
-            *os << "    \"offsets\": [";
-            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-              if (idx > 0) *os << ", ";
-              *os << targetStruct->getElementOffset(idx);
-            }
-            *os << "],\n";
-
-            *os << "    \"sizes\": [";
-            for (unsigned idx=0, end=st->getNumElements(); idx < end; ++idx) {
-              if (idx > 0) *os << ", ";
-              *os << targetData->getTypeSizeInBits(st->getElementType(idx)) / 8;
-            }
-            *os << "]\n  }";
-          }
-        }
-      }
-
-      *os << "\n}\n";
-      delete os;
-    }
-  }
-#endif
 
   if (OutputModule) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.bc");
@@ -522,58 +442,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   /* Compute various interesting properties */
 
-  // check for annotation functions
-  // construct a list of data types, by name, for annotation matching
-  map<string,Type*> mapNameToType;
-  llvm::TypeFinder typeFinder;
-  typeFinder.run(*module, true);
-  for (auto type : typeFinder) {
-    std::string name = type->getName().str();
-    if (boost::starts_with(name, "struct.")) {
-      name = name.substr(7);
-    }
-    mapNameToType[name] = type;
-  }
-
-#if 0 == 1
-  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
-    KFunction *kf = *it;
-    const Function *fn = kf->function;
-    std::string full_name = fn->getName();
-    if (fn->getReturnType()->isVoidTy() && boost::starts_with(full_name, "annot_")) {
-      std::string target_name = full_name.substr(6);
-      if (!target_name.empty()) {
-        if (Function *target = module->getFunction(target_name)) {
-
-          // this is a function annotation
-          if (!MatchSignature(target, fn)) {
-            klee_error("Function annotation for %s has mismtached argument types", full_name.c_str());
-          }
-          functionMap[target]->annotationKFn = kf;
-        } else {
-
-          auto itr = mapNameToType.find(target_name);
-          if (itr != mapNameToType.end()) {
-
-            // this is a type annotation
-            Type *tptr = PointerType::get(itr->second, 0);
-            if (!MatchSignature(tptr, fn)) {
-              klee_error("Type annotation for %s has incorrect argument type", full_name.c_str());
-            }
-            mapTypeToAnnotation[tptr] = kf;
-
-          } else {
-
-            // annotation cannot be associated with either function or data type
-            // report error
-            klee_error("Cannot find annotation association for %s", full_name.c_str());
-          }
-        }
-      }
-    }
-  }
-#endif
-
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     if (functionEscapes(kf->function))
@@ -588,208 +456,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     llvm::errs() << "]\n";
   }
 }
-
-bool KModule::MatchSignature(const Function *fn, const Function *annotFn) const {
-
-  if (annotFn->getReturnType()->isVoidTy()) {
-    if (fn->arg_size() == annotFn->arg_size()) {
-
-      // collect all of the argument types
-      vector<const Type*> fnArgTypes;
-      vector<const Type*> annotArgTypes;
-      for (auto ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai) {
-        fnArgTypes.push_back(ai->getType());
-      }
-      for (auto ai = annotFn->arg_begin(), ae = annotFn->arg_end(); ai != ae; ++ai) {
-        annotArgTypes.push_back(ai->getType());
-      }
-
-      // number of args is the same so size of arrays should be the same as well
-      assert(fnArgTypes.size() == annotArgTypes.size());
-
-      // if any argument has a different type, then this is not a match
-      for (unsigned index = 0, end = (unsigned) fnArgTypes.size(); index < end; ++index) {
-        if (fnArgTypes[index] != annotArgTypes[index]) {
-          return false;
-        }
-      }
-
-      // all argument types match
-      return true;
-    }
-  }
-  return false;
-}
-
-bool KModule::MatchSignature(const Type *type, const Function *annotFn) const {
-
-  if (annotFn->getReturnType()->isVoidTy()) {
-
-    unsigned index = 0;
-    for (auto ai = annotFn->arg_begin(), ae = annotFn->arg_end(); ai != ae; ++ai, ++index) {
-
-      const Argument &arg = *ai;
-      if (type != arg.getType()) {
-        return false;
-      }
-    }
-    return index == 1;
-  }
-  return false;
-}
-
-#if 0 == 1
-void KModule::prepareMarkers(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
-
-  // RLR TODO: move to llvm static analysis pass
-#if 0  == 1
-  set<const Function *> fns_ptr_relation;
-  set<const Function *> fns_ptr_equality;
-  set<const Function *> fns_ptr_equal_non_null_const;
-  set<const Function *> fns_ptr_to_int;
-  set<const Function *> fns_int_to_ptr;
-#endif
-
-  // for each function in the main module
-  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
-
-    KFunction *kf = *it;
-    Function *fn = kf->function;
-    string fn_name = fn->getName().str();
-    kf->fnID = info.getFnID(fn_name);
-
-    if (kf->fnID != 0) {
-
-      set<unsigned> fn_bbs;
-
-      // now step through each of the functions basic blocks
-      for (auto bbit = fn->begin(), bbie = fn->end(); bbit != bbie; ++bbit) {
-        const BasicBlock &bb = *bbit;
-
-        // look through each instruction of the bb looking for function calls
-        // and problematic instructions
-        vector<unsigned> bbIDs;
-        for (auto iit = bb.begin(), iid = bb.end(); iit != iid; ++iit) {
-          const Instruction *i = &(*iit);
-          unsigned opcode = i->getOpcode();
-          if (opcode == Instruction::Call) {
-
-            const CallSite cs(const_cast<Instruction *>(i));
-
-            Function *called = getTargetFunction(cs.getCalledValue());
-            if (called != nullptr) {
-
-              // check the name, number of arguments, and the return type
-              if (isMarkerFn(called) && (called->arg_size() == 2) && (called->getReturnType()->isVoidTy())) {
-
-                // extract the two literal arguments
-                const Constant *arg0 = dyn_cast<Constant>(cs.getArgument(0));
-                const Constant *arg1 = dyn_cast<Constant>(cs.getArgument(1));
-                if ((arg0 != nullptr) && (arg1 != nullptr)) {
-                  unsigned val0 = (unsigned) arg0->getUniqueInteger().getZExtValue();
-                  unsigned val1 = (unsigned) arg1->getUniqueInteger().getZExtValue();
-
-                  if (val0 != kf->fnID) {
-                    klee_warning("conflicting marker function id, received %d, expected %d", val0, kf->fnID);
-                  }
-                  bbIDs.push_back(val1);
-                  kf->mapBBlocks[val1] = &bb;
-                }
-              }
-            }
-// RLR TODO: move to llvm static analysis
-#if 0 == 1
-          } else if (opcode == Instruction::ICmp) {
-
-            const CmpInst *ci = cast<CmpInst>(i);
-            const Value *arg0 = ci->getOperand(0);
-            const Value *arg1 = ci->getOperand(1);
-
-            if (arg0->getType()->isPointerTy()) {
-              if (ci->isEquality()) {
-                const Constant *carg0 = dyn_cast<Constant>(arg0);
-                const Constant *carg1 = dyn_cast<Constant>(arg1);
-                if ((carg0 == nullptr) && (carg1 == nullptr)) {
-                  fns_ptr_equality.insert(fn);
-                } else {
-                  if (((carg0 != nullptr) && !carg0->isNullValue()) ||
-                      ((carg1 != nullptr) && !carg1->isNullValue())) {
-                    fns_ptr_equal_non_null_const.insert(fn);
-                  }
-                }
-              } else {
-                fns_ptr_relation.insert(fn);
-              }
-            }
-          } else if (opcode == Instruction::PtrToInt) {
-            fns_ptr_to_int.insert(fn);
-          } else if (opcode == Instruction::IntToPtr) {
-            fns_int_to_ptr.insert(fn);
-#endif
-          }
-        }
-        kf->mapMarkers[&bb] = bbIDs;
-      }
-
-    }
-  }
-
-// RLR TODO: move to llvm static analysis pass
-#if 0 == 1
-  if (OutputStatic) {
-
-    // save a json formatted record of found pointer relations
-    llvm::raw_fd_ostream *os = ih->openOutputFile("ptr_relations.json", true);
-    if (os != nullptr) {
-
-      unsigned counter = 0;
-
-      *os << "{\n";
-
-      EmitFunctionSet(os, "ptr_equality", fns_ptr_equality, counter);
-      EmitFunctionSet(os, "ptr_relation", fns_ptr_relation, counter);
-      EmitFunctionSet(os, "ptr_equal_non_null", fns_ptr_equal_non_null_const, counter);
-      EmitFunctionSet(os, "ptr_to_int", fns_ptr_to_int, counter);
-      EmitFunctionSet(os, "ptr_int_to_ptr", fns_int_to_ptr, counter);
-
-      if (counter > 0) {
-        *os << "\n";
-      }
-      *os << "}\n";
-      delete os;
-    }
-  }
-#endif
-}
-
-#endif
-
-// RLR TODO: move to llvm static analysis pass
-#if 0 == 1
-void KModule::EmitFunctionSet(raw_fd_ostream *os,
-                              string key,
-                              set<const Function*> fns,
-                              unsigned &counter_keys) {
-
-  if (!fns.empty()) {
-    if (counter_keys > 0) {
-      *os << ",\n";
-    }
-    counter_keys += 1;
-
-    unsigned counter_elements = 0;
-    *os << "  \"" << key << "\": [\n";
-    for (auto fn : fns) {
-      if (counter_elements > 0) {
-        *os << ",\n";
-      }
-      *os << "    \"" << fn->getName().str() << "\"";
-      counter_elements += 1;
-    }
-    *os << "\n  ]";
-  }
-}
-#endif
 
 Function *KModule::getTargetFunction(Value *value) const {
 
@@ -862,9 +528,7 @@ KFunction::KFunction(llvm::Function *_function,
   : function(_function),
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
-    trackCoverage(true),
-    fnID(0),
-    annotationKFn(nullptr) {
+    trackCoverage(true) {
 
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
@@ -981,22 +645,3 @@ void KFunction::getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &prede
     }
   }
 }
-
-#if 0 == 1
-void KFunction::constructSortedBBlocks(deque<unsigned> &sortedList, const BasicBlock *entry) {
-
-  sortedList.clear();
-  if (entry == nullptr) {
-    entry = &function->getEntryBlock();
-  }
-
-  ReversePostOrderTraversal<const BasicBlock*> RPO(entry);
-  for (const auto &bb : RPO) {
-    const auto &itr = mapMarkers.find(bb);
-    if (itr != mapMarkers.end() && !itr->second.empty()) {
-      sortedList.push_back(itr->second.front());
-    }
-  }
-}
-
-#endif

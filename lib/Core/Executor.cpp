@@ -114,15 +114,10 @@ using namespace klee;
 #define MAX_ALLOCATION_SIZE (1<<30)
 
 namespace {
-  cl::opt<bool>
-  DumpStatesOnHalt("dump-states-on-halt",
-                   cl::init(true),
-		   cl::desc("Dump test cases for all active states on exit (default=on)"));
-
-  cl::opt<bool>
-  AllowExternalSymCalls("allow-external-sym-calls",
-                        cl::init(false),
-			cl::desc("Allow calls with symbolic arguments to external functions.  This concretizes the symbolic arguments.  (default=off)"));
+  cl::opt<bool> DumpStatesOnHalt("dump-states-on-halt", cl::init(true),
+      cl::desc("Dump test cases for all active states on exit (default=on)"));
+  cl::opt<bool> AllowExternalSymCalls("allow-external-sym-calls", cl::init(false),
+      cl::desc("Allow calls with symbolic arguments to external functions.  This concretizes the symbolic arguments.  (default=off)"));
 
 
   /// The different query logging solvers that can switched on/off

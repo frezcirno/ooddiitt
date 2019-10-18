@@ -24,7 +24,6 @@
 #include <set>
 #include <vector>
 
-//#define INVALID_LOOP_SIGNATURE   (0)
 #define INVALID_BB_INDEX  ((unsigned) -1)
 
 namespace klee {
@@ -61,7 +60,6 @@ struct StackFrame {
   Cell *locals;
 
   std::vector<LoopFrame> loopFrames;
-  std::deque<unsigned> itrace;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -92,9 +90,7 @@ public:
 private:
   // unsupported, use copy constructor
   ExecutionState &operator=(const ExecutionState &);
-
   std::map<std::string, std::string> fnAliases;
-//  static unsigned long lastUsedStateSignature;
 
 public:
 
@@ -225,7 +221,6 @@ public:
   const KInstruction *instFaulting;
   std::deque<std::pair<unsigned,unsigned> > trace;
   std::deque<unsigned> line_trace;
-  M2MPaths itraces;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
   const KInstruction* branched_at;
@@ -249,13 +244,10 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
-  void extractITrace(StackFrame &frame);
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo);
   bool isConcrete(const MemoryObject *mo);
-  void addMarker(unsigned fnID, unsigned bbID);
-
   void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);

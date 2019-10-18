@@ -76,103 +76,27 @@ using namespace klee;
 
 namespace {
 
-  cl::opt<std::string>
-  InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
-
-  cl::opt<std::string>
-  TargetPaths("target-paths",
-              cl::desc("m2m paths targeted for test generation (comma separated)"),
-              cl::init(""));
-
-  cl::opt<std::string>
-  TargetPathsFile("target-paths-file",
-              cl::desc("m2m paths targeted for test generation, read from file"),
-              cl::init(""));
-
-  cl::opt<bool>
-  IndentJson("indent-json",
-             cl::desc("indent emitted json for readability"),
-             cl::init(true));
-
-  cl::opt<std::string>
-  EntryPoint("entry-point",
-             cl::desc("Start local symbolic execution at entrypoint"),
-             cl::init(""));
-
-  cl::opt<int>
-  StartCaseID("start-case-id",
-              cl::init(-1),
-              cl::desc("starting test case id"));
-
-  cl::opt<std::string>
-  UserMain("user-main",
-           cl::desc("Consider the function with the given name as the main point"),
-           cl::init("main"));
-
-  cl::opt<std::string>
-  Progression("progression",
-              cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"),
-              cl::init(""));
-
-cl::opt<bool>
-  NoAddressSpace("no-address-space",
-                 cl::desc("do not emit address space map with test cases"),
-                 cl::init(true));
-
-  cl::opt<std::string>
-  RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
-
-  cl::opt<std::string>
-  Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-
-  cl::list<std::string>
-  InputArgv(cl::ConsumeAfter,
-            cl::desc("<program arguments>..."));
-
-  cl::opt<bool>
-  NoOutput("no-output",
-           cl::desc("Don't generate test files"));
-
-  cl::opt<bool>
-  WarnAllExternals("warn-all-externals",
-                   cl::desc("Give initial warning for all externals."));
-
-  cl::opt<bool>
-  WriteCVCs("write-cvcs",
-            cl::desc("Write .cvc files for each test case"));
-
-  cl::opt<bool>
-  WriteKQueries("write-kqueries",
-            cl::desc("Write .kquery files for each test case"));
-
-  cl::opt<bool>
-  WriteSMT2s("write-smt2s",
-            cl::desc("Write .smt2 (SMT-LIBv2) files for each test case"));
-
-  cl::opt<bool>
-  WriteCov("write-cov",
-           cl::desc("Write coverage information for each test case"));
-
-  cl::opt<bool>
-  WriteTestInfo("write-test-info",
-                cl::desc("Write additional test case information"));
-
-  cl::opt<bool>
-  WritePaths("write-paths",
-                cl::desc("Write .path files for each test case"));
-
-  cl::opt<bool>
-  WriteSymPaths("write-sym-paths",
-                cl::desc("Write .sym.path files for each test case"));
-
-  cl::opt<bool>
-  ExitOnError("exit-on-error",
-              cl::desc("Exit if errors occur"));
-
-  cl::opt<bool>
-  UnconstrainConstGlobals("unconstrain-const-globals",
-                          cl::desc("include constants in global unconstrained state"),
-                          cl::init(false));
+  cl::opt<std::string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
+  cl::opt<std::string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"), cl::init(""));
+  cl::opt<std::string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
+  cl::opt<std::string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"), cl::init(""));
+  cl::opt<std::string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
+  cl::opt<std::string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+  cl::list<std::string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
+  cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
+#if 0 == 1
+  cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
+  cl::opt<bool> WriteCVCs("write-cvcs", cl::desc("Write .cvc files for each test case"));
+  cl::opt<bool> WriteKQueries("write-kqueries", cl::desc("Write .kquery files for each test case"));
+  cl::opt<bool> WriteSMT2s("write-smt2s", cl::desc("Write .smt2 (SMT-LIBv2) files for each test case"));
+  cl::opt<bool> WriteCov("write-cov", cl::desc("Write coverage information for each test case"));
+  cl::opt<bool> WriteTestInfo("write-test-info", cl::desc("Write additional test case information"));
+  cl::opt<bool> WritePaths("write-paths", cl::desc("Write .path files for each test case"));
+  cl::opt<bool> WriteSymPaths("write-sym-paths", cl::desc("Write .sym.path files for each test case"));
+  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
+#endif
+  cl::opt<bool> UnconstrainConstGlobals("unconstrain-const-globals", cl::desc("include constants in global unconstrained state"), cl::init(false));
 
   enum LibcType {
     NoLibc, KleeLibc, UcLibc
@@ -193,53 +117,19 @@ cl::opt<bool>
 		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
 		cl::init(false));
 
-  cl::opt<bool>
-  OptimizeModule("optimize",
-                 cl::desc("Optimize before execution"),
-		 cl::init(false));
-
-  cl::opt<bool>
-  CheckDivZero("check-div-zero",
-               cl::desc("Inject checks for division-by-zero"),
-               cl::init(false));
-
-  cl::opt<bool>
-  CheckOvershift("check-overshift",
-               cl::desc("Inject checks for overshift"),
-               cl::init(false));
-
-  cl::opt<std::string>
-  OutputCreate("output-create",
-               cl::desc("recreate output directory (if it exists)"),
-               cl::init(""));
-
-  cl::opt<std::string>
-  OutputAppend("output-append",
-               cl::desc("add to existing output directory (fail if does not exist)"),
-               cl::init(""));
-
-  cl::opt<std::string>
-  OutputPrefix("output-prefix",
-               cl::desc("prefix for message files"),
-               cl::init(""));
-
-  cl::list<std::string>
-  LinkLibraries("link-llvm-lib",
-		cl::desc("Link the given libraries before execution"),
-		cl::value_desc("library file"));
-
-  cl::opt<unsigned>
-  MakeConcreteSymbolic("make-concrete-symbolic",
+  cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
+  cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
+  cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
+  cl::opt<std::string> OutputCreate("output-create", cl::desc("recreate output directory (if it exists)"), cl::init(""));
+  cl::opt<std::string> OutputAppend("output-append", cl::desc("add to existing output directory (fail if does not exist)"), cl::init(""));
+  cl::opt<std::string> OutputPrefix("output-prefix", cl::desc("prefix for message files"), cl::init(""));
+  cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
                        cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
-				"i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
-				"Used for testing."),
+				                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
+				                "Used for testing."),
                        cl::init(0));
-
-  cl::opt<unsigned>
-  Watchdog("watchdog",
-           cl::desc("Use a watchdog process to monitor se. (default = 0 secs"),
-           cl::init(0));
-
+  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
 }
 
 /***/
@@ -310,11 +200,6 @@ public:
   void incTermination(const std::string &message) override;
   void getTerminationMessages(std::vector<std::string> &messages) override;
   unsigned getTerminationCount(const std::string &message) override;
-
-  bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) override;
-  bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) override;
-  bool removeRestartStates() override;
-  bool loadTargetPaths(std::set<std::string> &paths) override;
 };
 
 BrtKleeHandler::BrtKleeHandler(int argc, char **argv, const std::string &entry)
@@ -340,11 +225,6 @@ BrtKleeHandler::BrtKleeHandler(int argc, char **argv, const std::string &entry)
   }
 
   nextTestCaseID = 0;
-  if (StartCaseID > 0) {
-    // assign explicit number
-    nextTestCaseID = StartCaseID;
-  }
-
   boost::filesystem::path p(outputDirectory.str());
   if (create_output_dir) {
 
@@ -449,18 +329,6 @@ std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
 void BrtKleeHandler::setInterpreter(Interpreter *i) {
 
   InterpreterHandler::setInterpreter(i);
-
-  if (WritePaths) {
-    m_pathWriter = new TreeStreamWriter(getOutputFilename("paths.ts"));
-    assert(m_pathWriter->good());
-    i->setPathWriter(m_pathWriter);
-  }
-
-  if (WriteSymPaths) {
-    m_symPathWriter = new TreeStreamWriter(getOutputFilename("symPaths.ts"));
-    assert(m_symPathWriter->good());
-    i->setSymbolicPathWriter(m_symPathWriter);
-  }
 }
 
 std::string BrtKleeHandler::getOutputFilename(const std::string &filename) {
@@ -619,45 +487,6 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
         objects.append(obj);
       }
 
-      if (!NoAddressSpace) {
-
-        // dump details of the state address space
-        root["addressSpace"] = Json::arrayValue;
-        Json::Value &addrSpace = root["addressSpace"];
-
-        std::vector<ObjectPair> listOPs;
-        state.addressSpace.getMemoryObjects(listOPs);
-        for (const auto pr : listOPs) {
-
-          const MemoryObject *mo = pr.first;
-          const ObjectState *os = pr.second;
-
-          Json::Value obj = Json::objectValue;
-          obj["id"] = mo->id;
-          obj["name"] = mo->name;
-          obj["kind"] = mo->getKindAsStr();
-          obj["count"] = mo->count;
-          obj["physical_size"] = mo->size;
-          obj["visible_size"] = os->visible_size;
-          obj["type"] = getTypeName(mo->type);
-          obj["type_history"] = Json::arrayValue;
-          for (auto itr = os->types.rbegin(), end = os->types.rend(); itr != end; ++itr) {
-            obj["type_history"].append(getTypeName(*itr));
-          }
-
-          // scale to 32 or 64 bits
-          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-          std::vector<unsigned char> addr;
-          unsigned char *addrBytes = ((unsigned char *) &(mo->address));
-          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-            addr.push_back(*addrBytes);
-          }
-          obj["addr"] = toDataString(addr);
-
-          addrSpace.append(obj);
-        }
-      }
-
       if (!state.line_trace.empty()) {
         Json::Value &trace = root["trace"] = Json::arrayValue;
         for (const unsigned line : state.line_trace) {
@@ -680,63 +509,6 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
       ++casesGenerated;
     } else {
       klee_warning("unable to write output test case, losing it");
-    }
-
-    if (m_pathWriter) {
-      std::vector<unsigned char> concreteBranches;
-      m_pathWriter->readStream(i->getPathStreamID(state), concreteBranches);
-      llvm::raw_fd_ostream *f = openTestFile("test", "path", testID);
-      for (auto I = concreteBranches.begin(), E = concreteBranches.end(); I != E; ++I) {
-        *f << *I << "\n";
-      }
-      delete f;
-    }
-
-    if (WriteCVCs) {
-      // FIXME: If using Z3 as the core solver the emitted file is actually
-      // SMT-LIBv2 not CVC which is a bit confusing
-      std::string constraints;
-      i->getConstraintLog(state, constraints, Interpreter::STP);
-      llvm::raw_ostream *f = openTestFile("test", "cvc", testID);
-      *f << constraints;
-      delete f;
-    }
-
-    if (WriteSMT2s) {
-      std::string constraints;
-        i->getConstraintLog(state, constraints, Interpreter::SMTLIB2);
-        llvm::raw_ostream *f = openTestFile("test", "smt2", testID);
-        *f << constraints;
-        delete f;
-    }
-
-    if (m_symPathWriter) {
-      std::vector<unsigned char> symbolicBranches;
-      m_symPathWriter->readStream(i->getSymbolicPathStreamID(state), symbolicBranches);
-      llvm::raw_fd_ostream *f = openTestFile("test", "sym.path", testID);
-      for (auto I = symbolicBranches.begin(), E = symbolicBranches.end(); I!=E; ++I) {
-        *f << *I << "\n";
-      }
-      delete f;
-    }
-
-    if (WriteCov) {
-      std::map<const std::string*, std::set<unsigned> > cov;
-      i->getCoveredLines(state, cov);
-      llvm::raw_ostream *f = openTestFile("test", "cov", testID);
-      for (auto it = cov.begin(), ie = cov.end(); it != ie; ++it) {
-        for (auto it2 = it->second.begin(), ie2 = it->second.end(); it2 != ie2; ++it2)
-          *f << *it->first << ":" << *it2 << "\n";
-      }
-      delete f;
-    }
-
-    if (WriteTestInfo) {
-      double elapsed_time = util::getWallTime() - start_time;
-      llvm::raw_ostream *f = openTestFile("test", "info", testID);
-      *f << "Time to generate test case: "
-         << elapsed_time << "s\n";
-      delete f;
     }
   }
 }
@@ -847,108 +619,6 @@ void BrtKleeHandler::getTerminationMessages(std::vector<std::string> &messages) 
 
 unsigned BrtKleeHandler::getTerminationCount(const std::string &message) {
   return terminationCounters[message];
-}
-
-
-bool BrtKleeHandler::loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths) {
-
-  std::string pathname = getOutputFilename(fn->getName().str() + "-state.json");
-  std::ifstream fin(pathname.c_str());
-  if (fin) {
-    Json::Value root = Json::objectValue;
-    fin >> root;
-
-    worklist.clear();
-    paths.clear();
-
-    Json::Value &worklistNode = root["worklist"];
-    if (worklistNode.isArray()) {
-      for (unsigned idx = 0, end = worklistNode.size(); idx < end; ++idx) {
-        worklist.push_back(worklistNode[idx].asUInt());
-      }
-    }
-
-    Json::Value &pathsNode = root["paths"];
-    if (pathsNode.isArray()) {
-      for (unsigned idx = 0, end = pathsNode.size(); idx < end; ++idx) {
-        paths.insert(pathsNode[idx].asString());
-      }
-    }
-
-    return true;
-  }
-  return false;
-}
-
-bool BrtKleeHandler::saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths) {
-
-  std::string pathname = getOutputFilename(fn->getName().str() + "-state.json");
-  std::ofstream fout(pathname.c_str());
-  if (fout) {
-    Json::Value root = Json::objectValue;
-
-    Json::Value &worklistNode = root["worklist"] = Json::arrayValue;
-    for (const auto &id : worklist) {
-      worklistNode.append(id);
-    }
-
-    Json::Value &pathsNode = root["paths"] = Json::arrayValue;
-    for (const auto &path : paths) {
-      pathsNode.append(path);
-    }
-
-    // write the constructed json object to file
-    Json::StreamWriterBuilder builder;
-    builder["commentStyle"] = "None";
-    builder["indentation"] = indentation;
-    std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-
-    writer.get()->write(root, &fout);
-    fout << std::endl;
-    savedRestartStateFiles.insert(pathname);
-    return true;
-  }
-  return false;
-}
-
-bool BrtKleeHandler::removeRestartStates() {
-
-  for (const auto &filename : savedRestartStateFiles) {
-    if (boost::filesystem::exists(filename)) {
-      boost::system::error_code ec;
-      boost::filesystem::remove(filename, ec);
-    }
-  }
-  return true;
-}
-
-bool BrtKleeHandler::loadTargetPaths(std::set<std::string> &paths) {
-
-  bool result = false;
-  if (!TargetPaths.empty()) {
-    paths.clear();
-
-    std::vector<std::string> entries;
-    boost::split(entries, TargetPaths, [](char c){return c == ',';});
-    for (const auto &entry: entries) {
-      paths.insert(entry);
-    }
-    result = true;
-  } else if (!TargetPathsFile.empty()) {
-    paths.clear();
-    std::ifstream fin(TargetPathsFile);
-    if (fin) {
-      Json::Value root = Json::objectValue;
-      fin >> root;
-      if (root.isArray()) {
-        for (unsigned idx = 0, end = root.size(); idx < end; ++idx) {
-          paths.insert(root[idx].asString());
-        }
-      }
-      result = true;
-    }
-  }
-  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1640,14 +1310,6 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
     // default progression
     UnconstraintFlagsT flags;
     progression.emplace_back(60, flags);
-//    flags.set(UNCONSTRAIN_GLOBAL_FLAG);
-//    progression.emplace_back(60, flags);
-//    flags.reset();
-//    flags.set(UNCONSTRAIN_LOCAL_FLAG);
-//    progression.emplace_back(60, flags);
-//    flags.reset();
-//    flags.set(UNCONSTRAIN_STUB_FLAG);
-//    progression.emplace_back(60, flags);
     result = true;
   } else {
 
@@ -1676,8 +1338,6 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
           done = true;
         } else if (*itr == 'g') {
           flags.set(UNCONSTRAIN_GLOBAL_FLAG);
-//        } else if (*itr == 'l') {
-//          flags.set(UNCONSTRAIN_LOCAL_FLAG);
         } else if (*itr == 's') {
           flags.set(UNCONSTRAIN_STUB_FLAG);
         } else if (*itr != 'i') {

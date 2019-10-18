@@ -40,7 +40,6 @@ typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolut
 #define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
-//#define UNCONSTRAIN_LOCAL_FLAG  (1)
 #define UNCONSTRAIN_STUB_FLAG   (2)
 
 class UnconstraintFlagsT : public std::bitset<8> {
@@ -48,11 +47,9 @@ class UnconstraintFlagsT : public std::bitset<8> {
 public:
   bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
   bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
-//  bool isUnconstrainLocals() const    { return test(UNCONSTRAIN_LOCAL_FLAG); }
 
   void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
   void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
-//  void setUnconstrainLocals(bool b = true)    { set(UNCONSTRAIN_LOCAL_FLAG, b); }
 };
 
 class InterpreterHandler {
@@ -78,18 +75,11 @@ public:
 
   virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
-  virtual bool loadRestartState(const llvm::Function *fn, std::deque<unsigned> &worklist, std::set<std::string> &paths)
-    { return false; }
-  virtual bool saveRestartState(const llvm::Function *fn, const std::deque<unsigned> &worklist, const std::set<std::string> &paths)
-    { return false; }
-  virtual bool removeRestartStates() { return false; }
-  virtual bool loadTargetPaths(std::set<std::string> &paths) { return false; }
 
   std::string flags_to_string(UnconstraintFlagsT flags) const {
 
     const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
         std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
-//        std::make_pair(UNCONSTRAIN_LOCAL_FLAG, "locals,"),
         std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
     };
 

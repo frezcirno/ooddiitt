@@ -37,8 +37,7 @@ using namespace llvm;
 using namespace klee;
 
 namespace {
-  cl::opt<bool>
-  DebugLogStateMerge("debug-log-state-merge");
+cl::opt<bool> DebugLogStateMerge("debug-log-state-merge");
 }
 
 /***/
@@ -63,7 +62,6 @@ StackFrame::StackFrame(const StackFrame &s)
     allocas(s.allocas),
     numRegs(s.numRegs),
     loopFrames(s.loopFrames),
-    itrace(s.itrace),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -139,7 +137,6 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     instFaulting(state.instFaulting),
     trace(state.trace),
     line_trace(state.line_trace),
-    itraces(state.itraces),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -206,7 +203,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     instFaulting(state.instFaulting),
     trace(state.trace),
     line_trace(state.line_trace),
-    itraces(state.itraces),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -235,28 +231,9 @@ void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
 }
 
 
-void ExecutionState::extractITrace(StackFrame &sf) {
-
-  // save the intra-procedural trace
-  if (!sf.itrace.empty()) {
-    unsigned fnID = sf.kf->fnID;
-    if (fnID != 0) {
-      std::stringstream ss;
-      ss << '.';
-      for (auto mark : sf.itrace) {
-        ss << mark << '.';
-      }
-      itraces[fnID].insert(ss.str());
-      sf.itrace.clear();
-    }
-  }
-}
-
 void ExecutionState::popFrame() {
 
   StackFrame &sf = stack.back();
-  extractITrace(sf);
-
   for (auto it = sf.allocas.begin(), ie = sf.allocas.end(); it != ie; ++it)
     addressSpace.unbindObject(*it);
   stack.pop_back();
@@ -293,13 +270,6 @@ void ExecutionState::addFnAlias(std::string old_fn, std::string new_fn) {
 
 void ExecutionState::removeFnAlias(std::string fn) {
   fnAliases.erase(fn);
-}
-
-void ExecutionState::addMarker(unsigned fnID, unsigned bbID) {
-
-  StackFrame &sf = stack.back();
-  sf.itrace.push_back(bbID);
-  trace.push_back(std::make_pair(fnID, bbID));
 }
 
 /**/
