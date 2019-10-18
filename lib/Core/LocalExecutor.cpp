@@ -1221,8 +1221,10 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   delete processTree;
   processTree = nullptr;
 
-  // now consider our stashed faulting states?
+  // RLR TODO: now consider our stashed faulting states?
   faulting_state_stash.clear();
+
+  // RLR TODO: save pending states as well...
 }
 
 ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, llvm::Function *initializer) {
