@@ -82,7 +82,7 @@ MemoryManager::~MemoryManager() {
   while (!objects.empty()) {
     MemoryObject *mo = *objects.begin();
     if (!mo->isFixed() && !DeterministicAllocation)
-      free((void *) (mo->address + base_addr));
+      free((void *) (mo->address));
     objects.erase(mo);
     delete mo;
   }
@@ -139,10 +139,6 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   if (!address)
     return nullptr;
 
-  if (base_addr != 0) {
-    address -= base_addr;
-  }
-
   if ((Context::get().getPointerWidth() == Expr::Int32) && (address > UINT32_MAX)) {
     klee_error("32-bit memory allocation requires 64 bit value");
   }
@@ -173,7 +169,7 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
 void MemoryManager::markFreed(MemoryObject *mo) {
   if (objects.find(mo) != objects.end()) {
     if (!mo->isFixed() && !DeterministicAllocation)
-      free((void *) (mo->address + base_addr));
+      free((void *) (mo->address));
     objects.erase(mo);
   }
 }

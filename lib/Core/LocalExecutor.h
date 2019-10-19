@@ -152,7 +152,6 @@ protected:
   std::map<const llvm::Loop*, unsigned> loopForkCounter;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;
-  void *heap_base;
   uint64_t timeout;
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;

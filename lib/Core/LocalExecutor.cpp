@@ -121,11 +121,9 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   maxLazyDepth(LazyAllocationDepth),
   maxStatesInLoop(10000),
   baseState(nullptr),
-  heap_base(opts.heap_base),
   progression(opts.progression),
   libc_initializing(false) {
 
-  memory->setBaseAddr(heap_base);
   switch (opts.mode) {
     case ExecModeID::igen:
       doSaveFault = false;
@@ -782,19 +780,14 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   const Module *result = Executor::setModule(module, opts);
   specialFunctionHandler->setLocalExecutor(this);
 
-  void *addr_offset = nullptr;
-  if (Context::get().getPointerWidth() == Expr::Int32) {
-    addr_offset = heap_base;
-  }
-
   // prepare a generic initial state
-  baseState = new ExecutionState(addr_offset);
+  baseState = new ExecutionState();
   baseState->maxLoopIteration = maxLoopIteration;
   baseState->lazyAllocationCount = lazyAllocationCount;
   baseState->maxLazyDepth = maxLazyDepth;
   baseState->maxLoopForks = maxLoopForks;
 
-  initializeGlobals(*baseState, addr_offset);
+  initializeGlobals(*baseState);
   bindModuleConstants();
   return result;
 }

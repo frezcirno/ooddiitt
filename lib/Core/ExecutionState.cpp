@@ -74,10 +74,9 @@ StackFrame::~StackFrame() {
 }
 
 /***/
-ExecutionState::ExecutionState(void *base_addr) :
+ExecutionState::ExecutionState() :
     prevPC(pc),
     incomingBBIndex(INVALID_BB_INDEX),
-    addressSpace(base_addr),
 
     queryCost(0.),
     weight(1),
@@ -151,7 +150,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
 }
 
 ExecutionState::ExecutionState(const ExecutionState &state, const std::vector<ref<Expr> > &assumptions)
-    : addressSpace(state.addressSpace.getBaseAddr()), constraints(assumptions), queryCost(0.), ptreeNode(0) { }
+    : addressSpace(state.addressSpace), constraints(assumptions), queryCost(0.), ptreeNode(0) { }
 
 ExecutionState::~ExecutionState() {
 

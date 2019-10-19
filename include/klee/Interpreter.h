@@ -106,13 +106,11 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
-    bool OutputSource;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
-        CheckOvershift(false),
-        OutputSource(false)
+        CheckOvershift(false)
       {}
   };
 
@@ -145,18 +143,12 @@ public:
     /// symbolic values. This is used to test the correctness of the
     /// symbolic execution on concrete programs.
     unsigned MakeConcreteSymbolic;
-    bool createOutputDir;
-    void *heap_base;
-    ProgInfo *pinfo;
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
     llvm::Function *userMain;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
-        createOutputDir(false),
-        heap_base(nullptr),
-        pinfo(nullptr),
         mode(Interpreter::none),
         userMain(nullptr)
     {}

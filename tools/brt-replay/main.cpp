@@ -108,9 +108,7 @@ namespace {
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::opt<std::string> OutputCreate("output-create", cl::desc("recreate output directory (if it exists)"), cl::init(""));
-  cl::opt<std::string> OutputAppend("output-append", cl::desc("add to existing output directory (fail if does not exist)"), cl::init(""));
-  cl::opt<std::string> OutputPrefix("output-prefix", cl::desc("prefix for message files"), cl::init(""));
+  cl::opt<std::string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
   cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
 }
@@ -127,12 +125,7 @@ std::string currentISO8601TimeUTC() {
 
 class ReplayKleeHandler : public InterpreterHandler {
 private:
-  TreeStreamWriter *m_pathWriter, *m_symPathWriter;
-  bool create_output_dir;
-  SmallString<128> outputDirectory;
-
   unsigned casesGenerated;
-  unsigned nextTestCaseID;
   std::string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
   pid_t pid_watchdog;
@@ -141,14 +134,13 @@ private:
   int m_argc;
   char **m_argv;
 
+  boost::filesystem::path outputDirectory;
   std::map<std::string,unsigned> terminationCounters;
-  std::set<std::string> savedRestartStateFiles;
 
 public:
   ReplayKleeHandler(int argc, char **argv);
   ~ReplayKleeHandler();
 
-  bool createOutputDir() const { return create_output_dir; }
   llvm::raw_ostream &getInfoStream() const override { return outs(); }
   unsigned getNumTestCases() const override { return casesGenerated; }
 
@@ -187,67 +179,27 @@ public:
 };
 
 ReplayKleeHandler::ReplayKleeHandler(int argc, char **argv)
-  : m_pathWriter(nullptr),
-    m_symPathWriter(nullptr),
-    create_output_dir(false),
-    outputDirectory(),
-    casesGenerated(0),
-    nextTestCaseID(1),
+  : casesGenerated(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
     m_argc(argc),
-    m_argv(argv) {
+    m_argv(argv),
+    outputDirectory(Output) {
 
-  // create output directory (OutputDir or "klee-out")
-  outputDirectory = "klee-out";
-  if (!OutputCreate.empty()) {
-    create_output_dir = true;
-    outputDirectory = OutputCreate;
-  } else if (!OutputAppend.empty()) {
-    outputDirectory = OutputAppend;
-  }
-
-  boost::filesystem::path p(outputDirectory.str());
-  if (create_output_dir) {
-
+  // create output directory (if required)
+  bool created = false;
+  if (!boost::filesystem::exists(outputDirectory)) {
     boost::system::error_code ec;
-
-    // create an empty directory
-    boost::filesystem::remove_all(p, ec);
-    boost::filesystem::create_directories(p, ec);
-  } else {
-
-    // error if the directory does not exist
-    if (!boost::filesystem::exists(p)) {
-      klee_error("append output directory does not exist");
-    } else {
-
-      // find the next available test id
-      bool done = false;
-      while (!done) {
-
-        // find the next missing test case id.
-        std::string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
-        std::string failname = getOutputFilename(getTestFilename("fail", "json", nextTestCaseID));
-        boost::filesystem::path testfile(testname);
-        boost::filesystem::path failfile(failname);
-        if (boost::filesystem::exists(testfile) || boost::filesystem::exists(failfile)) {
-          ++nextTestCaseID;
-        } else {
-          done = true;
-        }
-      }
-    }
+    boost::filesystem::create_directories(outputDirectory, ec);
+    created = true;
   }
 
-  outs() << "output directory: " << outputDirectory << '\n';
+  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
 ReplayKleeHandler::~ReplayKleeHandler() {
-  if (m_pathWriter) delete m_pathWriter;
-  if (m_symPathWriter) delete m_symPathWriter;
 }
 
 std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
@@ -317,9 +269,9 @@ void ReplayKleeHandler::setInterpreter(Interpreter *i) {
 
 std::string ReplayKleeHandler::getOutputFilename(const std::string &filename) {
 
-  SmallString<128> path = outputDirectory;
-  sys::path::append(path, filename);
-  return path.str();
+  boost::filesystem::path file = outputDirectory;
+  file /= filename;
+  return file.string();
 }
 
 llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
@@ -389,9 +341,8 @@ std::string ReplayKleeHandler::toDataString(const std::vector<unsigned char> &da
 void ReplayKleeHandler::processTestCase(ExecutionState &state) {
 
   assert(!ReplayTest.empty());
-  boost::filesystem::path test(ReplayTest);
-  boost::filesystem::path output(outputDirectory.str());
-  output /= test.filename();
+  boost::filesystem::path output = outputDirectory;
+  output /= ReplayTest;
   std::string fname = output.string();
   boost::filesystem::path infile(InputFile);
   boost::replace_all(fname, "test", infile.stem().string());
@@ -1124,9 +1075,6 @@ void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
 
 int main(int argc, char **argv, char **envp) {
 
-  // used to find the beginning of the heap
-  extern void *_end;
-
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
@@ -1232,6 +1180,8 @@ int main(int argc, char **argv, char **envp) {
   outs() << "PID: " << getpid() << "\n";
 
   // Load the bytecode...
+  // RLR TODO: just load the bytecode emitted in the generation step...
+
   std::string ErrorMsg;
   LLVMContext ctx;
   Module *mainModule = nullptr;
@@ -1373,13 +1323,7 @@ int main(int argc, char **argv, char **envp) {
   ReplayKleeHandler *handler = new ReplayKleeHandler(pArgc, pArgv);
   handler->setWatchDog(pid_watchdog);
 
-  void *heap_base = &_end;
-
   Interpreter::InterpreterOptions IOpts;
-  IOpts.createOutputDir = handler->createOutputDir();
-
-  // RLR TODO: consider removing heap_base
-  IOpts.heap_base = (void *) ((uint64_t) heap_base);
   IOpts.mode = Interpreter::ExecModeID::rply;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
@@ -1391,11 +1335,10 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
-  MOpts.OutputSource = handler->createOutputDir();
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
-  externalsAndGlobalsCheck(finalModule, handler->createOutputDir());
+  externalsAndGlobalsCheck(finalModule, true);
 
   char buf[256];
   time_t t[2];

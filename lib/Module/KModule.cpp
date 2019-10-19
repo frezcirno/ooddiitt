@@ -82,7 +82,7 @@ namespace {
 
   cl::list<string> MergeAtExit("merge-at-exit");
   cl::opt<bool> OutputSource("output-source", cl::desc("Write the assembly for the final transformed source"), cl::init(false));
-  cl::opt<bool> OutputModule("output-module", cl::desc("Write the bitcode for the final transformed module"), cl::init(false));
+  cl::opt<bool> OutputModule("output-module", cl::desc("Write the bitcode for the final transformed module"), cl::init(true));
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple",
@@ -244,12 +244,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   if (!MergeAtExit.empty()) {
     Function *mergeFn = module->getFunction("klee_merge");
     if (!mergeFn) {
-      LLVM_TYPE_Q llvm::FunctionType *Ty =
-        FunctionType::get(Type::getVoidTy(ctx),
-                          vector<LLVM_TYPE_Q Type*>(), false);
-      mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage,
-				 "klee_merge",
-				 module);
+      LLVM_TYPE_Q llvm::FunctionType *Ty = FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), false);
+      mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage, "klee_merge", module);
     }
 
     for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
@@ -340,7 +336,6 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // this to be linked in, it makes low level debugging much more
   // annoying.
 
-
   SmallString<128> LibPath(opts.LibraryDir);
   string intrinsicLib = "kleeRuntimeIntrinsic";
   Expr::Width width = targetData->getPointerSizeInBits();
@@ -379,6 +374,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
+    pm.add(new FnMarkerPass());
     pm.run(*module);
   }
 
@@ -387,7 +383,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // Write out the .ll assembly file. We truncate long lines to work
   // around a kcachegrind parsing bug (it puts them on new lines), so
   // that source browsing works.
-  if (OutputSource || opts.OutputSource) {
+  if (OutputSource) {
     llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll", true);
     if (os != nullptr) {
         *os << *module;

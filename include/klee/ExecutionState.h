@@ -229,7 +229,7 @@ public:
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
 
-  ExecutionState(void *base_addr); // : ptreeNode(0) {}
+  ExecutionState(); // : ptreeNode(0) {}
   ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &name);
 
   // XXX total hack, just used to make a state so solver can

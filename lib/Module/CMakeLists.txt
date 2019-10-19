@@ -17,6 +17,7 @@ klee_add_component(kleeModule
   Optimize.cpp
   PhiCleaner.cpp
   RaiseAsm.cpp
+  FnMarker.cpp
 )
 
 set(LLVM_COMPONENTS

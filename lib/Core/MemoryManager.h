@@ -32,13 +32,10 @@ private:
   char *deterministicSpace;
   char *nextFreeSlot;
   size_t spaceSize;
-  uint64_t base_addr;
 
 public:
   MemoryManager(ArrayCache *arrayCache);
   ~MemoryManager();
-
-  void setBaseAddr(void *addr) { base_addr = (uint64_t) addr; }
 
   /**
    * Returns memory object which contains a handle to real virtual process

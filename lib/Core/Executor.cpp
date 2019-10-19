@@ -520,7 +520,7 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 
 extern void *__dso_handle __attribute__ ((__weak__));
 
-void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
+void Executor::initializeGlobals(ExecutionState &state) {
   Module *m = kmodule->module;
 
   if (m->getModuleInlineAsm() != "")
@@ -544,8 +544,7 @@ void Executor::initializeGlobals(ExecutionState &state, void *base_addr) {
         !externalDispatcher->resolveSymbol(f->getName())) {
       addr = Expr::createPointer(0);
     } else {
-      assert((uint64_t) f > (uint64_t) base_addr);
-      addr = Expr::createPointer((uint64_t) f - (uint64_t) base_addr);
+      addr = Expr::createPointer((uint64_t) f);
       legalFunctions.insert((uint64_t) f);
     }
 

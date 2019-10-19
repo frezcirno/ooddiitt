@@ -174,6 +174,20 @@ private:
                      llvm::BasicBlock *defaultBlock);
 };
 
+class FnMarkerPass : public llvm::FunctionPass {
+  static char ID;
+
+public:
+  FnMarkerPass() : llvm::FunctionPass(ID), mdkind_fnID(0), mdkind_bbID(0), next_fnID(1) {}
+  bool runOnFunction(llvm::Function &f) override;
+  bool doInitialization(llvm::Module &module) override;
+  bool doFinalization(llvm::Module &module) override;
+private:
+  unsigned mdkind_fnID;
+  unsigned mdkind_bbID;
+  unsigned next_fnID;
+};
+
 }
 
 #endif

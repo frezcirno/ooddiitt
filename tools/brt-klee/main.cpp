@@ -78,9 +78,9 @@ namespace {
 
   cl::opt<std::string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<std::string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"), cl::init(""));
+  cl::opt<std::string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
   cl::opt<std::string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
-  cl::opt<std::string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"), cl::init(""));
+  cl::opt<std::string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"));
   cl::opt<std::string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
   cl::opt<std::string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<std::string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
@@ -120,9 +120,7 @@ namespace {
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::opt<std::string> OutputCreate("output-create", cl::desc("recreate output directory (if it exists)"), cl::init(""));
-  cl::opt<std::string> OutputAppend("output-append", cl::desc("add to existing output directory (fail if does not exist)"), cl::init(""));
-  cl::opt<std::string> OutputPrefix("output-prefix", cl::desc("prefix for message files"), cl::init(""));
+  cl::opt<std::string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
   cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
   cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
                        cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
@@ -144,10 +142,6 @@ std::string currentISO8601TimeUTC() {
 
 class BrtKleeHandler : public InterpreterHandler {
 private:
-  TreeStreamWriter *m_pathWriter, *m_symPathWriter;
-  bool create_output_dir;
-  SmallString<128> outputDirectory;
-
   unsigned casesGenerated;
   unsigned nextTestCaseID;
   std::string indentation;
@@ -158,14 +152,13 @@ private:
   int m_argc;
   char **m_argv;
 
+  boost::filesystem::path outputDirectory;
   std::map<std::string,unsigned> terminationCounters;
-  std::set<std::string> savedRestartStateFiles;
 
 public:
-  BrtKleeHandler(int argc, char **argv, const std::string &entry);
+  BrtKleeHandler(int argc, char **argv);
   ~BrtKleeHandler();
 
-  bool createOutputDir() const { return create_output_dir; }
   llvm::raw_ostream &getInfoStream() const override { return outs(); }
   unsigned getNumTestCases() const override { return casesGenerated; }
 
@@ -202,69 +195,48 @@ public:
   unsigned getTerminationCount(const std::string &message) override;
 };
 
-BrtKleeHandler::BrtKleeHandler(int argc, char **argv, const std::string &entry)
-  : m_pathWriter(nullptr),
-    m_symPathWriter(nullptr),
-    create_output_dir(false),
-    outputDirectory(),
-    casesGenerated(0),
-    nextTestCaseID(1),
+BrtKleeHandler::BrtKleeHandler(int argc, char **argv)
+  : casesGenerated(0),
+    nextTestCaseID(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
     m_argc(argc),
-    m_argv(argv) {
+    m_argv(argv),
+    outputDirectory(Output) {
 
-  // create output directory (OutputDir or "klee-out")
-  outputDirectory = "klee-out";
-  if (!OutputCreate.empty()) {
-    create_output_dir = true;
-    outputDirectory = OutputCreate;
-  } else if (!OutputAppend.empty()) {
-    outputDirectory = OutputAppend;
+  // create output directory (if required)
+  bool created = false;
+  if (!boost::filesystem::exists(outputDirectory)) {
+    boost::system::error_code ec;
+    boost::filesystem::create_directories(outputDirectory, ec);
+    created = true;
   }
 
-  nextTestCaseID = 0;
-  boost::filesystem::path p(outputDirectory.str());
-  if (create_output_dir) {
+  // if the directory was not newly created, then we need to find the next available case id
+  if (!created) {
 
-    boost::system::error_code ec;
+    // find the next available test id
+    bool done = false;
+    while (!done) {
 
-    // create an empty directory
-    boost::filesystem::remove_all(p, ec);
-    boost::filesystem::create_directories(p, ec);
-  } else {
-
-    // error if the directory does not exist
-    if (!boost::filesystem::exists(p)) {
-      klee_error("append output directory does not exist");
-    } else {
-
-      // find the next available test id
-      bool done = false;
-      while (!done) {
-
-        // find the next missing test case id.
-        std::string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
-        std::string failname = getOutputFilename(getTestFilename("fail", "json", nextTestCaseID));
-        boost::filesystem::path testfile(testname);
-        boost::filesystem::path failfile(failname);
-        if (boost::filesystem::exists(testfile) || boost::filesystem::exists(failfile)) {
-          ++nextTestCaseID;
-        } else {
-          done = true;
-        }
+      // find the next missing test case id.
+      std::string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
+      boost::filesystem::path testfile(testname);
+      if (boost::filesystem::exists(testfile)) {
+        ++nextTestCaseID;
+      } else {
+        done = true;
       }
     }
   }
 
-  outs() << "output directory: " << outputDirectory << '\n';
+  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
 BrtKleeHandler::~BrtKleeHandler() {
-  if (m_pathWriter) delete m_pathWriter;
-  if (m_symPathWriter) delete m_symPathWriter;
+
 }
 
 std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
@@ -333,9 +305,9 @@ void BrtKleeHandler::setInterpreter(Interpreter *i) {
 
 std::string BrtKleeHandler::getOutputFilename(const std::string &filename) {
 
-  SmallString<128> path = outputDirectory;
-  sys::path::append(path, filename);
-  return path.str();
+  boost::filesystem::path file = outputDirectory;
+  file /= filename;
+  return file.string();
 }
 
 llvm::raw_fd_ostream *BrtKleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
@@ -411,7 +383,6 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    double start_time = util::getWallTime();
     std::string prefix = "test";
     std::ostream *kout = openTestCaseFile(prefix, testID);
     if (kout != nullptr) {
@@ -1354,9 +1325,6 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
 
 int main(int argc, char **argv, char **envp) {
 
-  // used to find the beginning of the heap
-  extern void *_end;
-
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
@@ -1604,17 +1572,11 @@ int main(int argc, char **argv, char **envp) {
     pArgv[i] = pArg;
   }
 
-  BrtKleeHandler *handler = new BrtKleeHandler(pArgc, pArgv, EntryPoint);
+  BrtKleeHandler *handler = new BrtKleeHandler(pArgc, pArgv);
   handler->setWatchDog(pid_watchdog);
-
-  void *heap_base = &_end;
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
-  IOpts.createOutputDir = handler->createOutputDir();
-
-  // RLR TODO: consider removing heap_base
-  IOpts.heap_base = (void *) ((uint64_t) heap_base);
   if (!parseUnconstraintProgression(IOpts.progression, Progression)) {
     klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
   }
@@ -1631,7 +1593,6 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
-  MOpts.OutputSource = handler->createOutputDir();
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
