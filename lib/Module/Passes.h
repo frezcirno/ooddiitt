@@ -22,6 +22,7 @@
 #include <klee/Internal/Module/KModule.h>
 
 #include <set>
+#include <llvm/Support/CallSite.h>
 
 namespace llvm {
   class Function;
@@ -174,11 +175,30 @@ private:
                      llvm::BasicBlock *defaultBlock);
 };
 
+/// InstructionOperandTypeCheckPass - Type checks the types of instruction
+/// operands to check that they conform to invariants expected by the Executor.
+///
+/// This is a ModulePass because other pass types are not meant to maintain
+/// state between calls.
+class InstructionOperandTypeCheckPass : public llvm::ModulePass {
+private:
+  bool instructionOperandsConform;
+
+public:
+  static char ID;
+  InstructionOperandTypeCheckPass()
+      : llvm::ModulePass(ID), instructionOperandsConform(true) {}
+  // TODO: Add `override` when we switch to C++11
+  bool runOnModule(llvm::Module &M);
+  bool checkPassed() const { return instructionOperandsConform; }
+};
+
 class FnMarkerPass : public llvm::FunctionPass {
   static char ID;
 
 public:
-  FnMarkerPass() : llvm::FunctionPass(ID), mdkind_fnID(0), mdkind_bbID(0), next_fnID(1) {}
+  FnMarkerPass(std::map<const llvm::Function*,unsigned> &_mapFn, std::map<const llvm::BasicBlock*, unsigned> &_mapBB) :
+        llvm::FunctionPass(ID), mdkind_fnID(0), mdkind_bbID(0), next_fnID(1), mapFn(_mapFn), mapBB(_mapBB) {}
   bool runOnFunction(llvm::Function &f) override;
   bool doInitialization(llvm::Module &module) override;
   bool doFinalization(llvm::Module &module) override;
@@ -186,6 +206,8 @@ private:
   unsigned mdkind_fnID;
   unsigned mdkind_bbID;
   unsigned next_fnID;
+  std::map<const llvm::Function*,unsigned> &mapFn;
+  std::map<const llvm::BasicBlock*, unsigned> &mapBB;
 };
 
 }

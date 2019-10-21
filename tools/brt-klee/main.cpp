@@ -121,6 +121,7 @@ namespace {
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
   cl::opt<std::string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
+  cl::opt<bool> OutputCreate("output-create", cl::desc("remove output directory before re-creating"));
   cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
   cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
                        cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
@@ -205,10 +206,20 @@ BrtKleeHandler::BrtKleeHandler(int argc, char **argv)
     m_argv(argv),
     outputDirectory(Output) {
 
+
   // create output directory (if required)
   bool created = false;
-  if (!boost::filesystem::exists(outputDirectory)) {
-    boost::system::error_code ec;
+
+  boost::system::error_code ec;
+  if (boost::filesystem::exists(outputDirectory)) {
+    if (OutputCreate) {
+
+      // create an empty directory
+      boost::filesystem::remove_all(outputDirectory, ec);
+      boost::filesystem::create_directories(outputDirectory, ec);
+      created = true;
+    }
+  } else {
     boost::filesystem::create_directories(outputDirectory, ec);
     created = true;
   }
@@ -378,6 +389,7 @@ std::string BrtKleeHandler::toDataString(const std::vector<unsigned char> &data)
 void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
   Interpreter *i = getInterpreter();
+  assert(!state.isProcessed);
 
   if (i != nullptr && !NoOutput) {
 
@@ -860,9 +872,13 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   // get a list of globals declared, but not defined
   for (Module::const_global_iterator it = m->global_begin(), ie = m->global_end(); it != ie; ++it) {
     if (it->isDeclaration() && !it->use_empty()) {
-      extGlobals.insert(it->getName());
+      std::string name = it->getName();
+      if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
+        extGlobals.insert(it->getName());
+      }
     }
   }
+
   // and remove aliases (they define the symbol after global
   // initialization)
   for (Module::const_alias_iterator it = m->alias_begin(), ie = m->alias_end(); it != ie; ++it) {
@@ -1040,6 +1056,9 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
     }
   }
 
+  // must rename iso99 version before linking, otherwise will not pull in new target
+  replaceOrRenameFunction(mainModule, "__isoc99_fscanf", "fscanf");
+
   mainModule = klee::linkWithLibrary(mainModule, uclibcBCA.c_str());
   assert(mainModule && "unable to link with uclibc");
 
@@ -1070,6 +1089,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // and trivialize functions we will never use
   // RLR TODO: may need to trivialize or capture other functions
+
+#if 0 == 1
   std::set<std::string> trivialize_fns {
     "isatty",
     "tcgetattr",
@@ -1095,6 +1116,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
       }
     }
   }
+#endif
 
   outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;

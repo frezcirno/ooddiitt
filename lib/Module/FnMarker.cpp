@@ -20,23 +20,27 @@ bool FnMarkerPass::doInitialization(llvm::Module &module) {
 
   mdkind_fnID = module.getMDKindID("brt-klee.fnID");
   mdkind_bbID = module.getMDKindID("brt-klee.bbID");
+  mapFn.clear();
+  mapBB.clear();
   return false;
 }
 
-bool FnMarkerPass::runOnFunction(Function &f) {
+bool FnMarkerPass::runOnFunction(Function &fn) {
 
-  LLVMContext &ctx = f.getContext();
+  LLVMContext &ctx = fn.getContext();
   unsigned next_bbID = 1;
 
-  for (Function::iterator b = f.begin(), be = f.end(); b != be; ++b) {
+  for (Function::iterator b = fn.begin(), be = fn.end(); b != be; ++b) {
     BasicBlock &bb = *b;
     if (!bb.empty()) {
       Instruction &inst = bb.front();
       MDNode *md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_bbID)));
       inst.setMetadata(mdkind_bbID, md);
+      mapBB[&bb] = next_bbID;
       if (next_bbID == 1) {
         md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_fnID)));
         inst.setMetadata(mdkind_fnID, md);
+        mapFn[&fn] = next_fnID;
       }
       next_bbID += 1;
     }

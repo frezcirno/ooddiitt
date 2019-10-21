@@ -102,6 +102,7 @@ public:
 
 cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
 cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification before adding"));
+cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
 cl::opt<unsigned> MinLazyAllocationSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
@@ -111,6 +112,7 @@ cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("
 cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
 cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
 cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
+cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
 cl::opt<string> BreakAt("break-at", cl::init(""), cl::desc("break at the given trace line number"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
@@ -809,7 +811,10 @@ void LocalExecutor::bindModuleConstants() {
   }
 }
 
+// use for input generation
 void LocalExecutor::runFunctionUnconstrained(Function *fn) {
+
+  assert(interpreterOpts.mode == ExecModeID::igen);
 
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) {
@@ -957,7 +962,10 @@ void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char *
   assert(false && "deprecated runFunctionAsMain (see runFunctionUnconstrained)");
 }
 
+// Used to replay a persisted test case
 void LocalExecutor::runFunctionTestCase(const TestCase &test) {
+
+  assert(interpreterOpts.mode == ExecModeID::rply);
 
   Function *fn = kmodule->module->getFunction(test.entry_fn);
   if (fn == nullptr) return;
@@ -1143,7 +1151,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       break_lines.insert(stoul(line));
     }
   }
-  bool tracing = TraceAssembly || TraceStatements;
+  bool tracing = TraceAssembly || TraceStatements || TraceBBlocks;
 
   if (timeout > 0) timer.set(tid_timeout, timeout);
   timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
@@ -1163,20 +1171,23 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     KInstruction *ki = state->pc;
     stepInstruction(*state);
 
-    unsigned line;
+    unsigned tr_entry = 0;
     if (TraceStatements) {
       const DebugLoc loc = ki->inst->getDebugLoc();
-      line = loc.getLine();
+      tr_entry = loc.getLine();
+    } if (TraceBBlocks) {
+      const BasicBlock *bb = ki->inst->getParent();
+      tr_entry = kmodule->getMarkerID(bb->getParent(), bb);
     } else {
-      line = ki->info->assemblyLine;
+      tr_entry = ki->info->assemblyLine;
     }
-    if (tracing && (line != 0) && (state->line_trace.empty() || line != state->line_trace.back())) {
-      state->line_trace.push_back(line);
+    if (tracing && (tr_entry != 0) && (state->line_trace.empty() || tr_entry != state->line_trace.back())) {
+      state->line_trace.push_back(tr_entry);
     }
 
     try {
 
-      if (break_lines.find(line) != break_lines.end()) {
+      if (break_lines.find(tr_entry) != break_lines.end()) {
         outs() << "break here!\n";
         enable_state_switching = false;
       }
@@ -1203,6 +1214,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   loopForkCounter.clear();
   for (ExecutionState *state : states) {
+    if (SavePendingStates) {
+      interpreterHandler->processTestCase(*state);
+    }
     terminateState(*state, "flushing states on halt");
   }
   updateStates(nullptr);
@@ -1284,9 +1298,9 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
   if (state.status == ExecutionState::StateStatus::Completed) {
-    if (!doLocalCoverage) {
-      interpreterHandler->processTestCase(state);
-    }
+    interpreterHandler->processTestCase(state);
+  } else if (state.status == ExecutionState::StateStatus::Completed) {
+    interpreterHandler->processTestCase(state);
   } else {
     // its an error state, pending state, or discarded state
     // stash faults for later consideration
@@ -1521,6 +1535,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (fn != nullptr) {
         fnName = fn->getName();
 
+#if 0 == 1
         // RLR TODO: what to do with these?
         if (fnName.find("printf") != std::string::npos) {
           Type *ty = cs->getType();
@@ -1533,6 +1548,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           klee_warning("calling %s", fnName.c_str());
           return;
         }
+#endif
 
         isInModule = kmodule->isModuleFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);

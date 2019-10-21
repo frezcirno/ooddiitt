@@ -62,6 +62,7 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <getopt.h>
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem/path.hpp>
 
 using namespace llvm;
 using namespace klee;
@@ -359,6 +360,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   // linked in something with intrinsics but any external calls are
   // going to be unresolved. We really need to handle the intrinsics
   // directly I think?
+
   {
     PassManager pm;
     pm.add(createCFGSimplificationPass());
@@ -372,19 +374,18 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       break;
     default: klee_error("invalid --switch-type");
     }
+
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
-    pm.add(new FnMarkerPass());
+    pm.add(new InstructionOperandTypeCheckPass());
+    pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers));
     pm.run(*module);
   }
 
-  infos = new InstructionInfoTable(module);
-
-  // Write out the .ll assembly file. We truncate long lines to work
-  // around a kcachegrind parsing bug (it puts them on new lines), so
-  // that source browsing works.
+  boost::filesystem::path md_path(module->getModuleIdentifier());
+  string filename = md_path.filename().string();
   if (OutputSource) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.ll", true);
+    llvm::raw_fd_ostream *os = ih->openOutputFile(filename, true);
     if (os != nullptr) {
         *os << *module;
         delete os;
@@ -392,7 +393,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   }
 
   if (OutputModule) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile("assembly.bc");
+    llvm::raw_fd_ostream *os = ih->openOutputFile(filename, true);
     if (os != nullptr) {
       WriteBitcodeToFile(module, *os);
       delete os;
@@ -403,6 +404,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   /* Build shadow structures */
   infos = new InstructionInfoTable(module);
+
+  /* Build shadow structures */
 
   // never stub some functions
   for (const auto &fn_name : never_stub) {
@@ -490,6 +493,22 @@ unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
   constants.push_back(c);
   return id;
 }
+
+unsigned KModule::getMarkerID(const llvm::Function *fn, const llvm::BasicBlock *bb) {
+
+  unsigned result = 0;
+  const auto itr_fn = mapFnMarkers.find(fn);
+  if (itr_fn != mapFnMarkers.end()) {
+    const auto itr_bb = mapBBMarkers.find(bb);
+    if (itr_bb != mapBBMarkers.end()) {
+      result = itr_fn->second << 16;
+      result |= (itr_bb->second & 0xFFFF);
+    }
+  }
+  return result;
+}
+
+
 
 /***/
 
