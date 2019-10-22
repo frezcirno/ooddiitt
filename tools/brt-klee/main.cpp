@@ -73,17 +73,19 @@
 
 using namespace llvm;
 using namespace klee;
+using namespace std;
+typedef std::chrono::system_clock sys_clock;
 
 namespace {
 
-  cl::opt<std::string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+  cl::opt<string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<std::string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
-  cl::opt<std::string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
-  cl::opt<std::string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"));
-  cl::opt<std::string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
-  cl::opt<std::string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::list<std::string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
+  cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
+  cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
+  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"));
+  cl::opt<string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
+  cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+  cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -120,9 +122,9 @@ namespace {
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::opt<std::string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
   cl::opt<bool> OutputCreate("output-create", cl::desc("remove output directory before re-creating"));
-  cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
   cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
                        cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
 				                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
@@ -133,31 +135,35 @@ namespace {
 
 /***/
 
-std::string currentISO8601TimeUTC() {
-  auto now = std::chrono::system_clock::now();
-  auto itt = std::chrono::system_clock::to_time_t(now);
-  std::ostringstream ss;
-  ss << std::put_time(gmtime(&itt), "%FT%TZ");
+
+string to_string(const sys_clock::time_point &tp) {
+
+  auto itt = sys_clock::to_time_t(tp);
+  ostringstream ss;
+  ss << put_time(gmtime(&itt), "%FT%TZ");
   return ss.str();
+}
+
+string currentISO8601TimeUTC() {
+  return to_string(sys_clock::now());
 }
 
 class BrtKleeHandler : public InterpreterHandler {
 private:
   unsigned casesGenerated;
   unsigned nextTestCaseID;
-  std::string indentation;
+  string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
   pid_t pid_watchdog;
 
   // used for writing .ktest files
-  int m_argc;
-  char **m_argv;
-
+  const vector<string> &args;
   boost::filesystem::path outputDirectory;
-  std::map<std::string,unsigned> terminationCounters;
+  map<string,unsigned> terminationCounters;
+  string md_name;
 
 public:
-  BrtKleeHandler(int argc, char **argv);
+  BrtKleeHandler(const vector<string> &args, const string &_md_name);
   ~BrtKleeHandler();
 
   llvm::raw_ostream &getInfoStream() const override { return outs(); }
@@ -170,40 +176,42 @@ public:
 
   void processTestCase(ExecutionState  &state) override;
 
-  std::string toDataString(const std::vector<unsigned char> &data) const;
+  string toDataString(const vector<unsigned char> &data) const;
 
-  std::string getOutputFilename(const std::string &filename) override;
-  std::string getTestFilename(const std::string &prefix, const std::string &ext, unsigned id);
+  string getOutputFilename(const string &filename) override;
+  string getTestFilename(const string &prefix, const string &ext, unsigned id);
+  string getModuleName() const override { return md_name; }
 
-  std::ostream *openTestCaseFile(const std::string &prefix, unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const std::string &prefix, const std::string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
+  ostream *openTestCaseFile(const string &prefix, unsigned testID);
+  llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
+  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
+  llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
+  llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
 
-  std::string getTypeName(const Type *Ty) const override;
+  string getTypeName(const Type *Ty) const override;
 
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
   // load a .path file
-  static void loadPathFile(std::string name, std::vector<bool> &buffer);
-  static void getKTestFilesInDir(std::string directoryPath,
-                                 std::vector<std::string> &results);
+  static void loadPathFile(string name, vector<bool> &buffer);
+  static void getKTestFilesInDir(string directoryPath,
+                                 vector<string> &results);
 
-  static std::string getRunTimeLibraryPath(const char *argv0);
+  static string getRunTimeLibraryPath(const char *argv0);
 
-  void incTermination(const std::string &message) override;
-  void getTerminationMessages(std::vector<std::string> &messages) override;
-  unsigned getTerminationCount(const std::string &message) override;
+  void incTermination(const string &message) override;
+  void getTerminationMessages(vector<string> &messages) override;
+  unsigned getTerminationCount(const string &message) override;
 };
 
-BrtKleeHandler::BrtKleeHandler(int argc, char **argv)
+BrtKleeHandler::BrtKleeHandler(const vector<string> &_args, const string &_md_name)
   : casesGenerated(0),
     nextTestCaseID(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
-    m_argc(argc),
-    m_argv(argv),
+    args(_args),
     outputDirectory(Output) {
 
 
@@ -232,7 +240,7 @@ BrtKleeHandler::BrtKleeHandler(int argc, char **argv)
     while (!done) {
 
       // find the next missing test case id.
-      std::string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
+      string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
       boost::filesystem::path testfile(testname);
       if (boost::filesystem::exists(testfile)) {
         ++nextTestCaseID;
@@ -242,6 +250,7 @@ BrtKleeHandler::BrtKleeHandler(int argc, char **argv)
     }
   }
 
+  md_name = boost::filesystem::path(_md_name).stem().string();
   outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
@@ -250,7 +259,7 @@ BrtKleeHandler::~BrtKleeHandler() {
 
 }
 
-std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
+string BrtKleeHandler::getTypeName(const Type *Ty) const {
 
   if (Ty != nullptr) {
 
@@ -266,7 +275,7 @@ std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
       case Type::MetadataTyID: return "metadata";
       case Type::X86_MMXTyID: return "x86_mmx";
       case Type::IntegerTyID: {
-        std::stringstream ss;
+        stringstream ss;
         ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
         return ss.str();
       }
@@ -277,7 +286,7 @@ std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
       }
       case Type::PointerTyID: {
 
-        std::stringstream ss;
+        stringstream ss;
         const PointerType *PTy = cast<PointerType>(Ty);
         ss << getTypeName(PTy->getElementType());
         ss << '*';
@@ -285,7 +294,7 @@ std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
       }
       case Type::ArrayTyID: {
 
-        std::stringstream ss;
+        stringstream ss;
         const ArrayType *ATy = cast<ArrayType>(Ty);
         ss << '[' << ATy->getNumElements() << " x ";
         ss << getTypeName(ATy->getElementType());
@@ -293,7 +302,7 @@ std::string BrtKleeHandler::getTypeName(const Type *Ty) const {
         return ss.str();
       }
       case Type::VectorTyID: {
-        std::stringstream ss;
+        stringstream ss;
         const VectorType *VTy = cast<VectorType>(Ty);
         ss << '<' << VTy->getNumElements() << " x ";
         ss << getTypeName(VTy->getElementType());
@@ -314,22 +323,22 @@ void BrtKleeHandler::setInterpreter(Interpreter *i) {
   InterpreterHandler::setInterpreter(i);
 }
 
-std::string BrtKleeHandler::getOutputFilename(const std::string &filename) {
+string BrtKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *BrtKleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
+llvm::raw_fd_ostream *BrtKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
-  std::string Error;
-  std::string path = getOutputFilename(filename);
+  string Error;
+  string path = getOutputFilename(filename);
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
   f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
 #else
   llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (exclusive) {
+  if (overwrite) {
     fs_options |= llvm::sys::fs::F_Excl;
   }
   f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
@@ -347,21 +356,21 @@ llvm::raw_fd_ostream *BrtKleeHandler::openOutputFile(const std::string &filename
   return f;
 }
 
-std::string BrtKleeHandler::getTestFilename(const std::string &prefix, const std::string &ext, unsigned id) {
-  std::stringstream filename;
-  filename << prefix << std::setfill('0') << std::setw(10) << id << '.' << ext;
+string BrtKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
+  stringstream filename;
+  filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *BrtKleeHandler::openTestFile(const std::string &prefix, const std::string &ext, unsigned id) {
+llvm::raw_fd_ostream *BrtKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-std::ostream *BrtKleeHandler::openTestCaseFile(const std::string &prefix, unsigned testID) {
+ostream *BrtKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
-  std::ofstream *result = nullptr;
-  std::string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
-  result = new std::ofstream(filename);
+  ofstream *result = nullptr;
+  string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
+  result = new ofstream(filename);
   if (result != nullptr) {
     if (!result->is_open()) {
       delete result;
@@ -371,9 +380,9 @@ std::ostream *BrtKleeHandler::openTestCaseFile(const std::string &prefix, unsign
   return result;
 }
 
-std::string BrtKleeHandler::toDataString(const std::vector<unsigned char> &data) const {
+string BrtKleeHandler::toDataString(const vector<unsigned char> &data) const {
 
-  std::stringstream bytes;
+  stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
 
     unsigned char hi = (unsigned char) (*itrData >> 4);
@@ -395,15 +404,15 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    std::string prefix = "test";
-    std::ostream *kout = openTestCaseFile(prefix, testID);
+    string prefix = "test";
+    ostream *kout = openTestCaseFile(prefix, testID);
     if (kout != nullptr) {
 
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
       root["entryFn"] = state.name;
       root["testID"] = testID;
-      root["argC"] = m_argc;
+      root["argC"] = args.size();
       root["lazyAllocationCount"] = state.lazyAllocationCount;
       root["maxLoopIteration"] = state.maxLoopIteration;
       root["maxLoopForks"] = state.maxLoopForks;
@@ -429,18 +438,18 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
       root["unconstraintMetric"] = unconstraintMetric;
 
       // store the path condition
-      std::string constraints;
+      string constraints;
       i->getConstraintLog(state, constraints, Interpreter::SMTVARS);
       root["pathConditionVars"] = constraints;
 
-      std::stringstream args;
-      for (int index = 0; index < m_argc; ++index) {
-        if (index > 0) args << ' ';
-        args << '\'' << m_argv[index] << '\'';
+      stringstream ss;
+      for (unsigned index = 0; index < args.size(); ++index) {
+        if (index > 0) ss << ' ';
+        ss << '\'' << args[index] << '\'';
       }
-      root["argV"] = args.str();
+      root["argV"] = ss.str();
 
-      std::vector<SymbolicSolution> out;
+      vector<SymbolicSolution> out;
       if (!i->getSymbolicSolution(state, out)) {
         klee_warning("unable to get symbolic solution, losing test case");
       }
@@ -449,7 +458,7 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
         auto &test = *itrObj;
         const MemoryObject *mo = test.first;
-        std::vector<unsigned char> &data = test.second;
+        vector<unsigned char> &data = test.second;
 
         Json::Value obj = Json::objectValue;
         obj["name"] = mo->name;
@@ -459,7 +468,7 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
         // scale to 32 or 64 bits
         unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-        std::vector<unsigned char> addr;
+        vector<unsigned char> addr;
         unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
         for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
           addr.push_back(*addrBytes);
@@ -481,10 +490,10 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
       Json::StreamWriterBuilder builder;
       builder["commentStyle"] = "None";
       builder["indentation"] = indentation;
-      std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+      unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
       writer.get()->write(root, kout);
-      *kout << std::endl;
+      *kout << endl;
 
       kout->flush();
       delete kout;
@@ -497,9 +506,9 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 }
 
   // load a .path file
-void BrtKleeHandler::loadPathFile(std::string name,
-                                     std::vector<bool> &buffer) {
-  std::ifstream f(name.c_str(), std::ios::in | std::ios::binary);
+void BrtKleeHandler::loadPathFile(string name, vector<bool> &buffer) {
+
+  ifstream f(name.c_str(), ios::in | ios::binary);
 
   if (!f.good())
     assert(0 && "unable to open path file");
@@ -512,16 +521,15 @@ void BrtKleeHandler::loadPathFile(std::string name,
   }
 }
 
-void BrtKleeHandler::getKTestFilesInDir(std::string directoryPath,
-                                     std::vector<std::string> &results) {
+void BrtKleeHandler::getKTestFilesInDir(string directoryPath, vector<string> &results) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  error_code ec;
+  llvm::error_code ec;
 #else
-  std::error_code ec;
+  error_code ec;
 #endif
   for (llvm::sys::fs::directory_iterator i(directoryPath, ec), e; i != e && !ec;
        i.increment(ec)) {
-    std::string f = (*i).path();
+    string f = (*i).path();
     if (f.substr(f.size()-6,f.size()) == ".ktest") {
           results.push_back(f);
     }
@@ -531,15 +539,15 @@ void BrtKleeHandler::getKTestFilesInDir(std::string directoryPath,
   }
 }
 
-std::string BrtKleeHandler::getRunTimeLibraryPath(const char *argv0) {
+string BrtKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
-    return std::string(env);
+    return string(env);
   }
 
   if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return std::string(KLEE_INSTALL_RUNTIME_DIR);
+    return string(KLEE_INSTALL_RUNTIME_DIR);
   }
 
   // Take any function from the execution binary but not main (as not allowed by
@@ -589,25 +597,25 @@ bool BrtKleeHandler::resetWatchDogTimer() const {
   return false;
 }
 
-void BrtKleeHandler::incTermination(const std::string &message) {
+void BrtKleeHandler::incTermination(const string &message) {
   ++terminationCounters[message];
 }
 
-void BrtKleeHandler::getTerminationMessages(std::vector<std::string> &messages) {
+void BrtKleeHandler::getTerminationMessages(vector<string> &messages) {
 
   for (const auto &pr : terminationCounters) {
     messages.push_back(pr.first);
   }
 }
 
-unsigned BrtKleeHandler::getTerminationCount(const std::string &message) {
+unsigned BrtKleeHandler::getTerminationCount(const string &message) {
   return terminationCounters[message];
 }
 
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-static std::string strip(std::string &in) {
+static string strip(const string &in) {
   unsigned len = in.size();
   unsigned lead = 0, trail = len;
   while (lead<len && isspace(in[lead]))
@@ -654,7 +662,7 @@ static int initEnv(Module *mainModule) {
   AllocaInst* argvPtr = new AllocaInst(oldArgv->getType(), "argvPtr", firstInst);
 
   /* Insert void klee_init_env(int* argc, char*** argv) */
-  std::vector<const Type*> params;
+  vector<const Type*> params;
   LLVMContext &ctx = mainModule->getContext();
   params.push_back(Type::getInt32Ty(ctx));
   params.push_back(Type::getInt32Ty(ctx));
@@ -664,7 +672,7 @@ static int initEnv(Module *mainModule) {
                                                                        argvPtr->getType(),
                                                                        NULL));
   assert(initEnvFn);
-  std::vector<Value*> args;
+  vector<Value*> args;
   args.push_back(argcPtr);
   args.push_back(argvPtr);
   Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
@@ -823,10 +831,8 @@ static const char *dontCareUclibc[] = {
 #define NELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
-  std::set<std::string> modelled(modelledExternals,
-                                 modelledExternals+NELEMS(modelledExternals));
-  std::set<std::string> dontCare(dontCareExternals,
-                                 dontCareExternals+NELEMS(dontCareExternals));
+  set<string> modelled(modelledExternals, modelledExternals+NELEMS(modelledExternals));
+  set<string> dontCare(dontCareExternals, dontCareExternals+NELEMS(dontCareExternals));
 
   switch (Libc) {
   case KleeLibc:
@@ -843,13 +849,13 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   if (WithPOSIXRuntime)
     dontCare.insert("syscall");
 
-  std::set<std::string> extFunctions;
-  std::set<std::string> extGlobals;
+  set<string> extFunctions;
+  set<string> extGlobals;
 
   // get a list of functions declared, but not defined
   for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end(); fnIt != fn_ie; ++fnIt) {
     if (fnIt->isDeclaration() && !fnIt->use_empty()) {
-      std::string name = fnIt->getName();
+      string name = fnIt->getName();
       if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
         extFunctions.insert(fnIt->getName());
       }
@@ -872,7 +878,7 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   // get a list of globals declared, but not defined
   for (Module::const_global_iterator it = m->global_begin(), ie = m->global_end(); it != ie; ++it) {
     if (it->isDeclaration() && !it->use_empty()) {
-      std::string name = it->getName();
+      string name = it->getName();
       if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
         extGlobals.insert(it->getName());
       }
@@ -942,21 +948,6 @@ static void interrupt_handle_watchdog() {
   // just wait for the child to finish
 }
 
-// returns the end of the string put in buf
-static char *format_tdiff(char *buf, long seconds)
-{
-  assert(seconds >= 0);
-
-  long minutes = seconds / 60;  seconds %= 60;
-  long hours   = minutes / 60;  minutes %= 60;
-  long days    = hours   / 24;  hours   %= 24;
-
-  buf = strrchr(buf, '\0');
-  if (days > 0) buf += sprintf(buf, "%ld days, ", days);
-  buf += sprintf(buf, "%02ld:%02ld:%02ld", hours, minutes, seconds);
-  return buf;
-}
-
 #ifndef SUPPORT_KLEE_UCLIBC
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
   klee_error("invalid libc, no uclibc support!\n");
@@ -985,8 +976,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // Ensure that klee-uclibc exists
   SmallString<128> uclibcBCA(libDir);
 
-  std::string uclibcLib = "klee-uclibc";
-  std::string extension = ".bca";
+  string uclibcLib = "klee-uclibc";
+  string extension = ".bca";
   llvm::DataLayout targetData(mainModule);
   Expr::Width width = targetData.getPointerSizeInBits();
   if (width == Expr::Int32) {
@@ -1005,7 +996,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // RLR TODO: evaluate how much of this we really need
   Function *f;
   // force import of __uClibc_main
-  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), std::vector<LLVM_TYPE_Q Type*>(), true));
+  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), true));
 
   // force various imports
   if (WithPOSIXRuntime) {
@@ -1039,11 +1030,11 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // naming conflict.
   for (Module::iterator fi = mainModule->begin(), fe = mainModule->end(); fi != fe; ++fi) {
     Function *f = static_cast<Function *>(fi);
-    const std::string &name = f->getName();
+    const string &name = f->getName();
     if (name[0]=='\01') {
       unsigned size = name.size();
       if (name[size-2]=='6' && name[size-1]=='4') {
-        std::string unprefixed = name.substr(1);
+        string unprefixed = name.substr(1);
 
         // See if the unprefixed version exists.
         if (Function *f2 = mainModule->getFunction(unprefixed)) {
@@ -1091,7 +1082,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // RLR TODO: may need to trivialize or capture other functions
 
 #if 0 == 1
-  std::set<std::string> trivialize_fns {
+  set<string> trivialize_fns {
     "isatty",
     "tcgetattr",
     "__uClibc_main",
@@ -1125,9 +1116,9 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
 #if 0 == 1
 
-void accumulate_transitive_closure(const std::map<std::string,std::set<std::string> > &map_callees,
-                                   const std::string &fn,
-                                   std::set<std::string> &callees) {
+void accumulate_transitive_closure(const map<string,set<string> > &map_callees,
+                                   const string &fn,
+                                   set<string> &callees) {
 
   const auto &itr = map_callees.find(fn);
   if (itr != map_callees.end()) {
@@ -1145,7 +1136,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   // complete progInfo from json structure
 
   // get a list of non-const global variables defined in this module
-  std::set<std::string> global_vars;
+  set<string> global_vars;
   Json::Value &globalRoot = root["globals"];
   Json::Value::Members gbls = globalRoot.getMemberNames();
   for (const auto gbl : gbls) {
@@ -1158,7 +1149,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
   if (chksum.isString()) progInfo.setChecksum(chksum.asString());
 
   // need a map of callees per function
-  std::map<std::string,std::set<std::string> > map_callees;
+  map<string,set<string> > map_callees;
 
   Json::Value &fnsRoot = root["functions"];
   Json::Value::Members fns = fnsRoot.getMemberNames();
@@ -1198,13 +1189,13 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       for (unsigned index = 0, end = globals.size(); index < end; ++index) {
         Json::Value &global = globals[index];
         if (global["isInput"].asBool()) {
-          std::string name = global["name"].asString();
+          string name = global["name"].asString();
           if (global_vars.count(name) > 0) {
             progInfo.setGlobalInput(fn, name);
           }
         }
         if (global["isOutput"].asBool()) {
-          std::string name = global["name"].asString();
+          string name = global["name"].asString();
           if (global_vars.count(name) > 0) {
             progInfo.setOutput(fn, name);
           }
@@ -1227,7 +1218,7 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
       for (unsigned index1 = 0, end1 = m2m_paths.size(); index1 < end1; ++index1) {
         Json::Value &path = m2m_paths[index1];
         if (path.isArray()) {
-          std::stringstream ss;
+          stringstream ss;
           ss << '.';
           for (unsigned index2 = 0, end2 = path.size(); index2 < end2; ++index2) {
             Json::Value &marker = path[index2];
@@ -1241,8 +1232,8 @@ void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
 
   // now that we have a map of direct callees, we do a dfs to find all reachable callees
   for (const auto &itr : map_callees) {
-    const std::string &fn = itr.first;
-    std::set<std::string> callees;
+    const string &fn = itr.first;
+    set<string> callees;
     accumulate_transitive_closure(map_callees, fn, callees);
 
     progInfo.setReachableFn(fn, fn);
@@ -1286,7 +1277,7 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
   }
 }
 
-void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
+void enumModuleFunctions(const Module *m, set<string> &names) {
 
   names.clear();
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
@@ -1296,7 +1287,7 @@ void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
   }
 }
 
-bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &progression, const std::string &str) {
+bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progression, const string &str) {
 
   bool result = false;
   if (str.empty()) {
@@ -1307,7 +1298,7 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
   } else {
 
     // parse out the progression phases
-    std::vector<std::string> phases;
+    vector<string> phases;
     boost::split(phases, str, [](char c){return c == ',';});
     for (const auto &phase: phases) {
 
@@ -1321,7 +1312,7 @@ bool parseUnconstraintProgression(std::vector<Interpreter::ProgressionDesc> &pro
 
         if (*itr == ':') {
           // rest of string is a unsigned timeout
-          timeout = (unsigned) std::stoi(std::string(itr + 1, end));
+          timeout = (unsigned) stoi(string(itr + 1, end));
           char suffix = (char) tolower(phase.back());
           if (suffix == 'm') {
             timeout *= 60;
@@ -1452,12 +1443,12 @@ int main(int argc, char **argv, char **envp) {
   outs() << "PID: " << getpid() << "\n";
 
   // Load the bytecode...
-  std::string ErrorMsg;
+  string ErrorMsg;
   LLVMContext ctx;
   Module *mainModule = nullptr;
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   OwningPtr<MemoryBuffer> BufferPtr;
-  error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
   if (ec) {
     klee_error("error loading program '%s': %s", InputFile.c_str(),
                ec.message().c_str());
@@ -1471,8 +1462,7 @@ int main(int argc, char **argv, char **envp) {
       mainModule = nullptr;
     }
   }
-  if (!mainModule)
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
+  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
 #else
   auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
   if (!Buffer)
@@ -1487,7 +1477,7 @@ int main(int argc, char **argv, char **envp) {
   }
   else {
     // The module has taken ownership of the MemoryBuffer so release it
-    // from the std::unique_ptr
+    // from the unique_ptr
     Buffer->release();
   }
 
@@ -1503,7 +1493,7 @@ int main(int argc, char **argv, char **envp) {
     klee_error("Failed initializing posix runtime, error=%d", r);
   }
 
-  std::string LibraryDir = BrtKleeHandler::getRunTimeLibraryPath(argv[0]);
+  string LibraryDir = BrtKleeHandler::getRunTimeLibraryPath(argv[0]);
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -1527,7 +1517,7 @@ int main(int argc, char **argv, char **envp) {
   if (WithPOSIXRuntime) {
     SmallString<128> Path(LibraryDir);
 
-    std::string posixLib = "libkleeRuntimePOSIX";
+    string posixLib = "libkleeRuntimePOSIX";
     Module::PointerSize width = mainModule->getPointerSize();
     if (width == Module::PointerSize::Pointer32) {
       posixLib += "-32";
@@ -1542,8 +1532,8 @@ int main(int argc, char **argv, char **envp) {
     assert(mainModule && "unable to link with simple model");
   }
 
-  std::vector<std::string>::iterator libs_it;
-  std::vector<std::string>::iterator libs_ie;
+  vector<string>::iterator libs_it;
+  vector<string>::iterator libs_ie;
   for (libs_it = LinkLibraries.begin(), libs_ie = LinkLibraries.end();
           libs_it != libs_ie; ++libs_it) {
     const char * libFilename = libs_it->c_str();
@@ -1555,46 +1545,12 @@ int main(int argc, char **argv, char **envp) {
 
   Function *mainFn = mainModule->getFunction(UserMain);
 
-  // FIXME: Change me to std types.
-  int pArgc;
-  char **pArgv;
-  char **pEnvp;
-  if (Environ != "") {
-    std::vector<std::string> items;
-    std::ifstream f(Environ.c_str());
-    if (!f.good())
-      klee_error("unable to open --environ file: %s", Environ.c_str());
-    while (!f.eof()) {
-      std::string line;
-      std::getline(f, line);
-      line = strip(line);
-      if (!line.empty())
-        items.push_back(line);
-    }
-    f.close();
-    pEnvp = new char *[items.size()+1];
-    unsigned i=0;
-    for (; i != items.size(); ++i)
-      pEnvp[i] = strdup(items[i].c_str());
-    pEnvp[i] = 0;
-  } else {
-    pEnvp = envp;
-  }
+  vector<string> args;
+  args.reserve(InputArgv.size() + 1);
+  args.push_back(InputFile);
+  args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  pArgc = InputArgv.size() + 1;
-  pArgv = new char *[pArgc];
-  for (unsigned i=0; i<InputArgv.size()+1; i++) {
-    std::string &arg = (i==0 ? InputFile : InputArgv[i-1]);
-    unsigned size = arg.size() + 1;
-    char *pArg = new char[size];
-
-    std::copy(arg.begin(), arg.end(), pArg);
-    pArg[size - 1] = 0;
-
-    pArgv[i] = pArg;
-  }
-
-  BrtKleeHandler *handler = new BrtKleeHandler(pArgc, pArgv);
+  BrtKleeHandler *handler = new BrtKleeHandler(args, mainModule->getModuleIdentifier());
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
@@ -1620,18 +1576,14 @@ int main(int argc, char **argv, char **envp) {
 
   externalsAndGlobalsCheck(finalModule, true);
 
-  char buf[256];
-  time_t t[2];
-  t[0] = time(NULL);
-  strftime(buf, sizeof(buf), "Started: %Y-%m-%d %H:%M:%S\n", localtime(&t[0]));
-  handler->getInfoStream() << buf;
+  auto start_time = sys_clock::now();
+  handler->getInfoStream() << "Started: " << to_string(start_time) << '\n';
   handler->getInfoStream().flush();
 
   if (RunInDir != "") {
     int res = chdir(RunInDir.c_str());
     if (res < 0) {
-      klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(),
-                 sys::StrError(errno).c_str());
+      klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(), sys::StrError(errno).c_str());
     }
   }
 
@@ -1651,18 +1603,10 @@ int main(int argc, char **argv, char **envp) {
     theInterpreter->runFunctionUnconstrained(entryFn);
   }
 
-  t[1] = time(nullptr);
-  strftime(buf, sizeof(buf), "Finished: %Y-%m-%d %H:%M:%S\n", localtime(&t[1]));
-  handler->getInfoStream() << buf;
-
-  strcpy(buf, "Elapsed: ");
-  strcpy(format_tdiff(buf, t[1] - t[0]), "\n");
-  handler->getInfoStream() << buf;
-
-  // Free all the args.
-  for (unsigned i=0; i<InputArgv.size()+1; i++)
-    delete[] pArgv[i];
-  delete[] pArgv;
+  auto finish_time = sys_clock::now();
+  handler->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
+  handler->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
 
   delete theInterpreter;
   theInterpreter = nullptr;
@@ -1670,7 +1614,7 @@ int main(int argc, char **argv, char **envp) {
   // only display stats if output was appended (i.e. actual se was performed)
   if (EntryPoint != "void") {
 
-    std::vector<std::string> termination_messages;
+    vector<string> termination_messages;
     handler->getTerminationMessages(termination_messages);
     for (const auto &message : termination_messages) {
       outs() << "BRT-KLEE: term: " << message << ": " << handler->getTerminationCount(message) << "\n";

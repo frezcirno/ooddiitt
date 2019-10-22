@@ -404,14 +404,11 @@ const Module *Executor::setModule(llvm::Module *module,
 
   kmodule = new KModule(module);
 
-  // Initialize the context.
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-  TargetData *TD = kmodule->targetData;
-#else
-  DataLayout *TD = kmodule->targetData;
-#endif
-  Context::initialize(TD->isLittleEndian(),
-                      (Expr::Width) TD->getPointerSizeInBits());
+  // Initialize the context, if not already
+  if (!Context::is_initialized()) {
+    DataLayout *TD = kmodule->targetData;
+    Context::initialize(TD->isLittleEndian(), (Expr::Width) TD->getPointerSizeInBits());
+  }
 
   specialFunctionHandler = new SpecialFunctionHandler(*this);
 
@@ -420,12 +417,11 @@ const Module *Executor::setModule(llvm::Module *module,
   specialFunctionHandler->bind();
 
   if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
-    statsTracker =
-      new StatsTracker(*this,
-                       interpreterHandler->getOutputFilename("assembly.ll"),
-                       userSearcherRequiresMD2U());
+    std::string filename = interpreterHandler->getModuleName() + ".ll";
+    statsTracker = new StatsTracker(*this,
+                                    interpreterHandler->getOutputFilename(filename),
+                                    userSearcherRequiresMD2U());
   }
-
   return module;
 }
 

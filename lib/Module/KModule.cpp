@@ -100,11 +100,7 @@ namespace {
 
 KModule::KModule(Module *_module)
   : module(_module),
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-    targetData(new TargetData(module)),
-#else
     targetData(new DataLayout(module)),
-#endif
     kleeMergeFn(nullptr),
     infos(nullptr),
     constantTable(nullptr) {}
@@ -233,170 +229,202 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
 
   LLVMContext &ctx = module->getContext();
 
+  bool need_preparation = true;
+  SmallVector<StringRef,4> lst_metadata;
+  module->getMDKindNames(lst_metadata);
+  for (const auto &itm : lst_metadata) {
+    if (itm.str() == "brt-klee.fnID") {
+      need_preparation = false;
+      break;
+    }
+  }
+
   // gather a list of original module functions
   set<const Function*> orig_functions;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
+
     if (!fn->isDeclaration()) {
       orig_functions.insert(fn);
     }
   }
 
-  if (!MergeAtExit.empty()) {
-    Function *mergeFn = module->getFunction("klee_merge");
-    if (!mergeFn) {
-      LLVM_TYPE_Q llvm::FunctionType *Ty = FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), false);
-      mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage, "klee_merge", module);
-    }
-
-    for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
-      string &name = *it;
-      Function *f = module->getFunction(name);
-      if (!f) {
-        klee_error("cannot insert merge-at-exit for: %s (cannot find)", name.c_str());
-      } else if (f->isDeclaration()) {
-        klee_error("cannot insert merge-at-exit for: %s (external)", name.c_str());
+  if (need_preparation) {
+    if (!MergeAtExit.empty()) {
+      Function *mergeFn = module->getFunction("klee_merge");
+      if (!mergeFn) {
+        LLVM_TYPE_Q llvm::FunctionType *Ty = FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type *>(), false);
+        mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage, "klee_merge", module);
       }
 
-      BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
-      PHINode *result = 0;
-      if (f->getReturnType() != Type::getVoidTy(ctx))
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
-        result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
-#else
-		result = PHINode::Create(f->getReturnType(), "retval", exit);
-#endif
-      CallInst::Create(mergeFn, "", exit);
-      ReturnInst::Create(ctx, result, exit);
+      for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
+        string &name = *it;
+        Function *f = module->getFunction(name);
+        if (!f) {
+          klee_error("cannot insert merge-at-exit for: %s (cannot find)", name.c_str());
+        } else if (f->isDeclaration()) {
+          klee_error("cannot insert merge-at-exit for: %s (external)", name.c_str());
+        }
 
-      llvm::errs() << "KLEE: adding klee_merge at exit of: " << name << "\n";
-      for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); bbit != bbie; ++bbit) {
-	    BasicBlock *bb = static_cast<BasicBlock *>(bbit);
-        if (bb != exit) {
-          Instruction *i = bbit->getTerminator();
-          if (i->getOpcode()==Instruction::Ret) {
-            if (result) {
-              result->addIncoming(i->getOperand(0), bb);
+        BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
+        PHINode *result = 0;
+        if (f->getReturnType() != Type::getVoidTy(ctx))
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
+          result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
+#else
+        result = PHINode::Create(f->getReturnType(), "retval", exit);
+#endif
+        CallInst::Create(mergeFn, "", exit);
+        ReturnInst::Create(ctx, result, exit);
+
+        llvm::errs() << "KLEE: adding klee_merge at exit of: " << name << "\n";
+        for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); bbit != bbie; ++bbit) {
+          BasicBlock *bb = static_cast<BasicBlock *>(bbit);
+          if (bb != exit) {
+            Instruction *i = bbit->getTerminator();
+            if (i->getOpcode() == Instruction::Ret) {
+              if (result) {
+                result->addIncoming(i->getOperand(0), bb);
+              }
+              i->eraseFromParent();
+              BranchInst::Create(exit, bb);
             }
-            i->eraseFromParent();
-            BranchInst::Create(exit, bb);
           }
         }
       }
     }
-  }
 
-  // Inject checks prior to optimization... we also perform the
-  // invariant transformations that we will end up doing later so that
-  // optimize is seeing what is as close as possible to the final
-  // module.
-  {
-    PassManager pm;
-    pm.add(new RaiseAsmPass());
-    if (opts.CheckDivZero) {
-      pm.add(new DivCheckPass());
+    // Inject checks prior to optimization... we also perform the
+    // invariant transformations that we will end up doing later so that
+    // optimize is seeing what is as close as possible to the final
+    // module.
+    {
+      PassManager pm;
+      pm.add(new RaiseAsmPass());
+      if (opts.CheckDivZero) {
+        pm.add(new DivCheckPass());
+      }
+      if (opts.CheckOvershift) {
+        pm.add(new OvershiftCheckPass());
+      }
+      // FIXME: This false here is to work around a bug in
+      // IntrinsicLowering which caches values which may eventually be
+      // deleted (via RAUW). This can be removed once LLVM fixes this
+      // issue.
+      pm.add(new IntrinsicCleanerPass(*targetData, false));
+      pm.run(*module);
     }
-    if (opts.CheckOvershift) {
-      pm.add(new OvershiftCheckPass());
-    }
-    // FIXME: This false here is to work around a bug in
-    // IntrinsicLowering which caches values which may eventually be
-    // deleted (via RAUW). This can be removed once LLVM fixes this
-    // issue.
-    pm.add(new IntrinsicCleanerPass(*targetData, false));
-    pm.run(*module);
-  }
 
-  if (opts.Optimize)
-    Optimize(module, opts.EntryPoint);
+    if (opts.Optimize)
+      Optimize(module, opts.EntryPoint);
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 3)
-  // Force importing functions required by intrinsic lowering. Kind of
-  // unfortunate clutter when we don't need them but we won't know
-  // that until after all linking and intrinsic lowering is
-  // done. After linking and passes we just try to manually trim these
-  // by name. We only add them if such a function doesn't exist to
-  // avoid creating stale uses.
+    // Force importing functions required by intrinsic lowering. Kind of
+    // unfortunate clutter when we don't need them but we won't know
+    // that until after all linking and intrinsic lowering is
+    // done. After linking and passes we just try to manually trim these
+    // by name. We only add them if such a function doesn't exist to
+    // avoid creating stale uses.
 
-  LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
-  forceImport(module, "memcpy", PointerType::getUnqual(i8Ty),
-              PointerType::getUnqual(i8Ty),
-              PointerType::getUnqual(i8Ty),
-              targetData->getIntPtrType(ctx), (Type*) 0);
-  forceImport(module, "memmove", PointerType::getUnqual(i8Ty),
-              PointerType::getUnqual(i8Ty),
-              PointerType::getUnqual(i8Ty),
-              targetData->getIntPtrType(ctx), (Type*) 0);
-  forceImport(module, "memset", PointerType::getUnqual(i8Ty),
-              PointerType::getUnqual(i8Ty),
-              Type::getInt32Ty(ctx),
-              targetData->getIntPtrType(ctx), (Type*) 0);
+    LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
+    forceImport(module, "memcpy", PointerType::getUnqual(i8Ty),
+                PointerType::getUnqual(i8Ty),
+                PointerType::getUnqual(i8Ty),
+                targetData->getIntPtrType(ctx), (Type*) 0);
+    forceImport(module, "memmove", PointerType::getUnqual(i8Ty),
+                PointerType::getUnqual(i8Ty),
+                PointerType::getUnqual(i8Ty),
+                targetData->getIntPtrType(ctx), (Type*) 0);
+    forceImport(module, "memset", PointerType::getUnqual(i8Ty),
+                PointerType::getUnqual(i8Ty),
+                Type::getInt32Ty(ctx),
+                targetData->getIntPtrType(ctx), (Type*) 0);
 #endif
-  // FIXME: Missing force import for various math functions.
+    // FIXME: Missing force import for various math functions.
 
-  // FIXME: Find a way that we can test programs without requiring
-  // this to be linked in, it makes low level debugging much more
-  // annoying.
+    // FIXME: Find a way that we can test programs without requiring
+    // this to be linked in, it makes low level debugging much more
+    // annoying.
 
-  SmallString<128> LibPath(opts.LibraryDir);
-  string intrinsicLib = "kleeRuntimeIntrinsic";
-  Expr::Width width = targetData->getPointerSizeInBits();
+    SmallString<128> LibPath(opts.LibraryDir);
+    string intrinsicLib = "kleeRuntimeIntrinsic";
+    Expr::Width width = targetData->getPointerSizeInBits();
 
-  if (width == Expr::Int32) {
-    intrinsicLib += "-32";
-  } else if (width == Expr::Int64) {
-    intrinsicLib += "-64";
-  }
-
-  intrinsicLib += ".bc";
-  llvm::sys::path::append(LibPath,intrinsicLib);
-  module = linkWithLibrary(module, LibPath.str());
-
-  // Needs to happen after linking (since ctors/dtors can be modified)
-  // and optimization (since global optimization can rewrite lists).
-  injectStaticConstructorsAndDestructors(module);
-
-  // Finally, run the passes that maintain invariants we expect during
-  // interpretation. We run the intrinsic cleaner just in case we
-  // linked in something with intrinsics but any external calls are
-  // going to be unresolved. We really need to handle the intrinsics
-  // directly I think?
-
-  {
-    PassManager pm;
-    pm.add(createCFGSimplificationPass());
-    pm.add(createLoopSimplifyPass());
-
-    switch (SwitchType) {
-    case eSwitchTypeInternal: break;
-    case eSwitchTypeSimple: pm.add(new LowerSwitchPass());
-      break;
-    case eSwitchTypeLLVM: pm.add(createLowerSwitchPass());
-      break;
-    default: klee_error("invalid --switch-type");
+    if (width == Expr::Int32) {
+      intrinsicLib += "-32";
+    } else if (width == Expr::Int64) {
+      intrinsicLib += "-64";
     }
 
-    pm.add(new IntrinsicCleanerPass(*targetData));
-    pm.add(new PhiCleanerPass());
-    pm.add(new InstructionOperandTypeCheckPass());
-    pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers));
-    pm.run(*module);
-  }
+    intrinsicLib += ".bc";
+    llvm::sys::path::append(LibPath, intrinsicLib);
+    module = linkWithLibrary(module, LibPath.str());
 
-  boost::filesystem::path md_path(module->getModuleIdentifier());
-  string filename = md_path.filename().string();
-  if (OutputSource) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile(filename, true);
-    if (os != nullptr) {
+    // Needs to happen after linking (since ctors/dtors can be modified)
+    // and optimization (since global optimization can rewrite lists).
+    injectStaticConstructorsAndDestructors(module);
+
+    // Finally, run the passes that maintain invariants we expect during
+    // interpretation. We run the intrinsic cleaner just in case we
+    // linked in something with intrinsics but any external calls are
+    // going to be unresolved. We really need to handle the intrinsics
+    // directly I think?
+
+    {
+      PassManager pm;
+      pm.add(createCFGSimplificationPass());
+      pm.add(createLoopSimplifyPass());
+
+      switch (SwitchType) {
+      case eSwitchTypeInternal: break;
+      case eSwitchTypeSimple: pm.add(new LowerSwitchPass());
+        break;
+      case eSwitchTypeLLVM: pm.add(createLowerSwitchPass());
+        break;
+      default: klee_error("invalid --switch-type");
+      }
+
+      pm.add(new IntrinsicCleanerPass(*targetData));
+      pm.add(new PhiCleanerPass());
+      pm.add(new InstructionOperandTypeCheckPass());
+      pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers));
+      pm.run(*module);
+    }
+
+    if (OutputSource) {
+      if (llvm::raw_fd_ostream *os = ih->openOutputAssembly()) {
         *os << *module;
         delete os;
+      }
     }
-  }
 
-  if (OutputModule) {
-    llvm::raw_fd_ostream *os = ih->openOutputFile(filename, true);
-    if (os != nullptr) {
-      WriteBitcodeToFile(module, *os);
-      delete os;
+    if (OutputModule) {
+      if (llvm::raw_fd_ostream *os = ih->openOutputBitCode()) {
+        WriteBitcodeToFile(module, *os);
+        delete os;
+      }
+    }
+  } else {
+
+    // since markers are already assigned, need to retrieve them from the module
+    unsigned mdkind_fnID = module->getMDKindID("brt-klee.fnID");
+    unsigned mdkind_bbID = module->getMDKindID("brt-klee.bbID");
+
+    for (auto md_itr = module->begin(), md_end = module->end(); md_itr != md_end; ++md_itr) {
+      Function *fn = md_itr;
+      for (auto fn_itr = fn->begin(), fn_end = fn->end(); fn_itr != fn_end; ++fn_itr) {
+        BasicBlock *bb = fn_itr;
+        for (auto bb_itr = bb->begin(), bb_end = bb->end(); bb_itr != bb_end; ++bb_itr) {
+          Instruction *inst = bb_itr;
+          if (MDNode *node = inst->getMetadata(mdkind_fnID)) {
+            string str = cast<MDString>(node->getOperand(0))->getString();
+            if (!str.empty()) mapFnMarkers[fn] = std::stoi(str);
+          }
+          if (MDNode *node = inst->getMetadata(mdkind_bbID)) {
+            string str = cast<MDString>(node->getOperand(0))->getString();
+            if (!str.empty()) mapBBMarkers[bb] = std::stoi(str);
+          }
+        }
+      }
     }
   }
 

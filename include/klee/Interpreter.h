@@ -64,10 +64,13 @@ public:
 
   virtual std::string getOutputFilename(const std::string &filename) = 0;
   virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
+  virtual llvm::raw_fd_ostream *openOutputAssembly() { return nullptr; }
+  virtual llvm::raw_fd_ostream *openOutputBitCode() { return nullptr; }
+  virtual std::string getModuleName() const { return ""; }
   virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() = 0;
-  virtual void incTermination(const std::string &message) {};
+  virtual void incTermination(const std::string &message) {}
   virtual void getTerminationMessages(std::vector<std::string> &messages) {};
   virtual unsigned getTerminationCount(const std::string &message) { return 0; }
 

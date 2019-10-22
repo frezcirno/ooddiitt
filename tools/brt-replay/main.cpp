@@ -74,19 +74,23 @@
 
 using namespace llvm;
 using namespace klee;
+using namespace std;
+typedef chrono::system_clock sys_clock;
 
 namespace {
 
-  cl::opt<std::string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+  cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
+  cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional, cl::Required);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<std::string> ReplayTest("replay-test", cl::desc("test case to replay"));
-  cl::opt<std::string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
-  cl::opt<std::string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::list<std::string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
+  cl::opt<string> ReplayTest("replay-test", cl::desc("test case to replay"));
+  cl::opt<string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
+  cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+  cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
 
+#if 0 == 1
   enum LibcType {
     NoLibc, KleeLibc, UcLibc
   };
@@ -108,37 +112,41 @@ namespace {
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::opt<std::string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
-  cl::list<std::string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+#endif
+
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
 }
 
 /***/
 
-std::string currentISO8601TimeUTC() {
-  auto now = std::chrono::system_clock::now();
-  auto itt = std::chrono::system_clock::to_time_t(now);
-  std::ostringstream ss;
-  ss << std::put_time(gmtime(&itt), "%FT%TZ");
+string to_string(const sys_clock::time_point &tp) {
+
+  auto itt = sys_clock::to_time_t(tp);
+  ostringstream ss;
+  ss << put_time(gmtime(&itt), "%FT%TZ");
   return ss.str();
+}
+
+string currentISO8601TimeUTC() {
+  return to_string(sys_clock::now());
 }
 
 class ReplayKleeHandler : public InterpreterHandler {
 private:
   unsigned casesGenerated;
-  std::string indentation;
+  string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
   pid_t pid_watchdog;
 
-  // used for writing .ktest files
-  int m_argc;
-  char **m_argv;
-
   boost::filesystem::path outputDirectory;
-  std::map<std::string,unsigned> terminationCounters;
+  map<string,unsigned> terminationCounters;
+  string md_name;
+  set<ExecutionState*> &results;
 
 public:
-  ReplayKleeHandler(int argc, char **argv);
+  ReplayKleeHandler(set<ExecutionState*> &_results, const string &_md_name);
   ~ReplayKleeHandler();
 
   llvm::raw_ostream &getInfoStream() const override { return outs(); }
@@ -151,50 +159,50 @@ public:
 
   void processTestCase(ExecutionState  &state) override;
 
-  std::string toDataString(const std::vector<unsigned char> &data) const;
+  string toDataString(const vector<unsigned char> &data) const;
 
-  std::string getOutputFilename(const std::string &filename) override;
-  std::string getTestFilename(const std::string &prefix, const std::string &ext, unsigned id);
+  string getOutputFilename(const string &filename) override;
+  string getTestFilename(const string &prefix, const string &ext, unsigned id);
+  string getModuleName() const override { return md_name; }
 
-  std::ostream *openTestCaseFile(const std::string &prefix, unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const std::string &prefix, const std::string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) override;
-
-  std::string getTypeName(const Type *Ty) const override;
+  ostream *openTestCaseFile(const string &prefix, unsigned testID);
+  llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
+  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
+  string getTypeName(const Type *Ty) const override;
 
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
   // load a .path file
-  static void loadPathFile(std::string name, std::vector<bool> &buffer);
-  static void getKTestFilesInDir(std::string directoryPath,
-                                 std::vector<std::string> &results);
+  static void loadPathFile(string name, vector<bool> &buffer);
+  static void getKTestFilesInDir(string directoryPath,
+                                 vector<string> &results);
 
-  static std::string getRunTimeLibraryPath(const char *argv0);
+  static string getRunTimeLibraryPath(const char *argv0);
 
-  void incTermination(const std::string &message) override;
-  void getTerminationMessages(std::vector<std::string> &messages) override;
-  unsigned getTerminationCount(const std::string &message) override;
+  void incTermination(const string &message) override;
+  void getTerminationMessages(vector<string> &messages) override;
+  unsigned getTerminationCount(const string &message) override;
 
 };
 
-ReplayKleeHandler::ReplayKleeHandler(int argc, char **argv)
+ReplayKleeHandler::ReplayKleeHandler(set<ExecutionState*> &_results, const string &_md_name)
   : casesGenerated(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
-    m_argc(argc),
-    m_argv(argv),
-    outputDirectory(Output) {
+    outputDirectory(Output),
+    results(_results) {
+
+  assert(results.empty());
 
   // create output directory (if required)
-  bool created = false;
   if (!boost::filesystem::exists(outputDirectory)) {
     boost::system::error_code ec;
     boost::filesystem::create_directories(outputDirectory, ec);
-    created = true;
   }
 
+  md_name = boost::filesystem::path(_md_name).stem().string();
   outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
@@ -202,7 +210,7 @@ ReplayKleeHandler::ReplayKleeHandler(int argc, char **argv)
 ReplayKleeHandler::~ReplayKleeHandler() {
 }
 
-std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
+string ReplayKleeHandler::getTypeName(const Type *Ty) const {
 
   if (Ty != nullptr) {
 
@@ -218,7 +226,7 @@ std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
       case Type::MetadataTyID: return "metadata";
       case Type::X86_MMXTyID: return "x86_mmx";
       case Type::IntegerTyID: {
-        std::stringstream ss;
+        stringstream ss;
         ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
         return ss.str();
       }
@@ -229,7 +237,7 @@ std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
       }
       case Type::PointerTyID: {
 
-        std::stringstream ss;
+        stringstream ss;
         const PointerType *PTy = cast<PointerType>(Ty);
         ss << getTypeName(PTy->getElementType());
         ss << '*';
@@ -237,7 +245,7 @@ std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
       }
       case Type::ArrayTyID: {
 
-        std::stringstream ss;
+        stringstream ss;
         const ArrayType *ATy = cast<ArrayType>(Ty);
         ss << '[' << ATy->getNumElements() << " x ";
         ss << getTypeName(ATy->getElementType());
@@ -245,7 +253,7 @@ std::string ReplayKleeHandler::getTypeName(const Type *Ty) const {
         return ss.str();
       }
       case Type::VectorTyID: {
-        std::stringstream ss;
+        stringstream ss;
         const VectorType *VTy = cast<VectorType>(Ty);
         ss << '<' << VTy->getNumElements() << " x ";
         ss << getTypeName(VTy->getElementType());
@@ -267,22 +275,22 @@ void ReplayKleeHandler::setInterpreter(Interpreter *i) {
 
 }
 
-std::string ReplayKleeHandler::getOutputFilename(const std::string &filename) {
+string ReplayKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const std::string &filename, bool exclusive) {
+llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
-  std::string Error;
-  std::string path = getOutputFilename(filename);
+  string Error;
+  string path = getOutputFilename(filename);
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
   f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
 #else
   llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (exclusive) {
+  if (overwrite) {
     fs_options |= llvm::sys::fs::F_Excl;
   }
   f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
@@ -300,21 +308,21 @@ llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const std::string &filen
   return f;
 }
 
-std::string ReplayKleeHandler::getTestFilename(const std::string &prefix, const std::string &ext, unsigned id) {
-  std::stringstream filename;
-  filename << prefix << std::setfill('0') << std::setw(10) << id << '.' << ext;
+string ReplayKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
+  stringstream filename;
+  filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *ReplayKleeHandler::openTestFile(const std::string &prefix, const std::string &ext, unsigned id) {
+llvm::raw_fd_ostream *ReplayKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-std::ostream *ReplayKleeHandler::openTestCaseFile(const std::string &prefix, unsigned testID) {
+ostream *ReplayKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
-  std::ofstream *result = nullptr;
-  std::string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
-  result = new std::ofstream(filename);
+  ofstream *result = nullptr;
+  string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
+  result = new ofstream(filename);
   if (result != nullptr) {
     if (!result->is_open()) {
       delete result;
@@ -324,9 +332,9 @@ std::ostream *ReplayKleeHandler::openTestCaseFile(const std::string &prefix, uns
   return result;
 }
 
-std::string ReplayKleeHandler::toDataString(const std::vector<unsigned char> &data) const {
+string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const {
 
-  std::stringstream bytes;
+  stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
 
     unsigned char hi = (unsigned char) (*itrData >> 4);
@@ -340,14 +348,17 @@ std::string ReplayKleeHandler::toDataString(const std::vector<unsigned char> &da
 
 void ReplayKleeHandler::processTestCase(ExecutionState &state) {
 
+  results.insert(new ExecutionState(state));
+
+#if 0 == 1
   assert(!ReplayTest.empty());
   boost::filesystem::path output = outputDirectory;
   output /= ReplayTest;
-  std::string fname = output.string();
+  string fname = output.string();
   boost::filesystem::path infile(InputFile);
   boost::replace_all(fname, "test", infile.stem().string());
 
-  std::ofstream fout(fname);
+  ofstream fout(fname);
   if (fout.is_open()) {
     Json::Value root = Json::objectValue;
     // construct the json object representing the results of the test case
@@ -360,7 +371,7 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
       if (mo_ptr_v != nullptr) {
         const ObjectState *os = state.addressSpace.findObject(mo_ptr_v);
         if (os != nullptr) {
-          std::vector<unsigned char> data;
+          vector<unsigned char> data;
           os->readConcrete(0, data);
           root["*v"] = toDataString(data);
         }
@@ -369,7 +380,7 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
       if (mo_ptr_ptr_v != nullptr) {
         const ObjectState *os = state.addressSpace.findObject(mo_ptr_ptr_v);
         if (os != nullptr) {
-          std::vector<unsigned char> data;
+          vector<unsigned char> data;
           os->readConcrete(0, data);
           root["**v"] = toDataString(data);
         }
@@ -380,7 +391,7 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
       if (mo_max_range != nullptr) {
         const ObjectState *os = state.addressSpace.findObject(mo_max_range);
         if (os != nullptr) {
-          std::vector<unsigned char> data;
+          vector<unsigned char> data;
           os->readConcrete(0, data);
           root["max_range_endpoint"] = toDataString(data);
         }
@@ -397,17 +408,18 @@ void ReplayKleeHandler::processTestCase(ExecutionState &state) {
     Json::StreamWriterBuilder builder;
     builder["commentStyle"] = "None";
     builder["indentation"] = indentation;
-    std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
     writer.get()->write(root, &fout);
-    fout << std::endl;
+    fout << endl;
     fout.flush();
   }
+#endif
 }
 
   // load a .path file
-void ReplayKleeHandler::loadPathFile(std::string name, std::vector<bool> &buffer) {
-  std::ifstream f(name.c_str(), std::ios::in | std::ios::binary);
+void ReplayKleeHandler::loadPathFile(string name, vector<bool> &buffer) {
+  ifstream f(name.c_str(), ios::in | ios::binary);
 
   if (!f.good())
     assert(0 && "unable to open path file");
@@ -420,16 +432,16 @@ void ReplayKleeHandler::loadPathFile(std::string name, std::vector<bool> &buffer
   }
 }
 
-void ReplayKleeHandler::getKTestFilesInDir(std::string directoryPath,
-                                     std::vector<std::string> &results) {
+void ReplayKleeHandler::getKTestFilesInDir(string directoryPath,
+                                     vector<string> &results) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  error_code ec;
+  llvm::error_code ec;
 #else
-  std::error_code ec;
+  error_code ec;
 #endif
   for (llvm::sys::fs::directory_iterator i(directoryPath, ec), e; i != e && !ec;
        i.increment(ec)) {
-    std::string f = (*i).path();
+    string f = (*i).path();
     if (f.substr(f.size()-6,f.size()) == ".ktest") {
           results.push_back(f);
     }
@@ -439,15 +451,15 @@ void ReplayKleeHandler::getKTestFilesInDir(std::string directoryPath,
   }
 }
 
-std::string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
+string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
-    return std::string(env);
+    return string(env);
   }
 
   if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return std::string(KLEE_INSTALL_RUNTIME_DIR);
+    return string(KLEE_INSTALL_RUNTIME_DIR);
   }
 
   // Take any function from the execution binary but not main (as not allowed by
@@ -497,18 +509,18 @@ bool ReplayKleeHandler::resetWatchDogTimer() const {
   return false;
 }
 
-void ReplayKleeHandler::incTermination(const std::string &message) {
+void ReplayKleeHandler::incTermination(const string &message) {
   ++terminationCounters[message];
 }
 
-void ReplayKleeHandler::getTerminationMessages(std::vector<std::string> &messages) {
+void ReplayKleeHandler::getTerminationMessages(vector<string> &messages) {
 
   for (const auto &pr : terminationCounters) {
     messages.push_back(pr.first);
   }
 }
 
-unsigned ReplayKleeHandler::getTerminationCount(const std::string &message) {
+unsigned ReplayKleeHandler::getTerminationCount(const string &message) {
   return terminationCounters[message];
 }
 
@@ -516,7 +528,7 @@ unsigned ReplayKleeHandler::getTerminationCount(const std::string &message) {
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-static std::string strip(std::string &in) {
+static string strip(const string &in) {
   unsigned len = in.size();
   unsigned lead = 0, trail = len;
   while (lead<len && isspace(in[lead]))
@@ -530,6 +542,8 @@ static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
+
+#if 0 == 1
 
 static int initEnv(Module *mainModule) {
 
@@ -545,7 +559,6 @@ static int initEnv(Module *mainModule) {
     oldArgv->replaceAllUsesWith(nArgv)
   */
 
-#if 0 == 1
   Function *mainFn = mainModule->getFunction(UserMain);
   if (!mainFn) {
     klee_error("'%s' function not found in module.", UserMain.c_str());
@@ -564,7 +577,7 @@ static int initEnv(Module *mainModule) {
   AllocaInst* argvPtr = new AllocaInst(oldArgv->getType(), "argvPtr", firstInst);
 
   /* Insert void klee_init_env(int* argc, char*** argv) */
-  std::vector<const Type*> params;
+  vector<const Type*> params;
   LLVMContext &ctx = mainModule->getContext();
   params.push_back(Type::getInt32Ty(ctx));
   params.push_back(Type::getInt32Ty(ctx));
@@ -574,7 +587,7 @@ static int initEnv(Module *mainModule) {
                                                                        argvPtr->getType(),
                                                                        NULL));
   assert(initEnvFn);
-  std::vector<Value*> args;
+  vector<Value*> args;
   args.push_back(argcPtr);
   args.push_back(argvPtr);
   Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
@@ -587,10 +600,10 @@ static int initEnv(Module *mainModule) {
 
   new StoreInst(oldArgc, argcPtr, initEnvCall);
   new StoreInst(oldArgv, argvPtr, initEnvCall);
-#endif
   return 0;
 }
 
+#endif
 
 // This is a terrible hack until we get some real modeling of the
 // system. All we do is check the undefined symbols and warn about
@@ -733,11 +746,10 @@ static const char *dontCareUclibc[] = {
 #define NELEMS(array) (sizeof(array)/sizeof(array[0]))
 
 void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
-  std::set<std::string> modelled(modelledExternals,
-                                 modelledExternals+NELEMS(modelledExternals));
-  std::set<std::string> dontCare(dontCareExternals,
-                                 dontCareExternals+NELEMS(dontCareExternals));
+  set<string> modelled(modelledExternals, modelledExternals+NELEMS(modelledExternals));
+  set<string> dontCare(dontCareExternals, dontCareExternals+NELEMS(dontCareExternals));
 
+#if 0 == 1
   switch (Libc) {
   case KleeLibc:
     dontCare.insert(dontCareKlee, dontCareKlee+NELEMS(dontCareKlee));
@@ -752,14 +764,15 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
 
   if (WithPOSIXRuntime)
     dontCare.insert("syscall");
+#endif
 
-  std::set<std::string> extFunctions;
-  std::set<std::string> extGlobals;
+  set<string> extFunctions;
+  set<string> extGlobals;
 
   // get a list of functions declared, but not defined
   for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end(); fnIt != fn_ie; ++fnIt) {
     if (fnIt->isDeclaration() && !fnIt->use_empty()) {
-      std::string name = fnIt->getName();
+      string name = fnIt->getName();
       if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
         extFunctions.insert(fnIt->getName());
       }
@@ -848,21 +861,7 @@ static void interrupt_handle_watchdog() {
   // just wait for the child to finish
 }
 
-// returns the end of the string put in buf
-static char *format_tdiff(char *buf, long seconds)
-{
-  assert(seconds >= 0);
-
-  long minutes = seconds / 60;  seconds %= 60;
-  long hours   = minutes / 60;  minutes %= 60;
-  long days    = hours   / 24;  hours   %= 24;
-
-  buf = strrchr(buf, '\0');
-  if (days > 0) buf += sprintf(buf, "%ld days, ", days);
-  buf += sprintf(buf, "%02ld:%02ld:%02ld", hours, minutes, seconds);
-  return buf;
-}
-
+#if 0 == 1
 #ifndef SUPPORT_KLEE_UCLIBC
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
   klee_error("invalid libc, no uclibc support!\n");
@@ -891,8 +890,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // Ensure that klee-uclibc exists
   SmallString<128> uclibcBCA(libDir);
 
-  std::string uclibcLib = "klee-uclibc";
-  std::string extension = ".bca";
+  string uclibcLib = "klee-uclibc";
+  string extension = ".bca";
   llvm::DataLayout targetData(mainModule);
   Expr::Width width = targetData.getPointerSizeInBits();
   if (width == Expr::Int32) {
@@ -911,7 +910,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // RLR TODO: evaluate how much of this we really need
   Function *f;
   // force import of __uClibc_main
-  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), std::vector<LLVM_TYPE_Q Type*>(), true));
+  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), true));
 
   // force various imports
   if (WithPOSIXRuntime) {
@@ -945,11 +944,11 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // naming conflict.
   for (Module::iterator fi = mainModule->begin(), fe = mainModule->end(); fi != fe; ++fi) {
     Function *f = static_cast<Function *>(fi);
-    const std::string &name = f->getName();
+    const string &name = f->getName();
     if (name[0]=='\01') {
       unsigned size = name.size();
       if (name[size-2]=='6' && name[size-1]=='4') {
-        std::string unprefixed = name.substr(1);
+        string unprefixed = name.substr(1);
 
         // See if the unprefixed version exists.
         if (Function *f2 = mainModule->getFunction(unprefixed)) {
@@ -992,7 +991,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // and trivialize functions we will never use
   // RLR TODO: may need to trivialize or capture other functions
-  std::set<std::string> trivialize_fns {
+  set<string> trivialize_fns {
     "isatty",
     "tcgetattr",
     "__uClibc_main",
@@ -1023,6 +1022,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
+#endif
+
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -1043,12 +1044,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
   if (objs.isArray()) {
     for (unsigned idx = 0, end = objs.size(); idx < end; ++idx) {
       Json::Value &obj = objs[idx];
-      std::string addr = obj["addr"].asString();
+      string addr = obj["addr"].asString();
       unsigned count = obj["count"].asUInt();
-      std::string data = obj["data"].asString();
-      std::string kind = obj["kind"].asString();
-      std::string name = obj["name"].asString();
-      std::string type = obj["type"].asString();
+      string data = obj["data"].asString();
+      string kind = obj["kind"].asString();
+      string name = obj["name"].asString();
+      string type = obj["type"].asString();
       test.objects.emplace_back(TestObject(addr, count, data, kind, name, type));
     }
   }
@@ -1063,7 +1064,7 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
   }
 }
 
-void enumModuleFunctions(const Module *m, std::set<std::string> &names) {
+void enumModuleFunctions(const Module *m, set<string> &names) {
 
   names.clear();
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
@@ -1174,66 +1175,42 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // write out command line info, for reference
-  for (int i=0; i<argc; i++) {
-    outs() << argv[i] << (i+1<argc ? " ":"\n");
+  if (!outs().is_displayed()) {
+    for (int i = 0; i < argc; i++) {
+      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
+    }
+    outs() << "PID: " << getpid() << "\n";
   }
-  outs() << "PID: " << getpid() << "\n";
 
   // Load the bytecode...
-  // RLR TODO: just load the bytecode emitted in the generation step...
+  // load the bytecode emitted in the generation step...
 
-  std::string ErrorMsg;
+  string ErrorMsg;
   LLVMContext ctx;
-  Module *mainModule = nullptr;
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  OwningPtr<MemoryBuffer> BufferPtr;
-  error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
+  Module *mainModule1 = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr1;
+  llvm::error_code ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr1);
   if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
+    klee_error("error loading program '%s': %s", InputFile1.c_str(), ec.message().c_str());
   }
 
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
+  mainModule1 = getLazyBitcodeModule(BufferPtr1.get(), ctx, &ErrorMsg);
 
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
+  if (mainModule1) {
+    if (mainModule1->MaterializeAllPermanently(&ErrorMsg)) {
+      delete mainModule1;
+      mainModule1 = nullptr;
     }
   }
-  if (!mainModule)
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-#else
-  auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
-  if (!Buffer)
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               Buffer.getError().message().c_str());
+  if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
 
-  auto mainModuleOrError = getLazyBitcodeModule(Buffer->get(), ctx);
-
-  if (!mainModuleOrError) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               mainModuleOrError.getError().message().c_str());
-  }
-  else {
-    // The module has taken ownership of the MemoryBuffer so release it
-    // from the std::unique_ptr
-    Buffer->release();
-  }
-
-  mainModule = *mainModuleOrError;
-  if (auto ec = mainModule->materializeAllPermanently()) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
-  }
-#endif
-
+#if 0 == 1
   if (WithPOSIXRuntime) {
     int r = initEnv(mainModule);
     klee_error("Failed initializing posix runtime, error=%d", r);
   }
 
-  std::string LibraryDir = ReplayKleeHandler::getRunTimeLibraryPath(argv[0]);
+  string LibraryDir = ReplayKleeHandler::getRunTimeLibraryPath(argv[0]);
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -1257,7 +1234,7 @@ int main(int argc, char **argv, char **envp) {
   if (WithPOSIXRuntime) {
     SmallString<128> Path(LibraryDir);
 
-    std::string posixLib = "libkleeRuntimePOSIX";
+    string posixLib = "libkleeRuntimePOSIX";
     Module::PointerSize width = mainModule->getPointerSize();
     if (width == Module::PointerSize::Pointer32) {
       posixLib += "-32";
@@ -1272,8 +1249,8 @@ int main(int argc, char **argv, char **envp) {
     assert(mainModule && "unable to link with simple model");
   }
 
-  std::vector<std::string>::iterator libs_it;
-  std::vector<std::string>::iterator libs_ie;
+  vector<string>::iterator libs_it;
+  vector<string>::iterator libs_ie;
   for (libs_it = LinkLibraries.begin(), libs_ie = LinkLibraries.end();
           libs_it != libs_ie; ++libs_it) {
     const char * libFilename = libs_it->c_str();
@@ -1286,13 +1263,13 @@ int main(int argc, char **argv, char **envp) {
   char **pArgv;
   char **pEnvp;
   if (Environ != "") {
-    std::vector<std::string> items;
-    std::ifstream f(Environ.c_str());
+    vector<string> items;
+    ifstream f(Environ.c_str());
     if (!f.good())
       klee_error("unable to open --environ file: %s", Environ.c_str());
     while (!f.eof()) {
-      std::string line;
-      std::getline(f, line);
+      string line;
+      getline(f, line);
       line = strip(line);
       if (!line.empty())
         items.push_back(line);
@@ -1310,42 +1287,42 @@ int main(int argc, char **argv, char **envp) {
   pArgc = InputArgv.size() + 1;
   pArgv = new char *[pArgc];
   for (unsigned i=0; i<InputArgv.size()+1; i++) {
-    std::string &arg = (i==0 ? InputFile : InputArgv[i-1]);
+    string &arg = (i==0 ? InputFile : InputArgv[i-1]);
     unsigned size = arg.size() + 1;
     char *pArg = new char[size];
 
-    std::copy(arg.begin(), arg.end(), pArg);
+    copy(arg.begin(), arg.end(), pArg);
     pArg[size - 1] = 0;
 
     pArgv[i] = pArg;
   }
 
-  ReplayKleeHandler *handler = new ReplayKleeHandler(pArgc, pArgv);
-  handler->setWatchDog(pid_watchdog);
+#endif
+
+  set<ExecutionState*> completes1;
+  ReplayKleeHandler *handler1 = new ReplayKleeHandler(completes1, mainModule1->getModuleIdentifier());
+  handler1->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = Interpreter::ExecModeID::rply;
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
-  handler->setInterpreter(theInterpreter);
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler1);
+  handler1->setInterpreter(theInterpreter);
 
   Interpreter::ModuleOptions MOpts;
 
-  MOpts.LibraryDir = LibraryDir;
-  MOpts.Optimize = OptimizeModule;
-  MOpts.CheckDivZero = CheckDivZero;
-  MOpts.CheckOvershift = CheckOvershift;
+  MOpts.LibraryDir = "";
+  MOpts.Optimize = false;
+  MOpts.CheckDivZero = false;
+  MOpts.CheckOvershift = false;
 
-  const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
+  const Module *finalModule1 = theInterpreter->setModule(mainModule1, MOpts);
 
-  externalsAndGlobalsCheck(finalModule, true);
+  externalsAndGlobalsCheck(finalModule1, true);
 
-  char buf[256];
-  time_t t[2];
-  t[0] = time(NULL);
-  strftime(buf, sizeof(buf), "Started: %Y-%m-%d %H:%M:%S\n", localtime(&t[0]));
-  handler->getInfoStream() << buf;
-  handler->getInfoStream().flush();
+  auto start_time = sys_clock::now();
+  handler1->getInfoStream() << "Started: " << to_string(start_time) << '\n';
+  handler1->getInfoStream().flush();
 
   if (RunInDir != "") {
     int res = chdir(RunInDir.c_str());
@@ -1358,7 +1335,7 @@ int main(int argc, char **argv, char **envp) {
   TestCase test;
   if (!ReplayTest.empty()) {
 
-    std::ifstream info;
+    ifstream info;
     info.open(ReplayTest);
     if (info.is_open()) {
 
@@ -1369,29 +1346,71 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  t[1] = time(nullptr);
-  strftime(buf, sizeof(buf), "Finished: %Y-%m-%d %H:%M:%S\n", localtime(&t[1]));
-  handler->getInfoStream() << buf;
+  auto finish_time = sys_clock::now();
+  handler1->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
+  handler1->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
 
-  strcpy(buf, "Elapsed: ");
-  strcpy(format_tdiff(buf, t[1] - t[0]), "\n");
-  handler->getInfoStream() << buf;
-
-  // Free all the args.
-  for (unsigned i=0; i<InputArgv.size()+1; i++)
-    delete[] pArgv[i];
-  delete[] pArgv;
-
-  delete theInterpreter;
+  Interpreter *interpreter1 = theInterpreter;
   theInterpreter = nullptr;
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right
   // This is preventing the module from being
   // deleted automatically
-  BufferPtr.take();
+  BufferPtr1.take();
 #endif
 
-  delete handler;
+
+  // now, lets do it all again with the second module
+
+  Module *mainModule2 = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr2;
+  ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr2);
+  if (ec) {
+    klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
+  }
+
+  mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx, &ErrorMsg);
+
+  if (mainModule2) {
+    if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
+      delete mainModule2;
+      mainModule2 = nullptr;
+    }
+  }
+  if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
+
+  set<ExecutionState*> completes2;
+  ReplayKleeHandler *handler2 = new ReplayKleeHandler(completes2, mainModule1->getModuleIdentifier());
+  handler2->setWatchDog(pid_watchdog);
+
+  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler2);
+  handler2->setInterpreter(theInterpreter);
+  const Module *finalModule2 = theInterpreter->setModule(mainModule2, MOpts);
+
+  externalsAndGlobalsCheck(finalModule2, true);
+
+  start_time = sys_clock::now();
+  handler2->getInfoStream() << "Started: " << to_string(start_time) << '\n';
+  handler2->getInfoStream().flush();
+
+  theInterpreter->runFunctionTestCase(test);
+
+  finish_time = sys_clock::now();
+  handler2->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
+  handler2->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
+
+  Interpreter *interpreter2 = theInterpreter;
+  theInterpreter = nullptr;
+
+#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
+  // FIXME: This really doesn't look right
+  // This is preventing the module from being
+  // deleted automatically
+  BufferPtr2.take();
+#endif
+
   return exit_code;
 }
