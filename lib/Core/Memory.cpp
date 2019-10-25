@@ -443,6 +443,12 @@ bool ObjectState::cloneWritten(const ObjectState *src) {
   return true;
 }
 
+void ObjectState::clearWritten() {
+  if (writtenMask != nullptr) {
+    delete writtenMask; writtenMask = nullptr;
+  }
+}
+
 /***/
 
 ref<Expr> ObjectState::read8(unsigned offset) const {
@@ -505,9 +511,7 @@ void ObjectState::write8(ref<Expr> offset, ref<Expr> value) {
   if (size>4096) {
     std::string allocInfo;
     object->getAllocInfo(allocInfo);
-    klee_warning_once(0, "flushing %d bytes on write, may be slow and/or crash: %s",
-                      size,
-                      allocInfo.c_str());
+    klee_warning_once(0, "flushing %d bytes on write, may be slow and/or crash: %s", size, allocInfo.c_str());
   }
 
   // RLR TODO: how do I mark this as written?

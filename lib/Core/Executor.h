@@ -507,6 +507,8 @@ public:
 
   Expr::Width getWidthForLLVMType(LLVM_TYPE_Q llvm::Type *type) const;
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
+
+  KModule *getKModule() const { return kmodule; }
 };
 
 } // End klee namespace

@@ -152,7 +152,7 @@ namespace klee {
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
-    unsigned getMarkerID(const llvm::Function *fn, const llvm::BasicBlock *bb);
+    std::pair<unsigned,unsigned> getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb);
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;

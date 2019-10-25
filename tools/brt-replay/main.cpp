@@ -10,19 +10,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "klee/ExecutionState.h"
-#include "klee/Expr.h"
 #include "klee/Interpreter.h"
 #include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/Debug.h"
-#include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/System/Time.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Config/CompileTimeInfo.h"
-#include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
@@ -30,12 +25,10 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
@@ -45,32 +38,24 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
 
-#include <openssl/sha.h>
-#include <boost/algorithm/hex.hpp>
-#include <fstream>
-
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/system_error.h"
 #endif
 
-#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
-#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <cerrno>
 #include <string>
-#include <fstream>
 #include <iomanip>
 #include <iterator>
-#include <sstream>
-#include <fcntl.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <chrono>
 #include "json/json.h"
 #include "klee/TestCase.h"
+#include "StateComparison.h"
 
 using namespace llvm;
 using namespace klee;
@@ -82,39 +67,11 @@ namespace {
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional, cl::Required);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> ReplayTest("replay-test", cl::desc("test case to replay"));
-  cl::opt<string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
+  cl::opt<string> ReplayTest("replay-test", cl::desc("test case to replay"), cl::Required);
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-
-#if 0 == 1
-  enum LibcType {
-    NoLibc, KleeLibc, UcLibc
-  };
-
-  cl::opt<LibcType>
-  Libc("libc",
-       cl::desc("Choose libc version (none by default)."),
-       cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
-                  clEnumValN(KleeLibc, "klee", "Link in klee libc"),
-		          clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
-		          clEnumValEnd),
-       cl::init(UcLibc));
-
-  cl::opt<bool>
-  WithPOSIXRuntime("posix-runtime",
-		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
-		cl::init(false));
-
-  cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
-  cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
-  cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
-#endif
-
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
 }
@@ -143,13 +100,12 @@ private:
   boost::filesystem::path outputDirectory;
   map<string,unsigned> terminationCounters;
   string md_name;
-  set<ExecutionState*> &results;
+  vector<ExecutionState*> &results;
 
 public:
-  ReplayKleeHandler(set<ExecutionState*> &_results, const string &_md_name);
+  ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
   ~ReplayKleeHandler();
 
-  llvm::raw_ostream &getInfoStream() const override { return outs(); }
   unsigned getNumTestCases() const override { return casesGenerated; }
 
   unsigned getNumPathsExplored() { return m_pathsExplored; }
@@ -186,7 +142,7 @@ public:
 
 };
 
-ReplayKleeHandler::ReplayKleeHandler(set<ExecutionState*> &_results, const string &_md_name)
+ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
   : casesGenerated(0),
     indentation(""),
     m_pathsExplored(0),
@@ -203,7 +159,7 @@ ReplayKleeHandler::ReplayKleeHandler(set<ExecutionState*> &_results, const strin
   }
 
   md_name = boost::filesystem::path(_md_name).stem().string();
-  outs() << "output directory: " << outputDirectory.string() << '\n';
+//  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
@@ -348,7 +304,7 @@ string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const 
 
 void ReplayKleeHandler::processTestCase(ExecutionState &state) {
 
-  results.insert(new ExecutionState(state));
+  results.push_back(new ExecutionState(state));
 
 #if 0 == 1
   assert(!ReplayTest.empty());
@@ -542,68 +498,6 @@ static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
-
-#if 0 == 1
-
-static int initEnv(Module *mainModule) {
-
-  /*
-    nArgcP = alloc oldArgc->getType()
-    nArgvV = alloc oldArgv->getType()
-    store oldArgc nArgcP
-    store oldArgv nArgvP
-    klee_init_environment(nArgcP, nArgvP)
-    nArgc = load nArgcP
-    nArgv = load nArgvP
-    oldArgc->replaceAllUsesWith(nArgc)
-    oldArgv->replaceAllUsesWith(nArgv)
-  */
-
-  Function *mainFn = mainModule->getFunction(UserMain);
-  if (!mainFn) {
-    klee_error("'%s' function not found in module.", UserMain.c_str());
-  }
-
-  if (mainFn->arg_size() < 2) {
-    klee_error("Cannot handle ""--posix-runtime"" when main() has less than two arguments.\n");
-  }
-
-  Instruction *firstInst = static_cast<Instruction *>(mainFn->begin()->begin());
-
-  Value *oldArgc = static_cast<Argument *>(mainFn->arg_begin());
-  Value *oldArgv = static_cast<Argument *>(++mainFn->arg_begin());
-
-  AllocaInst* argcPtr = new AllocaInst(oldArgc->getType(), "argcPtr", firstInst);
-  AllocaInst* argvPtr = new AllocaInst(oldArgv->getType(), "argvPtr", firstInst);
-
-  /* Insert void klee_init_env(int* argc, char*** argv) */
-  vector<const Type*> params;
-  LLVMContext &ctx = mainModule->getContext();
-  params.push_back(Type::getInt32Ty(ctx));
-  params.push_back(Type::getInt32Ty(ctx));
-  Function* initEnvFn = cast<Function>(mainModule->getOrInsertFunction("klee_init_env",
-                                                                       Type::getVoidTy(ctx),
-                                                                       argcPtr->getType(),
-                                                                       argvPtr->getType(),
-                                                                       NULL));
-  assert(initEnvFn);
-  vector<Value*> args;
-  args.push_back(argcPtr);
-  args.push_back(argvPtr);
-  Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
-					      "", firstInst);
-  Value *argc = new LoadInst(argcPtr, "newArgc", firstInst);
-  Value *argv = new LoadInst(argvPtr, "newArgv", firstInst);
-
-  oldArgc->replaceAllUsesWith(argc);
-  oldArgv->replaceAllUsesWith(argv);
-
-  new StoreInst(oldArgc, argcPtr, initEnvCall);
-  new StoreInst(oldArgv, argvPtr, initEnvCall);
-  return 0;
-}
-
-#endif
 
 // This is a terrible hack until we get some real modeling of the
 // system. All we do is check the undefined symbols and warn about
@@ -861,169 +755,6 @@ static void interrupt_handle_watchdog() {
   // just wait for the child to finish
 }
 
-#if 0 == 1
-#ifndef SUPPORT_KLEE_UCLIBC
-static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
-  klee_error("invalid libc, no uclibc support!\n");
-}
-#else
-static void replaceOrRenameFunction(llvm::Module *module,
-		const char *old_name, const char *new_name)
-{
-  Function *f, *f2;
-  f = module->getFunction(new_name);
-  f2 = module->getFunction(old_name);
-  if (f2) {
-    if (f) {
-      f2->replaceAllUsesWith(f);
-      f2->eraseFromParent();
-    } else {
-      f2->setName(new_name);
-      assert(f2->getName() == new_name);
-    }
-  }
-}
-
-static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
-
-  LLVMContext &ctx = mainModule->getContext();
-  // Ensure that klee-uclibc exists
-  SmallString<128> uclibcBCA(libDir);
-
-  string uclibcLib = "klee-uclibc";
-  string extension = ".bca";
-  llvm::DataLayout targetData(mainModule);
-  Expr::Width width = targetData.getPointerSizeInBits();
-  if (width == Expr::Int32) {
-    uclibcLib += "-32";
-  } else if (width == Expr::Int64) {
-    uclibcLib += "-64";
-  }
-  uclibcLib += extension;
-  llvm::sys::path::append(uclibcBCA, uclibcLib);
-
-  bool uclibcExists=false;
-  llvm::sys::fs::exists(uclibcBCA.c_str(), uclibcExists);
-  if (!uclibcExists)
-    klee_error("Cannot find klee-uclibc : %s", uclibcBCA.c_str());
-
-  // RLR TODO: evaluate how much of this we really need
-  Function *f;
-  // force import of __uClibc_main
-  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), true));
-
-  // force various imports
-  if (WithPOSIXRuntime) {
-    LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
-    mainModule->getOrInsertFunction("realpath",
-                                    PointerType::getUnqual(i8Ty),
-                                    PointerType::getUnqual(i8Ty),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("getutent",
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("__fgetc_unlocked",
-                                    Type::getInt32Ty(ctx),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("__fputc_unlocked",
-                                    Type::getInt32Ty(ctx),
-                                    Type::getInt32Ty(ctx),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-  }
-
-  f = mainModule->getFunction("__ctype_get_mb_cur_max");
-  if (f) f->setName("_stdlib_mb_cur_max");
-
-  // Strip of asm prefixes for 64 bit versions because they are not
-  // present in uclibc and we want to make sure stuff will get
-  // linked. In the off chance that both prefixed and unprefixed
-  // versions are present in the module, make sure we don't create a
-  // naming conflict.
-  for (Module::iterator fi = mainModule->begin(), fe = mainModule->end(); fi != fe; ++fi) {
-    Function *f = static_cast<Function *>(fi);
-    const string &name = f->getName();
-    if (name[0]=='\01') {
-      unsigned size = name.size();
-      if (name[size-2]=='6' && name[size-1]=='4') {
-        string unprefixed = name.substr(1);
-
-        // See if the unprefixed version exists.
-        if (Function *f2 = mainModule->getFunction(unprefixed)) {
-          f->replaceAllUsesWith(f2);
-          f->eraseFromParent();
-        } else {
-          f->setName(unprefixed);
-        }
-      }
-    }
-  }
-
-  mainModule = klee::linkWithLibrary(mainModule, uclibcBCA.c_str());
-  assert(mainModule && "unable to link with uclibc");
-
-  replaceOrRenameFunction(mainModule, "__libc_open", "open");
-  replaceOrRenameFunction(mainModule, "__libc_fcntl", "fcntl");
-
-  // Take care of fortified functions
-  replaceOrRenameFunction(mainModule, "__fprintf_chk", "fprintf");
-
-  // XXX we need to rearchitect so this can also be used with
-  // programs externally linked with uclibc.
-
-  // RLR TODO: evaluate the continuing need for this
-  // We now need to swap things so that __uClibc_main is the entry
-  // point, in such a way that the arguments are passed to
-  // __uClibc_main correctly. We do this by renaming the user main
-  // and generating a stub function to call __uClibc_main. There is
-  // also an implicit cooperation in that runFunctionAsMain sets up
-  // the environment arguments to what uclibc expects (following
-  // argv), since it does not explicitly take an envp argument.
-//  Function *userMainFn = mainModule->getFunction(UserMain);
-//  assert(userMainFn && "unable to get user main");
-  Function *uclibcMainFn = mainModule->getFunction("__uClibc_main");
-  assert(uclibcMainFn && "unable to get uclibc main");
-
-  const FunctionType *ft = uclibcMainFn->getFunctionType();
-  assert(ft->getNumParams() == 7);
-
-  // and trivialize functions we will never use
-  // RLR TODO: may need to trivialize or capture other functions
-  set<string> trivialize_fns {
-    "isatty",
-    "tcgetattr",
-    "__uClibc_main",
-    "__check_one_fd",
-    "__stdio_WRITE",
-    "__stdio_wcommit",
-    "_stdio_term"
-  };
-
-  for (auto name : trivialize_fns) {
-    Function *fn;
-    if ((fn = mainModule->getFunction(name)) != nullptr) {
-
-      Type *rt = fn->getReturnType();
-      fn->dropAllReferences();
-      BasicBlock *bb = BasicBlock::Create(ctx, "entry", fn);
-
-      if (rt->isVoidTy()) {
-        ReturnInst::Create(ctx, bb);
-      } else if (rt->isIntegerTy()) {
-        ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
-      }
-    }
-  }
-
-  outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
-  return mainModule;
-}
-#endif
-
-#endif
-
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -1182,14 +913,51 @@ int main(int argc, char **argv, char **envp) {
     outs() << "PID: " << getpid() << "\n";
   }
 
+  // Load the test case
+  TestCase test;
+  if (!ReplayTest.empty()) {
+
+    ifstream info;
+    info.open(ReplayTest);
+    if (info.is_open()) {
+
+      Json::Value root;
+      info >> root;
+      load_test_case(root, test);
+    }
+  }
+
+  if (!test.is_ready()) {
+    klee_error("failed to load test case '%s'", ReplayTest.c_str());
+  }
+
+  CompareState version1;
+  CompareState version2;
+
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
 
+  // Common setup
+  Interpreter::InterpreterOptions IOpts;
+  IOpts.mode = Interpreter::ExecModeID::rply;
+
+  Interpreter::ModuleOptions MOpts;
+  MOpts.LibraryDir = "";
+  MOpts.Optimize = false;
+  MOpts.CheckDivZero = false;
+  MOpts.CheckOvershift = false;
+
   string ErrorMsg;
   LLVMContext ctx;
+  llvm::error_code ec;
+  vector<ExecutionState*> ex_states;
+
+  // load the first module
+  outs() << "Loading: " << InputFile1 << '\n';
   Module *mainModule1 = nullptr;
   OwningPtr<MemoryBuffer> BufferPtr1;
-  llvm::error_code ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr1);
+
+  ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr1);
   if (ec) {
     klee_error("error loading program '%s': %s", InputFile1.c_str(), ec.message().c_str());
   }
@@ -1204,155 +972,32 @@ int main(int argc, char **argv, char **envp) {
   }
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
 
-#if 0 == 1
-  if (WithPOSIXRuntime) {
-    int r = initEnv(mainModule);
-    klee_error("Failed initializing posix runtime, error=%d", r);
-  }
-
-  string LibraryDir = ReplayKleeHandler::getRunTimeLibraryPath(argv[0]);
-
-  switch (Libc) {
-  case NoLibc: /* silence compiler warning */
-    break;
-
-  // RLR TODO: uclibc is 64-bit only
-  case KleeLibc: {
-    // FIXME: Find a reasonable solution for this.
-    SmallString<128> Path(LibraryDir);
-    llvm::sys::path::append(Path, "klee-libc.bc");
-    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
-    assert(mainModule && "unable to link with klee-libc");
-    break;
-  }
-
-  case UcLibc:
-    mainModule = linkWithUclibc(mainModule, LibraryDir);
-    break;
-  }
-
-  if (WithPOSIXRuntime) {
-    SmallString<128> Path(LibraryDir);
-
-    string posixLib = "libkleeRuntimePOSIX";
-    Module::PointerSize width = mainModule->getPointerSize();
-    if (width == Module::PointerSize::Pointer32) {
-      posixLib += "-32";
-    } else if (width == Module::PointerSize::Pointer64) {
-      posixLib += "-64";
-    }
-    posixLib += ".bca";
-
-    llvm::sys::path::append(Path, posixLib);
-    outs() << "NOTE: Using model: " << Path.c_str() << '\n';
-    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
-    assert(mainModule && "unable to link with simple model");
-  }
-
-  vector<string>::iterator libs_it;
-  vector<string>::iterator libs_ie;
-  for (libs_it = LinkLibraries.begin(), libs_ie = LinkLibraries.end();
-          libs_it != libs_ie; ++libs_it) {
-    const char * libFilename = libs_it->c_str();
-    outs() << "Linking in library: " << libFilename << '\n';
-    mainModule = klee::linkWithLibrary(mainModule, libFilename);
-  }
-
-  // FIXME: Change me to std types.
-  int pArgc;
-  char **pArgv;
-  char **pEnvp;
-  if (Environ != "") {
-    vector<string> items;
-    ifstream f(Environ.c_str());
-    if (!f.good())
-      klee_error("unable to open --environ file: %s", Environ.c_str());
-    while (!f.eof()) {
-      string line;
-      getline(f, line);
-      line = strip(line);
-      if (!line.empty())
-        items.push_back(line);
-    }
-    f.close();
-    pEnvp = new char *[items.size()+1];
-    unsigned i=0;
-    for (; i != items.size(); ++i)
-      pEnvp[i] = strdup(items[i].c_str());
-    pEnvp[i] = 0;
-  } else {
-    pEnvp = envp;
-  }
-
-  pArgc = InputArgv.size() + 1;
-  pArgv = new char *[pArgc];
-  for (unsigned i=0; i<InputArgv.size()+1; i++) {
-    string &arg = (i==0 ? InputFile : InputArgv[i-1]);
-    unsigned size = arg.size() + 1;
-    char *pArg = new char[size];
-
-    copy(arg.begin(), arg.end(), pArg);
-    pArg[size - 1] = 0;
-
-    pArgv[i] = pArg;
-  }
-
-#endif
-
-  set<ExecutionState*> completes1;
-  ReplayKleeHandler *handler1 = new ReplayKleeHandler(completes1, mainModule1->getModuleIdentifier());
+  ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
   handler1->setWatchDog(pid_watchdog);
 
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = Interpreter::ExecModeID::rply;
-
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler1);
-  handler1->setInterpreter(theInterpreter);
-
-  Interpreter::ModuleOptions MOpts;
-
-  MOpts.LibraryDir = "";
-  MOpts.Optimize = false;
-  MOpts.CheckDivZero = false;
-  MOpts.CheckOvershift = false;
-
-  const Module *finalModule1 = theInterpreter->setModule(mainModule1, MOpts);
+  Interpreter *interpreter1 = Interpreter::createLocal(ctx, IOpts, handler1);
+  handler1->setInterpreter(interpreter1);
+  const Module *finalModule1 = interpreter1->setModule(mainModule1, MOpts);
 
   externalsAndGlobalsCheck(finalModule1, true);
 
   auto start_time = sys_clock::now();
-  handler1->getInfoStream() << "Started: " << to_string(start_time) << '\n';
-  handler1->getInfoStream().flush();
+  outs() << "Started: " << to_string(start_time) << '\n';
+  outs().flush();
 
-  if (RunInDir != "") {
-    int res = chdir(RunInDir.c_str());
-    if (res < 0) {
-      klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(),
-                 sys::StrError(errno).c_str());
-    }
-  }
-
-  TestCase test;
-  if (!ReplayTest.empty()) {
-
-    ifstream info;
-    info.open(ReplayTest);
-    if (info.is_open()) {
-
-      Json::Value root;
-      info >> root;
-      load_test_case(root, test);
-      theInterpreter->runFunctionTestCase(test);
-    }
-  }
+  theInterpreter = interpreter1;
+  interpreter1->runFunctionTestCase(test);
+  theInterpreter = nullptr;
 
   auto finish_time = sys_clock::now();
-  handler1->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  outs() << "Finished: " << to_string(finish_time) << '\n';
   auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  handler1->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
+  outs() << "Elapsed: " << elapsed.count() << '\n';
 
-  Interpreter *interpreter1 = theInterpreter;
-  theInterpreter = nullptr;
+  version1.kmodule = interpreter1->getKModule();
+  assert(ex_states.size() == 1);
+  version1.state = ex_states.front();
+  ex_states.clear();
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right
@@ -1364,15 +1009,15 @@ int main(int argc, char **argv, char **envp) {
 
   // now, lets do it all again with the second module
 
+  outs() << "Loading: " << InputFile2 << '\n';
   Module *mainModule2 = nullptr;
   OwningPtr<MemoryBuffer> BufferPtr2;
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr2);
+  ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
   if (ec) {
     klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
   }
 
   mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx, &ErrorMsg);
-
   if (mainModule2) {
     if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
       delete mainModule2;
@@ -1381,29 +1026,31 @@ int main(int argc, char **argv, char **envp) {
   }
   if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
 
-  set<ExecutionState*> completes2;
-  ReplayKleeHandler *handler2 = new ReplayKleeHandler(completes2, mainModule1->getModuleIdentifier());
+  ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
   handler2->setWatchDog(pid_watchdog);
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler2);
-  handler2->setInterpreter(theInterpreter);
-  const Module *finalModule2 = theInterpreter->setModule(mainModule2, MOpts);
+  Interpreter *interpreter2 = Interpreter::createLocal(ctx, IOpts, handler2);
+  handler2->setInterpreter(interpreter2);
+  const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
 
   externalsAndGlobalsCheck(finalModule2, true);
 
   start_time = sys_clock::now();
-  handler2->getInfoStream() << "Started: " << to_string(start_time) << '\n';
-  handler2->getInfoStream().flush();
+  outs() << "Started: " << to_string(start_time) << '\n';
+  outs().flush();
 
-  theInterpreter->runFunctionTestCase(test);
+  theInterpreter = interpreter2;
+  interpreter2->runFunctionTestCase(test);
+  theInterpreter = nullptr;
 
   finish_time = sys_clock::now();
-  handler2->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  outs() << "Finished: " << to_string(finish_time) << '\n';
   elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  handler2->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
+  outs() << "Elapsed: " << elapsed.count() << '\n';
 
-  Interpreter *interpreter2 = theInterpreter;
-  theInterpreter = nullptr;
+  version2.kmodule = interpreter2->getKModule();
+  assert(ex_states.size() == 1);
+  version2.state = ex_states.front();
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right
@@ -1411,6 +1058,10 @@ int main(int argc, char **argv, char **envp) {
   // deleted automatically
   BufferPtr2.take();
 #endif
+
+  if (!CompareExecutions(version1, version2)) {
+    outs() << "not the same!\n";
+  }
 
   return exit_code;
 }

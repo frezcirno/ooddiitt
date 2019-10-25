@@ -6,7 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(brt-replay main.cpp jsoncpp.cpp)
+add_executable(brt-replay main.cpp jsoncpp.cpp StateComparison.cpp StateComparison.h)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
   message(FATAL_ERROR "brt-replay requires at least LLVM version 3.4")

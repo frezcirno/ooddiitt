@@ -16,9 +16,11 @@
 
 // FIXME: We do not want to be exposing these? :(
 #include "../../lib/Core/AddressSpace.h"
+#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/KInstIterator.h"
 #include "klee/Internal/Module/KModule.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Module.h"
 
 #include <map>
 #include <set>
@@ -37,6 +39,65 @@ class PTreeNode;
 struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
+
+
+class ProgramTracer {
+
+public:
+  ProgramTracer() {}
+  virtual ~ProgramTracer() {}
+  void append(std::deque<unsigned> &trace, unsigned entry) {
+      if ((entry != 0) && (trace.empty() || (trace.back() != entry)) ) trace.push_back(entry); }
+  virtual void append_instr(std::deque<unsigned> &trace, KInstruction *ki) {}
+};
+
+class AssemblyTracer : public ProgramTracer {
+public:
+  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
+    append(trace, ki->info->assemblyLine);
+  }
+};
+
+class StatementTracer : public ProgramTracer {
+public:
+  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
+    const llvm::DebugLoc loc = ki->inst->getDebugLoc();
+    append(trace, loc.getLine());
+  }
+};
+
+class BBlocksTracer : public ProgramTracer {
+public:
+  BBlocksTracer(KModule *k, const std::set<std::string> *f) : kmodule(k)  {
+    if (f != nullptr) {
+      for (const auto &name : *f) {
+        if (const llvm::Function *fn = kmodule->module->getFunction(name))
+          fns.insert(fn);
+      }
+    }
+  }
+
+  BBlocksTracer(KModule *k, const std::set<const llvm::Function*> *f) : kmodule(k)  {
+    if (f != nullptr) { for (const auto &fn : *f) { fns.insert(fn); } }
+  }
+
+  BBlocksTracer(KModule *k, const llvm::Function *fn) : kmodule(k)  {
+    if (fn != nullptr) { fns.insert(fn); }
+  }
+
+  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
+    const llvm::BasicBlock *bb = ki->inst->getParent();
+    const llvm::Function *fn = bb->getParent();
+    if (fns.find(fn) != fns.end()) {
+      auto pr = kmodule->getMarker(fn, bb);
+      append(trace, (pr.first * 1000) + pr.second);
+    }
+  }
+private:
+  KModule *kmodule;
+  std::set<const llvm::Function*> fns;
+};
+
 
 struct LoopFrame {
   const llvm::Loop *loop;
@@ -219,8 +280,7 @@ public:
   StateStatus status;
   std::string terminationMessage;
   const KInstruction *instFaulting;
-  std::deque<std::pair<unsigned,unsigned> > trace;
-  std::deque<unsigned> line_trace;
+  std::deque<unsigned> trace;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
   const KInstruction* branched_at;

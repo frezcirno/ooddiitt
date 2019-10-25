@@ -9,7 +9,6 @@
 #ifndef KLEE_INTERPRETER_H
 #define KLEE_INTERPRETER_H
 
-#include "klee/Internal/System/ProgInfo.h"
 #include "TestCase.h"
 
 #include <vector>
@@ -33,6 +32,7 @@ class ExecutionState;
 class Interpreter;
 class TreeStreamWriter;
 class MemoryObject;
+class KModule;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 
@@ -60,7 +60,7 @@ public:
   virtual void setInterpreter(Interpreter *i)  { interpreter = i; }
   virtual Interpreter *getInterpreter() { return interpreter; }
 
-  virtual llvm::raw_ostream &getInfoStream() const = 0;
+//  virtual llvm::raw_ostream &getInfoStream() const = 0;
 
   virtual std::string getOutputFilename(const std::string &filename) = 0;
   virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
@@ -149,11 +149,15 @@ public:
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
     llvm::Function *userMain;
+    std::set<std::string> *userFns;
+    std::set<std::string> *userGlobals;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
         mode(Interpreter::none),
-        userMain(nullptr)
+        userMain(nullptr),
+        userFns(nullptr),
+        userGlobals(nullptr)
     {}
   };
 
@@ -231,8 +235,8 @@ public:
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
 
-  virtual void getCoveredLines(const ExecutionState &state,
-                               std::map<const std::string*, std::set<unsigned> > &res) = 0;
+  virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
+  virtual KModule *getKModule() { return nullptr; }
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
 };

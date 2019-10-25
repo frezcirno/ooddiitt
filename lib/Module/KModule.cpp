@@ -522,18 +522,19 @@ unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
   return id;
 }
 
-unsigned KModule::getMarkerID(const llvm::Function *fn, const llvm::BasicBlock *bb) {
+pair<unsigned,unsigned> KModule::getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb) {
 
-  unsigned result = 0;
+  unsigned fnID = 0;
+  unsigned bbID = 0;
   const auto itr_fn = mapFnMarkers.find(fn);
   if (itr_fn != mapFnMarkers.end()) {
+    fnID = itr_fn->second;
     const auto itr_bb = mapBBMarkers.find(bb);
     if (itr_bb != mapBBMarkers.end()) {
-      result = itr_fn->second << 16;
-      result |= (itr_bb->second & 0xFFFF);
+      bbID = itr_bb->second;
     }
   }
-  return result;
+  return make_pair(fnID, bbID);
 }
 
 

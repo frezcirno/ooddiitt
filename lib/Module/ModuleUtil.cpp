@@ -362,8 +362,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
 #endif
 
 
-Module *klee::linkWithLibrary(Module *module, 
-                              const std::string &libraryName) {
+Module *klee::linkWithLibrary(Module *module, const std::string &libraryName) {
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Linking file " << libraryName << "\n");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
   if (!sys::fs::exists(libraryName)) {
@@ -428,11 +427,11 @@ Module *klee::linkWithLibrary(Module *module,
 
   llvm::sys::Path libraryPath(libraryName);
   bool native = false;
-    
+
   if (linker.LinkInFile(libraryPath, native)) {
     klee_error("Linking library %s failed", libraryName.c_str());
   }
-    
+
   return linker.releaseModule();
 #endif
 }
@@ -475,12 +474,12 @@ static bool valueIsOnlyCalled(const Value *v) {
       // Make sure the instruction is a call or invoke.
       CallSite cs(const_cast<Instruction *>(instr));
       if (!cs) return false;
-      
+
       // Make sure that the value is only the target of this call and
       // not an argument.
       if (cs.hasArgument(v))
         return false;
-    } else if (const llvm::ConstantExpr *ce = 
+    } else if (const llvm::ConstantExpr *ce =
                dyn_cast<llvm::ConstantExpr>(*it)) {
       if (ce->getOpcode()==Instruction::BitCast)
         if (valueIsOnlyCalled(ce))
@@ -500,4 +499,28 @@ static bool valueIsOnlyCalled(const Value *v) {
 
 bool klee::functionEscapes(const Function *f) {
   return !valueIsOnlyCalled(f);
+}
+
+void klee::enumModuleFunctions(const Module *m, std::set<std::string> &names) {
+
+  names.clear();
+  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
+    const Function *fn = itr;
+    if (!fn->hasHiddenVisibility() && fn->hasName() && !fn->isDeclaration() && !fn->isDeclaration()) {
+      names.insert(itr->getName());
+    }
+  }
+}
+
+void klee::enumModuleGlobals(const Module *m, std::set<std::string> &names) {
+
+  names.clear();
+  for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
+    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
+
+    // no llvm constants, hidden, and unnamed variables
+    if (!v->isConstant() && !v->hasHiddenVisibility() && v->hasName() && !v->isDeclaration()) {
+      names.insert(v->getName());
+    }
+  }
 }

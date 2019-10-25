@@ -10,6 +10,7 @@
 #ifndef KLEE_ADDRESSSPACE_H
 #define KLEE_ADDRESSSPACE_H
 
+#include <klee/Internal/System/Memory.h>
 #include "ObjectHolder.h"
 
 #include "klee/Expr.h"
@@ -126,7 +127,9 @@ namespace klee {
     /// \retval false The copy failed because a read-only object was modified.
     bool copyInConcretes();
     void getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type = nullptr) const;
-    const MemoryObject *findMemoryObjectByName(const std::string &name) const;
+    bool getNamedWrittenMemObjs(std::vector<ObjectPair> &listOPs, const std::set<MemKind> &kinds) const;
+    void clearWritten();
+    ObjectPair findMemoryObjectByName(const std::string &name) const;
   };
 } // End klee namespace
 

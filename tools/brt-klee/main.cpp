@@ -83,7 +83,6 @@ namespace {
   cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
   cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
   cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (i:600,g:600,s:60)"));
-  cl::opt<string> RunInDir("run-in", cl::desc("Change to the given directory prior to executing"));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
@@ -166,7 +165,6 @@ public:
   BrtKleeHandler(const vector<string> &args, const string &_md_name);
   ~BrtKleeHandler();
 
-  llvm::raw_ostream &getInfoStream() const override { return outs(); }
   unsigned getNumTestCases() const override { return casesGenerated; }
 
   unsigned getNumPathsExplored() { return m_pathsExplored; }
@@ -462,7 +460,7 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
         Json::Value obj = Json::objectValue;
         obj["name"] = mo->name;
-        obj["kind"] = mo->getKindAsStr();
+        obj["kind"] = to_string(mo->kind);
         obj["count"] = mo->count;
         obj["type"] = getTypeName(mo->type);
 
@@ -479,9 +477,9 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
         objects.append(obj);
       }
 
-      if (!state.line_trace.empty()) {
+      if (!state.trace.empty()) {
         Json::Value &trace = root["trace"] = Json::arrayValue;
-        for (const unsigned line : state.line_trace) {
+        for (const unsigned line : state.trace) {
           trace.append(line);
         }
       }
@@ -1277,16 +1275,6 @@ static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care
   }
 }
 
-void enumModuleFunctions(const Module *m, set<string> &names) {
-
-  names.clear();
-  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
-    if (itr->isDeclaration() && !itr->use_empty()) {
-      names.insert(itr->getName());
-    }
-  }
-}
-
 bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progression, const string &str) {
 
   bool result = false;
@@ -1437,10 +1425,12 @@ int main(int argc, char **argv, char **envp) {
   }
 
   // write out command line info, for reference
-  for (int i=0; i<argc; i++) {
-    outs() << argv[i] << (i+1<argc ? " ":"\n");
+  if (!outs().is_displayed()) {
+    for (int i = 0; i < argc; i++) {
+      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
+    }
+    outs() << "PID: " << getpid() << "\n";
   }
-  outs() << "PID: " << getpid() << "\n";
 
   // Load the bytecode...
   string ErrorMsg;
@@ -1488,10 +1478,10 @@ int main(int argc, char **argv, char **envp) {
   }
 #endif
 
-  if (WithPOSIXRuntime) {
-    int r = initEnv(mainModule);
-    klee_error("Failed initializing posix runtime, error=%d", r);
-  }
+  set<string> original_fns;
+  enumModuleFunctions(mainModule, original_fns);
+  set<string> original_globals;
+  enumModuleGlobals(mainModule, original_globals);
 
   string LibraryDir = BrtKleeHandler::getRunTimeLibraryPath(argv[0]);
 
@@ -1560,6 +1550,8 @@ int main(int argc, char **argv, char **envp) {
   }
   IOpts.mode = Interpreter::ExecModeID::igen;
   IOpts.userMain = mainFn;
+  IOpts.userFns = &original_fns;
+  IOpts.userGlobals = &original_globals;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
@@ -1577,15 +1569,8 @@ int main(int argc, char **argv, char **envp) {
   externalsAndGlobalsCheck(finalModule, true);
 
   auto start_time = sys_clock::now();
-  handler->getInfoStream() << "Started: " << to_string(start_time) << '\n';
-  handler->getInfoStream().flush();
-
-  if (RunInDir != "") {
-    int res = chdir(RunInDir.c_str());
-    if (res < 0) {
-      klee_error("Unable to change directory to: %s - %s", RunInDir.c_str(), sys::StrError(errno).c_str());
-    }
-  }
+  outs() << "Started: " << to_string(start_time) << '\n';
+  outs().flush();
 
   // select program entry point
   Function *entryFn = mainFn;
@@ -1604,9 +1589,9 @@ int main(int argc, char **argv, char **envp) {
   }
 
   auto finish_time = sys_clock::now();
-  handler->getInfoStream() << "Finished: " << to_string(finish_time) << '\n';
+  outs() << "Finished: " << to_string(finish_time) << '\n';
   auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  handler->getInfoStream() << "Elapsed: " << elapsed.count() << '\n';
+  outs() << "Elapsed: " << elapsed.count() << '\n';
 
   delete theInterpreter;
   theInterpreter = nullptr;

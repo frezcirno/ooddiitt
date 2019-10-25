@@ -135,7 +135,6 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
     trace(state.trace),
-    line_trace(state.line_trace),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -201,7 +200,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
     trace(state.trace),
-    line_trace(state.line_trace),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)

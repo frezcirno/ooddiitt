@@ -31,6 +31,11 @@ class ArrayCache;
 
 enum MemKind { invalid, fixed, global, param, alloca, heap, output, lazy };
 
+inline std::string to_string(MemKind kind) {
+  static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
+  return kindStrings[kind];
+}
+
 class MemoryObject {
   friend class STPBuilder;
   friend class ObjectState;
@@ -121,12 +126,6 @@ public:
   bool isOutput() const { return kind == MemKind::output; }
   bool isLazy() const   { return kind == MemKind::lazy; }
   bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca); }
-
-  const char *getKindAsStr() const
-    {
-      static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
-      return kindStrings[kind];
-    };
 
   ~MemoryObject();
 
@@ -230,6 +229,7 @@ public:
   bool cloneWritten(const ObjectState *src);
   void resetBytesWritten();
   bool isWritten() const { return writtenMask != nullptr; }
+  void clearWritten();
   unsigned getPhysicalSize() const { return object->size; }
   unsigned getVisibleSize() const { return visible_size; }
   bool referencedAs(const llvm::Type *type) const { return types.count(type) > 0; }

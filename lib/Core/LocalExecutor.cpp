@@ -31,11 +31,9 @@
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/Module/Cell.h"
-#include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Support/FloatEvaluation.h"
 #include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/System/MemoryUsage.h"
 
@@ -48,6 +46,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
+#include "llvm/IR/GlobalVariable.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -55,11 +54,8 @@
 #include "llvm/IR/CallSite.h"
 #endif
 
-#include <fstream>
 #include <boost/algorithm/string.hpp>
 #include <llvm/IR/Intrinsics.h>
-#include <llvm/DebugInfo.h>
-#include <csignal>
 
 #define LEN_CMDLINE_ARGS 8
 #define MIN_LAZY_STRING_LEN 9
@@ -100,6 +96,12 @@ public:
   bad_expression(const char *msg) : std::runtime_error(msg) {}
 };
 
+
+class Tracer {
+  virtual unsigned to_entry(KInstruction *ki);
+};
+
+
 cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
 cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification before adding"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
@@ -113,7 +115,7 @@ cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number 
 cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
 cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
 cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
-cl::opt<string> BreakAt("break-at", cl::init(""), cl::desc("break at the given trace line number"));
+cl::opt<string> BreakAt("break-at", cl::init(""), cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
@@ -315,6 +317,7 @@ void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function
 
 
   // RLR TODO: replace old proginfo
+  // RLR TODO: disable bitcode constants
   Module *m = kmodule->module;
   for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
@@ -756,22 +759,33 @@ bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
 
 void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
-  assert(unconstraintFlags.isUnconstrainGlobals());
-
-  std::string fn_name = fn->getName();
+  set<string> *globals = interpreterOpts.userGlobals;
+  string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
-    MemoryObject *mo = globalObjects.find(v)->second;
-    std::string gb_name = mo->name;
-
-    // RLR TODO: this need a permanent fix without progInfo
-    if ((gb_name.size() > 0) && (gb_name.at(0) != '.') /* && (progInfo->isGlobalInput(fn_name, gb_name)) */ ) {
-      // global may already have a value in this state. if so unlink it.
-      const ObjectState *os = state.addressSpace.findObject(mo);
-      if (os != nullptr) {
-        state.addressSpace.unbindObject(mo);
+    if (v->hasName()) {
+      string gv_name = v->getName().str();
+      if (globals != nullptr) {
+        if (globals->find(gv_name) == globals->end()) continue; // next global
+      } else {
+        if (v->isConstant() || v->hasHiddenVisibility())  continue; // next global
       }
-      makeSymbolic(state, mo);
+
+      auto pos = gv_name.find('.');
+      // if dot in first position or the prefix does not equal the function name, continue to next variable
+      if (pos == 0) continue;
+      if (pos != string::npos && (fn_name != gv_name.substr(0, pos))) continue;
+
+      MemoryObject *mo = globalObjects.find(v)->second;
+      if (mo != nullptr) {
+
+        // global may already have a value in this state. if so unlink it.
+        const ObjectState *os = state.addressSpace.findObject(mo);
+        if (os != nullptr) {
+          state.addressSpace.unbindObject(mo);
+        }
+        makeSymbolic(state, mo);
+      }
     }
   }
 }
@@ -854,14 +868,17 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     timeout = desc.timeout;
     unconstraintFlags |= desc.unconstraintFlags;
 
+    // are we treating this fn as main?
+    bool is_main = isMainEntry(fn);
+
     // unconstrain global state
-    if (unconstraintFlags.isUnconstrainGlobals()) {
+    if (unconstraintFlags.isUnconstrainGlobals() || !is_main) {
       unconstrainGlobals(*state, fn);
     }
 
     // create parameter values
     // if this is main, special case the argument construction
-    if (isMainEntry(fn)) {
+    if (is_main) {
 
       init_states.resize(SymArgs + 1, nullptr);
 
@@ -982,6 +999,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     if (statsTracker) statsTracker->framePushed(*state, nullptr);
     ExecutionState *initState = runLibCInitializer(*state, libc_init);
     if (initState != nullptr) {
+      initState->addressSpace.clearWritten();
       delete baseState;
       baseState = initState;
     }
@@ -1084,6 +1102,12 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 
     ref<Expr> e = wo_str->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
     bindArgument(kf, 0, *state, e);
+
+    ObjectPair op = state->addressSpace.findMemoryObjectByName("output_delimiter_specified");
+    if (op.first != nullptr) {
+      ObjectState *wos = state->addressSpace.getWriteable(op.first, op.second);
+      wos->write8(0, 1);
+    }
   }
 
   init_states.push_back(state);
@@ -1095,9 +1119,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   assert(!init_states.empty());
   Function *fn = kf->function;
 
-  llvm::raw_ostream &os = interpreterHandler->getInfoStream();
-  os << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
-  os.flush();
+  outs() << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
+  outs().flush();
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -1143,21 +1166,39 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   const unsigned tid_heartbeat = 2;
 
   // parse out the breakat lines
-  set<unsigned> break_lines;
+  break_fns.clear();
+  break_lines.clear();
   if (BreakAt.size() > 0) {
     vector<string> lines;
     boost::algorithm::split(lines, BreakAt, boost::algorithm::is_any_of(","), boost::algorithm::token_compress_on);
     for (const string &line : lines) {
-      break_lines.insert(stoul(line));
+      if (!line.empty()) {
+        if (isdigit(line.front())) {
+          break_lines.insert(stoul(line));
+        } else if (const Function *fn = kmodule->module->getFunction(line)) {
+          break_fns.insert(fn);
+        } else {
+          klee_warning("break at element %s not found", line.c_str());
+        }
+      }
     }
   }
-  bool tracing = TraceAssembly || TraceStatements || TraceBBlocks;
+
+  ProgramTracer *tracer = nullptr;
+  if (TraceBBlocks) {
+    if (interpreterOpts.userFns != nullptr) tracer = new BBlocksTracer(kmodule, interpreterOpts.userFns);
+    else tracer = new BBlocksTracer(kmodule, fn);
+  } else if (TraceAssembly) {
+    tracer = new AssemblyTracer;
+  } else if (TraceStatements) {
+    tracer = new StatementTracer;
+  }
 
   if (timeout > 0) timer.set(tid_timeout, timeout);
   timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
 
   HaltReason halt = HaltReason::OK;
-  bool enable_state_switching = true;
+  enable_state_switching = true;
 
   ExecutionState *state = nullptr;
   while (!states.empty() && !haltExecution && halt == HaltReason::OK) {
@@ -1171,23 +1212,13 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     KInstruction *ki = state->pc;
     stepInstruction(*state);
 
-    unsigned tr_entry = 0;
-    if (TraceStatements) {
-      const DebugLoc loc = ki->inst->getDebugLoc();
-      tr_entry = loc.getLine();
-    } if (TraceBBlocks) {
-      const BasicBlock *bb = ki->inst->getParent();
-      tr_entry = kmodule->getMarkerID(bb->getParent(), bb);
-    } else {
-      tr_entry = ki->info->assemblyLine;
-    }
-    if (tracing && (tr_entry != 0) && (state->line_trace.empty() || tr_entry != state->line_trace.back())) {
-      state->line_trace.push_back(tr_entry);
+    if (tracer != nullptr) {
+      tracer->append_instr(state->trace, ki);
     }
 
     try {
 
-      if (break_lines.find(tr_entry) != break_lines.end()) {
+      if (!state->trace.empty() && break_lines.find(state->trace.back()) != break_lines.end()) {
         outs() << "break here!\n";
         enable_state_switching = false;
       }
@@ -1221,6 +1252,11 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
   updateStates(nullptr);
   assert(states.empty());
+
+  if (tracer != nullptr) {
+    delete tracer;
+    tracer = nullptr;
+  }
 
   delete searcher;
   searcher = nullptr;
@@ -1363,10 +1399,7 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
         if (num > maxStatesInLoop) {
           unsigned killed = decimateStatesInLoop(loop, 99);
 
-          // try to get a marker number for this basic block
-          unsigned marker = 0;
-          Instruction &i = loop->getHeader()->front();
-
+          // get loop id
           std::string loop_id;
           raw_string_ostream ss(loop_id);
           loop->getLoopID()->print(ss);
@@ -1558,6 +1591,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           Executor::executeInstruction(state, ki);
           return;
         }
+      }
+
+      if (break_fns.find(fn) != break_fns.end()) {
+        outs() << "break here\n";
+        enable_state_switching = false;
       }
 
       // note that fn can be null in the case of an indirect call
@@ -1901,7 +1939,7 @@ void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
 
       auto &sym = *itrObj;
       const MemoryObject *mo = sym.first;
-      const ObjectState *os = state->addressSpace.findObject(mo);
+//      const ObjectState *os = state->addressSpace.findObject(mo);
 
       std::string name = mo->name;
       const llvm::Type *type = mo->type;

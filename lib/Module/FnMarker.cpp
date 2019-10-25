@@ -37,9 +37,10 @@ bool FnMarkerPass::runOnFunction(Function &fn) {
       MDNode *md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_bbID)));
       inst.setMetadata(mdkind_bbID, md);
       mapBB[&bb] = next_bbID;
+
+      md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_fnID)));
+      inst.setMetadata(mdkind_fnID, md);
       if (next_bbID == 1) {
-        md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_fnID)));
-        inst.setMetadata(mdkind_fnID, md);
         mapFn[&fn] = next_fnID;
       }
       next_bbID += 1;

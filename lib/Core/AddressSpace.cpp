@@ -346,14 +346,40 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
   }
 }
 
-const MemoryObject *AddressSpace::findMemoryObjectByName(const std::string &name) const {
+ObjectPair AddressSpace::findMemoryObjectByName(const std::string &name) const {
 
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
     if (mo->name == name)
-      return mo;
+      return std::make_pair(mo, it->second);
   }
-  return nullptr;
+  return std::make_pair(nullptr,nullptr);
+}
+
+bool AddressSpace::getNamedWrittenMemObjs(std::vector<ObjectPair> &listOPs, const std::set<MemKind> &kinds) const {
+
+  listOPs.clear();
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    const ObjectState *os = it->second;
+    if (!mo->name.empty() && kinds.find(mo->kind) != kinds.end() && !os->readOnly && os->isWritten()) {
+      listOPs.emplace_back(*it);
+    }
+  }
+  return !listOPs.empty();
+}
+
+void AddressSpace::clearWritten() {
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    const ObjectState *os = it->second;
+    if (!os->readOnly && os->isWritten()) {
+      if (ObjectState *wos = getWriteable(mo, os)) {
+        wos->clearWritten();
+      }
+    }
+  }
 }
 
 

@@ -156,6 +156,9 @@ protected:
   UnconstraintFlagsT unconstraintFlags;
   std::vector<ProgressionDesc> progression;
   bool libc_initializing;
+  std::set<const llvm::Function*> break_fns;
+  std::set<unsigned> break_lines;
+  bool enable_state_switching;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

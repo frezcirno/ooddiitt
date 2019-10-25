@@ -32,6 +32,10 @@ public:
 class TestCase {
 public:
 
+  TestCase() : arg_c(0), lazy_alloc_count(0), max_lazy_depth(0), max_loop_forks(0), max_loop_iter(0), test_id(UINT_MAX) {}
+  bool is_ready() { return test_id != UINT_MAX; }
+
+
   int arg_c;
   std::string arg_v;
   std::string entry_fn;

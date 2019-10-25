@@ -11,18 +11,19 @@
 #define KLEE_TRANSFORM_UTIL_H
 
 #include <string>
+#include <set>
 
 namespace llvm {
   class Function;
   class Instruction;
-  class Module; 
-  class CallSite; 
+  class Module;
+  class CallSite;
 }
 
 namespace klee {
- 
+
   /// Link a module with a specified bitcode archive.
-  llvm::Module *linkWithLibrary(llvm::Module *module, 
+  llvm::Module *linkWithLibrary(llvm::Module *module,
                                 const std::string &libraryName);
 
   /// Return the Function* target of a Call or Invoke instruction, or
@@ -39,6 +40,9 @@ namespace klee {
   /// other than a direct call (or a constant expression that
   /// terminates in a direct call).
   bool functionEscapes(const llvm::Function *f);
+
+  void enumModuleFunctions(const llvm::Module *m, std::set<std::string> &names);
+  void enumModuleGlobals(const llvm::Module *m, std::set<std::string> &names);
 
 }
 
