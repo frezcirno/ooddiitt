@@ -14,6 +14,7 @@
 #include "klee/Expr.h"
 
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/IR/Type.h"
 
 #include <vector>
 #include <string>
@@ -34,6 +35,14 @@ enum MemKind { invalid, fixed, global, param, alloca, heap, output, lazy };
 inline std::string to_string(MemKind kind) {
   static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
   return kindStrings[kind];
+}
+
+inline std::string to_string(const llvm::Type *type) {
+  if (type == nullptr) return "n/a";
+  std::string str;
+  llvm::raw_string_ostream rss(str);
+  type->print(rss);
+  return rss.str();
 }
 
 class MemoryObject {
@@ -58,6 +67,9 @@ public:
 
   MemKind kind;
   const llvm::Type *type;
+#ifdef _DEBUG
+  std::string type_desc;
+#endif
   unsigned count;
 
   /// true if created by us.
@@ -110,6 +122,9 @@ public:
       name(""),
       kind(_kind),
       type(_type),
+#ifdef _DEBUG
+      type_desc(to_string(_type)),
+#endif
       count(0),
       fake_object(false),
       isUserSpecified(false),

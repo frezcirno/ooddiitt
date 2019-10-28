@@ -13,6 +13,7 @@
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "../Core/SpecialFunctionHandler.h"
+#include "klee/Internal/System/Memory.h"
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 4)
 #include "llvm/IR/LLVMContext.h"
@@ -62,9 +63,11 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <llvm/IR/TypeFinder.h>
 
 using namespace llvm;
 using namespace klee;
+using namespace std;
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 /// Based on GetAllUndefinedSymbols() from LLVM3.2
@@ -82,9 +85,9 @@ using namespace klee;
 ///                     undefined symbols.
 ///
 static void
-GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
-  static const std::string llvmIntrinsicPrefix="llvm.";
-  std::set<std::string> DefinedSymbols;
+GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
+  static const string llvmIntrinsicPrefix="llvm.";
+  set<string> DefinedSymbols;
   UndefinedSymbols.clear();
   KLEE_DEBUG_WITH_TYPE("klee_linker",
                        dbgs() << "*** Computing undefined symbols ***\n");
@@ -126,8 +129,8 @@ GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
 
   // Prune out any defined symbols from the undefined symbols set
   // and other symbols we don't want to treat as an undefined symbol
-  std::vector<std::string> SymbolsToRemove;
-  for (std::set<std::string>::iterator I = UndefinedSymbols.begin();
+  vector<string> SymbolsToRemove;
+  for (set<string>::iterator I = UndefinedSymbols.begin();
        I != UndefinedSymbols.end(); ++I )
   {
     if (DefinedSymbols.count(*I))
@@ -176,9 +179,9 @@ GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
 /*!  A helper function for linkBCA() which cleans up
  *   memory allocated by that function.
  */
-static void CleanUpLinkBCA(std::vector<Module*> &archiveModules)
+static void CleanUpLinkBCA(vector<Module*> &archiveModules)
 {
-  for (std::vector<Module*>::iterator I = archiveModules.begin(), E = archiveModules.end();
+  for (vector<Module*>::iterator I = archiveModules.begin(), E = archiveModules.end();
       I != E; ++I)
   {
     delete (*I);
@@ -194,13 +197,13 @@ static void CleanUpLinkBCA(std::vector<Module*> &archiveModules)
  *
  *  \return True if linking succeeds otherwise false
  */
-static bool linkBCA(object::Archive* archive, Module* composite, std::string& errorMessage)
+static bool linkBCA(object::Archive* archive, Module* composite, string& errorMessage)
 {
   llvm::raw_string_ostream SS(errorMessage);
-  std::vector<Module*> archiveModules;
+  vector<Module*> archiveModules;
 
   // Is this efficient? Could we use StringRef instead?
-  std::set<std::string> undefinedSymbols;
+  set<string> undefinedSymbols;
   GetAllUndefinedSymbols(composite, undefinedSymbols);
 
   if (undefinedSymbols.size() == 0)
@@ -217,9 +220,9 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
   {
 
     StringRef memberName;
-    error_code ec = AI->getName(memberName);
+    llvm::error_code ec = AI->getName(memberName);
 
-    if ( ec == errc::success )
+    if ( ec == llvm::errc::success )
     {
       KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Loading archive member " << memberName << "\n");
     }
@@ -238,7 +241,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
       OwningPtr<MemoryBuffer> buff; // Once this is destroyed will Module still be valid??
       Module *Result = 0;
 
-      if (error_code ec = AI->getMemoryBuffer(buff))
+      if (llvm::error_code ec = AI->getMemoryBuffer(buff))
       {
         SS << "Failed to get MemoryBuffer: " <<ec.message();
         SS.flush();
@@ -285,7 +288,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Loaded " << archiveModules.size() << " modules\n");
 
 
-  std::set<std::string> previouslyUndefinedSymbols;
+  set<string> previouslyUndefinedSymbols;
 
   // Walk through the modules looking for definitions of undefined symbols
   // if we find a match we should link that module in.
@@ -302,7 +305,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
         continue;
       Module * M = archiveModules[i];
       // Look for the undefined symbols in the composite module
-      for (std::set<std::string>::iterator S = undefinedSymbols.begin(), SE = undefinedSymbols.end();
+      for (set<string>::iterator S = undefinedSymbols.begin(), SE = undefinedSymbols.end();
          S != SE; ++S)
       {
 
@@ -362,7 +365,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, std::string& er
 #endif
 
 
-Module *klee::linkWithLibrary(Module *module, const std::string &libraryName) {
+Module *klee::linkWithLibrary(Module *module, const string &libraryName) {
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Linking file " << libraryName << "\n");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
   if (!sys::fs::exists(libraryName)) {
@@ -371,7 +374,7 @@ Module *klee::linkWithLibrary(Module *module, const std::string &libraryName) {
   }
 
   OwningPtr<MemoryBuffer> Buffer;
-  if (error_code ec = MemoryBuffer::getFile(libraryName,Buffer)) {
+  if (llvm::error_code ec = MemoryBuffer::getFile(libraryName,Buffer)) {
     klee_error("Link with library %s failed: %s", libraryName.c_str(),
         ec.message().c_str());
   }
@@ -379,7 +382,7 @@ Module *klee::linkWithLibrary(Module *module, const std::string &libraryName) {
   sys::fs::file_magic magic = sys::fs::identify_magic(Buffer->getBuffer());
 
   LLVMContext &Context = module->getContext();
-  std::string ErrorMessage;
+  string ErrorMessage;
 
   if (magic == sys::fs::file_magic::bitcode) {
     Module *Result = 0;
@@ -395,7 +398,7 @@ Module *klee::linkWithLibrary(Module *module, const std::string &libraryName) {
 
   } else if (magic == sys::fs::file_magic::archive) {
     OwningPtr<object::Binary> arch;
-    if (error_code ec = object::createBinary(Buffer.take(), arch))
+    if (llvm::error_code ec = object::createBinary(Buffer.take(), arch))
       klee_error("Link with library %s failed: %s", libraryName.c_str(),
           ec.message().c_str());
 
@@ -501,7 +504,7 @@ bool klee::functionEscapes(const Function *f) {
   return !valueIsOnlyCalled(f);
 }
 
-void klee::enumModuleFunctions(const Module *m, std::set<std::string> &names) {
+void klee::enumModuleFunctions(const Module *m, set<string> &names) {
 
   names.clear();
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
@@ -512,7 +515,7 @@ void klee::enumModuleFunctions(const Module *m, std::set<std::string> &names) {
   }
 }
 
-void klee::enumModuleGlobals(const Module *m, std::set<std::string> &names) {
+void klee::enumModuleGlobals(const Module *m, set<string> &names) {
 
   names.clear();
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
@@ -521,6 +524,77 @@ void klee::enumModuleGlobals(const Module *m, std::set<std::string> &names) {
     // no llvm constants, hidden, and unnamed variables
     if (!v->isConstant() && !v->hasHiddenVisibility() && v->hasName() && !v->isDeclaration()) {
       names.insert(v->getName());
+    }
+  }
+}
+
+void klee::testFunctionPointers(Module *m) {
+
+  unsigned mdkind_hint = m->getMDKindID("brt-klee.call-hint");
+  LLVMContext &ctx = m->getContext();
+
+  map<Type*,string> call_hint;
+
+  TypeFinder typeFinder;
+  typeFinder.run(*m, true);
+  for (auto type : typeFinder) {
+    if (StructType *st = dyn_cast<StructType>(type)) {
+      if (st->getName() == "struct.hash_table") {
+        unsigned counter = 0;
+        for (auto itr = st->element_begin(), end = st->element_end(); itr != end; ++itr, ++counter) {
+          Type *type = *itr;
+          switch (counter) {
+            case 6:
+              call_hint[type] = "hash_int";
+              break;
+            case 7:
+              call_hint[type] = "hash_compare_ints";
+              break;
+//            case 8:
+//              call_hint[type] = "NULL";
+//              break;
+          }
+        }
+      }
+    }
+  }
+
+  map<Type*,vector<Function*> > fns_by_type;
+
+  for (auto itr_fn = m->begin(), end_fn = m->end(); itr_fn != end_fn; ++itr_fn) {
+    Function *fn = itr_fn;
+    string fn_name = fn->getName();
+    if (!fn_name.empty() && (fn_name.find("llvm.") == string::npos)) {
+      fns_by_type[fn->getType()].push_back(fn);
+    }
+  }
+
+  for (auto itr_fn = m->begin(), end_fn = m->end(); itr_fn != end_fn; ++itr_fn) {
+    Function *fn = itr_fn;
+
+    unsigned counter_bb = 0;
+    for (auto itr_bb = fn->begin(), end_bb = fn->end(); itr_bb != end_bb; ++itr_bb, ++counter_bb) {
+      BasicBlock *bb = itr_bb;
+      unsigned counter_in = 0;
+      for (auto itr_in = bb->begin(), end_in = bb->end(); itr_in != end_in; ++itr_in, ++counter_in) {
+        Instruction *inst = itr_in;
+
+        CallSite cs((inst));
+        if (cs) {
+          if (Value *target = cs.getCalledValue()) {
+            Type *type = target->getType();
+            const auto &itr = call_hint.find(type);
+            if (itr != call_hint.end()) {
+              outs() << fn->getName() << ": bb" << counter_bb << ",in" << counter_in << " Value call to: " << to_string(type);
+              outs() << ". Adding hint to " << itr->second;
+              outs() << '\n';
+
+              MDNode *md = MDNode::get(ctx, MDString::get(ctx, itr->second));
+              inst->setMetadata(mdkind_hint, md);
+            }
+          }
+        }
+      }
     }
   }
 }

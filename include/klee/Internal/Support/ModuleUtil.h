@@ -43,6 +43,7 @@ namespace klee {
 
   void enumModuleFunctions(const llvm::Module *m, std::set<std::string> &names);
   void enumModuleGlobals(const llvm::Module *m, std::set<std::string> &names);
+  void testFunctionPointers(llvm::Module *m);
 
 }
 

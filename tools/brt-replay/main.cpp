@@ -484,15 +484,6 @@ unsigned ReplayKleeHandler::getTerminationCount(const string &message) {
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-static string strip(const string &in) {
-  unsigned len = in.size();
-  unsigned lead = 0, trail = len;
-  while (lead<len && isspace(in[lead]))
-    ++lead;
-  while (trail>lead && isspace(in[trail-1]))
-    --trail;
-  return in.substr(lead, trail-lead);
-}
 
 static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);

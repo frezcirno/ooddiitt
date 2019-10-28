@@ -115,7 +115,9 @@ cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number 
 cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
 cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
 cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
-cl::opt<string> BreakAt("break-at", cl::init(""), cl::desc("break at the given trace line number or function name"));
+#ifdef _DEBUG
+cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
+#endif
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
@@ -424,38 +426,42 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
 void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, bool restart,
                                          const llvm::Type *type, KInstruction *target, const std::string &name) {
 
-  // count current depth of lazy allocations
-  unsigned depth = 0;
-  for (auto end = (unsigned) name.size(); depth < end && name.at(depth) == '*'; ++depth);
+  assert(type->isPointerTy());
+  Type *base_type = type->getPointerElementType();
+  if (base_type->isFirstClassType()) {
 
-  ref<ConstantExpr> null = Expr::createPointer(0);
-  ref<Expr> eqNull = EqExpr::create(addr, null);
+    // count current depth of lazy allocations
+    unsigned depth = 0;
+    for (auto end = (unsigned) name.size(); depth < end && name.at(depth) == '*'; ++depth);
 
-  if (depth >= maxLazyDepth) {
+    ref<ConstantExpr> null = Expr::createPointer(0);
+    ref<Expr> eqNull = EqExpr::create(addr, null);
 
-    // too deep. no more forking for this pointer.
-    addConstraintOrTerminate(state, eqNull);
-    if (restart) state.restartInstruction();
+    if (depth >= maxLazyDepth) {
 
-  } else {
+      // too deep. no more forking for this pointer.
+      addConstraintOrTerminate(state, eqNull);
+      if (restart)
+        state.restartInstruction();
 
-    StatePair sp = fork(state, eqNull, true);
+    } else {
 
-    // in the true case, ptr is null, so nothing further to do
-    if (restart && sp.first != nullptr) sp.first->restartInstruction();
+      StatePair sp = fork(state, eqNull, true);
 
-    ExecutionState *next_fork = sp.second;
+      // in the true case, ptr is null, so nothing further to do
+      if (restart && sp.first != nullptr)
+        sp.first->restartInstruction();
 
-    // in the false case, allocate new memory for the ptr and
-    // constrain the ptr to point to it.
-    if (next_fork != nullptr) {
+      ExecutionState *next_fork = sp.second;
 
-      if (restart) next_fork->restartInstruction();
+      // in the false case, allocate new memory for the ptr and
+      // constrain the ptr to point to it.
+      if (next_fork != nullptr) {
 
-      // pointer may not be null
-      Type *base_type = type->getPointerElementType();
-      if (base_type->isFirstClassType()) {
+        if (restart)
+          next_fork->restartInstruction();
 
+        // pointer may not be null
         if (LazyAllocationExt > 0) {
 
           unsigned counter = 0;
@@ -465,7 +471,8 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
           sp.second->addressSpace.getMemoryObjects(listOPs, base_type);
           for (const auto &pr : listOPs) {
 
-            if (next_fork == nullptr || counter >= LazyAllocationExt) break;
+            if (next_fork == nullptr || counter >= LazyAllocationExt)
+              break;
 
             const MemoryObject *existingMO = pr.first;
             if (existingMO->kind == MemKind::lazy) {
@@ -476,7 +483,8 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
               StatePair sp2 = fork(*next_fork, eq, true);
               counter += 1;
               next_fork = sp2.second;
-              if (restart && next_fork != nullptr) next_fork->restartInstruction();
+              if (restart && next_fork != nullptr)
+                next_fork->restartInstruction();
             }
           }
         }
@@ -501,10 +509,30 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
             next_fork->addConstraint(EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
           }
 
-          if (restart) next_fork->restartInstruction();
+          if (restart)
+            next_fork->restartInstruction();
         }
       }
     }
+  } else if (base_type->isFunctionTy()) {
+    FunctionType *ft = dyn_cast<FunctionType>(base_type);
+    string target;
+    if (ft->getReturnType()->isIntegerTy(64)) {
+      target = "hash_int";
+    } else {
+      target = "hash_compare_ints";
+    }
+    if (!target.empty()) {
+      if (Function *fn = kmodule->module->getFunction(target)) {
+        ref<Expr> ptr = globalAddresses.find(fn)->second;
+        ref<Expr> eq = EqExpr::create(addr, ptr);
+        addConstraintOrTerminate(state, eq);
+      }
+    } else {
+      klee_warning("lazy initialization of function type: %s", to_string(base_type).c_str());
+    }
+  } else {
+    klee_warning("lazy initialization of unknown type: %s", to_string(base_type).c_str());
   }
 }
 
@@ -1165,6 +1193,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   const unsigned tid_timeout = 1;
   const unsigned tid_heartbeat = 2;
 
+#ifdef _DEBUG
   // parse out the breakat lines
   break_fns.clear();
   break_lines.clear();
@@ -1183,6 +1212,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
     }
   }
+#endif
 
   ProgramTracer *tracer = nullptr;
   if (TraceBBlocks) {
@@ -1217,11 +1247,12 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
 
     try {
-
+#ifdef _DEBUG
       if (!state->trace.empty() && break_lines.find(state->trace.back()) != break_lines.end()) {
         outs() << "break here!\n";
         enable_state_switching = false;
       }
+#endif
       executeInstruction(*state, ki);
 
     } catch (bad_expression &e) {
@@ -1235,7 +1266,11 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     // check for expired timers
     unsigned expired = timer.expired();
     if (expired == tid_timeout) {
+#ifdef _DEBUG
+      if (enable_state_switching) halt = HaltReason::TimeOut;
+#else
       halt = HaltReason::TimeOut;
+#endif
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
@@ -1568,21 +1603,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (fn != nullptr) {
         fnName = fn->getName();
 
-#if 0 == 1
-        // RLR TODO: what to do with these?
-        if (fnName.find("printf") != std::string::npos) {
-          Type *ty = cs->getType();
-          if (!ty->isVoidTy()) {
-
-            Expr::Width width = kmodule->targetData->getTypeStoreSizeInBits(ty);
-            ref<Expr> retExpr = ConstantExpr::create(1, width);
-            bindLocal(ki, state, retExpr);
-          }
-          klee_warning("calling %s", fnName.c_str());
-          return;
-        }
-#endif
-
         isInModule = kmodule->isModuleFunction(fn);
         noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
 
@@ -1591,12 +1611,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           Executor::executeInstruction(state, ki);
           return;
         }
+      } else {
+        // cannot find target function
+
+
       }
 
+#ifdef _DEBUG
       if (break_fns.find(fn) != break_fns.end()) {
-        outs() << "break here\n";
+        outs() << "break here!\n";
         enable_state_switching = false;
       }
+#endif
 
       // note that fn can be null in the case of an indirect call
       // if libc is initializing or this is a special function then let the standard executor handle the call

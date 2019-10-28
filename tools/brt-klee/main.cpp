@@ -160,6 +160,7 @@ private:
   boost::filesystem::path outputDirectory;
   map<string,unsigned> terminationCounters;
   string md_name;
+  sys_clock::time_point started_at;
 
 public:
   BrtKleeHandler(const vector<string> &args, const string &_md_name);
@@ -215,6 +216,7 @@ BrtKleeHandler::BrtKleeHandler(const vector<string> &_args, const string &_md_na
 
   // create output directory (if required)
   bool created = false;
+  started_at = sys_clock::now();
 
   boost::system::error_code ec;
   if (boost::filesystem::exists(outputDirectory)) {
@@ -415,6 +417,8 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
       root["maxLoopIteration"] = state.maxLoopIteration;
       root["maxLoopForks"] = state.maxLoopForks;
       root["maxLazyDepth"] = state.maxLazyDepth;
+      root["timeStarted"] = to_string(started_at);
+      root["timeStopped"] = currentISO8601TimeUTC();
 
       const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
       if (flags != nullptr) {
@@ -1482,6 +1486,7 @@ int main(int argc, char **argv, char **envp) {
   enumModuleFunctions(mainModule, original_fns);
   set<string> original_globals;
   enumModuleGlobals(mainModule, original_globals);
+  testFunctionPointers(mainModule);
 
   string LibraryDir = BrtKleeHandler::getRunTimeLibraryPath(argv[0]);
 
