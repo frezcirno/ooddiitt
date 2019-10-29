@@ -115,9 +115,7 @@ cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number 
 cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
 cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
 cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
-#ifdef _DEBUG
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
-#endif
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
@@ -654,6 +652,7 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   while (!state.arrayNames.insert(uniqueName).second) {
     uniqueName = mo->name + "_" + llvm::utostr(++id);
   }
+  mo->name = uniqueName;
   const Array *array = arrayCache.CreateArray(uniqueName, mo->size);
 
   // hold the old object state in memory
@@ -1193,7 +1192,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   const unsigned tid_timeout = 1;
   const unsigned tid_heartbeat = 2;
 
-#ifdef _DEBUG
   // parse out the breakat lines
   break_fns.clear();
   break_lines.clear();
@@ -1212,7 +1210,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
     }
   }
-#endif
 
   ProgramTracer *tracer = nullptr;
   if (TraceBBlocks) {
@@ -1247,12 +1244,12 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
 
     try {
-#ifdef _DEBUG
       if (!state->trace.empty() && break_lines.find(state->trace.back()) != break_lines.end()) {
-        outs() << "break here!\n";
+        outs() << "break at " << state->trace.back() << '\n';
+#ifdef _DEBUG
         enable_state_switching = false;
-      }
 #endif
+      }
       executeInstruction(*state, ki);
 
     } catch (bad_expression &e) {
@@ -1613,16 +1610,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       } else {
         // cannot find target function
-
+        // likely because its a fn pointer
 
       }
 
-#ifdef _DEBUG
+
       if (break_fns.find(fn) != break_fns.end()) {
-        outs() << "break here!\n";
+        outs() << "break at " << fn->getName() << '\n';
+#ifdef _DEBUG
         enable_state_switching = false;
-      }
 #endif
+      }
 
       // note that fn can be null in the case of an indirect call
       // if libc is initializing or this is a special function then let the standard executor handle the call
@@ -1647,7 +1645,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         return;
       }
 
+      // RLR TODO: need a model of posix functions
+      if (fnName == "write" && cs.arg_size() == 3) {
+        ref<Expr> retExpr = eval(ki, 3, state).value;
+        bindLocal(ki, state, retExpr);
+        return;
+      }
+
       // we will be substituting an unconstraining stub subfunction.
+      klee_warning("stubbing function %s", fnName.c_str());
 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;

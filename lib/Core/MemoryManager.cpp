@@ -58,6 +58,8 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache)
     : arrayCache(_arrayCache), deterministicSpace(0), nextFreeSlot(0),
       spaceSize(DeterministicAllocationSize.getValue() * 1024 * 1024) {
   if (DeterministicAllocation) {
+
+#if 0 == 1
     // Page boundary
     void *expectedAddress = (void *)DeterministicStartAddress.getValue();
 
@@ -75,6 +77,8 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache)
     klee_message("Deterministic memory allocation starting from %p", newSpace);
     deterministicSpace = newSpace;
     nextFreeSlot = newSpace;
+#endif
+    nextFreeSlot = deterministicSpace = (char*) DeterministicStartAddress.getValue();
   }
 }
 
@@ -87,8 +91,10 @@ MemoryManager::~MemoryManager() {
     delete mo;
   }
 
+#if 0 == 1
   if (DeterministicAllocation)
     munmap(deterministicSpace, spaceSize);
+#endif
 }
 
 MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {

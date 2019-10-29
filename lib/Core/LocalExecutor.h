@@ -158,10 +158,8 @@ protected:
   bool libc_initializing;
   bool enable_state_switching;
 
-#ifdef _DEBUG
   std::set<const llvm::Function*> break_fns;
   std::set<unsigned> break_lines;
-#endif
 
   // behavior conditioned by exec mode
   bool doSaveFault;

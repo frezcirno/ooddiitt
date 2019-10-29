@@ -772,11 +772,10 @@ void Executor::branch(ExecutionState &state,
       addConstraint(*result[i], conditions[i]);
 }
 
-Executor::StatePair
-Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
+Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   Solver::Validity res;
-  std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
-    seedMap.find(&current);
+
+  auto it = seedMap.find(&current);
   bool isSeeding = it != seedMap.end();
 
   if (!isSeeding && !isa<ConstantExpr>(condition) &&
@@ -891,7 +890,6 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
       addConstraint(current, trueSeed ? condition : Expr::createIsZero(condition));
     }
   }
-
 
   // XXX - even if the constraint is provable one way or the other we
   // can probably benefit by adding this constraint and allowing it to
