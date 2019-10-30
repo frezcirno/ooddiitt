@@ -1483,12 +1483,10 @@ unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
   ref<ConstantExpr> result;
-
-  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e)) {
-    result = CE;
+  if (isa<ConstantExpr>(e)) {
+    result = cast<ConstantExpr>(e);
   } else {
     if (solver->getValue(state, e, result)) {
-
       ref<Expr> eq = EqExpr::create(e, result);
       if (!solver->mustBeTrue(state, eq)) {
         addConstraint(state, eq);
@@ -1622,6 +1620,24 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 #endif
       }
 
+      // RLR TODO: need a model of posix functions
+      if (fnName == "write" && cs.arg_size() == 3) {
+        ref<Expr> retExpr = eval(ki, 3, state).value;
+        bindLocal(ki, state, retExpr);
+        return;
+      } else if (fnName == "isatty" && cs.arg_size() == 1) {
+        unsigned result = 0;
+        ref<Expr> fd = eval(ki, 1, state).value;
+        if (isa<ConstantExpr>(fd)) {
+          ref<ConstantExpr> cfd = cast<ConstantExpr>(fd);
+          unsigned desc = cfd->getZExtValue(Expr::Int32);
+          if (desc < 3) result = 1;
+        }
+        ref<Expr> retExpr = ConstantExpr::create(result, Expr::Int32);
+        bindLocal(ki, state, retExpr);
+        return;
+      }
+
       // note that fn can be null in the case of an indirect call
       // if libc is initializing or this is a special function then let the standard executor handle the call
       if (fn == nullptr || libc_initializing || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
@@ -1642,13 +1658,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // either stubbed callees or target is not in the module
       if (noReturn) {
         terminateStateOnExit(state);
-        return;
-      }
-
-      // RLR TODO: need a model of posix functions
-      if (fnName == "write" && cs.arg_size() == 3) {
-        ref<Expr> retExpr = eval(ki, 3, state).value;
-        bindLocal(ki, state, retExpr);
         return;
       }
 

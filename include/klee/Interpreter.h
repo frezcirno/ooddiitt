@@ -151,13 +151,17 @@ public:
     llvm::Function *userMain;
     std::set<std::string> *userFns;
     std::set<std::string> *userGlobals;
+    void *user_mem_base;
+    size_t user_mem_size;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
         mode(Interpreter::none),
         userMain(nullptr),
         userFns(nullptr),
-        userGlobals(nullptr)
+        userGlobals(nullptr),
+        user_mem_base(nullptr),
+        user_mem_size(0)
     {}
   };
 

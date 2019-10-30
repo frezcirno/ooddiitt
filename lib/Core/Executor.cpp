@@ -365,7 +365,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       interpreterHandler->getOutputFilename(SOLVER_QUERIES_KQUERY_FILE_NAME));
 
   this->solver = new TimingSolver(solver, MaxCoreSolverTime, EqualitySubstitution);
-  memory = new MemoryManager(&arrayCache);
+  memory = new MemoryManager(&arrayCache, opts.user_mem_base, opts.user_mem_size);
 
   if (optionIsSet(DebugPrintInstructions, FILE_ALL) ||
       optionIsSet(DebugPrintInstructions, FILE_COMPACT) ||
@@ -3017,6 +3017,13 @@ void Executor::callExternalFunction(ExecutionState &state,
   if (specialFunctionHandler->handle(state, function, target, arguments))
     return;
 
+  std::string fn_name = function->getName();
+  outs() << "Terminating state due to external function call: " << fn_name << '\n';
+  std::ostringstream ss;
+  ss << "external function calls disallowed:" << fn_name;
+  terminateStateOnError(state, ss.str(), User);
+
+#if 0 == 1
   if (NoExternals && !okExternals.count(function->getName())) {
     klee_warning("Calling not-OK external function : %s\n",
                function->getName().str().c_str());
@@ -3089,6 +3096,7 @@ void Executor::callExternalFunction(ExecutionState &state,
     ref<Expr> e = ConstantExpr::fromMemory((void*) args, getWidthForLLVMType(resultType));
     bindLocal(target, state, e);
   }
+#endif
 }
 
 /***/

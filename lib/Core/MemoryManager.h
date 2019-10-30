@@ -34,7 +34,7 @@ private:
   size_t spaceSize;
 
 public:
-  MemoryManager(ArrayCache *arrayCache);
+  MemoryManager(ArrayCache *arrayCache, void *user_baseaddress, size_t size);
   ~MemoryManager();
 
   /**

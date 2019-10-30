@@ -1082,6 +1082,13 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // and trivialize functions we will never use
   // RLR TODO: may need to trivialize or capture other functions
+  set<string> drop_fns { "isatty", "tcgetattr", "ioctl" };
+  for (const auto &name : drop_fns) {
+    if (Function *fn = mainModule->getFunction(name)) {
+      fn->dropAllReferences();
+    }
+  }
+
 
 #if 0 == 1
   set<string> trivialize_fns {
@@ -1116,159 +1123,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
-#if 0 == 1
-
-void accumulate_transitive_closure(const map<string,set<string> > &map_callees,
-                                   const string &fn,
-                                   set<string> &callees) {
-
-  const auto &itr = map_callees.find(fn);
-  if (itr != map_callees.end()) {
-    for (const auto &child : itr->second) {
-      if (callees.count(child) == 0) {
-        callees.insert(child);
-        accumulate_transitive_closure(map_callees, child, callees);
-      }
-    }
-  }
-}
-
-void load_prog_info(Json::Value &root, ProgInfo &progInfo) {
-
-  // complete progInfo from json structure
-
-  // get a list of non-const global variables defined in this module
-  set<string> global_vars;
-  Json::Value &globalRoot = root["globals"];
-  Json::Value::Members gbls = globalRoot.getMemberNames();
-  for (const auto gbl : gbls) {
-    if (UnconstrainConstGlobals || !globalRoot[gbl]["type"]["isConst"].asBool()) {
-      global_vars.insert(gbl);
-    }
-  }
-
-  Json::Value &chksum = root["checksum"];
-  if (chksum.isString()) progInfo.setChecksum(chksum.asString());
-
-  // need a map of callees per function
-  map<string,set<string> > map_callees;
-
-  Json::Value &fnsRoot = root["functions"];
-  Json::Value::Members fns = fnsRoot.getMemberNames();
-  for (const auto &fn : fns) {
-
-    // find the constant function params
-    Json::Value &fnRoot = fnsRoot[fn];
-    Json::Value &params = fnRoot["params"];
-    unsigned id = fnRoot["fnID"].asUInt();
-    progInfo.setFnID(fn, id);
-
-    if (params.isArray()) {
-      for (unsigned index = 0, end = params.size(); index < end; ++index) {
-
-        Json::Value &param = params[index];
-        if (!param["isOutput"].asBool()) {
-          Json::Value &type = param["type"];
-          if (type.isMember("isConst") && type["isConst"].asBool()) {
-            progInfo.setConstParam(fn, index);
-          }
-        }
-      }
-    }
-
-    // get all of the functions direct callees
-    Json::Value &callTargets = fnRoot["callTargets"];
-    if (callTargets.isArray()) {
-      for (unsigned index = 0, end = callTargets.size(); index < end; ++index) {
-        Json::Value &target = callTargets[index];
-        map_callees[fn].insert(target.asString());
-      }
-    }
-
-    // find the referenced global variables
-    Json::Value &globals = fnRoot["globalRefs"];
-    if (globals.isArray()) {
-      for (unsigned index = 0, end = globals.size(); index < end; ++index) {
-        Json::Value &global = globals[index];
-        if (global["isInput"].asBool()) {
-          string name = global["name"].asString();
-          if (global_vars.count(name) > 0) {
-            progInfo.setGlobalInput(fn, name);
-          }
-        }
-        if (global["isOutput"].asBool()) {
-          string name = global["name"].asString();
-          if (global_vars.count(name) > 0) {
-            progInfo.setOutput(fn, name);
-          }
-        }
-      }
-    }
-
-    // add the markers
-    Json::Value &markers = fnRoot["marks"];
-    if (markers.isArray()) {
-      for (unsigned index = 0, end = markers.size(); index < end; ++index) {
-        Json::Value &marker = markers[index];
-        progInfo.add_marker(fn, marker.asUInt());
-      }
-    }
-
-    // then finally, add the m2m paths
-    Json::Value &m2m_paths = fnRoot["m2m_paths"];
-    if (m2m_paths.isArray()) {
-      for (unsigned index1 = 0, end1 = m2m_paths.size(); index1 < end1; ++index1) {
-        Json::Value &path = m2m_paths[index1];
-        if (path.isArray()) {
-          stringstream ss;
-          ss << '.';
-          for (unsigned index2 = 0, end2 = path.size(); index2 < end2; ++index2) {
-            Json::Value &marker = path[index2];
-            ss << marker.asUInt() << '.';
-          }
-          progInfo.add_m2m_path(fn, ss.str());
-        }
-      }
-    }
-  }
-
-  // now that we have a map of direct callees, we do a dfs to find all reachable callees
-  for (const auto &itr : map_callees) {
-    const string &fn = itr.first;
-    set<string> callees;
-    accumulate_transitive_closure(map_callees, fn, callees);
-
-    progInfo.setReachableFn(fn, fn);
-    for (const auto &callee : callees) {
-      progInfo.setReachableFn(fn, callee);
-    }
-  }
-
-  // get the prototypes, if that's all we have
-  Json::Value &protosRoot = root["prototypes"];
-  Json::Value::Members protos = protosRoot.getMemberNames();
-  for (const auto fn : protos) {
-
-    // find the constant function params
-    Json::Value &fnRoot = protosRoot[fn];
-    Json::Value &params = fnRoot["params"];
-    progInfo.setFnID(fn, 0);
-
-    if (params.isArray()) {
-      for (unsigned index = 0, end = params.size(); index < end; ++index) {
-
-        Json::Value &param = params[index];
-        if (!param["isOutput"].asBool()) {
-          Json::Value &type = param["type"];
-          if (type.isMember("isConst") && type["isConst"].asBool()) {
-            progInfo.setConstParam(fn, index);
-          }
-        }
-      }
-    }
-  }
-}
-#endif
 
 volatile bool reset_watchdog_timer = false;
 

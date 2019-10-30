@@ -26,13 +26,7 @@ namespace {
 llvm::cl::opt<bool> DeterministicAllocation(
     "allocate-determ",
     llvm::cl::desc("Allocate memory deterministically(default=off)"),
-    llvm::cl::init(false));
-
-llvm::cl::opt<unsigned> DeterministicAllocationSize(
-    "allocate-determ-size",
-    llvm::cl::desc(
-        "Preallocated memory for deterministic allocation in MB (default=100)"),
-    llvm::cl::init(100));
+    llvm::cl::init(true));
 
 llvm::cl::opt<bool>
     NullOnZeroMalloc("return-null-on-zero-malloc",
@@ -46,17 +40,29 @@ llvm::cl::opt<unsigned> RedZoneSpace(
                    "important to detect out-of-bound accesses (default=10)."),
     llvm::cl::init(10));
 
+
+#if 0 == 1
+
+llvm::cl::opt<unsigned> DeterministicAllocationSize(
+    "allocate-determ-size",
+    llvm::cl::desc(
+        "Preallocated memory for deterministic allocation in MB (default=100)"),
+    llvm::cl::init(100));
+
 llvm::cl::opt<unsigned long long> DeterministicStartAddress(
     "allocate-determ-start-address",
     llvm::cl::desc("Start address for deterministic allocation. Has to be page "
                    "aligned (default=0x7ff30000000)."),
     llvm::cl::init(0x7ff30000000));
+
+#endif
+
 }
 
 /***/
-MemoryManager::MemoryManager(ArrayCache *_arrayCache)
-    : arrayCache(_arrayCache), deterministicSpace(0), nextFreeSlot(0),
-      spaceSize(DeterministicAllocationSize.getValue() * 1024 * 1024) {
+MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t user_size)
+    : arrayCache(_arrayCache), deterministicSpace(nullptr), nextFreeSlot(nullptr), spaceSize(user_size) {
+
   if (DeterministicAllocation) {
 
 #if 0 == 1
@@ -78,7 +84,10 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache)
     deterministicSpace = newSpace;
     nextFreeSlot = newSpace;
 #endif
-    nextFreeSlot = deterministicSpace = (char*) DeterministicStartAddress.getValue();
+    if (user_base != nullptr) deterministicSpace = (char*) user_base;
+    else deterministicSpace = (char*) 0x7ff30000000;
+    nextFreeSlot = deterministicSpace;
+    if (spaceSize == 0) spaceSize = 1024 * 1024 * 1024;
   }
 }
 
@@ -115,8 +124,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   uint64_t address = 0;
   if (DeterministicAllocation) {
 
-    address = llvm::RoundUpToAlignment((uint64_t)nextFreeSlot + alignment - 1,
-                                       alignment);
+    address = llvm::RoundUpToAlignment((uint64_t)nextFreeSlot + alignment - 1, alignment);
 
     // Handle the case of 0-sized allocations as 1-byte allocations.
     // This way, we make sure we have this allocation between its own red zones

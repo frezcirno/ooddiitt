@@ -287,6 +287,7 @@ bool AddressSpace::resolve(ExecutionState &state,
   return false;
 }
 
+#if 0 == 1
 // These two are pretty big hack so we can sort of pass memory back
 // and forth to externals. They work by abusing the concrete cache
 // store inside of the object states, which allows them to
@@ -330,6 +331,7 @@ bool AddressSpace::copyInConcretes() {
 
   return true;
 }
+#endif
 
 void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type) const {
 
