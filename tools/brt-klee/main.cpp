@@ -697,7 +697,7 @@ static int initEnv(Module *mainModule) {
 // any "unrecognized" externals and about any obviously unsafe ones.
 
 // Symbols we explicitly support
-static const char *modelledExternals[] = {
+static set<string> modelledExternals = {
   "_ZTVN10__cxxabiv117__class_type_infoE",
   "_ZTVN10__cxxabiv120__si_class_type_infoE",
   "_ZTVN10__cxxabiv121__vmi_class_type_infoE",
@@ -754,54 +754,13 @@ static const char *modelledExternals[] = {
   "__ubsan_handle_sub_overflow",
   "__ubsan_handle_mul_overflow",
   "__ubsan_handle_divrem_overflow",
-
-  // ignore marker instrumentation
-  "__mark__",
-  "__MARK__",
-  "__calltag__",
-  "__init_markers__",
-  "__term_markers__",
-
-  // special pgklee functions
-  "pgklee_hard_assume",
-  "pgklee_soft_assume",
-  "pgklee_implies",
-  "pgklee_expr_holds",
-  "pgklee_expr_mayhold",
-  "pgklee_valid_pointer",
-  "pgklee_object_size"
 };
-// Symbols we aren't going to warn about
-static const char *dontCareExternals[] = {
 
-  // static information, pretty ok to return
-  "getegid",
-  "geteuid",
-  "getgid",
-  "getuid",
-  "getpid",
-  "gethostname",
-  "getpgrp",
-  "getppid",
-  "getpagesize",
-  "getpriority",
-  "getgroups",
-  "getdtablesize",
-  "getrlimit",
-  "getrlimit64",
-  "getcwd",
-  "getwd",
-  "gettimeofday",
-  "uname",
-
-  // fp stuff we just don't worry about yet
-  "frexp",
-  "ldexp",
-  "__isnan",
-  "__signbit",
+static set<string> dontCare = {
 };
+
 // Extra symbols we aren't going to warn about with klee-libc
-static const char *dontCareKlee[] = {
+static set<string> dontCareKlee = {
   "__ctype_b_loc",
   "__ctype_get_mb_cur_max",
 
@@ -811,8 +770,15 @@ static const char *dontCareKlee[] = {
   "read",
   "close",
 };
+
+static set<string> modelledUclibc = {
+
+    "isatty",
+    "write"
+};
+
 // Extra symbols we aren't going to warn about with uclibc
-static const char *dontCareUclibc[] = {
+static set<string> dontCareUclibc = {
   "__ctype_b_loc",
   "__dso_handle",
 
@@ -821,83 +787,75 @@ static const char *dontCareUclibc[] = {
   "printf",
   "vprintf"
 };
-// Symbols we consider unsafe
-//static const char *unsafeExternals[] = {
-//  "fork", // oh lord
-//  "exec", // heaven help us
-//  "error", // calls _exit
-//  "raise", // yeah
-//  "kill", // mmmhmmm
-//};
 
-#define NELEMS(array) (sizeof(array)/sizeof(array[0]))
+bool has_inline_asm(const Function *fn) {
+
+  for (const auto &bb : *fn) {
+    for (const auto &inst : bb) {
+      if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
+        if (isa<InlineAsm>(ci->getCalledValue())) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 
 void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
-  set<string> modelled(modelledExternals, modelledExternals+NELEMS(modelledExternals));
-  set<string> dontCare(dontCareExternals, dontCareExternals+NELEMS(dontCareExternals));
 
   switch (Libc) {
   case KleeLibc:
-    dontCare.insert(dontCareKlee, dontCareKlee+NELEMS(dontCareKlee));
+    dontCare.insert(dontCareKlee.begin(), dontCareKlee.end());
     break;
   case UcLibc:
-    dontCare.insert(dontCareUclibc,
-                    dontCareUclibc+NELEMS(dontCareUclibc));
+    dontCare.insert(dontCareUclibc.begin(), dontCareUclibc.end());
+    modelledExternals.insert(modelledUclibc.begin(), modelledUclibc.end());
     break;
   case NoLibc: /* silence compiler warning */
     break;
   }
 
-  if (WithPOSIXRuntime)
-    dontCare.insert("syscall");
+  if (WithPOSIXRuntime) dontCare.insert("syscall");
 
   set<string> extFunctions;
   set<string> extGlobals;
 
   // get a list of functions declared, but not defined
-  for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end(); fnIt != fn_ie; ++fnIt) {
-    if (fnIt->isDeclaration() && !fnIt->use_empty()) {
-      string name = fnIt->getName();
-      if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
-        extFunctions.insert(fnIt->getName());
+  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
+    const Function *fn = *&itr;
+    if (fn->isDeclaration() && !fn->use_empty()) {
+      string name = fn->getName();
+      if (modelledExternals.count(name) == 0 && dontCare.count(name) == 0) {
+        extFunctions.insert(name);
       }
     }
 
     if (emit_warnings) {
       // check for inline assembly
-      for (Function::const_iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); bbIt != bb_ie; ++bbIt) {
-        for (BasicBlock::const_iterator it = bbIt->begin(), ie = bbIt->end(); it != ie; ++it) {
-          if (const CallInst *ci = dyn_cast<CallInst>(it)) {
-            if (isa<InlineAsm>(ci->getCalledValue())) {
-                klee_warning_once(&*fnIt, "function \"%s\" has inline asm", fnIt->getName().data());
-            }
-          }
-        }
+
+      if (has_inline_asm(fn)) {
+        klee_warning("function \"%s\" has inline asm", fn->getName().str().c_str());
       }
     }
   }
 
   // get a list of globals declared, but not defined
-  for (Module::const_global_iterator it = m->global_begin(), ie = m->global_end(); it != ie; ++it) {
-    if (it->isDeclaration() && !it->use_empty()) {
-      string name = it->getName();
-      if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
-        extGlobals.insert(it->getName());
+  for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
+    if (itr->isDeclaration() && !itr->use_empty()) {
+      string name = itr->getName();
+      if (modelledExternals.count(name) == 0 && dontCare.count(name) == 0) {
+        extGlobals.insert(name);
       }
     }
   }
 
   // and remove aliases (they define the symbol after global
   // initialization)
-  for (Module::const_alias_iterator it = m->alias_begin(), ie = m->alias_end(); it != ie; ++it) {
-    auto it2 = extFunctions.find(it->getName());
-    if (it2!=extFunctions.end()) {
-      extFunctions.erase(it2);
-  }
-    auto it3 = extGlobals.find(it->getName());
-    if (it3!=extGlobals.end()) {
-      extGlobals.erase(it3);
-    }
+  for (auto itr = m->alias_begin(), end = m->alias_end(); itr != end; ++itr) {
+    string name = itr->getName();
+    extFunctions.erase(name);
+    extGlobals.erase(name);
   }
 
   if (emit_warnings) {
@@ -1340,7 +1298,7 @@ int main(int argc, char **argv, char **envp) {
   enumModuleFunctions(mainModule, original_fns);
   set<string> original_globals;
   enumModuleGlobals(mainModule, original_globals);
-  testFunctionPointers(mainModule);
+  testFunctionPointers(mainModule, original_fns);
 
   string LibraryDir = BrtKleeHandler::getRunTimeLibraryPath(argv[0]);
 

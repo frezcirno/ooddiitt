@@ -146,7 +146,7 @@ Installation places a new shared object library in /usr/local/lib. Need to run `
 git clone https://github.com/klee/klee-uclibc.git
 cd klee-uclibc
 ./configure --make-llvm-lib --with-llvm-config="${KLEE_BASE}/llvm-3.4/bin/llvm-config"
-make -j `nproc`
+make KLEE_CFLAGS="-DKLEE_SYM_PRINTF" -j `nproc`
 cd ..
 ```
 

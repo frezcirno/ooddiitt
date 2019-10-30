@@ -15,16 +15,11 @@
 #include "../Core/SpecialFunctionHandler.h"
 #include "klee/Internal/System/Memory.h"
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 4)
 #include "llvm/IR/LLVMContext.h"
-#endif
-
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
-#include "llvm/IRReader/IRReader.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ObjectFile.h"
@@ -32,38 +27,22 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/DataStream.h"
-#else
-#include "llvm/Function.h"
-#include "llvm/Instructions.h"
-#include "llvm/IntrinsicInst.h"
-#include "llvm/Module.h"
-#endif
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Linker.h"
 #include "llvm/Assembly/AssemblyAnnotationWriter.h"
-#else
-#include "llvm/Linker/Linker.h"
-#include "llvm/IR/AssemblyAnnotationWriter.h"
-#endif
 
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Support/Path.h"
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
-#else
-#include "llvm/IR/CallSite.h"
-#endif
+#include "llvm/Support/DebugLoc.h"
+
+//#include "llvm/IR/TypeFinder.h"
+//#include "llvm/IR/Metadata.h"
 
 #include <map>
 #include <set>
-#include <fstream>
-#include <sstream>
 #include <string>
-#include <llvm/IR/TypeFinder.h>
+#include <llvm/Support/InstIterator.h>
+#include <llvm/DIBuilder.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
 using namespace llvm;
 using namespace klee;
@@ -528,73 +507,90 @@ void klee::enumModuleGlobals(const Module *m, set<string> &names) {
   }
 }
 
-void klee::testFunctionPointers(Module *m) {
+static map<string,string> rewrite_fn_pointers = { {"i64 (i8*, i64)*", "hash_int"}, {"i1 (i8*, i8*)*", "hash_compare_ints"},  {"void (i8*)*", "null"} };
 
-  unsigned mdkind_hint = m->getMDKindID("brt-klee.call-hint");
-  LLVMContext &ctx = m->getContext();
 
-  map<Type*,string> call_hint;
+void klee::testFunctionPointers(llvm::Module *m, const std::set<std::string> &names) {
 
-  TypeFinder typeFinder;
-  typeFinder.run(*m, true);
-  for (auto type : typeFinder) {
-    if (StructType *st = dyn_cast<StructType>(type)) {
-      if (st->getName() == "struct.hash_table") {
-        unsigned counter = 0;
-        for (auto itr = st->element_begin(), end = st->element_end(); itr != end; ++itr, ++counter) {
-          Type *type = *itr;
-          switch (counter) {
-            case 6:
-              call_hint[type] = "hash_int";
-              break;
-            case 7:
-              call_hint[type] = "hash_compare_ints";
-              break;
-//            case 8:
-//              call_hint[type] = "NULL";
-//              break;
-          }
-        }
+
+  map<string,Function*> rewrite;
+  for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
+    if (itr->second == "null") rewrite.insert(make_pair(itr->first, nullptr));
+    else if (Function *fn = m->getFunction(itr->second)) rewrite.insert(make_pair(itr->first, fn));
+  }
+
+  set<Function*> fns;
+  map<string, set<Function*> > mapFiletoFns;
+
+  for (const auto &name : names) {
+    if (Function *fn = m->getFunction(name)) fns.insert(fn);
+  }
+
+  DebugInfoFinder finder;
+  finder.processModule(*m);
+  for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
+    const MDNode *md = *itr;
+    DISubprogram SP(md);
+    for (const auto &fn : fns) {
+      if (SP.describes(fn)) {
+        mapFiletoFns[SP.getFilename()].insert(fn);
       }
     }
   }
 
   map<Type*,vector<Function*> > fns_by_type;
-
-  for (auto itr_fn = m->begin(), end_fn = m->end(); itr_fn != end_fn; ++itr_fn) {
-    Function *fn = itr_fn;
-    string fn_name = fn->getName();
-    if (!fn_name.empty() && (fn_name.find("llvm.") == string::npos)) {
-      fns_by_type[fn->getType()].push_back(fn);
-    }
+  for (const auto &fn : fns) {
+    fns_by_type[fn->getType()].push_back(fn);
   }
 
-  for (auto itr_fn = m->begin(), end_fn = m->end(); itr_fn != end_fn; ++itr_fn) {
-    Function *fn = itr_fn;
+  for (const auto &fn : fns) {
+    for (auto &bb : *fn) {
 
-    unsigned counter_bb = 0;
-    for (auto itr_bb = fn->begin(), end_bb = fn->end(); itr_bb != end_bb; ++itr_bb, ++counter_bb) {
-      BasicBlock *bb = itr_bb;
-      unsigned counter_in = 0;
-      for (auto itr_in = bb->begin(), end_in = bb->end(); itr_in != end_in; ++itr_in, ++counter_in) {
-        Instruction *inst = itr_in;
+#ifdef _DEBUG
+      string fn_name = fn->getName();
+#endif
+      // cannot change instructions while iterating, so just store the changes to be made
+      vector<Instruction*> drops;
+      vector<pair<Instruction*,Instruction*> > replacements;
 
-        CallSite cs((inst));
-        if (cs) {
-          if (Value *target = cs.getCalledValue()) {
-            Type *type = target->getType();
-            const auto &itr = call_hint.find(type);
-            if (itr != call_hint.end()) {
-              outs() << fn->getName() << ": bb" << counter_bb << ",in" << counter_in << " Value call to: " << to_string(type);
-              outs() << ". Adding hint to " << itr->second;
-              outs() << '\n';
-
-              MDNode *md = MDNode::get(ctx, MDString::get(ctx, itr->second));
-              inst->setMetadata(mdkind_hint, md);
+      for (auto itr = bb.begin(), end = bb.end(); itr != end; ++itr) {
+        if (Instruction *old_inst = &*itr) {
+          CallSite cs(&*itr);
+          if (cs) {
+            if (Value *val = cs.getCalledValue()) {
+              val = val->stripPointerCasts();
+              if (!isa<Function>(val)) {
+                Type *type = val->getType();
+                string type_name = to_string(type);
+                auto itr = rewrite.find(type_name);
+                if (itr != rewrite.end()) {
+                  outs() << "Rewriting " << fn->getName() << '\n';
+                  if (itr->second == nullptr) {
+                    drops.push_back(old_inst);
+                  } else {
+                    SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
+                    CallInst *new_inst = CallInst::Create(itr->second, args);
+                    new_inst->setCallingConv(cs.getCallingConv());
+                    replacements.push_back(make_pair(old_inst, new_inst));
+                  }
+                } else {
+                  outs() << "Warning: unpatched function pointer in " << fn->getName() << '\n';
+                }
+              }
             }
           }
         }
       }
+
+      for (auto &inst : drops) {
+        inst->removeFromParent();
+      }
+
+      for (auto &pr : replacements) {
+        if (!pr.first->use_empty()) pr.first->replaceAllUsesWith(pr.second);
+        ReplaceInstWithInst(pr.first, pr.second);
+      }
     }
   }
 }
+

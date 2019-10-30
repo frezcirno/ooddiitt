@@ -513,22 +513,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
       }
     }
   } else if (base_type->isFunctionTy()) {
-    FunctionType *ft = dyn_cast<FunctionType>(base_type);
-    string target;
-    if (ft->getReturnType()->isIntegerTy(64)) {
-      target = "hash_int";
-    } else {
-      target = "hash_compare_ints";
-    }
-    if (!target.empty()) {
-      if (Function *fn = kmodule->module->getFunction(target)) {
-        ref<Expr> ptr = globalAddresses.find(fn)->second;
-        ref<Expr> eq = EqExpr::create(addr, ptr);
-        addConstraintOrTerminate(state, eq);
-      }
-    } else {
-      klee_warning("lazy initialization of function type: %s", to_string(base_type).c_str());
-    }
+    // RLR TODO: do something here!
   } else {
     klee_warning("lazy initialization of unknown type: %s", to_string(base_type).c_str());
   }
