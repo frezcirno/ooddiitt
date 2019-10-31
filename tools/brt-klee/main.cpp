@@ -1030,8 +1030,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // also an implicit cooperation in that runFunctionAsMain sets up
   // the environment arguments to what uclibc expects (following
   // argv), since it does not explicitly take an envp argument.
-  Function *userMainFn = mainModule->getFunction(UserMain);
-  assert(userMainFn && "unable to get user main");
+//  Function *userMainFn = mainModule->getFunction(UserMain);
+//  assert(userMainFn && "unable to get user main");
   Function *uclibcMainFn = mainModule->getFunction("__uClibc_main");
   assert(uclibcMainFn && "unable to get uclibc main");
 
@@ -1369,6 +1369,8 @@ int main(int argc, char **argv, char **envp) {
   IOpts.userMain = mainFn;
   IOpts.userFns = &original_fns;
   IOpts.userGlobals = &original_globals;
+  IOpts.user_mem_base = (void*) 0x80000000000;
+  IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);

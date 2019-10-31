@@ -68,6 +68,10 @@ public:
 
 class BBlocksTracer : public ProgramTracer {
 public:
+  BBlocksTracer(KModule *k) : kmodule(k)  {
+    k->getMarkedFns(fns);
+  }
+
   BBlocksTracer(KModule *k, const std::set<std::string> *f) : kmodule(k)  {
     if (f != nullptr) {
       for (const auto &name : *f) {

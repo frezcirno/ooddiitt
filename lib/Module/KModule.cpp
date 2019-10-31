@@ -17,52 +17,29 @@
 #include "klee/Internal/Module/Cell.h"
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/InstructionInfoTable.h"
-#include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
+#include "klee/Internal/Support/Debug.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/TypeFinder.h"
-#else
-#include "llvm/Instructions.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Module.h"
-#include "llvm/ValueSymbolTable.h"
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-#include "llvm/Target/TargetData.h"
-#else
-#include "llvm/DataLayout.h"
-#endif
-
-#endif
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
-#else
-#include "llvm/IR/CallSite.h"
-#endif
 
 #include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/IR/Instruction.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
-#include "llvm/ADT/PostOrderIterator.h"
-
 #include <llvm/Transforms/Utils/Cloning.h>
-#include <getopt.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/filesystem/path.hpp>
+
+#include "llvm/IR/TypeFinder.h"
+
 
 using namespace llvm;
 using namespace klee;
@@ -269,11 +246,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
         PHINode *result = 0;
         if (f->getReturnType() != Type::getVoidTy(ctx))
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
-          result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
-#else
-        result = PHINode::Create(f->getReturnType(), "retval", exit);
-#endif
+        result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
         CallInst::Create(mergeFn, "", exit);
         ReturnInst::Create(ctx, result, exit);
 
@@ -315,35 +288,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       pm.run(*module);
     }
 
-    if (opts.Optimize)
-      Optimize(module, opts.EntryPoint);
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 3)
-    // Force importing functions required by intrinsic lowering. Kind of
-    // unfortunate clutter when we don't need them but we won't know
-    // that until after all linking and intrinsic lowering is
-    // done. After linking and passes we just try to manually trim these
-    // by name. We only add them if such a function doesn't exist to
-    // avoid creating stale uses.
-
-    LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
-    forceImport(module, "memcpy", PointerType::getUnqual(i8Ty),
-                PointerType::getUnqual(i8Ty),
-                PointerType::getUnqual(i8Ty),
-                targetData->getIntPtrType(ctx), (Type*) 0);
-    forceImport(module, "memmove", PointerType::getUnqual(i8Ty),
-                PointerType::getUnqual(i8Ty),
-                PointerType::getUnqual(i8Ty),
-                targetData->getIntPtrType(ctx), (Type*) 0);
-    forceImport(module, "memset", PointerType::getUnqual(i8Ty),
-                PointerType::getUnqual(i8Ty),
-                Type::getInt32Ty(ctx),
-                targetData->getIntPtrType(ctx), (Type*) 0);
-#endif
-    // FIXME: Missing force import for various math functions.
-
-    // FIXME: Find a way that we can test programs without requiring
-    // this to be linked in, it makes low level debugging much more
-    // annoying.
+    if (opts.Optimize) Optimize(module, opts.EntryPoint);
 
     SmallString<128> LibPath(opts.LibraryDir);
     string intrinsicLib = "kleeRuntimeIntrinsic";
@@ -386,7 +331,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       pm.add(new IntrinsicCleanerPass(*targetData));
       pm.add(new PhiCleanerPass());
       pm.add(new InstructionOperandTypeCheckPass());
-      pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers));
+      pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, never_stub));
       pm.run(*module);
     }
 

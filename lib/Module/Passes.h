@@ -197,8 +197,16 @@ class FnMarkerPass : public llvm::FunctionPass {
   static char ID;
 
 public:
-  FnMarkerPass(std::map<const llvm::Function*,unsigned> &_mapFn, std::map<const llvm::BasicBlock*, unsigned> &_mapBB) :
-        llvm::FunctionPass(ID), mdkind_fnID(0), mdkind_bbID(0), next_fnID(1), mapFn(_mapFn), mapBB(_mapBB) {}
+  FnMarkerPass(std::map<const llvm::Function*,unsigned> &_mapFn,
+               std::map<const llvm::BasicBlock*, unsigned> &_mapBB,
+               const std::set<std::string> &_skip) :
+        llvm::FunctionPass(ID),
+        mdkind_fnID(0),
+        mdkind_bbID(0),
+        next_fnID(1),
+        mapFn(_mapFn),
+        mapBB(_mapBB),
+        skipFns(_skip) {}
   bool runOnFunction(llvm::Function &f) override;
   bool doInitialization(llvm::Module &module) override;
   bool doFinalization(llvm::Module &module) override;
@@ -208,6 +216,7 @@ private:
   unsigned next_fnID;
   std::map<const llvm::Function*,unsigned> &mapFn;
   std::map<const llvm::BasicBlock*, unsigned> &mapBB;
+  const std::set<std::string> &skipFns;
 };
 
 }

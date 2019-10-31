@@ -47,12 +47,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/TypeBuilder.h"
 #include "llvm/IR/GlobalVariable.h"
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
-#else
-#include "llvm/IR/CallSite.h"
-#endif
 
 #include <boost/algorithm/string.hpp>
 #include <llvm/IR/Intrinsics.h>
@@ -370,6 +365,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ExecutionState *currState = &state;
 
   ref<Expr> offsetExpr = mo->getOffsetExpr(address);
+  offsetExpr = toUnique(state, offsetExpr);
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
@@ -405,6 +401,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   if (!currState->isSymbolic(mo)) {
     if (!isLocallyAllocated(*currState, mo)) {
       if (mo->kind == klee::MemKind::lazy) {
+        outs() << "RLR: Does this ever actually happen?\n";
         os = makeSymbolic(*currState, mo);
       }
     }
@@ -415,16 +412,32 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
 
   if ((countLoadIndirection(type) > 1) && isUnconstrainedPtr(*currState, e)) {
 
+    // give a meaningful name to the symbolic variable.
+    // do not have original c field names, so use field index
+    string name = mo->name;
+    if (const StructType *st = dyn_cast<StructType>(mo->type)) {
+      if (isa<ConstantExpr>(offsetExpr)) {
+        unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
+        const StructLayout *targetStruct = kmodule->targetData->getStructLayout(const_cast<StructType*>(st));
+        unsigned index = targetStruct->getElementContainingOffset(offset);
+        name += ':' + std::to_string(index);
+      }
+    }
+
     // this is an unconstrained ptr-ptr.
-    expandLazyAllocation(state, e, false, type->getPointerElementType(), target, mo->name);
+    expandLazyAllocation(state, e, type->getPointerElementType(), target, name);
   }
   return true;
 }
 
-void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, bool restart,
-                                         const llvm::Type *type, KInstruction *target, const std::string &name) {
+void LocalExecutor::expandLazyAllocation(ExecutionState &state,
+                                         ref<Expr> addr,
+                                         const llvm::Type *type,
+                                         KInstruction *target,
+                                         const std::string &name) {
 
   assert(type->isPointerTy());
+
   Type *base_type = type->getPointerElementType();
   if (base_type->isFirstClassType()) {
 
@@ -439,25 +452,17 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
 
       // too deep. no more forking for this pointer.
       addConstraintOrTerminate(state, eqNull);
-      if (restart)
-        state.restartInstruction();
 
     } else {
 
       StatePair sp = fork(state, eqNull, true);
 
       // in the true case, ptr is null, so nothing further to do
-      if (restart && sp.first != nullptr)
-        sp.first->restartInstruction();
-
       ExecutionState *next_fork = sp.second;
 
       // in the false case, allocate new memory for the ptr and
       // constrain the ptr to point to it.
       if (next_fork != nullptr) {
-
-        if (restart)
-          next_fork->restartInstruction();
 
         // pointer may not be null
         if (LazyAllocationExt > 0) {
@@ -481,8 +486,6 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
               StatePair sp2 = fork(*next_fork, eq, true);
               counter += 1;
               next_fork = sp2.second;
-              if (restart && next_fork != nullptr)
-                next_fork->restartInstruction();
             }
           }
         }
@@ -495,7 +498,6 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
           }
 
           // finally, try with a new object
-
           WObjectPair wop;
           allocSymbolic(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, wop, 0, count);
           ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->created_size / count));
@@ -506,14 +508,14 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
           if (base_type->isIntegerTy(8)) {
             next_fork->addConstraint(EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
           }
-
-          if (restart)
-            next_fork->restartInstruction();
         }
       }
     }
   } else if (base_type->isFunctionTy()) {
     // RLR TODO: do something here!
+    // just say NO to function pointers
+    ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
+    addConstraintOrTerminate(state, eqNull);
   } else {
     klee_warning("lazy initialization of unknown type: %s", to_string(base_type).c_str());
   }
@@ -790,6 +792,8 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
       MemoryObject *mo = globalObjects.find(v)->second;
       if (mo != nullptr) {
+
+        outs() << "unconstraining: " << gv_name << '\n';
 
         // global may already have a value in this state. if so unlink it.
         const ObjectState *os = state.addressSpace.findObject(mo);
@@ -1198,8 +1202,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   ProgramTracer *tracer = nullptr;
   if (TraceBBlocks) {
-    if (interpreterOpts.userFns != nullptr) tracer = new BBlocksTracer(kmodule, interpreterOpts.userFns);
-    else tracer = new BBlocksTracer(kmodule, fn);
+//    if (interpreterOpts.userFns != nullptr) tracer = new BBlocksTracer(kmodule, interpreterOpts.userFns);
+    tracer = new BBlocksTracer(kmodule);
   } else if (TraceAssembly) {
     tracer = new AssemblyTracer;
   } else if (TraceStatements) {
@@ -1352,7 +1356,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
 
   if (state.status == ExecutionState::StateStatus::Completed) {
     interpreterHandler->processTestCase(state);
-  } else if (state.status == ExecutionState::StateStatus::Completed) {
+  } else if (state.status == ExecutionState::StateStatus::Faulted) {
     interpreterHandler->processTestCase(state);
   } else {
     // its an error state, pending state, or discarded state
@@ -1792,7 +1796,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       ref<Expr> base = eval(ki, 0, state).value;
 
       if (isUnconstrainedPtr(state, base)) {
-        expandLazyAllocation(state, base, true, i->getType(), ki, i->getName());
+        outs() << "RLR TODO: Debug this\n";
+        state.restartInstruction();
+        expandLazyAllocation(state, base, i->getType(), ki, i->getName());
       } else {
 
         ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());

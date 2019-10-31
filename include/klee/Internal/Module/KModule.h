@@ -153,6 +153,12 @@ namespace klee {
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
     std::pair<unsigned,unsigned> getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb);
+    void getMarkedFns(std::set<const llvm::Function*> &fns) {
+      fns.clear();
+      for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) {
+        fns.insert(itr->first);
+      }
+    }
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;

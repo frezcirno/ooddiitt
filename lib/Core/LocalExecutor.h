@@ -98,7 +98,6 @@ protected:
 
   void expandLazyAllocation(ExecutionState &state,
                             ref<Expr> addr,
-                            bool restart,
                             const llvm::Type *type,
                             KInstruction *target,
                             const std::string &name);

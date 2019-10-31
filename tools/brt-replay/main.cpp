@@ -931,6 +931,9 @@ int main(int argc, char **argv, char **envp) {
   // Common setup
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = Interpreter::ExecModeID::rply;
+  IOpts.user_mem_base = (void*) 0x90000000000;
+  IOpts.user_mem_size = (0xa0000000000 - 0x80000000000);
+
 
   Interpreter::ModuleOptions MOpts;
   MOpts.LibraryDir = "";
