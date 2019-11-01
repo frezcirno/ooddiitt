@@ -582,13 +582,14 @@ void Executor::initializeGlobals(ExecutionState &state) {
 
   // allocate memory objects for all globals
   bool failed_global = false;
-  for (Module::const_global_iterator i = m->global_begin(),
-         e = m->global_end();
-       i != e; ++i) {
+  for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     size_t globalObjectAlignment = getAllocationAlignment(v);
 
     if (i->isDeclaration()) {
+
+      klee_error("I guess we still use this afterall...");
+#if 0 == 1
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
       // better we could support user definition, or use the EXE style
@@ -597,10 +598,9 @@ void Executor::initializeGlobals(ExecutionState &state) {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = 0;
       if (ty->isSized()) {
-	size = kmodule->targetData->getTypeStoreSize(ty);
+	    size = kmodule->targetData->getTypeStoreSize(ty);
       } else {
-        klee_warning("Type for %.*s is not sized", (int)i->getName().size(),
-			i->getName().data());
+        klee_warning("Type for %.*s is not sized", (int)i->getName().size(), i->getName().data());
       }
 
       // XXX - DWD - hardcode some things until we decide how to fix.
@@ -642,6 +642,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
             os->write8(offset, ((unsigned char *) addr)[offset]);
         }
       }
+#endif
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
@@ -665,12 +666,10 @@ void Executor::initializeGlobals(ExecutionState &state) {
   }
 
   // link aliases to their definitions (if bound)
-  for (Module::alias_iterator i = m->alias_begin(), ie = m->alias_end();
-       i != ie; ++i) {
+  for (Module::alias_iterator i = m->alias_begin(), ie = m->alias_end(); i != ie; ++i) {
     // Map the alias to its aliasee's address. This works because we have
     // addresses for everything, even undefined functions.
-    globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i),
-	  evalConstant(i->getAliasee())));
+    globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i), evalConstant(i->getAliasee())));
   }
 
   // once all objects are allocated, do the actual initialization

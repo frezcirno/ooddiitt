@@ -146,6 +146,17 @@ struct StackFrame {
 
 };
 
+enum StateStatus {
+  Pending,
+  Completed,
+  Faulted,
+  TerminateEarly,
+  TerminateError,
+  Decimated,
+  TerminateDiscard,
+  Invalid
+};
+
 /// @brief ExecutionState representing a path under exploration
 class ExecutionState {
 public:
@@ -158,17 +169,6 @@ private:
   std::map<std::string, std::string> fnAliases;
 
 public:
-
-  enum StateStatus {
-    Pending,
-    Completed,
-    Faulted,
-    TerminateEarly,
-    TerminateError,
-    Decimated,
-    TerminateDiscard,
-    Invalid
-  };
 
   std::string get_status() const {
     std::string result = "unknown";

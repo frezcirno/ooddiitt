@@ -490,221 +490,6 @@ static void parseArguments(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
 
-// This is a terrible hack until we get some real modeling of the
-// system. All we do is check the undefined symbols and warn about
-// any "unrecognized" externals and about any obviously unsafe ones.
-
-// Symbols we explicitly support
-static const char *modelledExternals[] = {
-  "_ZTVN10__cxxabiv117__class_type_infoE",
-  "_ZTVN10__cxxabiv120__si_class_type_infoE",
-  "_ZTVN10__cxxabiv121__vmi_class_type_infoE",
-
-  // special functions
-  "_assert",
-  "__assert_fail",
-  "__assert_rtn",
-  "calloc",
-  "_exit",
-  "exit",
-  "free",
-  "abort",
-  "klee_abort",
-  "klee_assume",
-  "klee_check_memory_access",
-  "klee_define_fixed_object",
-  "klee_get_errno",
-  "klee_get_valuef",
-  "klee_get_valued",
-  "klee_get_valuel",
-  "klee_get_valuell",
-  "klee_get_value_i32",
-  "klee_get_value_i64",
-  "klee_get_obj_size",
-  "klee_is_symbolic",
-  "klee_make_symbolic",
-  "klee_mark_global",
-  "klee_merge",
-  "klee_prefer_cex",
-  "klee_posix_prefer_cex",
-  "klee_print_expr",
-  "klee_print_range",
-  "klee_report_error",
-  "klee_set_forking",
-  "klee_silent_exit",
-  "klee_warning",
-  "klee_warning_once",
-  "klee_alias_function",
-  "klee_stack_trace",
-  "llvm.dbg.declare",
-  "llvm.dbg.value",
-  "llvm.va_start",
-  "llvm.va_end",
-  "malloc",
-  "realloc",
-  "_ZdaPv",
-  "_ZdlPv",
-  "_Znaj",
-  "_Znwj",
-  "_Znam",
-  "_Znwm",
-  "__ubsan_handle_add_overflow",
-  "__ubsan_handle_sub_overflow",
-  "__ubsan_handle_mul_overflow",
-  "__ubsan_handle_divrem_overflow",
-
-  // ignore marker instrumentation
-  "__mark__",
-  "__MARK__",
-  "__calltag__",
-  "__init_markers__",
-  "__term_markers__",
-
-  // special pgklee functions
-  "pgklee_hard_assume",
-  "pgklee_soft_assume",
-  "pgklee_implies",
-  "pgklee_expr_holds",
-  "pgklee_expr_mayhold",
-  "pgklee_valid_pointer",
-  "pgklee_object_size"
-};
-// Symbols we aren't going to warn about
-static const char *dontCareExternals[] = {
-
-  // static information, pretty ok to return
-  "getegid",
-  "geteuid",
-  "getgid",
-  "getuid",
-  "getpid",
-  "gethostname",
-  "getpgrp",
-  "getppid",
-  "getpagesize",
-  "getpriority",
-  "getgroups",
-  "getdtablesize",
-  "getrlimit",
-  "getrlimit64",
-  "getcwd",
-  "getwd",
-  "gettimeofday",
-  "uname",
-
-  // fp stuff we just don't worry about yet
-  "frexp",
-  "ldexp",
-  "__isnan",
-  "__signbit",
-};
-// Extra symbols we aren't going to warn about with klee-libc
-static const char *dontCareKlee[] = {
-  "__ctype_b_loc",
-  "__ctype_get_mb_cur_max",
-
-  // io system calls
-  "open",
-  "write",
-  "read",
-  "close",
-};
-// Extra symbols we aren't going to warn about with uclibc
-static const char *dontCareUclibc[] = {
-  "__ctype_b_loc",
-  "__dso_handle",
-
-  // Don't warn about these since we explicitly commented them out of
-  // uclibc.
-  "printf",
-  "vprintf"
-};
-// Symbols we consider unsafe
-//static const char *unsafeExternals[] = {
-//  "fork", // oh lord
-//  "exec", // heaven help us
-//  "error", // calls _exit
-//  "raise", // yeah
-//  "kill", // mmmhmmm
-//};
-
-#define NELEMS(array) (sizeof(array)/sizeof(array[0]))
-
-void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
-  set<string> modelled(modelledExternals, modelledExternals+NELEMS(modelledExternals));
-  set<string> dontCare(dontCareExternals, dontCareExternals+NELEMS(dontCareExternals));
-
-#if 0 == 1
-  switch (Libc) {
-  case KleeLibc:
-    dontCare.insert(dontCareKlee, dontCareKlee+NELEMS(dontCareKlee));
-    break;
-  case UcLibc:
-    dontCare.insert(dontCareUclibc,
-                    dontCareUclibc+NELEMS(dontCareUclibc));
-    break;
-  case NoLibc: /* silence compiler warning */
-    break;
-  }
-
-  if (WithPOSIXRuntime)
-    dontCare.insert("syscall");
-#endif
-
-  set<string> extFunctions;
-  set<string> extGlobals;
-
-  // get a list of functions declared, but not defined
-  for (Module::const_iterator fnIt = m->begin(), fn_ie = m->end(); fnIt != fn_ie; ++fnIt) {
-    if (fnIt->isDeclaration() && !fnIt->use_empty()) {
-      string name = fnIt->getName();
-      if (modelled.count(name) == 0 && dontCare.count(name) == 0) {
-        extFunctions.insert(fnIt->getName());
-      }
-    }
-
-    if (emit_warnings) {
-      // check for inline assembly
-      for (Function::const_iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); bbIt != bb_ie; ++bbIt) {
-        for (BasicBlock::const_iterator it = bbIt->begin(), ie = bbIt->end(); it != ie; ++it) {
-          if (const CallInst *ci = dyn_cast<CallInst>(it)) {
-            if (isa<InlineAsm>(ci->getCalledValue())) {
-                klee_warning_once(&*fnIt, "function \"%s\" has inline asm", fnIt->getName().data());
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // get a list of globals declared, but not defined
-  for (Module::const_global_iterator it = m->global_begin(), ie = m->global_end(); it != ie; ++it) {
-    if (it->isDeclaration() && !it->use_empty()) {
-      extGlobals.insert(it->getName());
-    }
-  }
-  // and remove aliases (they define the symbol after global
-  // initialization)
-  for (Module::const_alias_iterator it = m->alias_begin(), ie = m->alias_end(); it != ie; ++it) {
-    auto it2 = extFunctions.find(it->getName());
-    if (it2!=extFunctions.end()) {
-      extFunctions.erase(it2);
-  }
-    auto it3 = extGlobals.find(it->getName());
-    if (it3!=extGlobals.end()) {
-      extGlobals.erase(it3);
-    }
-  }
-
-  if (emit_warnings) {
-    for (auto fn: extFunctions) {
-      klee_warning("reference to external function: %s", fn.c_str());
-    }
-    for (auto global: extGlobals) {
-      klee_warning("reference to undefined global: %s", global.c_str());
-    }
-  }
-}
 
 static Interpreter *theInterpreter = nullptr;
 
@@ -759,7 +544,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.max_loop_iter = root["maxLoopIteration"].isUInt();
   test.message = root["message"].asString();
   test.path_condition_vars = root["pathConditionVars"].asString();
-  test.status = root["status"].asString();;
+  test.status = TestCase::fromStatusString(root["status"].asString());
   test.test_id = root["testID"].asUInt();
 
   Json::Value &objs = root["objects"];
@@ -934,7 +719,6 @@ int main(int argc, char **argv, char **envp) {
   IOpts.user_mem_base = (void*) 0x90000000000;
   IOpts.user_mem_size = (0xa0000000000 - 0x80000000000);
 
-
   Interpreter::ModuleOptions MOpts;
   MOpts.LibraryDir = "";
   MOpts.Optimize = false;
@@ -964,6 +748,8 @@ int main(int argc, char **argv, char **envp) {
       mainModule1 = nullptr;
     }
   }
+
+  // RLR TODO: verify module is from brt-klee
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
 
   ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
@@ -972,8 +758,6 @@ int main(int argc, char **argv, char **envp) {
   Interpreter *interpreter1 = Interpreter::createLocal(ctx, IOpts, handler1);
   handler1->setInterpreter(interpreter1);
   const Module *finalModule1 = interpreter1->setModule(mainModule1, MOpts);
-
-  externalsAndGlobalsCheck(finalModule1, true);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -1018,6 +802,8 @@ int main(int argc, char **argv, char **envp) {
       mainModule2 = nullptr;
     }
   }
+
+  // RLR TODO: verify module is from brt-klee
   if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
 
   ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
@@ -1026,8 +812,6 @@ int main(int argc, char **argv, char **envp) {
   Interpreter *interpreter2 = Interpreter::createLocal(ctx, IOpts, handler2);
   handler2->setInterpreter(interpreter2);
   const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
-
-  externalsAndGlobalsCheck(finalModule2, true);
 
   start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';

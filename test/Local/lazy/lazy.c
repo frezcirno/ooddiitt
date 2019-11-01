@@ -1,5 +1,16 @@
 #include <stdio.h>
 
+int foo00(int i) {
+
+  int result = 0;
+  if (i > 0) {
+    result = 1;
+  } else if (i < 0) {
+    result = -1;
+  }
+  return result;
+}
+
 int foo01(int *ptr) {
 
   int result;

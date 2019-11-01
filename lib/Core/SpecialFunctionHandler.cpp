@@ -806,7 +806,7 @@ void SpecialFunctionHandler::handleHardAssume(ExecutionState &state,
   if (success && result) {
     executor.addConstraint(state, e);
   } else {
-    state.status = ExecutionState::StateStatus ::TerminateDiscard;
+    state.status = StateStatus ::TerminateDiscard;
     executor.terminateState(state, "assume discarded");
   }
 }
@@ -917,7 +917,7 @@ void SpecialFunctionHandler::handleObjectSize(ExecutionState &state,
   if (value >= 0) {
     executor.bindLocal(target, state, ConstantExpr::create((uint64_t) value, Expr::Int32));
   } else {
-    state.status = ExecutionState::StateStatus ::TerminateDiscard;
+    state.status = StateStatus ::TerminateDiscard;
     executor.terminateState(state, "pgklee_object_size failed to find obj");
   }
 }

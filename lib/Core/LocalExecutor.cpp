@@ -62,28 +62,6 @@ namespace klee {
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
-// RLR TODO: this really needs to go somewhere better
-void fromDataString(vector<unsigned char> &data, const string &str) {
-
-  assert(str.size() % 2 == 0);
-  data.clear();
-  data.reserve(str.size() / 2);
-
-  unsigned char val = 0;
-  unsigned counter = 0;
-  for (const auto &ch : str) {
-    unsigned char nibble = 0;
-    if (isdigit(ch)) nibble = ch - '0';
-    else if (ch >= 'A' && ch <= 'F') nibble = ch - 'A' + 10;
-    if (counter++ % 2 == 0) {
-      val = nibble;
-    } else {
-      val = (val << 4) | nibble;
-      data.push_back(val);
-    }
-  }
-}
-
 class bad_expression : public std::runtime_error
 {
 public:
@@ -1021,6 +999,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     }
   }
 
+#if 0 == 1
   std::vector<ExecutionState*> init_states;
   ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
@@ -1128,6 +1107,8 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 
   init_states.push_back(state);
   runFn(kf, init_states);
+#endif
+
 }
 
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
@@ -1354,9 +1335,9 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 
 void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
 
-  if (state.status == ExecutionState::StateStatus::Completed) {
+  if (state.status == StateStatus::Completed) {
     interpreterHandler->processTestCase(state);
-  } else if (state.status == ExecutionState::StateStatus::Faulted) {
+  } else if (state.status == StateStatus::Faulted) {
     interpreterHandler->processTestCase(state);
   } else {
     // its an error state, pending state, or discarded state
@@ -1366,19 +1347,19 @@ void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) 
 }
 
 void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
-  state.status = ExecutionState::StateStatus::Completed;
+  state.status = StateStatus::Completed;
   Executor::terminateStateOnExit(state);
 }
 
 void LocalExecutor::terminateStateOnFault(ExecutionState &state, const KInstruction *ki, const llvm::Twine &message) {
-  state.status = ExecutionState::StateStatus::Faulted;
+  state.status = StateStatus::Faulted;
   state.instFaulting = ki;
   state.terminationMessage = message.str();
   terminateState(state, message);
 }
 
 void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
-  state.status = ExecutionState::StateStatus::TerminateEarly;
+  state.status = StateStatus::TerminateEarly;
   Executor::terminateStateEarly(state, message);
 }
 
@@ -1386,7 +1367,7 @@ void LocalExecutor::terminateStateOnError(ExecutionState &state, const llvm::Twi
                            enum TerminateReason termReason,
                            const char *suffix,
                            const llvm::Twine &longMessage) {
-  state.status = ExecutionState::StateStatus::TerminateError;
+  state.status = StateStatus::TerminateError;
   Executor::terminateStateOnError(state, message, termReason, suffix, longMessage);
 }
 
@@ -1443,7 +1424,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_cou
       if (!sf.loopFrames.empty()) {
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
-          state->status = ExecutionState::StateStatus::Decimated;
+          state->status = StateStatus::Decimated;
           terminateState(*state, "decimated");
           killed++;
         }
@@ -1610,6 +1591,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       // RLR TODO: need a model of posix functions
+      // RLR TODO : see uclibc stdio for output functions
+      // *printf -> returns num chars written
+      // (f)putc -> returns written character
+      // (f)puts -> returns 1
+      // putchar -> returns written character
+      // perror -> void
       if (fnName == "write" && cs.arg_size() == 3) {
         ref<Expr> retExpr = eval(ki, 3, state).value;
         bindLocal(ki, state, retExpr);
@@ -1794,7 +1781,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
       KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
       ref<Expr> base = eval(ki, 0, state).value;
+      for (auto itr = kgepi->indices.begin(), end = kgepi->indices.end(); itr != end; ++itr) {
+        uint64_t elementSize = itr->second;
+        ref<Expr> index = eval(ki, itr->first, state).value;
+        base = AddExpr::create(base,
+                               MulExpr::create(Expr::createSExtToPointerWidth(index),
+                                               Expr::createPointer(elementSize)));
+      }
+      if (kgepi->offset) {
+        base = AddExpr::create(base, Expr::createPointer(kgepi->offset));
+      }
+      bindLocal(ki, state, base);
+      assert(!isUnconstrainedPtr(state, base));
 
+#if 0 == 1
       if (isUnconstrainedPtr(state, base)) {
         outs() << "RLR TODO: Debug this\n";
         state.restartInstruction();
@@ -1862,6 +1862,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           terminateStateOnFault(state, ki, "GEP resolveMO");
         }
       }
+#endif
       break;
     }
 
