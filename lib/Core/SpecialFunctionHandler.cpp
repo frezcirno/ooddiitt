@@ -196,46 +196,46 @@ int SpecialFunctionHandler::size() {
 SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor)
   : executor(_executor), lcl_exec(nullptr) {}
 
+
+static std::set<std::string> alloc_fns = {"calloc", "malloc", "realloc", "free"};
+
 void SpecialFunctionHandler::prepare() {
 
   unsigned N = size();
-
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
+    if (!StubMemAlloc || alloc_fns.count(hi.name) == 0) {
 
-    Function *f = executor.kmodule->module->getFunction(hi.name);
+      Function *f = executor.kmodule->module->getFunction(hi.name);
 
-    // No need to create if the function doesn't exist, since it cannot
-    // be called in that case.
+      // No need to create if the function doesn't exist, since it cannot
+      // be called in that case.
 
-    if (f && (!hi.doNotOverride || f->isDeclaration())) {
-      // Make sure NoReturn attribute is set, for optimization and
-      // coverage counting.
-      if (hi.doesNotReturn)
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
-        f->addFnAttr(Attribute::NoReturn);
-#elif LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-        f->addFnAttr(Attributes::NoReturn);
-#else
-        f->addFnAttr(Attribute::NoReturn);
-#endif
+      if (f && (!hi.doNotOverride || f->isDeclaration())) {
+        // Make sure NoReturn attribute is set, for optimization and
+        // coverage counting.
+        if (hi.doesNotReturn)
+          f->addFnAttr(Attribute::NoReturn);
 
-      // Change to a declaration since we handle internally (simplifies
-      // module and allows deleting dead code).
-      if (!f->isDeclaration())
-        f->deleteBody();
+        // Change to a declaration since we handle internally (simplifies
+        // module and allows deleting dead code).
+        if (!f->isDeclaration())
+          f->deleteBody();
+      }
     }
   }
 }
 
 void SpecialFunctionHandler::bind() {
-  unsigned N = sizeof(handlerInfo)/sizeof(handlerInfo[0]);
 
+  unsigned N = sizeof(handlerInfo)/sizeof(handlerInfo[0]);
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
-    Function *f = executor.kmodule->module->getFunction(hi.name);
-    if (f && (!hi.doNotOverride || f->isDeclaration())) {
-      handlers[f] = std::make_pair(hi.handler, hi.hasReturnValue);
+    if (!StubMemAlloc || alloc_fns.count(hi.name) == 0) {
+      Function *f = executor.kmodule->module->getFunction(hi.name);
+      if (f && (!hi.doNotOverride || f->isDeclaration())) {
+        handlers[f] = std::make_pair(hi.handler, hi.hasReturnValue);
+      }
     }
   }
 }
@@ -261,15 +261,20 @@ bool SpecialFunctionHandler::handle(ExecutionState &state,
   }
 }
 
-bool SpecialFunctionHandler::isSpecial(llvm::Function *f) {
-
-  static std::set<std::string> alloc_fns = {"calloc", "malloc", "realloc", "free"};
+bool SpecialFunctionHandler::isSpecial(llvm::Function *f) const {
 
   if (f == nullptr) return false;
-  if (StubMemAlloc && f->hasName() && alloc_fns.count(f->getName()) > 0)  return false;
   const auto &itr = handlers.find(f);
   return (itr != handlers.end());
 }
+
+void SpecialFunctionHandler::getSpecialFns(std::set<std::string> &names) const {
+
+  for (auto itr = handlers.begin(), end = handlers.end(); itr != end; ++itr) {
+    names.insert(itr->first->getName());
+  }
+}
+
 
 /****/
 

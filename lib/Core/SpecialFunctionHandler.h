@@ -91,7 +91,8 @@ namespace klee {
                 KInstruction *target,
                 std::vector< ref<Expr> > &arguments);
 
-    bool isSpecial(llvm::Function *f);
+    bool isSpecial(llvm::Function *f) const;
+    void getSpecialFns(std::set<std::string> &names) const;
 
     /* Convenience routines */
 

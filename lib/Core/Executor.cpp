@@ -516,6 +516,13 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 
 extern void *__dso_handle __attribute__ ((__weak__));
 
+void Executor::getModeledExternals(std::set<std::string> &names) const {
+
+  if (specialFunctionHandler != nullptr) {
+    specialFunctionHandler->getSpecialFns(names);
+  }
+}
+
 void Executor::initializeGlobals(ExecutionState &state) {
   Module *m = kmodule->module;
 
@@ -2105,7 +2112,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       count = Expr::createZExtToPointerWidth(count);
       size = MulExpr::create(size, count);
     }
-    executeAlloc(state, size, MemKind::alloca, ki);
+    executeAlloc(state, size, MemKind::alloca_l, ki);
     break;
   }
 

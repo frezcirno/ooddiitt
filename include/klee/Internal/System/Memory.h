@@ -12,6 +12,7 @@
 
 #include "../../../../lib/Core/Context.h"
 #include "klee/Expr.h"
+#include "klee/util/CommonUtil.h"
 
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/Type.h"
@@ -29,8 +30,6 @@ class BitArray;
 class MemoryManager;
 class Solver;
 class ArrayCache;
-
-enum MemKind { invalid, fixed, global, param, alloca, heap, output, lazy };
 
 inline std::string to_string(MemKind kind) {
   static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
@@ -136,11 +135,11 @@ public:
   bool isFixed() const  { return kind == MemKind::fixed; }
   bool isGlobal() const { return kind == MemKind::global; }
   bool isParam() const  { return kind == MemKind::param; }
-  bool isAlloca() const { return kind == MemKind::alloca; }
+  bool isAlloca() const { return kind == MemKind::alloca_l; }
   bool isHeap() const   { return kind == MemKind::heap; }
   bool isOutput() const { return kind == MemKind::output; }
   bool isLazy() const   { return kind == MemKind::lazy; }
-  bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca); }
+  bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca_l); }
 
   ~MemoryObject();
 

@@ -18,6 +18,7 @@
 #include "Executor.h"
 #include "klee/Internal/System/Memory.h"
 #include "tuple"
+#include "SystemModel.h"
 
 namespace klee {
 
@@ -27,6 +28,7 @@ typedef std::set<ExecutionState*> ExecutionStates;
 class LocalExecutor : public Executor {
 
   friend class SpecialFunctionHandler;
+  friend class SystemModel;
 
 public:
 
@@ -142,6 +144,7 @@ protected:
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
+  void getModeledExternals(std::set<std::string> &names) const override;
 
   unsigned lazyAllocationCount;
   unsigned maxLoopIteration;
@@ -159,12 +162,15 @@ protected:
 
   std::set<const llvm::Function*> break_fns;
   std::set<unsigned> break_lines;
+  ModelOptions optsModel;
+  SystemModel *sysModel;
 
   // behavior conditioned by exec mode
   bool doSaveFault;
   bool doAssumeInBounds;
   bool doLocalCoverage;
   bool doConcreteInterpretation;
+  bool doModelStdOutput;
 };
 
 

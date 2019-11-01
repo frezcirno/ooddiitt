@@ -107,21 +107,31 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       doAssumeInBounds = true;
       doLocalCoverage = false;
       doConcreteInterpretation = false;
+      doModelStdOutput = true;
       break;
     case ExecModeID::rply:
       doSaveFault = false;
       doAssumeInBounds = false;
       doLocalCoverage = false;
       doConcreteInterpretation = true;
+      doModelStdOutput = false;
       break;
     default:
       klee_error("invalid execution mode");
   }
 
+  optsModel.doModelStdOutput = doModelStdOutput;
+  sysModel = new SystemModel(this, optsModel);
+
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
 LocalExecutor::~LocalExecutor() {
+
+  if (sysModel != nullptr) {
+    delete sysModel;
+    sysModel = nullptr;
+  }
 
   if (statsTracker) {
     statsTracker->done();
@@ -133,6 +143,13 @@ LocalExecutor::~LocalExecutor() {
 //    delete baseState;
     baseState = nullptr;
 
+  }
+}
+
+void LocalExecutor::getModeledExternals(std::set<std::string> &names) const {
+  Executor::getModeledExternals(names);
+  if (sysModel != nullptr) {
+    sysModel->GetModeledExternals(names);
   }
 }
 
@@ -1590,28 +1607,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 #endif
       }
 
-      // RLR TODO: need a model of posix functions
-      // RLR TODO : see uclibc stdio for output functions
-      // *printf -> returns num chars written
-      // (f)putc -> returns written character
-      // (f)puts -> returns 1
-      // putchar -> returns written character
-      // perror -> void
-      if (fnName == "write" && cs.arg_size() == 3) {
-        ref<Expr> retExpr = eval(ki, 3, state).value;
-        bindLocal(ki, state, retExpr);
-        return;
-      } else if (fnName == "isatty" && cs.arg_size() == 1) {
-        unsigned result = 0;
-        ref<Expr> fd = eval(ki, 1, state).value;
-        if (isa<ConstantExpr>(fd)) {
-          ref<ConstantExpr> cfd = cast<ConstantExpr>(fd);
-          unsigned desc = cfd->getZExtValue(Expr::Int32);
-          if (desc < 3) result = 1;
+      // invoke model of posix functions
+      if (sysModel != nullptr) {
+        ref<Expr> retExpr;
+        if (sysModel->Execute(state, fn, ki, cs, retExpr)) {
+          // the system model handled the call
+          if (!retExpr.isNull()) bindLocal(ki, state, retExpr);
+          return;
         }
-        ref<Expr> retExpr = ConstantExpr::create(result, Expr::Int32);
-        bindLocal(ki, state, retExpr);
-        return;
       }
 
       // note that fn can be null in the case of an indirect call
@@ -1772,7 +1775,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       bool to_symbolic = false /*!libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty() */;
-      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca, ki, to_symbolic);
+      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca_l, ki, to_symbolic);
 
       break;
     }

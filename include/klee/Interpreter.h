@@ -60,8 +60,6 @@ public:
   virtual void setInterpreter(Interpreter *i)  { interpreter = i; }
   virtual Interpreter *getInterpreter() { return interpreter; }
 
-//  virtual llvm::raw_ostream &getInfoStream() const = 0;
-
   virtual std::string getOutputFilename(const std::string &filename) = 0;
   virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
   virtual llvm::raw_fd_ostream *openOutputAssembly() { return nullptr; }
@@ -73,10 +71,7 @@ public:
   virtual void incTermination(const std::string &message) {}
   virtual void getTerminationMessages(std::vector<std::string> &messages) {};
   virtual unsigned getTerminationCount(const std::string &message) { return 0; }
-
   virtual void processTestCase(ExecutionState &state) {};
-
-  virtual std::string getTypeName(const llvm::Type *Ty) const { return ""; }
   virtual bool resetWatchDogTimer() const { return false; }
 
   std::string flags_to_string(UnconstraintFlagsT flags) const {
@@ -168,12 +163,10 @@ public:
 protected:
   const InterpreterOptions interpreterOpts;
 
-  Interpreter(const InterpreterOptions &_interpreterOpts)
-    : interpreterOpts(_interpreterOpts)
-  {}
+  Interpreter(const InterpreterOptions &_interpreterOpts) : interpreterOpts(_interpreterOpts) {};
 
 public:
-  virtual ~Interpreter() {}
+  virtual ~Interpreter() {};
 
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &_interpreterOpts,
@@ -240,9 +233,11 @@ public:
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
-  virtual KModule *getKModule() { return nullptr; }
+  virtual KModule *getKModule() const { return nullptr; }
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
+  virtual void getModeledExternals(std::set<std::string> &names) const {};
+
 };
 
 } // End klee namespace

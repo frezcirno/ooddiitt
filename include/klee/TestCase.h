@@ -14,6 +14,9 @@
 #include <set>
 #include <vector>
 #include <chrono>
+#include <sstream>
+#include <iomanip>
+#include <boost/endian/conversion.hpp>
 
 typedef std::chrono::system_clock sys_clock;
 
@@ -24,7 +27,9 @@ public:
   TestObject(std::string _addr, unsigned _count, std::string _data, std::string _kind, std::string _name, std::string _type) :
     count(_count), name(_name), type(_type) {
 
-    addr = std::stoull(_addr);
+    std::stringstream ss(_addr);
+    ss >> std::hex >> addr;
+    addr = boost::endian::endian_reverse(addr);
     fromDataString(data, _data);
     kind = fromKindString(_kind);
   }

@@ -57,24 +57,20 @@
 #include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
-#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <cerrno>
 #include <string>
-#include <fstream>
 #include <iomanip>
-#include <iterator>
 #include <sstream>
-#include <fcntl.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <chrono>
+#include "klee/util/CommonUtil.h"
+
 
 using namespace llvm;
 using namespace klee;
 using namespace std;
-typedef std::chrono::system_clock sys_clock;
 
 namespace {
 
@@ -134,19 +130,6 @@ namespace {
 
 /***/
 
-
-string to_string(const sys_clock::time_point &tp) {
-
-  auto itt = sys_clock::to_time_t(tp);
-  ostringstream ss;
-  ss << put_time(gmtime(&itt), "%FT%TZ");
-  return ss.str();
-}
-
-string currentISO8601TimeUTC() {
-  return to_string(sys_clock::now());
-}
-
 class BrtKleeHandler : public InterpreterHandler {
 private:
   unsigned casesGenerated;
@@ -186,8 +169,6 @@ public:
   llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
   llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
   llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
-
-  string getTypeName(const Type *Ty) const override;
 
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
@@ -257,65 +238,6 @@ BrtKleeHandler::BrtKleeHandler(const vector<string> &_args, const string &_md_na
 
 BrtKleeHandler::~BrtKleeHandler() {
 
-}
-
-string BrtKleeHandler::getTypeName(const Type *Ty) const {
-
-  if (Ty != nullptr) {
-
-    switch (Ty->getTypeID()) {
-      case Type::VoidTyID: return "void";
-      case Type::HalfTyID: return "half";
-      case Type::FloatTyID: return "float";
-      case Type::DoubleTyID: return "double";
-      case Type::X86_FP80TyID: return "x86_fp80";
-      case Type::FP128TyID: return "fp128";
-      case Type::PPC_FP128TyID: return "ppc_fp128";
-      case Type::LabelTyID: return "label";
-      case Type::MetadataTyID: return "metadata";
-      case Type::X86_MMXTyID: return "x86_mmx";
-      case Type::IntegerTyID: {
-        stringstream ss;
-        ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
-        return ss.str();
-      }
-      case Type::FunctionTyID: return "function";
-      case Type::StructTyID: {
-        const StructType *STy = cast<StructType>(Ty);
-        return STy->getName().str();
-      }
-      case Type::PointerTyID: {
-
-        stringstream ss;
-        const PointerType *PTy = cast<PointerType>(Ty);
-        ss << getTypeName(PTy->getElementType());
-        ss << '*';
-        return ss.str();
-      }
-      case Type::ArrayTyID: {
-
-        stringstream ss;
-        const ArrayType *ATy = cast<ArrayType>(Ty);
-        ss << '[' << ATy->getNumElements() << " x ";
-        ss << getTypeName(ATy->getElementType());
-        ss << ']';
-        return ss.str();
-      }
-      case Type::VectorTyID: {
-        stringstream ss;
-        const VectorType *VTy = cast<VectorType>(Ty);
-        ss << '<' << VTy->getNumElements() << " x ";
-        ss << getTypeName(VTy->getElementType());
-        ss << '>';
-        return ss.str();
-      }
-      default: {
-
-      }
-    }
-  }
-
-  return "";
 }
 
 void BrtKleeHandler::setInterpreter(Interpreter *i) {
@@ -426,18 +348,11 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
         root["unconstraintDescription"] = flags_to_string(*flags);
       }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
-      root["status"] = state.get_status();
+      root["status"] = (unsigned) state.status;
       if (state.instFaulting != nullptr) {
         root["instFaulting"] = state.instFaulting->info->assemblyLine;
       }
       root["message"] = state.terminationMessage;
-
-      // calculate a measure of unconstraint for this state
-      double unconstraintMetric = 0.0;
-      if (state.allBranchCounter != 0) {
-        unconstraintMetric = ((double) state.unconBranchCounter) / ((double) state.allBranchCounter);
-      }
-      root["unconstraintMetric"] = unconstraintMetric;
 
       // store the path condition
       string constraints;
@@ -464,9 +379,9 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
         Json::Value obj = Json::objectValue;
         obj["name"] = mo->name;
-        obj["kind"] = to_string(mo->kind);
+        obj["kind"] = (unsigned) mo->kind;
         obj["count"] = mo->count;
-        obj["type"] = getTypeName(mo->type);
+        obj["type"] = to_string(mo->type);
 
         // scale to 32 or 64 bits
         unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -691,71 +606,6 @@ static int initEnv(Module *mainModule) {
   return 0;
 }
 
-
-// This is a terrible hack until we get some real modeling of the
-// system. All we do is check the undefined symbols and warn about
-// any "unrecognized" externals and about any obviously unsafe ones.
-
-// Symbols we explicitly support
-static set<string> modelledExternals = {
-  "_ZTVN10__cxxabiv117__class_type_infoE",
-  "_ZTVN10__cxxabiv120__si_class_type_infoE",
-  "_ZTVN10__cxxabiv121__vmi_class_type_infoE",
-
-  // special functions
-  "_assert",
-  "__assert_fail",
-  "__assert_rtn",
-  "calloc",
-  "_exit",
-  "exit",
-  "free",
-  "abort",
-  "klee_abort",
-  "klee_assume",
-  "klee_check_memory_access",
-  "klee_define_fixed_object",
-  "klee_get_errno",
-  "klee_get_valuef",
-  "klee_get_valued",
-  "klee_get_valuel",
-  "klee_get_valuell",
-  "klee_get_value_i32",
-  "klee_get_value_i64",
-  "klee_get_obj_size",
-  "klee_is_symbolic",
-  "klee_make_symbolic",
-  "klee_mark_global",
-  "klee_merge",
-  "klee_prefer_cex",
-  "klee_posix_prefer_cex",
-  "klee_print_expr",
-  "klee_print_range",
-  "klee_report_error",
-  "klee_set_forking",
-  "klee_silent_exit",
-  "klee_warning",
-  "klee_warning_once",
-  "klee_alias_function",
-  "klee_stack_trace",
-  "llvm.dbg.declare",
-  "llvm.dbg.value",
-  "llvm.va_start",
-  "llvm.va_end",
-  "malloc",
-  "realloc",
-  "_ZdaPv",
-  "_ZdlPv",
-  "_Znaj",
-  "_Znwj",
-  "_Znam",
-  "_Znwm",
-  "__ubsan_handle_add_overflow",
-  "__ubsan_handle_sub_overflow",
-  "__ubsan_handle_mul_overflow",
-  "__ubsan_handle_divrem_overflow",
-};
-
 static set<string> dontCare = {
 };
 
@@ -802,41 +652,27 @@ bool has_inline_asm(const Function *fn) {
   return false;
 }
 
-void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
+void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
 
-  switch (Libc) {
-  case KleeLibc:
-    dontCare.insert(dontCareKlee.begin(), dontCareKlee.end());
-    break;
-  case UcLibc:
-    dontCare.insert(dontCareUclibc.begin(), dontCareUclibc.end());
-    modelledExternals.insert(modelledUclibc.begin(), modelledUclibc.end());
-    break;
-  case NoLibc: /* silence compiler warning */
-    break;
-  }
 
-  if (WithPOSIXRuntime) dontCare.insert("syscall");
+  static set<string> modeledExternals;
+  interpreter->getModeledExternals(modeledExternals);
 
-  set<string> extFunctions;
-  set<string> extGlobals;
+  set<string> undefinedFunctions;
+  set<string> undefinedGlobals;
 
   // get a list of functions declared, but not defined
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
     const Function *fn = *&itr;
     if (fn->isDeclaration() && !fn->use_empty()) {
       string name = fn->getName();
-      if (modelledExternals.count(name) == 0 && dontCare.count(name) == 0) {
-        extFunctions.insert(name);
+      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
+        undefinedFunctions.insert(name);
       }
     }
 
-    if (emit_warnings) {
-      // check for inline assembly
-
-      if (has_inline_asm(fn)) {
-        klee_warning("function \"%s\" has inline asm", fn->getName().str().c_str());
-      }
+    if (has_inline_asm(fn)) {
+      klee_warning("function \"%s\" has inline asm", fn->getName().str().c_str());
     }
   }
 
@@ -844,8 +680,8 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     if (itr->isDeclaration() && !itr->use_empty()) {
       string name = itr->getName();
-      if (modelledExternals.count(name) == 0 && dontCare.count(name) == 0) {
-        extGlobals.insert(name);
+      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
+        undefinedGlobals.insert(name);
       }
     }
   }
@@ -854,17 +690,15 @@ void externalsAndGlobalsCheck(const Module *m, bool emit_warnings) {
   // initialization)
   for (auto itr = m->alias_begin(), end = m->alias_end(); itr != end; ++itr) {
     string name = itr->getName();
-    extFunctions.erase(name);
-    extGlobals.erase(name);
+    undefinedFunctions.erase(name);
+    undefinedGlobals.erase(name);
   }
 
-  if (emit_warnings) {
-    for (auto fn: extFunctions) {
-      klee_warning("reference to external function: %s", fn.c_str());
-    }
-    for (auto global: extGlobals) {
-      klee_warning("reference to undefined global: %s", global.c_str());
-    }
+  for (auto fn: undefinedFunctions) {
+    klee_warning("reference to external function: %s", fn.c_str());
+  }
+  for (auto global: undefinedGlobals) {
+    klee_warning("reference to undefined global: %s", global.c_str());
   }
 }
 
@@ -1385,7 +1219,7 @@ int main(int argc, char **argv, char **envp) {
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
-  externalsAndGlobalsCheck(finalModule, true);
+  externalsAndGlobalsCheck(finalModule, theInterpreter);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';

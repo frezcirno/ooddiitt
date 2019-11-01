@@ -19,6 +19,7 @@
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/KInstIterator.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/util/CommonUtil.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Module.h"
 
@@ -143,18 +144,6 @@ struct StackFrame {
   StackFrame(KInstIterator caller, KFunction *kf);
   StackFrame(const StackFrame &s);
   ~StackFrame();
-
-};
-
-enum StateStatus {
-  Pending,
-  Completed,
-  Faulted,
-  TerminateEarly,
-  TerminateError,
-  Decimated,
-  TerminateDiscard,
-  Invalid
 };
 
 /// @brief ExecutionState representing a path under exploration

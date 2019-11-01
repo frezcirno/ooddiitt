@@ -52,15 +52,14 @@
 #include <iterator>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <chrono>
 #include "json/json.h"
 #include "klee/TestCase.h"
+#include "klee/util/CommonUtil.h"
 #include "StateComparison.h"
 
 using namespace llvm;
 using namespace klee;
 using namespace std;
-typedef chrono::system_clock sys_clock;
 
 namespace {
 
@@ -77,18 +76,6 @@ namespace {
 }
 
 /***/
-
-string to_string(const sys_clock::time_point &tp) {
-
-  auto itt = sys_clock::to_time_t(tp);
-  ostringstream ss;
-  ss << put_time(gmtime(&itt), "%FT%TZ");
-  return ss.str();
-}
-
-string currentISO8601TimeUTC() {
-  return to_string(sys_clock::now());
-}
 
 class ReplayKleeHandler : public InterpreterHandler {
 private:
@@ -124,7 +111,6 @@ public:
   ostream *openTestCaseFile(const string &prefix, unsigned testID);
   llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
-  string getTypeName(const Type *Ty) const override;
 
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
@@ -164,65 +150,6 @@ ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const st
 }
 
 ReplayKleeHandler::~ReplayKleeHandler() {
-}
-
-string ReplayKleeHandler::getTypeName(const Type *Ty) const {
-
-  if (Ty != nullptr) {
-
-    switch (Ty->getTypeID()) {
-      case Type::VoidTyID: return "void";
-      case Type::HalfTyID: return "half";
-      case Type::FloatTyID: return "float";
-      case Type::DoubleTyID: return "double";
-      case Type::X86_FP80TyID: return "x86_fp80";
-      case Type::FP128TyID: return "fp128";
-      case Type::PPC_FP128TyID: return "ppc_fp128";
-      case Type::LabelTyID: return "label";
-      case Type::MetadataTyID: return "metadata";
-      case Type::X86_MMXTyID: return "x86_mmx";
-      case Type::IntegerTyID: {
-        stringstream ss;
-        ss << 'i' << cast<IntegerType>(Ty)->getBitWidth();
-        return ss.str();
-      }
-      case Type::FunctionTyID: return "function";
-      case Type::StructTyID: {
-        const StructType *STy = cast<StructType>(Ty);
-        return STy->getName().str();
-      }
-      case Type::PointerTyID: {
-
-        stringstream ss;
-        const PointerType *PTy = cast<PointerType>(Ty);
-        ss << getTypeName(PTy->getElementType());
-        ss << '*';
-        return ss.str();
-      }
-      case Type::ArrayTyID: {
-
-        stringstream ss;
-        const ArrayType *ATy = cast<ArrayType>(Ty);
-        ss << '[' << ATy->getNumElements() << " x ";
-        ss << getTypeName(ATy->getElementType());
-        ss << ']';
-        return ss.str();
-      }
-      case Type::VectorTyID: {
-        stringstream ss;
-        const VectorType *VTy = cast<VectorType>(Ty);
-        ss << '<' << VTy->getNumElements() << " x ";
-        ss << getTypeName(VTy->getElementType());
-        ss << '>';
-        return ss.str();
-      }
-      default: {
-
-      }
-    }
-  }
-
-  return "";
 }
 
 void ReplayKleeHandler::setInterpreter(Interpreter *i) {
@@ -538,14 +465,23 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.arg_v = root["argV"].asString();
   test.entry_fn = root["entryFn"].asString();
   test.klee_version = root["kleeRevision"].asString();
-  test.lazy_alloc_count = root["lazyAllocationCount"].isUInt();
-  test.max_lazy_depth = root["maxLazyDepth"].isUInt();
-  test.max_loop_forks = root["maxLoopForks"].isUInt();
-  test.max_loop_iter = root["maxLoopIteration"].isUInt();
+  test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
+  test.max_lazy_depth = root["maxLazyDepth"].asUInt();
+  test.max_loop_forks = root["maxLoopForks"].asUInt();
+  test.max_loop_iter = root["maxLoopIteration"].asUInt();
   test.message = root["message"].asString();
   test.path_condition_vars = root["pathConditionVars"].asString();
   test.status = TestCase::fromStatusString(root["status"].asString());
   test.test_id = root["testID"].asUInt();
+  test.start = to_time_point(root["timeStarted"].asString());
+  test.stop = to_time_point(root["timeStopped"].asString());
+
+  Json::Value &trace = root["trace"];
+  if (trace.isArray()) {
+    for (unsigned idx = 0, end = trace.size(); idx < end; ++idx) {
+      test.trace.push_back(trace[idx].asUInt());
+    }
+  }
 
   Json::Value &objs = root["objects"];
   if (objs.isArray()) {
