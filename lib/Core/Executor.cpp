@@ -416,6 +416,10 @@ const Module *Executor::setModule(llvm::Module *module,
   kmodule->prepare(opts, interpreterHandler);
   specialFunctionHandler->bind();
 
+  std::set<const llvm::Function*> spcs;
+  specialFunctionHandler->getSpecialFns(spcs);
+  kmodule->addIntenalFunctions(spcs);
+
   if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
     std::string filename = interpreterHandler->getModuleName() + ".ll";
     statsTracker = new StatsTracker(*this,
@@ -546,7 +550,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
     if (f->hasExternalWeakLinkage() &&
         !externalDispatcher->resolveSymbol(f->getName())) {
       addr = Expr::createPointer(0);
-    } else {
+    } else if (!f->isDeclaration())  {
       addr = Expr::createPointer((uint64_t) f);
       legalFunctions.insert((uint64_t) f);
     }
@@ -1503,11 +1507,6 @@ Function* Executor::getTargetFunction(Value *calledVal, ExecutionState &state) {
   }
 }
 
-/// TODO remove?
-static bool isDebugIntrinsic(const Function *f, KModule *KM) {
-  return false;
-}
-
 static inline const llvm::fltSemantics * fpWidthToSemantics(unsigned width) {
   switch(width) {
   case Expr::Int32:
@@ -1781,10 +1780,6 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     Value *fp = cs.getCalledValue();
     Function *f = getTargetFunction(fp, state);
 
-    // Skip debug intrinsics, we can't evaluate their metadata arguments.
-    if (f && isDebugIntrinsic(f, kmodule))
-      break;
-
     if (isa<InlineAsm>(fp)) {
       terminateStateOnExecError(state, "inline assembly is unsupported");
       break;
@@ -1797,10 +1792,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       arguments.push_back(eval(ki, j+1, state).value);
 
     if (f) {
-      const FunctionType *fType =
-        dyn_cast<FunctionType>(cast<PointerType>(f->getType())->getElementType());
-      const FunctionType *fpType =
-        dyn_cast<FunctionType>(cast<PointerType>(fp->getType())->getElementType());
+      const FunctionType *fType = dyn_cast<FunctionType>(cast<PointerType>(f->getType())->getElementType());
+      const FunctionType *fpType = dyn_cast<FunctionType>(cast<PointerType>(fp->getType())->getElementType());
 
       // special case the call with a bitcast case
       if (fType != fpType) {
@@ -1810,9 +1803,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
         // XXX this really needs thought and validation
         unsigned i=0;
-        for (std::vector< ref<Expr> >::iterator
-               ai = arguments.begin(), ie = arguments.end();
-             ai != ie; ++ai) {
+        for (auto ai = arguments.begin(), ie = arguments.end(); ai != ie; ++ai) {
           Expr::Width to, from = (*ai)->getWidth();
 
           if (i<fType->getNumParams()) {
@@ -1820,13 +1811,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
             if (from != to) {
               // XXX need to check other param attrs ?
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
               bool isSExt = cs.paramHasAttr(i+1, llvm::Attribute::SExt);
-#elif LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-	      bool isSExt = cs.paramHasAttr(i+1, llvm::Attributes::SExt);
-#else
-	      bool isSExt = cs.paramHasAttr(i+1, llvm::Attribute::SExt);
-#endif
               if (isSExt) {
                 arguments[i] = SExtExpr::create(arguments[i], to);
               } else {
@@ -1834,13 +1819,14 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
               }
             }
           }
-
           i++;
         }
       }
 
       executeCall(state, ki, f, arguments);
     } else {
+
+      assert(false && "should be intercepted by local executor");
       ref<Expr> v = eval(ki, 0, state).value;
 
       ExecutionState *free = &state;
@@ -3024,9 +3010,8 @@ void Executor::callExternalFunction(ExecutionState &state,
     return;
 
   std::string fn_name = function->getName();
-  outs() << "Terminating state due to external function call: " << fn_name << '\n';
   std::ostringstream ss;
-  ss << "external function calls disallowed:" << fn_name;
+  ss << "external function calls disallowed: " << fn_name;
   terminateStateOnError(state, ss.str(), User);
 
 #if 0 == 1

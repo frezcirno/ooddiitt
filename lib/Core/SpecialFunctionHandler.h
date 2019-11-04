@@ -93,6 +93,7 @@ namespace klee {
 
     bool isSpecial(llvm::Function *f) const;
     void getSpecialFns(std::set<std::string> &names) const;
+    void getSpecialFns(std::set<const llvm::Function*> &fns) const;
 
     /* Convenience routines */
 

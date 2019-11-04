@@ -65,6 +65,7 @@
 #include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <llvm/IR/Intrinsics.h>
 #include "klee/util/CommonUtil.h"
 
 
@@ -664,7 +665,7 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
   // get a list of functions declared, but not defined
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
     const Function *fn = *&itr;
-    if (fn->isDeclaration() && !fn->use_empty()) {
+    if (fn->isDeclaration() && !fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
       string name = fn->getName();
       if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
         undefinedFunctions.insert(name);

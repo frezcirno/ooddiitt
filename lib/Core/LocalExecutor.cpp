@@ -28,7 +28,6 @@
 #include "klee/CommandLine.h"
 #include "klee/util/Assignment.h"
 #include "klee/util/ExprUtil.h"
-#include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/Module/Cell.h"
 #include "klee/Internal/Module/KInstruction.h"
@@ -99,7 +98,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   maxStatesInLoop(10000),
   baseState(nullptr),
   progression(opts.progression),
-  libc_initializing(false) {
+  libc_initializing(false),
+  sysModel(nullptr) {
 
   switch (opts.mode) {
     case ExecModeID::igen:
@@ -121,8 +121,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   }
 
   optsModel.doModelStdOutput = doModelStdOutput;
-  sysModel = new SystemModel(this, optsModel);
-
   Executor::setVerifyContraints(VerifyConstraints);
 }
 
@@ -509,6 +507,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
   } else if (base_type->isFunctionTy()) {
     // RLR TODO: do something here!
     // just say NO to function pointers
+    klee_warning("lazy initialization of function pointer not supported");
     ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
     addConstraintOrTerminate(state, eqNull);
   } else {
@@ -806,6 +805,7 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   assert(kmodule == nullptr);
   const Module *result = Executor::setModule(module, opts);
   specialFunctionHandler->setLocalExecutor(this);
+  sysModel = new SystemModel(this, optsModel);
 
   // prepare a generic initial state
   baseState = new ExecutionState();
@@ -1568,6 +1568,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (libc_initializing &&
           ((state.stack.size() == 0 || !state.stack.back().caller))) {
         libc_initializing = false;
+      } else if (state.stack.size() > 0 && state.stack.back().kf->function->hasFnAttribute(Attribute::NoReturn)) {
+        // this state completed
+        terminateStateOnExit(state);
       } else {
         Executor::executeInstruction(state, ki);
       }
@@ -1578,51 +1581,97 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
 
       const CallSite cs(i);
-      std::string fnName = "@unknown";
-      bool isInModule = false;
-      bool noReturn =  false;
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
-        fnName = fn->getName();
+        string fn_name = fn->getName();
 
-        isInModule = kmodule->isModuleFunction(fn);
-        noReturn =  fn->hasFnAttribute(Attribute::NoReturn);
+        if (break_fns.find(fn) != break_fns.end()) {
+          outs() << "break at " << fn->getName() << '\n';
+#ifdef _DEBUG
+          enable_state_switching = false;
+#endif
+        }
 
-        // if this is an intrinsic function, let the standard executor handle it
-        if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) {
+        // invoke model of posix functions
+        if (sysModel != nullptr) {
+          ref<Expr> retExpr;
+          if (sysModel->Execute(state, fn, ki, cs, retExpr)) {
+            // the system model handled the call
+            if (!retExpr.isNull()) {
+              // and return a result
+              bindLocal(ki, state, retExpr);
+            }
+            return;
+          }
+        }
+
+        if (libc_initializing || kmodule->isInternalFunction(fn)) {
           Executor::executeInstruction(state, ki);
           return;
         }
+
+        assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);
+
+        if (!unconstraintFlags.isStubCallees()) {
+          // we're performing the function call, if possible
+          if (isLegalFunction(fn)) {
+            Executor::executeInstruction(state, ki);
+          } else {
+            // direct callee with no body.  not good...
+            terminateStateOnError(state, "undefined callee", External);
+            klee_warning("undefined callee: %s", fn_name.c_str());
+          }
+
+        } else {
+          // inject an unconstraining stub
+        }
+
       } else {
-        // cannot find target function
-        // likely because its a fn pointer
+        // this is an indirect call (i.e. a through a function pointer)
+        // try to convert function pointer to a constant value
+        ref<Expr> callee = eval(ki, 0, state).value;
+        callee = toUnique(state, callee);
 
-      }
+        // evaluate arguments
+        unsigned numArgs = cs.arg_size();
+        std::vector< ref<Expr> > arguments;
+        arguments.reserve(numArgs);
 
+        for (unsigned j=0; j<numArgs; ++j) {
+          arguments.push_back(eval(ki, j + 1, state).value);
+        }
 
-      if (break_fns.find(fn) != break_fns.end()) {
-        outs() << "break at " << fn->getName() << '\n';
-#ifdef _DEBUG
-        enable_state_switching = false;
-#endif
-      }
+        vector<Function*> targets;
+        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(callee)) {
+          Function *fn = (Function*) CE->getZExtValue();
+          if (isLegalFunction(fn)) {
+            targets.push_back(fn);
+          }
+        } else {
+          // enumerate all potential fn targets
+          const FunctionType *fnType = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType());
+          set<const Function*> fns;
+          kmodule->getFnsOfType(fnType, fns);
+          for (auto fn : fns) {
+            if (isLegalFunction(fn)) {
+              targets.push_back(const_cast<Function*>(fn));
+            }
+          }
+        }
 
-      // invoke model of posix functions
-      if (sysModel != nullptr) {
-        ref<Expr> retExpr;
-        if (sysModel->Execute(state, fn, ki, cs, retExpr)) {
-          // the system model handled the call
-          if (!retExpr.isNull()) bindLocal(ki, state, retExpr);
-          return;
+        unsigned num_targets = targets.size();
+        if (num_targets == 0) {
+          terminateStateOnError(state, "legal callee not found", Ptr);
+          klee_warning("legal callee not found");
+        } else if (num_targets == 1) {
+          executeCall(state, ki, targets.front(), arguments);
+        } else {
+          // RLR TODO: general case, need to fork on multiple potential targets
+          klee_error("general case of unconstrained fnptrs not implemented yet");
         }
       }
 
-      // note that fn can be null in the case of an indirect call
-      // if libc is initializing or this is a special function then let the standard executor handle the call
-      if (fn == nullptr || libc_initializing || specialFunctionHandler->isSpecial(fn) || kmodule->isInternalFunction(fn)) {
-        Executor::executeInstruction(state, ki);
-        return;
-      }
+#if 0 == 1
 
       // if not stubbing callees and target is in the module
       if (!unconstraintFlags.isStubCallees() && isInModule) {
@@ -1761,6 +1810,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         }
       }
+#endif
       break;
     }
 

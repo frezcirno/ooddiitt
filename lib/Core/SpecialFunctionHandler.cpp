@@ -275,6 +275,12 @@ void SpecialFunctionHandler::getSpecialFns(std::set<std::string> &names) const {
   }
 }
 
+void SpecialFunctionHandler::getSpecialFns(std::set<const Function*> &fns) const {
+
+  for (auto itr = handlers.begin(), end = handlers.end(); itr != end; ++itr) {
+    fns.insert(itr->first);
+  }
+}
 
 /****/
 

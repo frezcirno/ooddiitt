@@ -386,10 +386,15 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   }
 
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
-    if (it->isDeclaration())
-      continue;
 
     Function *fn = static_cast<Function *>(it);
+
+    // insert type for later lookup
+    mapFnTypes[fn->getFunctionType()].insert(fn);
+
+    if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) addInternalFunction(fn);
+    if (fn->isDeclaration()) continue;
+
 
     // if we just added this function, then its either klee runtime or an intrinsic
     if (orig_functions.count(fn) == 0) {

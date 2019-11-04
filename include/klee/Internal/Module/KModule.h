@@ -127,7 +127,10 @@ namespace klee {
 
     // Mark function with functionName as part of the KLEE runtime
     bool addInternalFunction(std::string name);
-    void addInternalFunction(llvm::Function *fn) { internalFunctions.insert(fn); }
+    void addInternalFunction(const llvm::Function *fn) { internalFunctions.insert(fn); }
+    void addIntenalFunctions(const std::set<const llvm::Function*> &fns) {
+      internalFunctions.insert(fns.begin(), fns.end());
+    }
     bool isInternalFunction(const llvm::Function *fn) const
       { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
     bool isModuleFunction(const llvm::Function *fn) const
@@ -160,9 +163,17 @@ namespace klee {
       }
     }
 
+    void getFnsOfType(const llvm::FunctionType *ft, std::set<const llvm::Function*> &fns) {
+      auto itr = mapFnTypes.find(ft);
+      if (itr != mapFnTypes.end()) {
+        fns.insert(itr->second.begin(), itr->second.end());
+      }
+    }
+
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
+    std::map<const llvm::FunctionType*,std::set<const llvm::Function*> >mapFnTypes;
 };
 } // End klee namespace
 

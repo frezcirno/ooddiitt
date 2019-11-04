@@ -6,3 +6,4 @@ int foo01() {
   printf("Hello World! %d\n", val);
   return 0;
 }
+

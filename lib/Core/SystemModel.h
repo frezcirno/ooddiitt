@@ -24,7 +24,7 @@ class SystemModel {
 
   typedef void handler_t(ExecutionState&,KInstruction*,const llvm::CallSite&,ref<Expr>&);
   typedef handler_t SystemModel::* model_handler_t;
-  typedef std::pair<std::string,model_handler_t> handler_descriptor_t;
+  typedef std::tuple<std::string,model_handler_t,bool> handler_descriptor_t;
 
 public:
   SystemModel(LocalExecutor *e, const ModelOptions &o);
@@ -36,6 +36,9 @@ public:
 private:
   void ExecuteWrite(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
   void ExecuteIsaTTY(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
+  void ExecuteReturn1(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
+  void ExecuteNoop(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
+  void ExecuteFirstArg(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
 
   LocalExecutor *executor;
   ModelOptions opts;
