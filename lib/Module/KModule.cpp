@@ -18,7 +18,7 @@
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/Support/Debug.h"
+#include "klee/Internal/System/Memory.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/Instructions.h"
@@ -432,6 +432,22 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
     llvm::errs() << "]\n";
   }
+
+  // enum descriptions of all types in the module
+  TypeFinder typeFinder;
+  typeFinder.run(*module, false);
+  for (auto type : typeFinder) {
+    mapTypeDescs[to_string(type)] = type;
+  }
+
+  // add primative and integer types to map
+  for (unsigned id = 0; id <= Type::LastPrimitiveTyID; ++id) {
+    insertTypeDesc(Type::getPrimitiveType(ctx, (Type::TypeID) id));
+  }
+  vector<unsigned> integers = { 1, 8, 16, 32, 64 };
+  for (unsigned width : integers) {
+    insertTypeDesc(Type::getIntNTy(ctx, width));
+  }
 }
 
 Function *KModule::getTargetFunction(Value *value) const {
@@ -450,6 +466,16 @@ Function *KModule::getTargetFunction(Value *value) const {
       }
     }
   }
+  return nullptr;
+}
+
+llvm::Type *KModule::getEquivalentType(const std::string &desc) const {
+
+  auto itr = mapTypeDescs.find(desc);
+  if (itr != mapTypeDescs.end()) {
+    return itr->second;
+  }
+  klee_warning("unrecognized type description: %s", desc.c_str());
   return nullptr;
 }
 

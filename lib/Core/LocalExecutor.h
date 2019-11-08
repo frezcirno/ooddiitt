@@ -98,6 +98,14 @@ protected:
                             size_t align = 0,
                             unsigned count = 1);
 
+  MemoryObject *injectMemory(ExecutionState &state,
+                             void *addr,
+                             const std::vector<unsigned char> &data,
+                             const std::string &type_desc,
+                             MemKind kind,
+                             const std::string &name,
+                             unsigned count);
+
   void expandLazyAllocation(ExecutionState &state,
                             ref<Expr> addr,
                             const llvm::Type *type,

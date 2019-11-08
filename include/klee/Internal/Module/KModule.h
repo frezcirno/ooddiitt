@@ -15,6 +15,7 @@
 
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
+#include "klee/Internal/System/Memory.h"
 
 #include <map>
 #include <set>
@@ -26,11 +27,7 @@ namespace llvm {
   class Function;
   class Instruction;
   class Module;
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-  class TargetData;
-#else
   class DataLayout;
-#endif
 }
 
 namespace klee {
@@ -170,10 +167,18 @@ namespace klee {
       }
     }
 
+    llvm::Type *getEquivalentType(const std::string &desc) const;
+    void insertTypeDesc(llvm::Type *type)  {
+      mapTypeDescs[to_string(type)] = type;
+      type = type->getPointerTo(0);
+      mapTypeDescs[to_string(type)] = type;
+    }
+
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
     std::map<const llvm::FunctionType*,std::set<const llvm::Function*> >mapFnTypes;
+    std::map<std::string,llvm::Type*> mapTypeDescs;
 };
 } // End klee namespace
 

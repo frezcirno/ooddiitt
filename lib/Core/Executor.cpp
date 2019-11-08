@@ -1134,12 +1134,9 @@ void Executor::bindArgument(KFunction *kf, unsigned index,
   getArgumentCell(state, kf, index).value = value;
 }
 
-ref<Expr> Executor::toUnique(const ExecutionState &state,
-                             ref<Expr> &e) {
-  ref<Expr> result = e;
-
+ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
+  ref<Expr> result = state.constraints.simplifyExpr(e);
   if (!isa<ConstantExpr>(e)) {
-
     ref<ConstantExpr> value;
     if (solver->getValue(state, e, value)) {
       bool answer;
@@ -3130,8 +3127,9 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
   // will put multiple copies on this list, but it doesn't really
   // matter because all we use this list for is to unbind the object
   // on function return.
-  if (mo->isLocal())
+  if (mo->isLocal() && !state.stack.empty()) {
     state.stack.back().allocas.insert(mo);
+  }
 
   return os;
 }

@@ -244,8 +244,7 @@ protected:
                             llvm::Function *function,
                             std::vector< ref<Expr> > &arguments);
 
-  ObjectState *bindObjectInState(ExecutionState &state, const MemoryObject *mo,
-                                 const Array *array = 0);
+  ObjectState *bindObjectInState(ExecutionState &state, const MemoryObject *mo, const Array *array = nullptr);
 
   /// Resolve a pointer to the memory objects it could point to the
   /// start of, forking execution when necessary and generating errors

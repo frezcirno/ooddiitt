@@ -18,14 +18,11 @@
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DataLayout.h"
@@ -64,7 +61,7 @@ using namespace std;
 namespace {
 
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
-  cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional, cl::Required);
+  cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> ReplayTest("replay-test", cl::desc("test case to replay"), cl::Required);
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
@@ -478,6 +475,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
 
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
+    test.trace.reserve(trace.size());
     for (unsigned idx = 0, end = trace.size(); idx < end; ++idx) {
       test.trace.push_back(trace[idx].asUInt());
     }
@@ -485,12 +483,13 @@ void load_test_case(Json::Value &root, TestCase &test) {
 
   Json::Value &objs = root["objects"];
   if (objs.isArray()) {
+    test.objects.reserve(objs.size());
     for (unsigned idx = 0, end = objs.size(); idx < end; ++idx) {
       Json::Value &obj = objs[idx];
       string addr = obj["addr"].asString();
       unsigned count = obj["count"].asUInt();
       string data = obj["data"].asString();
-      string kind = obj["kind"].asString();
+      unsigned kind = obj["kind"].asUInt();
       string name = obj["name"].asString();
       string type = obj["type"].asString();
       test.objects.emplace_back(TestObject(addr, count, data, kind, name, type));
@@ -644,7 +643,6 @@ int main(int argc, char **argv, char **envp) {
   }
 
   CompareState version1;
-  CompareState version2;
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
@@ -653,7 +651,7 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = Interpreter::ExecModeID::rply;
   IOpts.user_mem_base = (void*) 0x90000000000;
-  IOpts.user_mem_size = (0xa0000000000 - 0x80000000000);
+  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
 
   Interpreter::ModuleOptions MOpts;
   MOpts.LibraryDir = "";
@@ -722,59 +720,62 @@ int main(int argc, char **argv, char **envp) {
 
 
   // now, lets do it all again with the second module
+  if (InputFile2.size() > 0) {
+    CompareState version2;
 
-  outs() << "Loading: " << InputFile2 << '\n';
-  Module *mainModule2 = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr2;
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
-  }
-
-  mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx, &ErrorMsg);
-  if (mainModule2) {
-    if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule2;
-      mainModule2 = nullptr;
+    outs() << "Loading: " << InputFile2 << '\n';
+    Module *mainModule2 = nullptr;
+    OwningPtr<MemoryBuffer> BufferPtr2;
+    ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
+    if (ec) {
+      klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
     }
-  }
 
-  // RLR TODO: verify module is from brt-klee
-  if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
+    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx, &ErrorMsg);
+    if (mainModule2) {
+      if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
+        delete mainModule2;
+        mainModule2 = nullptr;
+      }
+    }
 
-  ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
-  handler2->setWatchDog(pid_watchdog);
+    // RLR TODO: verify module is from brt-klee
+    if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
 
-  Interpreter *interpreter2 = Interpreter::createLocal(ctx, IOpts, handler2);
-  handler2->setInterpreter(interpreter2);
-  const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
+    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
+    handler2->setWatchDog(pid_watchdog);
 
-  start_time = sys_clock::now();
-  outs() << "Started: " << to_string(start_time) << '\n';
-  outs().flush();
+    Interpreter *interpreter2 = Interpreter::createLocal(ctx, IOpts, handler2);
+    handler2->setInterpreter(interpreter2);
+    const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
 
-  theInterpreter = interpreter2;
-  interpreter2->runFunctionTestCase(test);
-  theInterpreter = nullptr;
+    start_time = sys_clock::now();
+    outs() << "Started: " << to_string(start_time) << '\n';
+    outs().flush();
 
-  finish_time = sys_clock::now();
-  outs() << "Finished: " << to_string(finish_time) << '\n';
-  elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  outs() << "Elapsed: " << elapsed.count() << '\n';
+    theInterpreter = interpreter2;
+    interpreter2->runFunctionTestCase(test);
+    theInterpreter = nullptr;
 
-  version2.kmodule = interpreter2->getKModule();
-  assert(ex_states.size() == 1);
-  version2.state = ex_states.front();
+    finish_time = sys_clock::now();
+    outs() << "Finished: " << to_string(finish_time) << '\n';
+    elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
+    outs() << "Elapsed: " << elapsed.count() << '\n';
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
-  BufferPtr2.take();
-#endif
+    version2.kmodule = interpreter2->getKModule();
+    assert(ex_states.size() == 1);
+    version2.state = ex_states.front();
 
-  if (!CompareExecutions(version1, version2)) {
-    outs() << "not the same!\n";
+  #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
+    // FIXME: This really doesn't look right
+    // This is preventing the module from being
+    // deleted automatically
+    BufferPtr2.take();
+  #endif
+
+    if (!CompareExecutions(version1, version2)) {
+      outs() << "not the same!\n";
+    }
   }
 
   return exit_code;

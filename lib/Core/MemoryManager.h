@@ -43,6 +43,7 @@ public:
    */
   MemoryObject *allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment);
   MemoryObject *allocateFixed(uint64_t address, uint64_t size, const llvm::Value *allocSite);
+  MemoryObject *inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment);
   void markFreed(MemoryObject *mo);
   ArrayCache *getArrayCache() const { return arrayCache; }
   void dump() const;

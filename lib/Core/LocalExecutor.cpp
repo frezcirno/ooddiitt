@@ -391,11 +391,13 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     }
   }
 
-  if (!currState->isSymbolic(mo)) {
-    if (!isLocallyAllocated(*currState, mo)) {
-      if (mo->kind == klee::MemKind::lazy) {
-        outs() << "RLR: Does this ever actually happen?\n";
-        os = makeSymbolic(*currState, mo);
+  if (!doConcreteInterpretation) {
+    if (!currState->isSymbolic(mo)) {
+      if (!isLocallyAllocated(*currState, mo)) {
+        if (mo->kind == klee::MemKind::lazy) {
+          outs() << "RLR: Does this ever actually happen?\n";
+          os = makeSymbolic(*currState, mo);
+        }
       }
     }
   }
@@ -403,7 +405,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ref<Expr> e = os->read(offsetExpr, width);
   bindLocal(target, *currState, e);
 
-  if ((countLoadIndirection(type) > 1) && isUnconstrainedPtr(*currState, e)) {
+  if (!doConcreteInterpretation && (countLoadIndirection(type) > 1) && isUnconstrainedPtr(*currState, e)) {
 
     // give a meaningful name to the symbolic variable.
     // do not have original c field names, so use field index
@@ -607,6 +609,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
 ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObject *mo) {
 
+  assert(!doConcreteInterpretation);
+
   ObjectState *wos = nullptr;
   const ObjectState *os = state.addressSpace.findObject(mo);
   if (os != nullptr) {
@@ -679,6 +683,37 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     mo->name = name;
     mo->count = count;
     mo->created_size = created_size;
+  }
+  return mo;
+}
+
+MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
+                                          void *addr,
+                                          const std::vector<unsigned char> &data,
+                                          const string &type_desc,
+                                          MemKind kind,
+                                          const std::string &name,
+                                          unsigned count) {
+
+  size_t size = data.size();
+  Type *type = kmodule->getEquivalentType(type_desc);
+  size_t align;
+  if (type != nullptr) {
+    align = kmodule->targetData->getPrefTypeAlignment(type);
+  } else {
+    LLVMContext &ctx = kmodule->module->getContext();
+    align = kmodule->targetData->getPrefTypeAlignment(Type::getInt32Ty(ctx));
+  }
+
+  MemoryObject *mo = memory->inject(addr, size * count, type, kind, align);
+  if (mo != nullptr) {
+    mo->name = name;
+    mo->count = count;
+    mo->created_size = size;
+    ObjectState *os = bindObjectInState(state, mo);
+    for (size_t idx = 0, end = data.size(); idx < end; ++idx) {
+      os->write8(idx, data[idx]);
+    }
   }
   return mo;
 }
@@ -787,6 +822,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
       MemoryObject *mo = globalObjects.find(v)->second;
       if (mo != nullptr) {
 
+        // RLR TODO: remove?
         outs() << "unconstraining: " << gv_name << '\n';
 
         // global may already have a value in this state. if so unlink it.
@@ -1016,10 +1052,32 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     }
   }
 
-#if 0 == 1
-  std::vector<ExecutionState*> init_states;
+  // inject the test case memory objects into the replay state
+  for (const auto &obj : test.objects) {
+    MemoryObject *mo = injectMemory(*baseState, (void*) obj.addr, obj.data, obj.type, (MemKind) obj.kind, obj.name, obj.count);
+  }
+
+  // RLR TODO: global collisions?
+
   ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
+
+  for (Function::const_arg_iterator itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr) {
+
+    const Argument &arg = *itr;
+    std::string arg_name = arg.getName();
+    auto pr = state->addressSpace.findMemoryObjectByName(arg_name);
+    if (pr.first != nullptr && pr.second != nullptr) {
+      ref<Expr> e = pr.second->read(0, pr.first->size * 8);
+      bindArgument(kf, arg.getArgNo(), *state, e);
+    }
+  }
+
+  std::vector<ExecutionState*> init_states = { state };
+  runFn(kf, init_states);
+}
+
+#if 0 == 1
 
   std::map<std::string,const TestObject*> to_obj;
   for (const auto &obj : test.objects) {
@@ -1121,12 +1179,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
       wos->write8(0, 1);
     }
   }
-
-  init_states.push_back(state);
-  runFn(kf, init_states);
 #endif
-
-}
 
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
@@ -1832,8 +1885,29 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::GetElementPtr: {
 
+      assert(i->getType()->isPtrOrPtrVectorTy());
+
       KGEPInstruction *kgepi = static_cast<KGEPInstruction*>(ki);
       ref<Expr> base = eval(ki, 0, state).value;
+      // see if we can find a memory object containing base
+      // if see, it may need lazy initializing.
+      // if no object is found, then its not necessarily an error
+      ObjectPair op;
+      ResolveResult result = resolveMO(state, base, op);
+      if (result == ResolveResult::OK) {
+        if (op.first->type->isPointerTy()) {
+          unsigned ptr_width =  Context::get().getPointerWidth();
+          ref<Expr> ptr = op.second->read(0, ptr_width);
+          ptr = toUnique(state, ptr);
+          assert(!isUnconstrainedPtr(state, ptr));
+//          if (isUnconstrainedPtr(state, ptr)) {
+//            expandLazyAllocation(state, ptr, i->getType(), ki, i->getName());
+//            state.restartInstruction();
+//            return;
+//          }
+        }
+      }
+
       for (auto itr = kgepi->indices.begin(), end = kgepi->indices.end(); itr != end; ++itr) {
         uint64_t elementSize = itr->second;
         ref<Expr> index = eval(ki, itr->first, state).value;
@@ -1845,7 +1919,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         base = AddExpr::create(base, Expr::createPointer(kgepi->offset));
       }
       bindLocal(ki, state, base);
-      assert(!isUnconstrainedPtr(state, base));
 
 #if 0 == 1
       if (isUnconstrainedPtr(state, base)) {

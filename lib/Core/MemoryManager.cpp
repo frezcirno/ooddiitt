@@ -180,6 +180,18 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
   return res;
 }
 
+MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment) {
+
+  MemoryObject *result = nullptr;
+  if (DeterministicAllocation) {
+
+    // RLR TODO: should we insure this does not overlap an existing injection or allocation?
+    result = new MemoryObject((uint64_t) addr, size, alignment, type, kind, nullptr, this);
+    objects.insert(result);
+  }
+  return result;
+}
+
 void MemoryManager::markFreed(MemoryObject *mo) {
   if (objects.find(mo) != objects.end()) {
     if (!mo->isFixed() && !DeterministicAllocation)

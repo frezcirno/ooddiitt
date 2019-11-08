@@ -24,14 +24,13 @@ namespace klee {
 
 class TestObject {
 public:
-  TestObject(std::string _addr, unsigned _count, std::string _data, std::string _kind, std::string _name, std::string _type) :
-    count(_count), name(_name), type(_type) {
+  TestObject(std::string _addr, unsigned _count, std::string _data, unsigned _kind, std::string _name, std::string _type) :
+    count(_count), kind(_kind), name(_name), type(_type) {
 
     std::stringstream ss(_addr);
     ss >> std::hex >> addr;
     addr = boost::endian::endian_reverse(addr);
     fromDataString(data, _data);
-    kind = fromKindString(_kind);
   }
 
   uintptr_t addr;
@@ -61,14 +60,6 @@ public:
       }
     }
   }
-
-  int fromKindString(const std::string &str) const {
-    static const std::vector<std::string> kindStrings = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
-    auto itr = std::find(kindStrings.begin(), kindStrings.end(), str);
-    if (itr != kindStrings.end()) return std::distance(kindStrings.begin(), itr);
-    return 0;
-  }
-
 };
 
 class TestCase {
@@ -91,8 +82,8 @@ public:
   unsigned test_id;
   sys_clock::time_point start;
   sys_clock::time_point stop;
-  std::deque<unsigned> trace;
-  std::deque<TestObject> objects;
+  std::vector<unsigned> trace;
+  std::vector<TestObject> objects;
 
   static int fromStatusString(const std::string &str)  {
     static const std::vector<std::string> statusStrings = { "pending",  "completed",  "faulted",  "early", "error", "decimate",  "discard" };
