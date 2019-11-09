@@ -129,7 +129,7 @@ namespace klee {
     void getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type = nullptr) const;
     bool getNamedWrittenMemObjs(std::vector<ObjectPair> &listOPs, const std::set<MemKind> &kinds) const;
     void clearWritten();
-    ObjectPair findMemoryObjectByName(const std::string &name) const;
+    ObjectPair findMemoryObjectByName(const std::string &name, MemKind kind = MemKind::invalid) const;
   };
 } // End klee namespace
 

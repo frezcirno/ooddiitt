@@ -1017,6 +1017,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       }
       init_states.push_back(state);
     }
+
+    outs() << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
+    outs().flush();
+
     runFn(kf, init_states);
   }
   outs() << name << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
@@ -1054,10 +1058,36 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 
   // inject the test case memory objects into the replay state
   for (const auto &obj : test.objects) {
-    MemoryObject *mo = injectMemory(*baseState, (void*) obj.addr, obj.data, obj.type, (MemKind) obj.kind, obj.name, obj.count);
-  }
 
-  // RLR TODO: global collisions?
+    MemKind kind = (MemKind) obj.kind;
+    switch (kind) {
+      // inject parameters and lazily initialized memory blobs
+      case MemKind::param:
+      case MemKind::lazy: {
+        injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
+        break;
+      }
+
+      case MemKind::global: {
+        // copy in global values
+        auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
+        const MemoryObject *mo = pr.first;
+        if ((obj.data.size() != mo->size) || (obj.count != mo->count) || (obj.type != to_string(mo->type))) {
+          klee_error("global attribute mismatch: %s", obj.name.c_str());
+        }
+        ObjectState *wos = baseState->addressSpace.getWriteable(mo, pr.second);
+        for (unsigned idx = 0, end = obj.data.size(); idx != end; ++idx) {
+          wos->write8(idx, obj.data[idx]);
+        }
+        break;
+      }
+
+      default: {
+        outs() << "RLR: what to do with kind: " << kind << '\n';
+        break;
+      }
+    }
+  }
 
   ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
@@ -1185,9 +1215,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   assert(!init_states.empty());
   Function *fn = kf->function;
-
-  outs() << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
-  outs().flush();
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.

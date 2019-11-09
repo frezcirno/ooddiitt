@@ -348,12 +348,13 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
   }
 }
 
-ObjectPair AddressSpace::findMemoryObjectByName(const std::string &name) const {
+ObjectPair AddressSpace::findMemoryObjectByName(const std::string &name, MemKind kind) const {
 
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
-    if (mo->name == name)
+    if ((mo->name == name) && ((kind == MemKind::invalid) || (kind == mo->kind))) {
       return std::make_pair(mo, it->second);
+    }
   }
   return std::make_pair(nullptr,nullptr);
 }
