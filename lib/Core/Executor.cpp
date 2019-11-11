@@ -349,7 +349,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       coreSolverTimeout(MaxCoreSolverTime != 0 && MaxInstructionTime != 0
                             ? std::min(MaxCoreSolverTime, MaxInstructionTime)
                             : std::max(MaxCoreSolverTime, MaxInstructionTime)),
-      debugInstFile(0), debugLogBuffer(debugBufferString), verify_constraints(false) {
+      debugInstFile(0), debugLogBuffer(debugBufferString) {
 
   if (coreSolverTimeout) UseForkedCoreSolver = true;
   Solver *coreSolver = klee::createCoreSolver(CoreSolverToUse);
@@ -599,8 +599,6 @@ void Executor::initializeGlobals(ExecutionState &state) {
 
     if (i->isDeclaration()) {
 
-      klee_error("I guess we still use this afterall...");
-#if 0 == 1
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
       // better we could support user definition, or use the EXE style
@@ -653,7 +651,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
             os->write8(offset, ((unsigned char *) addr)[offset]);
         }
       }
-#endif
+
     } else {
       LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
       uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
@@ -1007,10 +1005,16 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(condition)) {
     if (!CE->isTrue())
-      llvm::report_fatal_error("attempt to add invalid constraint");
+      klee_error("attempt to add invalid constraint");
     return;
   }
 
+  if (interpreterOpts.verify_constraints) {
+    std::vector<SymbolicSolution> s;
+    getSymbolicSolution(state, s);
+  }
+
+#if 0 == 1
   // Check to see if this constraint violates seeds.
   std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
     seedMap.find(&state);
@@ -1031,17 +1035,16 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
     if (warn)
       klee_warning("seeds patched for violating constraint");
   }
-
-  if (verify_constraints) {
-    // verify that this condition is satisfyable
-    bool valid;
-    assert(solver->mayBeTrue(state, condition, valid) && valid);
+#endif
+  state.addConstraint(condition);
+  if (ivcEnabled) {
+    doImpliedValueConcretization(state, condition, ConstantExpr::alloc(1, Expr::Bool));
   }
 
-  state.addConstraint(condition);
-  if (ivcEnabled)
-    doImpliedValueConcretization(state, condition,
-                                 ConstantExpr::alloc(1, Expr::Bool));
+  if (interpreterOpts.verify_constraints) {
+    std::vector<SymbolicSolution> s;
+    getSymbolicSolution(state, s);
+  }
 }
 
 ref<klee::ConstantExpr> Executor::evalConstant(const Constant *c) {

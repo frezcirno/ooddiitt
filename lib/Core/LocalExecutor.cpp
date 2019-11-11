@@ -75,7 +75,6 @@ class Tracer {
 
 
 cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
-cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification before adding"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
@@ -119,9 +118,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
     default:
       klee_error("invalid execution mode");
   }
-
   optsModel.doModelStdOutput = doModelStdOutput;
-  Executor::setVerifyContraints(VerifyConstraints);
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -153,19 +150,8 @@ void LocalExecutor::getModeledExternals(std::set<std::string> &names) const {
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
 
-  if (VerifyConstraints) {
-    std::vector<SymbolicSolution> in;
-    getSymbolicSolution(state, in);
-  }
-
   if (solver->mayBeTrue(state, e)) {
     addConstraint(state, e);
-
-    if (VerifyConstraints) {
-      std::vector<SymbolicSolution> out;
-      getSymbolicSolution(state, out);
-    }
-
     return true;
   }
   terminateState(state, "added invalid constraint");
@@ -394,7 +380,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   if (!doConcreteInterpretation) {
     if (!currState->isSymbolic(mo)) {
       if (!isLocallyAllocated(*currState, mo)) {
-        if (mo->kind == klee::MemKind::lazy) {
+        if (mo->isLazy()) {
           outs() << "RLR: Does this ever actually happen?\n";
           os = makeSymbolic(*currState, mo);
         }
@@ -473,7 +459,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               break;
 
             const MemoryObject *existingMO = pr.first;
-            if (existingMO->kind == MemKind::lazy) {
+            if (existingMO->isLazy()) {
 
               // fork a new state
               ref<ConstantExpr> ptr = existingMO->getBaseExpr();
@@ -501,15 +487,13 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
           // insure strings are null-terminated
           if (base_type->isIntegerTy(8)) {
-            next_fork->addConstraint(EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+            addConstraint(*next_fork, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
           }
         }
       }
     }
   } else if (base_type->isFunctionTy()) {
-    // RLR TODO: do something here!
     // just say NO to function pointers
-    klee_warning("lazy initialization of function pointer not supported");
     ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
     addConstraintOrTerminate(state, eqNull);
   } else {
@@ -822,8 +806,9 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
       MemoryObject *mo = globalObjects.find(v)->second;
       if (mo != nullptr) {
 
-        // RLR TODO: remove?
-        outs() << "unconstraining: " << gv_name << '\n';
+        if (interpreterOpts.verbose) {
+          outs() << "unconstraining: " << gv_name << '\n';
+        }
 
         // global may already have a value in this state. if so unlink it.
         const ObjectState *os = state.addressSpace.findObject(mo);
@@ -956,7 +941,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       // argv[1 .. SymArgs] = symbolic value
 
       // despite being symbolic, argv[0] always points to program name
-      state->addConstraint(EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
+      addConstraint(*state, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
 
       // and finally, the pointer to the argv array to be passed as param to main
       WObjectPair wopArgv;
@@ -964,7 +949,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       allocSymbolic(*state, argType, &argv, MemKind::param, "argv", wopArgv, argv.getParamAlignment(), 1);
 
       ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
-      state->addConstraint(EqExpr::create(wopArgv_array.first->getBaseExpr(), eArgv));
+      addConstraint(*state, EqExpr::create(wopArgv_array.first->getBaseExpr(), eArgv));
       bindArgument(kf, 1, *state, eArgv);
 
       // allocate the command line arg strings for each starting state
@@ -979,22 +964,22 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         argType = argv.getType()->getPointerElementType()->getPointerElementType();
         allocSymbolic(*curr, argType, &argv, MemKind::fixed, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
         // null terminate the string
-        curr->addConstraint(EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
+        addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
 
         // and constrain pointer in argv array to point to body
         ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
-        curr->addConstraint(EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
+        addConstraint(*curr, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
       }
 
       for (unsigned index = 0; index <= SymArgs; index++) {
         // for each state constrain argc
         ExecutionState *curr = init_states[index];
-        curr->addConstraint(EqExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc));
+        addConstraint(*curr, EqExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc));
 
         // and the remainder of the argv array should be null
         for (unsigned idx = index; idx <= SymArgs; idx++) {
           ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx + 1), ptr_width);
-          curr->addConstraint(EqExpr::create(ptr, ConstantExpr::createPointer(0)));
+          addConstraint(*curr, EqExpr::create(ptr, ConstantExpr::createPointer(0)));
         }
       }
 
@@ -1214,7 +1199,6 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
   assert(!init_states.empty());
-  Function *fn = kf->function;
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
@@ -1605,6 +1589,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         const KFunction *kf = kmodule->functionMap[src->getParent()];
         state.allBranchCounter++;
         ref<Expr> cond = eval(ki, 0, state).value;
+
         Executor::StatePair branches = fork(state, cond, false);
 
         // NOTE: There is a hidden dependency here, markBranchVisited
@@ -1922,7 +1907,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
       if (result == ResolveResult::OK) {
-        if (op.first->type->isPointerTy()) {
+        if ((op.first->type != nullptr) && op.first->type->isPointerTy()) {
           unsigned ptr_width =  Context::get().getPointerWidth();
           ref<Expr> ptr = op.second->read(0, ptr_width);
           ptr = toUnique(state, ptr);
@@ -2042,6 +2027,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
+    case Instruction::IntToPtr: {
+      // RLR TODO: need to do something about the type-cast
+//      klee_warning("Integer cast to pointer");
+      Executor::executeInstruction(state, ki);
+    }
+    case Instruction::PtrToInt: {
+      // RLR TODO: need to do something about the type-cast
+//      klee_warning("Pointer cast to integer");
+      Executor::executeInstruction(state, ki);
+    }
+
     case Instruction::BitCast: {
       CastInst *ci = cast<CastInst>(i);
       Type *srcTy = ci->getSrcTy();
@@ -2067,33 +2063,35 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             const MemoryObject *mo = op.first;
             const ObjectState *os = op.second;
-            if (mo->kind == MemKind::lazy) {
+            if (mo->isLazy() || mo->isHeap()) {
 
-              if (destSize > mo->size) {
-                // not even one will fit
-                klee_warning("lazy init size too small for bitcast");
+              // if lazy, make sure the new type fits...
+              if (mo->isLazy()) {
+                if (destSize > mo->size) {
+                  // not even one will fit
+                  klee_warning("lazy init size too small for bitcast");
+                }
+
+                // type aware allocation size
+                destSize *= lazyAllocationCount;
+                destSize = std::min(destSize, mo->size);
+                if (destSize > os->visible_size) {
+                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+                  wos->visible_size = destSize;
+                }
               }
 
-              // RLR TODO:  type aware allocation size
-              destSize *= lazyAllocationCount;
-              destSize = std::min(destSize, mo->size);
-              if (destSize > os->visible_size) {
-                ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-                wos->visible_size = destSize;
-              }
+              // for lazy and heap, record pointed type change
+              if (srcPtd != destPtd) {
 
-              // pointed type change
-              // RLR TODO: remove type history
-//              if (srcPtd != destPtd) {
-//
-//                // only record if this is a pointer to the beginning of a memory object
-//                ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
-//
-//                if (solver->mayBeTrue(state, is_zero)) {
-//                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-//                  wos->types.insert(destTy);
-//                }
-//              }
+                // only record if this is a pointer to the beginning of a memory object
+                ref<Expr> is_zero = Expr::createIsZero(mo->getOffsetExpr(ptr));
+
+                if (solver->mayBeTrue(state, is_zero)) {
+                  ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+                  wos->types.insert(destTy);
+                }
+              }
             }
           }
         }
@@ -2106,8 +2104,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::FCmp:
       Executor::executeInstruction(state, ki);
+      // RLR TODO: only whine if an argument is symbolic
       klee_warning("Floating point comparison");
       break;
+
+    case Instruction::UDiv:  // all fall through
+    case Instruction::SDiv:
+    case Instruction::URem:
+    case Instruction::SRem: {
+      ref<Expr> denom = eval(ki, 1, state).value;
+      if (addConstraintOrTerminate(state, Expr::createIsNonZero(denom))) {
+        Executor::executeInstruction(state, ki);
+      }
+      break;
+    }
 
     default:
       Executor::executeInstruction(state, ki);

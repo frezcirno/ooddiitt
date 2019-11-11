@@ -52,8 +52,7 @@ bool AssignmentValidatingSolver::computeValue(const Query &query,
 bool AssignmentValidatingSolver::computeInitialValues(
     const Query &query, const std::vector<const Array *> &objects,
     std::vector<std::vector<unsigned char> > &values, bool &hasSolution) {
-  bool success =
-      solver->impl->computeInitialValues(query, objects, values, hasSolution);
+  bool success = solver->impl->computeInitialValues(query, objects, values, hasSolution);
   if (!hasSolution)
     return success;
 
@@ -68,7 +67,7 @@ bool AssignmentValidatingSolver::computeInitialValues(
     ref<Expr> constraintEvaluated = assignment.evaluate(constraint);
     ConstantExpr *CE = dyn_cast<ConstantExpr>(constraintEvaluated);
     if (CE == NULL) {
-      llvm::errs() << "Constraint did not evalaute to a constant:\n";
+      llvm::errs() << "Constraint did not evaluate to a constant:\n";
       llvm::errs() << "Constraint:\n" << constraint << "\n";
       llvm::errs() << "Evaluated Constraint:\n" << constraintEvaluated << "\n";
       llvm::errs() << "Assignment:\n";
@@ -89,7 +88,7 @@ bool AssignmentValidatingSolver::computeInitialValues(
   ref<Expr> queryExprEvaluated = assignment.evaluate(query.expr);
   ConstantExpr *CE = dyn_cast<ConstantExpr>(queryExprEvaluated);
   if (CE == NULL) {
-    llvm::errs() << "Query expression did not evalaute to a constant:\n";
+    llvm::errs() << "Query expression did not evaluate to a constant:\n";
     llvm::errs() << "Expression:\n" << query.expr << "\n";
     llvm::errs() << "Evaluated expression:\n" << queryExprEvaluated << "\n";
     llvm::errs() << "Assignment:\n";

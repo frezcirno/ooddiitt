@@ -74,6 +74,7 @@ StackFrame::~StackFrame() {
 }
 
 /***/
+
 ExecutionState::ExecutionState() :
     prevPC(pc),
     incomingBBIndex(INVALID_BB_INDEX),
@@ -285,6 +286,8 @@ llvm::raw_ostream &klee::operator<<(llvm::raw_ostream &os, const MemoryMap &mm) 
 }
 
 bool ExecutionState::merge(const ExecutionState &b) {
+
+  assert(false && "attempt to merge states");
   if (DebugLogStateMerge)
     llvm::errs() << "-- attempting merge of A:" << this << " with B:" << &b
                  << "--\n";

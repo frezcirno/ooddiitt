@@ -19,9 +19,12 @@
 namespace klee {
 
 class ExprVisitor;
-  
+
 class ConstraintManager {
 public:
+  friend class ExprPPrinter;
+  friend class ExecutionState;
+
   typedef std::vector< ref<Expr> > constraints_ty;
   typedef constraints_ty::iterator iterator;
   typedef constraints_ty::const_iterator const_iterator;
@@ -37,17 +40,12 @@ public:
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 
-  // given a constraint which is known to be valid, attempt to 
+  // given a constraint which is known to be valid, attempt to
   // simplify the existing constraint set
   void simplifyForValidConstraint(ref<Expr> e);
 
   ref<Expr> simplifyExpr(ref<Expr> e) const;
 
-  void addConstraint(ref<Expr> e);
-  
-  bool empty() const {
-    return constraints.empty();
-  }
   ref<Expr> back() const {
     return constraints.back();
   }
@@ -64,14 +62,20 @@ public:
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }
-  
+
 private:
+
+  void addConstraint(ref<Expr> e);
+  void addConstraintInternal(ref<Expr> e);
+
+  bool empty() const {
+    return constraints.empty();
+  }
+
   std::vector< ref<Expr> > constraints;
 
   // returns true iff the constraints were modified
   bool rewriteConstraints(ExprVisitor &visitor);
-
-  void addConstraintInternal(ref<Expr> e);
 };
 
 }

@@ -25,25 +25,24 @@ namespace klee {
 
     bool allowFreeValues;
     bindings_ty bindings;
-    
+
   public:
-    Assignment(bool _allowFreeValues=false) 
+    Assignment(bool _allowFreeValues=false)
       : allowFreeValues(_allowFreeValues) {}
     Assignment(const std::vector<const Array*> &objects,
                std::vector< std::vector<unsigned char> > &values,
-               bool _allowFreeValues=false) 
-      : allowFreeValues(_allowFreeValues){
-      std::vector< std::vector<unsigned char> >::iterator valIt = 
-        values.begin();
-      for (std::vector<const Array*>::const_iterator it = objects.begin(),
-             ie = objects.end(); it != ie; ++it) {
+               bool _allowFreeValues=false)
+      : allowFreeValues(_allowFreeValues) {
+      auto valIt = values.begin();
+      for (auto it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+        assert(valIt != values.end());
         const Array *os = *it;
         std::vector<unsigned char> &arr = *valIt;
         bindings.insert(std::make_pair(os, arr));
         ++valIt;
       }
     }
-    
+
     ref<Expr> evaluate(const Array *mo, unsigned index) const;
     ref<Expr> evaluate(ref<Expr> e);
     void createConstraintsFromAssignment(std::vector<ref<Expr> > &out) const;
@@ -52,7 +51,7 @@ namespace klee {
     bool satisfies(InputIterator begin, InputIterator end);
     void dump();
   };
-  
+
   class AssignmentEvaluator : public ExprEvaluator {
     const Assignment &a;
 
@@ -60,14 +59,14 @@ namespace klee {
     ref<Expr> getInitialValue(const Array &mo, unsigned index) {
       return a.evaluate(&mo, index);
     }
-    
+
   public:
-    AssignmentEvaluator(const Assignment &_a) : a(_a) {}    
+    AssignmentEvaluator(const Assignment &_a) : a(_a) {}
   };
 
   /***/
 
-  inline ref<Expr> Assignment::evaluate(const Array *array, 
+  inline ref<Expr> Assignment::evaluate(const Array *array,
                                         unsigned index) const {
     assert(array);
     bindings_ty::const_iterator it = bindings.find(array);
@@ -75,7 +74,7 @@ namespace klee {
       return ConstantExpr::alloc(it->second[index], array->getRange());
     } else {
       if (allowFreeValues) {
-        return ReadExpr::create(UpdateList(array, 0), 
+        return ReadExpr::create(UpdateList(array, 0),
                                 ConstantExpr::alloc(index, array->getDomain()));
       } else {
         return ConstantExpr::alloc(0, array->getRange());
@@ -83,9 +82,9 @@ namespace klee {
     }
   }
 
-  inline ref<Expr> Assignment::evaluate(ref<Expr> e) { 
+  inline ref<Expr> Assignment::evaluate(ref<Expr> e) {
     AssignmentEvaluator v(*this);
-    return v.visit(e); 
+    return v.visit(e);
   }
 
   template<typename InputIterator>

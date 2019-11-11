@@ -37,7 +37,7 @@ inline std::string to_string(MemKind kind) {
 }
 
 inline std::string to_string(const llvm::Type *type) {
-  if (type == nullptr) return "n/a";
+  if (type == nullptr) return "nil";
   std::string str;
   llvm::raw_string_ostream rss(str);
   type->print(rss);

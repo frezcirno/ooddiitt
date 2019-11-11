@@ -16,24 +16,29 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       { "write", &SystemModel::ExecuteWrite, true },
       { "isatty", &SystemModel::ExecuteIsaTTY, true },
 
-      { "printf", &SystemModel::ExecuteReturn1, true },
-      { "fprintf", &SystemModel::ExecuteReturn1, true },
-      { "vprintf", &SystemModel::ExecuteReturn1, true },
-      { "vfprintf", &SystemModel::ExecuteReturn1, true },
+      { "printf", &SystemModel::ExecuteReturn1, false },
+      { "fprintf", &SystemModel::ExecuteReturn1, false },
+      { "vprintf", &SystemModel::ExecuteReturn1, false },
+      { "vfprintf", &SystemModel::ExecuteReturn1, false },
 
-      { "puts", &SystemModel::ExecuteReturn1, true },
-      { "fputs", &SystemModel::ExecuteReturn1, true },
-      { "fputs_unlocked", &SystemModel::ExecuteReturn1, true },
+      { "puts", &SystemModel::ExecuteReturn1, false },
+      { "fputs", &SystemModel::ExecuteReturn1, false },
+      { "fputs_unlocked", &SystemModel::ExecuteReturn1, false },
 
-      { "putchar", &SystemModel::ExecuteFirstArg, true },
-      { "putc", &SystemModel::ExecuteFirstArg, true },
-      { "fputc", &SystemModel::ExecuteFirstArg, true },
-      { "putchar_unlocked", &SystemModel::ExecuteFirstArg, true },
-      { "putc_unlocked", &SystemModel::ExecuteFirstArg, true },
-      { "fputc_unlocked", &SystemModel::ExecuteFirstArg, true },
+      { "putchar", &SystemModel::ExecuteFirstArg, false },
+      { "putc", &SystemModel::ExecuteFirstArg, false },
+      { "fputc", &SystemModel::ExecuteFirstArg, false },
+      { "putchar_unlocked", &SystemModel::ExecuteFirstArg, false },
+      { "putc_unlocked", &SystemModel::ExecuteFirstArg, false },
+      { "fputc_unlocked", &SystemModel::ExecuteFirstArg, false },
 
-      { "perror", &SystemModel::ExecuteNoop, true }
+      { "perror", &SystemModel::ExecuteNoop, false },
 
+      { "posix_fadvise", &SystemModel::ExecuteReturn0, true },
+      { "getuid", &SystemModel::ExecuteReturn0, true },
+      { "geteuid", &SystemModel::ExecuteReturn0, true },
+      { "getgid", &SystemModel::ExecuteReturn0, true },
+      { "getegid", &SystemModel::ExecuteReturn0, true }
   };
 
   Module *module = executor->getKModule()->module;
@@ -83,6 +88,11 @@ void SystemModel::ExecuteIsaTTY(ExecutionState &state, KInstruction *ki, const l
 void SystemModel::ExecuteReturn1(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
 
   retExpr = ConstantExpr::create(1, Expr::Int32);
+}
+
+void SystemModel::ExecuteReturn0(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+
+  retExpr = ConstantExpr::create(0, Expr::Int32);
 }
 
 void SystemModel::ExecuteNoop(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {

@@ -36,6 +36,7 @@ public:
 private:
   void ExecuteWrite(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
   void ExecuteIsaTTY(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
+  void ExecuteReturn0(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
   void ExecuteReturn1(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
   void ExecuteNoop(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
   void ExecuteFirstArg(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);

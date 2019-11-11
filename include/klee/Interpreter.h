@@ -104,11 +104,17 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
+    bool verbose;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
-        CheckOvershift(false)
+        CheckOvershift(false),
+#ifdef _DEBUG
+        verbose(true)
+#else
+        verbose(false)
+#endif
       {}
   };
 
@@ -148,6 +154,8 @@ public:
     std::set<std::string> *userGlobals;
     void *user_mem_base;
     size_t user_mem_size;
+    bool verbose;
+    bool verify_constraints;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
@@ -156,7 +164,13 @@ public:
         userFns(nullptr),
         userGlobals(nullptr),
         user_mem_base(nullptr),
-        user_mem_size(0)
+        user_mem_size(0),
+#ifdef _DEBUG
+        verbose(true),
+#else
+        verbose(false),
+#endif
+        verify_constraints(false)
     {}
   };
 

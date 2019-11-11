@@ -17,8 +17,10 @@ void Assignment::dump() {
   for (bindings_ty::iterator i = bindings.begin(), e = bindings.end(); i != e;
        ++i) {
     llvm::errs() << (*i).first->name << "\n[";
-    for (int j = 0, k = (*i).second.size(); j < k; ++j)
-      llvm::errs() << (int)(*i).second[j] << ",";
+    for (int j = 0, k = (*i).second.size(); j < k; ++j) {
+      if (j > 0) llvm::errs() << ',';
+      llvm::errs() << (int) (*i).second[j];
+    }
     llvm::errs() << "]\n";
   }
 }

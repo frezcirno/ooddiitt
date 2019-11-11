@@ -83,6 +83,9 @@ namespace {
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
+  cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
+  cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> WriteCVCs("write-cvcs", cl::desc("Write .cvc files for each test case"));
@@ -607,38 +610,6 @@ static int initEnv(Module *mainModule) {
   return 0;
 }
 
-static set<string> dontCare = {
-};
-
-// Extra symbols we aren't going to warn about with klee-libc
-static set<string> dontCareKlee = {
-  "__ctype_b_loc",
-  "__ctype_get_mb_cur_max",
-
-  // io system calls
-  "open",
-  "write",
-  "read",
-  "close",
-};
-
-static set<string> modelledUclibc = {
-
-    "isatty",
-    "write"
-};
-
-// Extra symbols we aren't going to warn about with uclibc
-static set<string> dontCareUclibc = {
-  "__ctype_b_loc",
-  "__dso_handle",
-
-  // Don't warn about these since we explicitly commented them out of
-  // uclibc.
-  "printf",
-  "vprintf"
-};
-
 bool has_inline_asm(const Function *fn) {
 
   for (const auto &bb : *fn) {
@@ -655,9 +626,9 @@ bool has_inline_asm(const Function *fn) {
 
 void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
 
-
   static set<string> modeledExternals;
   interpreter->getModeledExternals(modeledExternals);
+  modeledExternals.insert("__dso_handle");
 
   set<string> undefinedFunctions;
   set<string> undefinedGlobals;
@@ -1206,6 +1177,8 @@ int main(int argc, char **argv, char **envp) {
   IOpts.userGlobals = &original_globals;
   IOpts.user_mem_base = (void*) 0x80000000000;
   IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
+  IOpts.verbose = Verbose;
+  IOpts.verify_constraints = VerifyConstraints;
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
@@ -1217,6 +1190,7 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
+  MOpts.verbose = Verbose;
 
   const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
 
