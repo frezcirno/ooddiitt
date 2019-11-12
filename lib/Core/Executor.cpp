@@ -3226,7 +3226,8 @@ void Executor::executeAlloc(ExecutionState &state,
     unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
     for (unsigned i = 0; i < count; i++)
       os->write(i, reallocFrom->read8(i));
-    state.addressSpace.unbindObject(reallocFrom->getObject());
+    const MemoryObject *mo = reallocFrom->getObject();
+    if (mo->isHeap()) state.addressSpace.unbindObject(mo);
   }
 }
 
