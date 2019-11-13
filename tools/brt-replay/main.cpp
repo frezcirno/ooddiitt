@@ -455,11 +455,32 @@ static void interrupt_handle_watchdog() {
   // just wait for the child to finish
 }
 
+size_t compare_traces(const vector<unsigned> &test_trace, const deque<unsigned> &state_trace, size_t length) {
+
+  auto itr_t = test_trace.begin();
+  auto end_t = test_trace.end();
+  auto itr_s = state_trace.begin();
+  auto end_s = state_trace.end();
+
+  size_t index = 0;
+  while (itr_t != end_t || itr_s != end_s) {
+    if (itr_t == end_t || itr_s == end_s || *itr_t != *itr_s) {
+      return index;
+    }
+    if (++index == length) break;
+    ++itr_t;
+    ++itr_s;
+  }
+  return UINT64_MAX;
+}
+
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
   test.arg_c = root["argC"].asInt();
   test.arg_v = root["argV"].asString();
+
+  test.module_name = root["module"].asString();
   test.entry_fn = root["entryFn"].asString();
   test.klee_version = root["kleeRevision"].asString();
   test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
@@ -468,11 +489,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.max_loop_iter = root["maxLoopIteration"].asUInt();
   test.message = root["message"].asString();
   test.path_condition_vars = root["pathConditionVars"].asString();
-  test.status = TestCase::fromStatusString(root["status"].asString());
+  test.status = (StateStatus) root["status"].asUInt();
   test.test_id = root["testID"].asUInt();
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
 
+  test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
     test.trace.reserve(trace.size());
@@ -489,7 +511,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
       string addr = obj["addr"].asString();
       unsigned count = obj["count"].asUInt();
       string data = obj["data"].asString();
-      unsigned kind = obj["kind"].asUInt();
+      MemKind kind = (MemKind) obj["kind"].asUInt();
       string name = obj["name"].asString();
       string type = obj["type"].asString();
       test.objects.emplace_back(TestObject(addr, count, data, kind, name, type));
@@ -642,16 +664,15 @@ int main(int argc, char **argv, char **envp) {
     klee_error("failed to load test case '%s'", ReplayTest.c_str());
   }
 
-  CompareState version1;
-
-  // Load the bytecode...
-  // load the bytecode emitted in the generation step...
+  size_t test_trace_length = 0;
+  if (test.status == StateStatus::Pending) test_trace_length = test.trace.size();
 
   // Common setup
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = Interpreter::ExecModeID::rply;
   IOpts.user_mem_base = (void*) 0x90000000000;
   IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+  IOpts.trace = test.trace_type;
 
   Interpreter::ModuleOptions MOpts;
   MOpts.LibraryDir = "";
@@ -663,6 +684,11 @@ int main(int argc, char **argv, char **envp) {
   LLVMContext ctx;
   llvm::error_code ec;
   vector<ExecutionState*> ex_states;
+
+  CompareState version1;
+
+  // Load the bytecode...
+  // load the bytecode emitted in the generation step...
 
   // load the first module
   outs() << "Loading: " << InputFile1 << '\n';
@@ -710,6 +736,13 @@ int main(int argc, char **argv, char **envp) {
   assert(ex_states.size() == 1);
   version1.state = ex_states.front();
   ex_states.clear();
+
+  if (handler1->getModuleName() == test.module_name) {
+    size_t index = compare_traces(test.trace, version1.state->trace, test_trace_length);
+    if (index != UINT64_MAX) {
+      errs() << "replay diverged at index " << index << '\n';
+    }
+  }
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   // FIXME: This really doesn't look right
@@ -765,8 +798,16 @@ int main(int argc, char **argv, char **envp) {
     version2.kmodule = interpreter2->getKModule();
     assert(ex_states.size() == 1);
     version2.state = ex_states.front();
+    ex_states.clear();
 
-  #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
+    if (handler2->getModuleName() == test.module_name) {
+      size_t index = compare_traces(test.trace, version2.state->trace, test_trace_length);
+      if (index != UINT64_MAX) {
+        errs() << "replay diverged at index " << index << '\n';
+      }
+    }
+
+#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
     // FIXME: This really doesn't look right
     // This is preventing the module from being
     // deleted automatically

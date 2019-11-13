@@ -85,6 +85,10 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+  cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
+  cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
+  cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
+
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -336,6 +340,7 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
 
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
+      root["module"] = md_name;
       root["entryFn"] = state.name;
       root["testID"] = testID;
       root["argC"] = args.size();
@@ -400,10 +405,12 @@ void BrtKleeHandler::processTestCase(ExecutionState &state) {
         objects.append(obj);
       }
 
-      if (!state.trace.empty()) {
+      const Interpreter::InterpreterOptions &opts = i->getOptions();
+      root["traceType"] = opts.trace;
+      if (opts.trace != TraceType::none) {
         Json::Value &trace = root["trace"] = Json::arrayValue;
-        for (const unsigned line : state.trace) {
-          trace.append(line);
+        for (auto entry : state.trace) {
+          trace.append(entry);
         }
       }
 
@@ -853,35 +860,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
     }
   }
 
-
-#if 0 == 1
-  set<string> trivialize_fns {
-    "isatty",
-    "tcgetattr",
-    "__uClibc_main",
-    "__check_one_fd",
-    "__stdio_WRITE",
-    "__stdio_wcommit",
-    "_stdio_term"
-  };
-
-  for (auto name : trivialize_fns) {
-    Function *fn;
-    if ((fn = mainModule->getFunction(name)) != nullptr) {
-
-      Type *rt = fn->getReturnType();
-      fn->dropAllReferences();
-      BasicBlock *bb = BasicBlock::Create(ctx, "entry", fn);
-
-      if (rt->isVoidTy()) {
-        ReturnInst::Create(ctx, bb);
-      } else if (rt->isIntegerTy()) {
-        ReturnInst::Create(ctx, ConstantInt::get(rt, 0), bb);
-      }
-    }
-  }
-#endif
-
   outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;
 }
@@ -1179,6 +1157,14 @@ int main(int argc, char **argv, char **envp) {
   IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
   IOpts.verbose = Verbose;
   IOpts.verify_constraints = VerifyConstraints;
+
+  if (TraceBBlocks) {
+    IOpts.trace = TraceType::bblocks;
+  } else if (TraceAssembly) {
+    IOpts.trace = TraceType::assembly;
+  } else if (TraceStatements) {
+    IOpts.trace = TraceType::statements;
+  }
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);

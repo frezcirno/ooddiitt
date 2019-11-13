@@ -10,6 +10,7 @@
 #define KLEE_INTERPRETER_H
 
 #include "TestCase.h"
+#include "klee/util/CommonUtil.h"
 
 #include <vector>
 #include <string>
@@ -156,6 +157,7 @@ public:
     size_t user_mem_size;
     bool verbose;
     bool verify_constraints;
+    TraceType trace;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
@@ -170,7 +172,8 @@ public:
 #else
         verbose(false),
 #endif
-        verify_constraints(false)
+        verify_constraints(false),
+        trace(TraceType::none)
     {}
   };
 

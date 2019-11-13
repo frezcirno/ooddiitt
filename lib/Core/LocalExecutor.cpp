@@ -83,9 +83,6 @@ cl::opt<unsigned> LazyAllocationDepth("lazy-allocation-depth", cl::init(4), cl::
 cl::opt<unsigned> LazyAllocationExt("lazy-allocation-ext", cl::init(0), cl::desc("number of lazy allocations to include existing memory objects of same type"));
 cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("Number of loop iterations"));
 cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
-cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
-cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
-cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
@@ -348,7 +345,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   if (isa<ConstantExpr>(offsetExpr)) {
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
-    if (offset + bytes > os->visible_size) {
+    if (offset + bytes - 1 > os->visible_size) {
       terminateStateOnFault(*currState, target, "read OoB const offset");
       return false;
     }
@@ -1263,12 +1260,11 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   ProgramTracer *tracer = nullptr;
-  if (TraceBBlocks) {
-//    if (interpreterOpts.userFns != nullptr) tracer = new BBlocksTracer(kmodule, interpreterOpts.userFns);
+  if (interpreterOpts.trace == TraceType::bblocks) {
     tracer = new BBlocksTracer(kmodule);
-  } else if (TraceAssembly) {
+  } else if (interpreterOpts.trace == TraceType::assembly) {
     tracer = new AssemblyTracer;
-  } else if (TraceStatements) {
+  } else if (interpreterOpts.trace == TraceType::statements) {
     tracer = new StatementTracer;
   }
 

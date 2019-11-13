@@ -17,6 +17,7 @@
 #include <sstream>
 #include <iomanip>
 #include <boost/endian/conversion.hpp>
+#include "klee/util/CommonUtil.h"
 
 typedef std::chrono::system_clock sys_clock;
 
@@ -24,7 +25,7 @@ namespace klee {
 
 class TestObject {
 public:
-  TestObject(std::string _addr, unsigned _count, std::string _data, unsigned _kind, std::string _name, std::string _type) :
+  TestObject(std::string _addr, unsigned _count, std::string _data, MemKind _kind, std::string _name, std::string _type) :
     count(_count), kind(_kind), name(_name), type(_type) {
 
     std::stringstream ss(_addr);
@@ -36,7 +37,7 @@ public:
   uintptr_t addr;
   unsigned count;
   std::vector<unsigned char> data;
-  int kind;
+  MemKind kind;
   std::string name;
   std::string type;
 
@@ -65,11 +66,19 @@ public:
 class TestCase {
 public:
 
-  TestCase() : arg_c(0), lazy_alloc_count(0), max_lazy_depth(0), max_loop_forks(0), max_loop_iter(0), test_id(UINT_MAX) {}
+  TestCase() : arg_c(0),
+               lazy_alloc_count(0),
+               max_lazy_depth(0),
+               max_loop_forks(0),
+               max_loop_iter(0),
+               status(StateStatus::Invalid),
+               test_id(UINT_MAX),
+               trace_type(TraceType::none) {}
   bool is_ready() { return test_id != UINT_MAX; }
 
   int arg_c;
   std::string arg_v;
+  std::string module_name;
   std::string entry_fn;
   std::string klee_version;
   unsigned lazy_alloc_count;
@@ -78,20 +87,13 @@ public:
   unsigned max_loop_iter;
   std::string message;
   std::string path_condition_vars;
-  int status;
+  StateStatus status;
   unsigned test_id;
   sys_clock::time_point start;
   sys_clock::time_point stop;
+  TraceType trace_type;
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;
-
-  static int fromStatusString(const std::string &str)  {
-    static const std::vector<std::string> statusStrings = { "pending",  "completed",  "faulted",  "early", "error", "decimate",  "discard" };
-    auto itr = std::find(statusStrings.begin(), statusStrings.end(), str);
-    if (itr != statusStrings.end()) return std::distance(statusStrings.begin(), itr);
-    return statusStrings.size();
-  }
-
 };
 
 }

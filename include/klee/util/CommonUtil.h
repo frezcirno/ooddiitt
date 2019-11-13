@@ -29,6 +29,13 @@ enum MemKind {
   lazy
 };
 
+enum TraceType {
+  none,
+  bblocks,
+  assembly,
+  statements
+};
+
 sys_clock::time_point to_time_point(const std::string &str);
 std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
