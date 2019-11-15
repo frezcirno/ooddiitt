@@ -41,7 +41,7 @@ public:
   std::string name;
   std::string type;
 
-  void fromDataString(std::vector<unsigned char> &data, const std::string &str) const {
+static void fromDataString(std::vector<unsigned char> &data, const std::string &str) {
 
     assert(str.size() % 2 == 0);
     data.clear();
@@ -92,6 +92,7 @@ public:
   sys_clock::time_point start;
   sys_clock::time_point stop;
   TraceType trace_type;
+  std::vector<uint64_t> arguments;
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;
 };

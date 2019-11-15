@@ -36,6 +36,7 @@ class MemoryObject;
 class KModule;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
+typedef SymbolicSolution ConcreteSolution;
 
 #define HEARTBEAT_INTERVAL   (10)        // secs
 #define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
@@ -68,7 +69,7 @@ public:
   virtual std::string getModuleName() const { return ""; }
   virtual unsigned getNumTestCases() const { return 0; }
 
-  virtual void incPathsExplored() = 0;
+  virtual void incPathsExplored() {}
   virtual void incTermination(const std::string &message) {}
   virtual void getTerminationMessages(std::vector<std::string> &messages) {};
   virtual unsigned getTerminationCount(const std::string &message) { return 0; }
@@ -106,16 +107,20 @@ public:
     bool CheckDivZero;
     bool CheckOvershift;
     bool verbose;
+    std::set<llvm::Function*> *user_fns;
+    std::set<llvm::GlobalVariable*> *user_gbs;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
         CheckOvershift(false),
 #ifdef _DEBUG
-        verbose(true)
+        verbose(true),
 #else
-        verbose(false)
+        verbose(false),
 #endif
+        user_fns(nullptr),
+        user_gbs(nullptr)
       {}
   };
 
@@ -129,8 +134,10 @@ public:
 
   enum ExecModeID {
       none, // undefined
-      igen,  // interpreter should execute module for cbert input generation
+      prep,
+      igen, // interpreter should execute module for cbert input generation
       rply, // interpreter should execute module for cbert replay
+      irec  // record snapshot at a function entry
   };
 
   struct ProgressionDesc {
@@ -151,8 +158,7 @@ public:
     std::vector<ProgressionDesc> progression;
     ExecModeID mode;
     llvm::Function *userMain;
-    std::set<std::string> *userFns;
-    std::set<std::string> *userGlobals;
+    llvm::Function *userSnapshot;
     void *user_mem_base;
     size_t user_mem_size;
     bool verbose;
@@ -163,8 +169,7 @@ public:
       : MakeConcreteSymbolic(0),
         mode(Interpreter::none),
         userMain(nullptr),
-        userFns(nullptr),
-        userGlobals(nullptr),
+        userSnapshot(nullptr),
         user_mem_base(nullptr),
         user_mem_size(0),
 #ifdef _DEBUG
@@ -227,9 +232,9 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
-  virtual void runFunctionUnconstrained(llvm::Function *f) { };
-
+  virtual void runFunctionUnconstrained(llvm::Function *fn) { };
   virtual void runFunctionTestCase(const TestCase &test) {};
+  virtual void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) {};
 
   /*** Runtime options ***/
 
@@ -248,6 +253,8 @@ public:
   virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = STP) = 0;
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
+  virtual bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<uint64_t> &args)
+      { return false; };
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }

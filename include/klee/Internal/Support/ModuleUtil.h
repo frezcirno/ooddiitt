@@ -41,9 +41,9 @@ namespace klee {
   /// terminates in a direct call).
   bool functionEscapes(const llvm::Function *f);
 
-  void enumModuleFunctions(const llvm::Module *m, std::set<std::string> &names);
-  void enumModuleGlobals(const llvm::Module *m, std::set<std::string> &names);
-  void testFunctionPointers(llvm::Module *m, const std::set<std::string> &names);
+  void enumModuleFunctions(llvm::Module *m, std::set<llvm::Function*> &fns);
+  void enumModuleGlobals(llvm::Module *m, std::set<llvm::GlobalVariable*> &gbs);
+  void testFunctionPointers(llvm::Module *m, std::set<llvm::Function*> &fns);
 
 }
 

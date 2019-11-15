@@ -6,20 +6,19 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(brt-klee main.cpp jsoncpp.cpp)
+add_executable(brt-igen main.cpp jsoncpp.cpp)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
-  message(FATAL_ERROR "brt-klee requires at least LLVM version 3.4")
+  message(FATAL_ERROR "brt-igen requires at least LLVM version 3.4")
 endif()
 
 set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(brt-klee ${KLEE_LIBS} ${Boost_LIBRARIES} crypto)
+target_link_libraries(brt-igen ${KLEE_LIBS} ${Boost_LIBRARIES})
 
+install(TARGETS brt-igen RUNTIME DESTINATION bin)
 
-install(TARGETS brt-klee RUNTIME DESTINATION bin)
-
-# The BRT-KLEE binary depends on the runtimes
-add_dependencies(brt-klee BuildKLEERuntimes)
+# The brt-igen binary depends on the runtimes
+add_dependencies(brt-igen BuildKLEERuntimes)

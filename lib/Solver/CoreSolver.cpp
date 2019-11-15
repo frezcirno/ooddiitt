@@ -67,7 +67,6 @@ Solver *createCoreSolver(CoreSolverType cst) {
   switch (cst) {
   case STP_SOLVER:
 #ifdef ENABLE_STP
-  llvm::outs() << "Using STP solver backend\n";
     {
       // tired of forgetting to manually remove stack limits
       struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
@@ -92,7 +91,6 @@ Solver *createCoreSolver(CoreSolverType cst) {
     return createDummySolver();
   case Z3_SOLVER:
 #ifdef ENABLE_Z3
-    llvm::outs() << "Using Z3 solver backend\n";
     return new Z3Solver();
 #else
     klee_message("Not compiled with Z3 support");

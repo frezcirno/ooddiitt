@@ -224,8 +224,13 @@ protected:
 
   // Given a concrete object in our [klee's] address space, add it to
   // objects checked code can reference.
-  MemoryObject *addExternalObject(ExecutionState &state, void *addr,
-                                  unsigned size, bool isReadOnly);
+  MemoryObject *addExternalObject(ExecutionState &state,
+                                  const void *addr,
+                                  unsigned size,
+                                  const llvm::Type *type,
+                                  const llvm::Value *allocSite,
+                                  unsigned align,
+                                  bool isReadOnly = false);
 
   void initializeGlobalObject(ExecutionState &state, ObjectState *os,
 			      const llvm::Constant *c,

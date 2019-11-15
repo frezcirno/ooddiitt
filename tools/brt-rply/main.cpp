@@ -59,7 +59,6 @@ using namespace klee;
 using namespace std;
 
 namespace {
-
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
@@ -68,32 +67,21 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-klee-tmp"));
-  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
 }
 
 /***/
 
-class ReplayKleeHandler : public InterpreterHandler {
+class RecordKleeHandler : public InterpreterHandler {
 private:
-  unsigned casesGenerated;
   string indentation;
-  unsigned m_pathsExplored; // number of paths explored so far
-  pid_t pid_watchdog;
-
   boost::filesystem::path outputDirectory;
-  map<string,unsigned> terminationCounters;
   string md_name;
   vector<ExecutionState*> &results;
 
 public:
-  ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
-  ~ReplayKleeHandler();
-
-  unsigned getNumTestCases() const override { return casesGenerated; }
-
-  unsigned getNumPathsExplored() { return m_pathsExplored; }
-  void incPathsExplored() override { m_pathsExplored++; }
+  RecordKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
+  ~RecordKleeHandler();
 
   void setInterpreter(Interpreter *i) override;
 
@@ -109,27 +97,12 @@ public:
   llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
   llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
 
-  bool resetWatchDogTimer() const override;
-  void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
-
-  // load a .path file
-  static void loadPathFile(string name, vector<bool> &buffer);
-  static void getKTestFilesInDir(string directoryPath,
-                                 vector<string> &results);
-
   static string getRunTimeLibraryPath(const char *argv0);
-
-  void incTermination(const string &message) override;
-  void getTerminationMessages(vector<string> &messages) override;
-  unsigned getTerminationCount(const string &message) override;
 
 };
 
-ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
-  : casesGenerated(0),
-    indentation(""),
-    m_pathsExplored(0),
-    pid_watchdog(0),
+RecordKleeHandler::RecordKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
+  : indentation(""),
     outputDirectory(Output),
     results(_results) {
 
@@ -146,23 +119,21 @@ ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const st
   if (IndentJson) indentation = "  ";
 }
 
-ReplayKleeHandler::~ReplayKleeHandler() {
+RecordKleeHandler::~RecordKleeHandler() {
 }
 
-void ReplayKleeHandler::setInterpreter(Interpreter *i) {
-
+void RecordKleeHandler::setInterpreter(Interpreter *i) {
   InterpreterHandler::setInterpreter(i);
-
 }
 
-string ReplayKleeHandler::getOutputFilename(const string &filename) {
+string RecordKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, bool overwrite) {
+llvm::raw_fd_ostream *RecordKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
   string Error;
   string path = getOutputFilename(filename);
@@ -188,17 +159,17 @@ llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, 
   return f;
 }
 
-string ReplayKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
+string RecordKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
   stringstream filename;
   filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *ReplayKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
+llvm::raw_fd_ostream *RecordKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-ostream *ReplayKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
+ostream *RecordKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
   ofstream *result = nullptr;
   string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
@@ -212,7 +183,7 @@ ostream *ReplayKleeHandler::openTestCaseFile(const string &prefix, unsigned test
   return result;
 }
 
-string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const {
+string RecordKleeHandler::toDataString(const vector<unsigned char> &data) const {
 
   stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
@@ -226,112 +197,12 @@ string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const 
   return bytes.str();
 }
 
-void ReplayKleeHandler::processTestCase(ExecutionState &state) {
+void RecordKleeHandler::processTestCase(ExecutionState &state) {
 
   results.push_back(new ExecutionState(state));
-
-#if 0 == 1
-  assert(!ReplayTest.empty());
-  boost::filesystem::path output = outputDirectory;
-  output /= ReplayTest;
-  string fname = output.string();
-  boost::filesystem::path infile(InputFile);
-  boost::replace_all(fname, "test", infile.stem().string());
-
-  ofstream fout(fname);
-  if (fout.is_open()) {
-    Json::Value root = Json::objectValue;
-    // construct the json object representing the results of the test case
-
-    if (state.name == "toarith") {
-
-      const MemoryObject *mo_ptr_v = state.addressSpace.findMemoryObjectByName("*v");
-      const MemoryObject *mo_ptr_ptr_v = state.addressSpace.findMemoryObjectByName("**v");
-
-      if (mo_ptr_v != nullptr) {
-        const ObjectState *os = state.addressSpace.findObject(mo_ptr_v);
-        if (os != nullptr) {
-          vector<unsigned char> data;
-          os->readConcrete(0, data);
-          root["*v"] = toDataString(data);
-        }
-      }
-
-      if (mo_ptr_ptr_v != nullptr) {
-        const ObjectState *os = state.addressSpace.findObject(mo_ptr_ptr_v);
-        if (os != nullptr) {
-          vector<unsigned char> data;
-          os->readConcrete(0, data);
-          root["**v"] = toDataString(data);
-        }
-      }
-    } else if (state.name == "set_fields") {
-
-      const MemoryObject *mo_max_range = state.addressSpace.findMemoryObjectByName("max_range_endpoint");
-      if (mo_max_range != nullptr) {
-        const ObjectState *os = state.addressSpace.findObject(mo_max_range);
-        if (os != nullptr) {
-          vector<unsigned char> data;
-          os->readConcrete(0, data);
-          root["max_range_endpoint"] = toDataString(data);
-        }
-      }
-    }
-
-    if (!state.line_trace.empty()) {
-      Json::Value &trace = root["trace"] = Json::arrayValue;
-      for (const unsigned line : state.line_trace) {
-        trace.append(line);
-      }
-    }
-
-    Json::StreamWriterBuilder builder;
-    builder["commentStyle"] = "None";
-    builder["indentation"] = indentation;
-    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-
-    writer.get()->write(root, &fout);
-    fout << endl;
-    fout.flush();
-  }
-#endif
 }
 
-  // load a .path file
-void ReplayKleeHandler::loadPathFile(string name, vector<bool> &buffer) {
-  ifstream f(name.c_str(), ios::in | ios::binary);
-
-  if (!f.good())
-    assert(0 && "unable to open path file");
-
-  while (f.good()) {
-    unsigned value;
-    f >> value;
-    buffer.push_back(!!value);
-    f.get();
-  }
-}
-
-void ReplayKleeHandler::getKTestFilesInDir(string directoryPath,
-                                     vector<string> &results) {
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  llvm::error_code ec;
-#else
-  error_code ec;
-#endif
-  for (llvm::sys::fs::directory_iterator i(directoryPath, ec), e; i != e && !ec;
-       i.increment(ec)) {
-    string f = (*i).path();
-    if (f.substr(f.size()-6,f.size()) == ".ktest") {
-          results.push_back(f);
-    }
-  }
-  if (ec) {
-    klee_error("ERROR: unable to read output directory: %s, error=%s", directoryPath.c_str(), ec.message().c_str());
-  }
-}
-
-string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
+string RecordKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -377,33 +248,6 @@ string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
                        libDir.c_str() << "\n");
   return libDir.str();
 }
-
-bool ReplayKleeHandler::resetWatchDogTimer() const {
-
-  // signal the watchdog process
-  if (pid_watchdog != 0) {
-    kill(pid_watchdog, SIGUSR1);
-    errs() << "BRT-KLEE: " << currentISO8601TimeUTC() << ": txed reset signal\n";
-    return true;
-  }
-  return false;
-}
-
-void ReplayKleeHandler::incTermination(const string &message) {
-  ++terminationCounters[message];
-}
-
-void ReplayKleeHandler::getTerminationMessages(vector<string> &messages) {
-
-  for (const auto &pr : terminationCounters) {
-    messages.push_back(pr.first);
-  }
-}
-
-unsigned ReplayKleeHandler::getTerminationCount(const string &message) {
-  return terminationCounters[message];
-}
-
 
 //===----------------------------------------------------------------------===//
 // main Driver function
@@ -451,10 +295,6 @@ static void interrupt_handle() {
   }
 }
 
-static void interrupt_handle_watchdog() {
-  // just wait for the child to finish
-}
-
 size_t compare_traces(const vector<unsigned> &test_trace, const deque<unsigned> &state_trace, size_t length) {
 
   auto itr_t = test_trace.begin();
@@ -494,6 +334,18 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
 
+  Json::Value &args = root["arguments"];
+  if (args.isArray()) {
+    test.arguments.reserve(args.size());
+    for (unsigned idx = 0, end = args.size(); idx < end; ++idx) {
+      string value = args[idx].asString();
+      vector<unsigned char> bytes;
+      TestObject::fromDataString(bytes, value);
+      uint64_t v = *((uint64_t*) bytes.data());
+      test.arguments.push_back(v);
+    }
+  }
+
   test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
@@ -519,25 +371,6 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-volatile bool reset_watchdog_timer = false;
-
-static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care_either) {
-  if (signal == SIGUSR1) {
-    reset_watchdog_timer = true;
-    errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": rxed reset signal\n";
-  }
-}
-
-void enumModuleFunctions(const Module *m, set<string> &names) {
-
-  names.clear();
-  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
-    if (itr->isDeclaration() && !itr->use_empty()) {
-      names.insert(itr->getName());
-    }
-  }
-}
-
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -545,98 +378,8 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
-  exit_code = 0;
-
-  pid_t pid_watchdog = 0;
-  if (Watchdog > 0) {
-
-    int pid = fork();
-    if (pid < 0) {
-      klee_error("unable to fork watchdog");
-    } else if (pid > 0) {
-      reset_watchdog_timer = false;
-      sys::SetInterruptFunction(interrupt_handle_watchdog);
-
-      // catch SIGUSR1
-      struct sigaction sa;
-      memset(&sa, 0, sizeof(sa));
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = SA_NODEFER;
-      sa.sa_sigaction = handle_usr1_signal;
-      sigaction(SIGUSR1, &sa, nullptr);
-
-      MonotonicTimer timer;
-      const unsigned tid_watchdog = 1;
-      timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
-
-      // Simple stupid code...
-      while (true) {
-        sleep(1);
-
-        int status;
-        int res = waitpid(pid, &status, WNOHANG);
-
-        if (res < 0) {
-          if (errno==ECHILD) { // No child, no need to watch but
-                               // return error since we didn't catch
-                               // the exit.
-            errs() << "KLEE: watchdog exiting (no child)\n";
-            return 1;
-          } else if (errno!=EINTR) {
-            perror("watchdog waitpid");
-            exit(1);
-          }
-        } else if (res==pid && WIFEXITED(status)) {
-          return WEXITSTATUS(status);
-        } else {
-
-          unsigned expired = timer.expired();
-          if (reset_watchdog_timer) {
-
-            timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
-            reset_watchdog_timer = false;
-
-          } else if (expired == tid_watchdog) {
-
-            unsigned tries = 0;
-
-            // Ideally this triggers a dump, which may take a while,
-            // so try and give the process extra time to clean up.
-            while (tries <= 2) {
-
-              tries += 1;
-              errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": timer expired, attempting halt via INT(" << tries << ")\n";
-              kill(-pid, SIGINT);
-
-              for (unsigned counter = 0; counter < 30; counter++) {
-                sleep(1);
-                res = waitpid(pid, &status, WNOHANG);
-                if (res < 0) {
-                  return 1;
-                } else if (res==pid && WIFEXITED(status)) {
-                  return WEXITSTATUS(status);
-                }
-              }
-            }
-
-            errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": kill(9)ing child (I did ask nicely)\n";
-            kill(-pid, SIGKILL);
-            return 1; // what more can we do
-          }
-        }
-      }
-      return 0;
-    }
-  }
-
-  // create our own process group
-  setpgid(0, 0);
   sys::SetInterruptFunction(interrupt_handle);
-
-  if (Watchdog > 0) {
-    // then this is the forked child
-    pid_watchdog = getppid();
-  }
+  exit_code = 0;
 
   // write out command line info, for reference
   if (!outs().is_displayed()) {
@@ -681,7 +424,6 @@ int main(int argc, char **argv, char **envp) {
   MOpts.CheckOvershift = false;
 
   string ErrorMsg;
-  LLVMContext ctx;
   llvm::error_code ec;
   vector<ExecutionState*> ex_states;
 
@@ -700,7 +442,8 @@ int main(int argc, char **argv, char **envp) {
     klee_error("error loading program '%s': %s", InputFile1.c_str(), ec.message().c_str());
   }
 
-  mainModule1 = getLazyBitcodeModule(BufferPtr1.get(), ctx, &ErrorMsg);
+  LLVMContext ctx1;
+  mainModule1 = getLazyBitcodeModule(BufferPtr1.get(), ctx1, &ErrorMsg);
 
   if (mainModule1) {
     if (mainModule1->MaterializeAllPermanently(&ErrorMsg)) {
@@ -709,13 +452,12 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  // RLR TODO: verify module is from brt-klee
+  // RLR TODO: verify module is from brt-prep
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
 
-  ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
-  handler1->setWatchDog(pid_watchdog);
+  RecordKleeHandler *handler1 = new RecordKleeHandler(ex_states, mainModule1->getModuleIdentifier());
 
-  Interpreter *interpreter1 = Interpreter::createLocal(ctx, IOpts, handler1);
+  Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
   handler1->setInterpreter(interpreter1);
   const Module *finalModule1 = interpreter1->setModule(mainModule1, MOpts);
 
@@ -737,7 +479,7 @@ int main(int argc, char **argv, char **envp) {
   version1.state = ex_states.front();
   ex_states.clear();
 
-  if (handler1->getModuleName() == test.module_name) {
+  if (test.status != StateStatus::Snapshot && handler1->getModuleName() == test.module_name) {
     size_t index = compare_traces(test.trace, version1.state->trace, test_trace_length);
     if (index != UINT64_MAX) {
       errs() << "replay diverged at index " << index << '\n';
@@ -764,7 +506,8 @@ int main(int argc, char **argv, char **envp) {
       klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
     }
 
-    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx, &ErrorMsg);
+    LLVMContext ctx2;
+    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx2, &ErrorMsg);
     if (mainModule2) {
       if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
         delete mainModule2;
@@ -772,13 +515,12 @@ int main(int argc, char **argv, char **envp) {
       }
     }
 
-    // RLR TODO: verify module is from brt-klee
+    // RLR TODO: verify module is from brt-prep
     if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
 
-    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
-    handler2->setWatchDog(pid_watchdog);
+    RecordKleeHandler *handler2 = new RecordKleeHandler(ex_states, mainModule2->getModuleIdentifier());
 
-    Interpreter *interpreter2 = Interpreter::createLocal(ctx, IOpts, handler2);
+    Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
     handler2->setInterpreter(interpreter2);
     const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
 

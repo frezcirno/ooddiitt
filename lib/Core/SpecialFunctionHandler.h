@@ -122,6 +122,7 @@ namespace klee {
     HANDLER(handleIsSymbolic);
     HANDLER(handleMakeSymbolic);
     HANDLER(handleMalloc);
+    HANDLER(handleMemset);
     HANDLER(handleMarkGlobal);
     HANDLER(handleMerge);
     HANDLER(handleNew);

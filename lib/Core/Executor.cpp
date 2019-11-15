@@ -413,18 +413,20 @@ const Module *Executor::setModule(llvm::Module *module,
   specialFunctionHandler = new SpecialFunctionHandler(*this);
 
   specialFunctionHandler->prepare();
-  kmodule->prepare(opts, interpreterHandler);
+  kmodule->prepare(opts, interpreterHandler, interpreterOpts.mode == ExecModeID::prep);
   specialFunctionHandler->bind();
 
   std::set<const llvm::Function*> spcs;
   specialFunctionHandler->getSpecialFns(spcs);
   kmodule->addIntenalFunctions(spcs);
 
-  if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
-    std::string filename = interpreterHandler->getModuleName() + ".ll";
-    statsTracker = new StatsTracker(*this,
-                                    interpreterHandler->getOutputFilename(filename),
-                                    userSearcherRequiresMD2U());
+  if (interpreterOpts.mode == ExecModeID::igen) {
+    if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
+      std::string filename = interpreterHandler->getModuleName() + ".ll";
+      statsTracker = new StatsTracker(*this,
+                                      interpreterHandler->getOutputFilename(filename),
+                                      userSearcherRequiresMD2U());
+    }
   }
   return module;
 }
@@ -505,18 +507,22 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os,
 }
 
 MemoryObject * Executor::addExternalObject(ExecutionState &state,
-                                           void *addr, unsigned size,
+                                           const void *addr,
+                                           unsigned size,
+                                           const Type *type,
+                                           const Value *site,
+                                           unsigned align,
                                            bool isReadOnly) {
-  MemoryObject *mo = memory->allocateFixed((uint64_t) (unsigned long) addr,
-                                           size, 0);
+
+//  MemoryObject *mo = memory->allocateFixed((uint64_t) addr, size, 0);
+  MemoryObject *mo = memory->allocate(size, type, MemKind::external, site, align);
   ObjectState *os = bindObjectInState(state, mo);
-  for(unsigned i = 0; i < size; i++)
-    os->write8(i, ((uint8_t*)addr)[i]);
-  if(isReadOnly)
-    os->setReadOnly(true);
+  for(unsigned i = 0; i < size; i++) {
+    os->write8(i, ((uint8_t *) addr)[i]);
+  }
+  if (isReadOnly) os->setReadOnly(true);
   return mo;
 }
-
 
 extern void *__dso_handle __attribute__ ((__weak__));
 
@@ -562,6 +568,9 @@ void Executor::initializeGlobals(ExecutionState &state) {
 #ifdef HAVE_CTYPE_EXTERNALS
 #ifndef WINDOWS
 #ifndef DARWIN
+
+#if 0 == 1
+
   /* From /usr/include/errno.h: it [errno] is a per-thread variable. */
   int *errno_addr = __errno_location();
   addExternalObject(state, (void *)errno_addr, sizeof *errno_addr, false);
@@ -584,6 +593,8 @@ void Executor::initializeGlobals(ExecutionState &state) {
   addExternalObject(state, const_cast<int32_t*>(*upper_addr-128),
                     384 * sizeof **upper_addr, true);
   addExternalObject(state, upper_addr, sizeof(*upper_addr), true);
+#endif
+
 #endif
 #endif
 #endif
@@ -3203,7 +3214,7 @@ void Executor::executeAlloc(ExecutionState &state,
     return;
   }
   size_t allocAlignment = getAllocationAlignment(target->inst);
-  MemoryObject *mo = memory->allocate(allocSize, nullptr, kind, target->inst, allocAlignment);
+  MemoryObject *mo = memory->allocate(allocSize, Type::getInt8PtrTy(getGlobalContext()), kind, target->inst, allocAlignment);
   if (mo == nullptr) {
     bindLocal(target, state, ConstantExpr::createPointer(0));
     return;

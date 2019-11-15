@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <klee/pg-klee.h>
 
+int my_global;
+
 int main(int argc, char *argv[]) {
 
   klee_message(argv[0]);

@@ -6,5 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_subdirectory(brt-klee)
-add_subdirectory(brt-replay)
+add_subdirectory(brt-prep)
+add_subdirectory(brt-igen)
+add_subdirectory(brt-rply)
+add_subdirectory(brt-rcrd)

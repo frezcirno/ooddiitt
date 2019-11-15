@@ -8,6 +8,7 @@ typedef std::chrono::system_clock sys_clock;
 namespace klee {
 
 enum StateStatus {
+  Invalid,
   Pending,
   Completed,
   Faulted,
@@ -15,12 +16,12 @@ enum StateStatus {
   TerminateError,
   Decimated,
   TerminateDiscard,
-  Invalid
+  Snapshot
 };
 
 enum MemKind {
   invalid,
-  fixed,
+  external,
   global,
   param,
   alloca_l,

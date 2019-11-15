@@ -94,7 +94,7 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t us
 MemoryManager::~MemoryManager() {
   while (!objects.empty()) {
     MemoryObject *mo = *objects.begin();
-    if (!mo->isFixed() && !DeterministicAllocation)
+    if (!DeterministicAllocation)
       free((void *) (mo->address));
     objects.erase(mo);
     delete mo;
@@ -159,10 +159,12 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
 
   ++stats::allocations;
   MemoryObject *res = new MemoryObject(address, size, alignment, type, kind, allocSite, this);
+  res->count = 1;
   objects.insert(res);
   return res;
 }
 
+#if 0 == 1
 MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
                                            const llvm::Value *allocSite) {
 #ifndef NDEBUG
@@ -179,6 +181,7 @@ MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
   objects.insert(res);
   return res;
 }
+#endif
 
 MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment) {
 
@@ -194,7 +197,7 @@ MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type 
 
 void MemoryManager::markFreed(MemoryObject *mo) {
   if (objects.find(mo) != objects.end()) {
-    if (!mo->isFixed() && !DeterministicAllocation)
+    if (!DeterministicAllocation)
       free((void *) (mo->address));
     objects.erase(mo);
   }

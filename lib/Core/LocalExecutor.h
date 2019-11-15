@@ -49,8 +49,10 @@ public:
   const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
-  void runFunctionUnconstrained(llvm::Function *f) override;
+  void runFunctionUnconstrained(llvm::Function *fn) override;
   void runFunctionTestCase(const TestCase &test) override;
+  void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) override;
+
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 
   void setPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated path writer"); }
@@ -144,6 +146,8 @@ protected:
                              enum TerminateReason termReason,
                              const char *suffix = nullptr,
                              const llvm::Twine &longMessage = "") override;
+
+  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, std::vector<uint64_t> &args) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void checkMemoryFnUsage(KFunction *kf = nullptr);

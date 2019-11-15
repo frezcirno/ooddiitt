@@ -59,8 +59,6 @@ namespace {
   };
 
   cl::list<string> MergeAtExit("merge-at-exit");
-  cl::opt<bool> OutputSource("output-source", cl::desc("Write the assembly for the final transformed source"), cl::init(false));
-  cl::opt<bool> OutputModule("output-module", cl::desc("Write the bitcode for the final transformed module"), cl::init(true));
   cl::opt<SwitchImplType>
   SwitchType("switch-type", cl::desc("Select the implementation of switch"),
              cl::values(clEnumValN(eSwitchTypeSimple, "simple",
@@ -202,19 +200,9 @@ static set<string> never_stub = {
     "strstr"
 };
 
-void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih) {
+void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, bool build) {
 
   LLVMContext &ctx = module->getContext();
-
-  bool need_preparation = true;
-  SmallVector<StringRef,4> lst_metadata;
-  module->getMDKindNames(lst_metadata);
-  for (const auto &itm : lst_metadata) {
-    if (itm.str() == "brt-klee.fnID") {
-      need_preparation = false;
-      break;
-    }
-  }
 
   // gather a list of original module functions
   set<const Function*> orig_functions;
@@ -226,7 +214,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
   }
 
-  if (need_preparation) {
+  if (build) {
     if (!MergeAtExit.empty()) {
       Function *mergeFn = module->getFunction("klee_merge");
       if (!mergeFn) {
@@ -335,20 +323,36 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       pm.run(*module);
     }
 
-    if (OutputSource) {
-      if (llvm::raw_fd_ostream *os = ih->openOutputAssembly()) {
-        *os << *module;
-        delete os;
+    if (opts.user_fns != nullptr) {
+      vector<Value*> values;
+      values.reserve(opts.user_fns->size());
+      for (auto fn : *opts.user_fns) {
+        values.push_back(fn);
+        user_fns.insert(fn);
       }
+      MDNode *Node = MDNode::get(getGlobalContext(), values);
+      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_fns");
+      NMD->addOperand(Node);
+    }
+    if (opts.user_gbs != nullptr) {
+      vector<Value*> values;
+      values.reserve(opts.user_gbs->size());
+      for (auto gb : *opts.user_gbs) {
+        values.push_back(gb);
+        user_gbs.insert(gb);
+      }
+      MDNode *Node = MDNode::get(getGlobalContext(), values);
+      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_gbs");
+      NMD->addOperand(Node);
     }
 
-    if (OutputModule) {
-      if (llvm::raw_fd_ostream *os = ih->openOutputBitCode()) {
-        WriteBitcodeToFile(module, *os);
-        delete os;
-      }
+    if (llvm::raw_fd_ostream *os = ih->openOutputBitCode()) {
+      WriteBitcodeToFile(module, *os);
+      delete os;
     }
   } else {
+
+    // module has already been prepared, need to retrieve prepared values
 
     // since markers are already assigned, need to retrieve them from the module
     unsigned mdkind_fnID = module->getMDKindID("brt-klee.fnID");
@@ -371,6 +375,31 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         }
       }
     }
+
+    // read out the user defined functions from metadata
+    auto node = module->getNamedMetadata("brt-klee.usr_fns");
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        Value *v = md->getOperand(idx);
+        if (Function *fn = dyn_cast<Function>(v)) {
+          user_fns.insert(fn);
+        }
+      }
+    }
+
+    // and now the globals
+    node = module->getNamedMetadata("brt-klee.usr_gbs");
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        Value *v = md->getOperand(idx);
+        if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
+          user_gbs.insert(gb);
+        }
+      }
+    }
+
   }
 
   kleeMergeFn = module->getFunction("klee_merge");
@@ -437,7 +466,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
   TypeFinder typeFinder;
   typeFinder.run(*module, false);
   for (auto type : typeFinder) {
-    mapTypeDescs[to_string(type)] = type;
+    insertTypeDesc(type);
   }
 
   // add primative and integer types to map
@@ -475,6 +504,23 @@ llvm::Type *KModule::getEquivalentType(const std::string &desc) const {
   if (itr != mapTypeDescs.end()) {
     return itr->second;
   }
+
+  if (desc.front() == '[' && desc.back() == ']') {
+    size_t pos = desc.find('x');
+    if (pos != string::npos) {
+      string count = desc.substr(1, pos - 2);
+      string type = desc.substr(pos + 2, desc.size() - pos - 3);
+      Type *ele_type = getEquivalentType(type);
+      if (ele_type != nullptr) return ArrayType::get(ele_type, stoul(count));
+      return nullptr;
+    }
+  } else if (desc.back() == '*') {
+    string type = desc.substr(0, desc.size() - 1);
+    Type *ele_type = getEquivalentType(type);
+    if (ele_type != nullptr) return PointerType::get(ele_type, 0);
+    return nullptr;
+  }
+
   klee_warning("unrecognized type description: %s", desc.c_str());
   return nullptr;
 }
@@ -543,13 +589,14 @@ static int getOperandNum(Value *v,
   }
 }
 
-KFunction::KFunction(llvm::Function *_function,
-                     KModule *km)
+KFunction::KFunction(llvm::Function *_function, KModule *km)
   : function(_function),
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
-    trackCoverage(true) {
+    trackCoverage(true),
+    is_user(false) {
 
+  is_user = km->isUserFunction(function);
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
     basicBlockEntry[bb] = numInstructions;

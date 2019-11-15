@@ -159,39 +159,6 @@ private:
 
 public:
 
-  std::string get_status() const {
-    std::string result = "unknown";
-    switch (status) {
-    case Pending: result = "pending"; break;
-    case Completed: result = "completed"; break;
-    case Faulted: result = "faulted"; break;
-    case TerminateEarly: result = "early"; break;
-    case TerminateError: result = "error"; break;
-    case Decimated: result = "decimate"; break;
-    case TerminateDiscard: result = "discard"; break;
-    case Invalid: result = "invalid"; break;
-    }
-    return result;
-  }
-
-  static StateStatus to_status(std::string &str) {
-    StateStatus result = StateStatus::Invalid;
-    static std::map<std::string,StateStatus> lookup =
-        {
-          {"pending", Pending},
-          {"completed", Completed},
-          {"faulted", Faulted},
-          {"early", TerminateEarly},
-          {"error", TerminateError},
-          {"decimate", Decimated},
-          {"discard", TerminateDiscard},
-        };
-    const auto &pr = lookup.find(str);
-    if (pr != lookup.end()) result = pr->second;
-    return result;
-  }
-
-
   void restartInstruction() { pc = prevPC; }
 
   // Execution - Control Flow specific

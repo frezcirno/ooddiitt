@@ -98,6 +98,13 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   sysModel(nullptr) {
 
   switch (opts.mode) {
+    case ExecModeID::prep:
+      doSaveFault = false;
+      doAssumeInBounds = false;
+      doLocalCoverage = false;
+      doConcreteInterpretation = false;
+      doModelStdOutput = true;
+      break;
     case ExecModeID::igen:
       doSaveFault = false;
       doAssumeInBounds = true;
@@ -111,6 +118,13 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       doLocalCoverage = false;
       doConcreteInterpretation = true;
       doModelStdOutput = false;
+      break;
+    case ExecModeID::irec:
+      doSaveFault = false;
+      doAssumeInBounds = false;
+      doLocalCoverage = false;
+      doConcreteInterpretation = true;
+      doModelStdOutput = true;
       break;
     default:
       klee_error("invalid execution mode");
@@ -783,17 +797,12 @@ bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
 
 void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
-  set<string> *globals = interpreterOpts.userGlobals;
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
-    if (v->hasName()) {
+    GlobalVariable *v = itr;
+    if (kmodule->isUserGlobal(v) && v->hasName()) {
       string gv_name = v->getName().str();
-      if (globals != nullptr) {
-        if (globals->find(gv_name) == globals->end()) continue; // next global
-      } else {
-        if (v->isConstant() || v->hasHiddenVisibility())  continue; // next global
-      }
+      if (v->isConstant() || v->hasHiddenVisibility())  continue; // next global
 
       auto pos = gv_name.find('.');
       // if dot in first position or the prefix does not equal the function name, continue to next variable
@@ -909,6 +918,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     // if this is main, special case the argument construction
     if (is_main) {
 
+#if 0 == 1
+
       init_states.resize(SymArgs + 1, nullptr);
 
       // symbolic argc, symbolic argv,
@@ -979,7 +990,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
           addConstraint(*curr, EqExpr::create(ptr, ConstantExpr::createPointer(0)));
         }
       }
-
+#endif
     } else {
 
       unsigned index = 0;
@@ -1044,6 +1055,8 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     MemKind kind = (MemKind) obj.kind;
     switch (kind) {
       // inject parameters and lazily initialized memory blobs
+      case MemKind::external:
+      case MemKind::heap:
       case MemKind::param:
       case MemKind::lazy: {
         injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
@@ -1054,13 +1067,14 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
         // copy in global values
         auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
         const MemoryObject *mo = pr.first;
-        if ((obj.data.size() != mo->size) || (obj.count != mo->count) || (obj.type != to_string(mo->type))) {
+        if ((obj.data.size() != mo->size) || (obj.count != mo->count)) {
           klee_error("global attribute mismatch: %s", obj.name.c_str());
         }
         ObjectState *wos = baseState->addressSpace.getWriteable(mo, pr.second);
         for (unsigned idx = 0, end = obj.data.size(); idx != end; ++idx) {
           wos->write8(idx, obj.data[idx]);
         }
+        injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
         break;
       }
 
@@ -1074,15 +1088,18 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
 
-  for (Function::const_arg_iterator itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr) {
+  if (fn->arg_size() != test.arguments.size()) {
+    errs() << "Invalid number of arguments in test case\n";
+    return;
+  }
 
+  unsigned idx = 0;
+  for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr) {
     const Argument &arg = *itr;
-    std::string arg_name = arg.getName();
-    auto pr = state->addressSpace.findMemoryObjectByName(arg_name);
-    if (pr.first != nullptr && pr.second != nullptr) {
-      ref<Expr> e = pr.second->read(0, pr.first->size * 8);
-      bindArgument(kf, arg.getArgNo(), *state, e);
-    }
+    Expr::Width w = getWidthForLLVMType(arg.getType());
+    ref<Expr> e = ConstantExpr::create(test.arguments[idx], w);
+    bindArgument(kf, idx, *state, e);
+    idx++;
   }
 
   std::vector<ExecutionState*> init_states = { state };
@@ -1193,6 +1210,69 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   }
 #endif
 
+void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Function *at) {
+
+  assert(interpreterOpts.mode == ExecModeID::irec);
+
+  KFunction *kf = kmodule->functionMap[fn];
+  if (kf == nullptr) {
+    // not in this compilation unit
+    return;
+  }
+
+  faulting_state_stash.clear();
+
+  // look for a libc initializer, execute if found to initialize the base state
+  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
+  if (libc_init != nullptr) {
+    KFunction *kf_init = kmodule->functionMap[libc_init];
+    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
+    if (statsTracker) statsTracker->framePushed(*state, nullptr);
+    ExecutionState *initState = runLibCInitializer(*state, libc_init);
+    if (initState != nullptr) {
+      initState->addressSpace.clearWritten();
+      delete baseState;
+      baseState = initState;
+    }
+  }
+
+
+  ExecutionState *state = new ExecutionState(*baseState, kf, fn->getName());
+  if (statsTracker) statsTracker->framePushed(*state, nullptr);
+
+  if (fn->arg_size() == 2) {
+
+    unsigned ptr_width =  Context::get().getPointerWidth();
+    assert(ptr_width == 64 && "64-bit only");
+
+    bindArgument(kf, 0, *state, ConstantExpr::create(args.size(), Expr::Int32));
+
+    Type *str_type = Type::getInt8PtrTy(getGlobalContext());
+    size_t align = kmodule->targetData->getPrefTypeAlignment(str_type);
+
+    vector<uint64_t> moArgStrs;
+    moArgStrs.reserve(args.size() + 1);
+    unsigned idx = 0;
+    for (const string &arg : args) {
+      const char *str = arg.c_str();
+      unsigned len = arg.size() + 1;
+      MemoryObject *mo = addExternalObject(*state, str, len, str_type, fn, align);
+      mo->name = "*arg" + itostr(idx++);
+      moArgStrs.push_back(mo->address);
+    }
+    moArgStrs.push_back(0);
+
+    Type *v_type = str_type->getPointerTo(0);
+    align = kmodule->targetData->getPrefTypeAlignment(v_type);
+    MemoryObject *moArgv = addExternalObject(*state, moArgStrs.data(), moArgStrs.size() * sizeof(uint64_t), v_type, fn, align);
+    moArgv->name = "*argV";
+    bindArgument(kf, 1, *state, ConstantExpr::createPointer(moArgv->address));
+
+    std::vector<ExecutionState *> init_states = {state};
+    runFn(kf, init_states);
+  }
+}
+
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
   assert(!init_states.empty());
@@ -1233,7 +1313,12 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     addedStates.push_back(state);
   }
 
-  searcher = constructUserSearcher(*this);
+  if (interpreterOpts.mode == ExecModeID::igen) {
+    searcher = constructUserSearcher(*this);
+  } else {
+    searcher = new DFSSearcher();
+  }
+
   updateStates(nullptr);
 
   MonotonicTimer timer;
@@ -1651,6 +1736,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 #ifdef _DEBUG
           enable_state_switching = false;
 #endif
+        }
+
+        if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
+          state.status = StateStatus::Snapshot;
+          state.instFaulting = ki;
+          interpreterHandler->processTestCase(state);
+          terminateState(state, "snapshot");
+          return;
         }
 
         // invoke model of posix functions
@@ -2170,6 +2263,57 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   return counter;
 }
 
+bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSolution> &result, vector<uint64_t> &args) {
+
+    // get the names of the user defined globals
+    set<string> gb_names;
+    for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
+      GlobalVariable *v = itr;
+      if (kmodule->isUserGlobal(v) && v->hasName()) {
+        gb_names.insert(v->getName());
+      }
+    }
+
+    // copy out all variables except for locals and if faulting instruction is a call site, its parameters.
+    for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
+      const MemoryObject *mo = itr->first;
+      const ObjectState *os = itr->second;
+      if (!mo->isLocal() && !mo->name.empty()) {
+        if ((mo->name[0] == '*') || mo->isHeap() || (gb_names.find(mo->name) != gb_names.end())) {
+          result.emplace_back(make_pair(mo, vector<unsigned char>{}));
+          vector<unsigned char> &value = result.back().second;
+          os->readConcrete(0, value);
+        }
+      }
+    }
+
+    if (KInstruction *ki = const_cast<KInstruction*>(state.instFaulting)) {
+      if (CallInst* ci = dyn_cast<CallInst>(ki->inst)) {
+        const CallSite cs(ci);
+
+        unsigned numArgs = cs.arg_size();
+
+        // evaluate arguments
+        std::vector< ref<Expr> > arguments;
+        arguments.reserve(numArgs);
+
+        for (unsigned j=0; j<numArgs; ++j) {
+          ref<Expr> e = eval(ki, j + 1, state).value;
+          e = toUnique(state, e);
+          uint64_t  value = 0;
+          if (isa<ConstantExpr>(e)) {
+            ref<ConstantExpr> ce = cast<ConstantExpr>(e);
+            value = ce->getZExtValue(Expr::Int64);
+          }
+          args.push_back(value);
+        }
+      }
+    }
+    return true;
+}
+
+
+
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,
                                       InterpreterHandler *ih) {
@@ -2177,6 +2321,7 @@ Interpreter *Interpreter::createLocal(LLVMContext &ctx,
 }
 
 }
+
 
 ///
 

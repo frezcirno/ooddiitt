@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "klee/Internal/Support/ModuleUtil.h"
+
+#include <set>
 
 #include "klee/Config/Version.h"
 #include "klee/Internal/Support/Debug.h"
@@ -33,6 +34,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/DebugLoc.h"
+
+#include "klee/Internal/Support/ModuleUtil.h"
 
 //#include "llvm/IR/TypeFinder.h"
 //#include "llvm/IR/Metadata.h"
@@ -483,35 +486,33 @@ bool klee::functionEscapes(const Function *f) {
   return !valueIsOnlyCalled(f);
 }
 
-void klee::enumModuleFunctions(const Module *m, set<string> &names) {
+void klee::enumModuleFunctions(Module *m, set<Function*> &fns) {
 
-  names.clear();
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
-    const Function *fn = itr;
-    if (!fn->hasHiddenVisibility() && fn->hasName() && !fn->isDeclaration() && !fn->isDeclaration()) {
-      names.insert(itr->getName());
+    Function *fn = itr;
+    if (!fn->hasHiddenVisibility() && !fn->isDeclaration()) {
+      fns.insert(fn);
     }
   }
 }
 
-void klee::enumModuleGlobals(const Module *m, set<string> &names) {
+void klee::enumModuleGlobals(Module *m, set<GlobalVariable*> &gbs) {
 
-  names.clear();
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
+    GlobalVariable *v = itr;
 
-    // no llvm constants, hidden, and unnamed variables
-    if (!v->isConstant() && !v->hasHiddenVisibility() && v->hasName() && !v->isDeclaration()) {
-      names.insert(v->getName());
+    // no llvm hidden, and unnamed variables
+    if (!v->hasHiddenVisibility() && v->hasName() && (v->getName()[0] != '.') && !v->isDeclaration()) {
+      gbs.insert(v);
     }
   }
 }
 
+// RLR TODO: this is a hack that might need rework
 static map<string,string> rewrite_fn_pointers = { {"i64 (i8*, i64)*", "hash_int"}, {"i1 (i8*, i8*)*", "hash_compare_ints"},  {"void (i8*)*", "null"} };
 
 
-void klee::testFunctionPointers(llvm::Module *m, const std::set<std::string> &names) {
-
+void klee::testFunctionPointers(llvm::Module *m, set<Function*> &fns) {
 
   map<string,Function*> rewrite;
   for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
@@ -519,12 +520,7 @@ void klee::testFunctionPointers(llvm::Module *m, const std::set<std::string> &na
     else if (Function *fn = m->getFunction(itr->second)) rewrite.insert(make_pair(itr->first, fn));
   }
 
-  set<Function*> fns;
-  map<string, set<Function*> > mapFiletoFns;
-
-  for (const auto &name : names) {
-    if (Function *fn = m->getFunction(name)) fns.insert(fn);
-  }
+  map<string, set<const Function*> > mapFiletoFns;
 
   DebugInfoFinder finder;
   finder.processModule(*m);
@@ -538,7 +534,7 @@ void klee::testFunctionPointers(llvm::Module *m, const std::set<std::string> &na
     }
   }
 
-  map<Type*,vector<Function*> > fns_by_type;
+  map<Type*,vector<const Function*> > fns_by_type;
   for (const auto &fn : fns) {
     fns_by_type[fn->getType()].push_back(fn);
   }

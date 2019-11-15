@@ -132,6 +132,8 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   add("malloc", handleMalloc, true),
   add("realloc", handleRealloc, true),
 
+  add("memset", handleMemset, true),
+
   // pg-klee extensions
   add("pgklee_hard_assume", handleHardAssume, false),
   add("pgklee_soft_assume", handleSoftAssume, false),
@@ -436,6 +438,36 @@ void SpecialFunctionHandler::handleMalloc(ExecutionState &state,
   executor.executeAlloc(state, arguments[0], MemKind::heap, target);
 }
 
+void SpecialFunctionHandler::handleMemset(ExecutionState &state,
+                                          KInstruction *target,
+                                          std::vector<ref<Expr> > &arguments) {
+  // XXX should type check args
+  assert(arguments.size()==3 && "invalid number of arguments to memset");
+  ref<Expr> addr = lcl_exec->toUnique(state, arguments[0]);
+  ref<Expr> val = lcl_exec->toUnique(state, arguments[1]);
+  ref<Expr> count = lcl_exec->toUnique(state, arguments[2]);
+  assert(isa<ConstantExpr>(addr) && isa<ConstantExpr>(val) && isa<ConstantExpr>(count));
+
+  ObjectPair op;
+  LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, addr, op);
+  if (result == LocalExecutor::ResolveResult::OK) {
+    const MemoryObject *mo = op.first;
+    const ObjectState *os = op.second;
+
+    uint64_t caddr = cast<ConstantExpr>(addr)->getZExtValue(Expr::Int64);
+    unsigned char cval = (unsigned char) cast<ConstantExpr>(val)->getZExtValue(Expr::Int32);
+    uint64_t ccount = cast<ConstantExpr>(count)->getZExtValue(Expr::Int64);
+    uint64_t offset = caddr - mo->address;
+    if (offset + ccount < mo->address + mo->size) {
+      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+      while (ccount-- > 0) {
+        wos->write8(offset++, cval);
+      }
+    }
+  }
+  executor.bindLocal(target, state, addr);
+}
+
 void SpecialFunctionHandler::handleAssume(ExecutionState &state,
                             KInstruction *target,
                             std::vector<ref<Expr> > &arguments) {
@@ -633,6 +665,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
   ref<Expr> size = arguments[1];
 
   Executor::StatePair zeroPointer = executor.fork(state, Expr::createIsZero(address), true);
+  assert(zeroPointer.first == nullptr || zeroPointer.second == nullptr);
 
   if (zeroPointer.first) { // address == 0
     executor.executeAlloc(*zeroPointer.first, size, MemKind::heap, target);
@@ -701,6 +734,7 @@ void SpecialFunctionHandler::handleGetValue(ExecutionState &state,
   executor.executeGetValue(state, arguments[0], target);
 }
 
+
 void SpecialFunctionHandler::handleDefineFixedObject(ExecutionState &state,
                                                      KInstruction *target,
                                                      std::vector<ref<Expr> > &arguments) {
@@ -711,11 +745,14 @@ void SpecialFunctionHandler::handleDefineFixedObject(ExecutionState &state,
   assert(isa<ConstantExpr>(arguments[1]) &&
          "expect constant size argument to klee_define_fixed_object");
 
+  assert(false && "Deprecated");
+#if 0 == 1
   uint64_t address = cast<ConstantExpr>(arguments[0])->getZExtValue();
   uint64_t size = cast<ConstantExpr>(arguments[1])->getZExtValue();
   MemoryObject *mo = executor.memory->allocateFixed(address, size, state.prevPC->inst);
   executor.bindObjectInState(state, mo);
   mo->isUserSpecified = true; // XXX hack;
+#endif
 }
 
 void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,

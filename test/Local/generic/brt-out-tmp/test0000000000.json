@@ -1,0 +1,46 @@
+{
+  "argC" : 1,
+  "argV" : "'brt-out-tmp/generic.bc'",
+  "entryFn" : "foo1",
+  "kleeRevision" : "a91d9eb687855135b6e9d5530c42aca98f9c012d",
+  "lazyAllocationCount" : 1,
+  "maxLazyDepth" : 4,
+  "maxLoopForks" : 16,
+  "maxLoopIteration" : 4,
+  "message" : "",
+  "module" : "generic",
+  "objects" : 
+  [
+    {
+      "addr" : "0400000000080000",
+      "count" : 1,
+      "data" : "00000000",
+      "kind" : 2,
+      "name" : "bar1",
+      "type" : "i32"
+    },
+    {
+      "addr" : "1800000000080000",
+      "count" : 1,
+      "data" : "00000000",
+      "kind" : 2,
+      "name" : "bar2",
+      "type" : "i32"
+    },
+    {
+      "addr" : "680C040000080000",
+      "count" : 1,
+      "data" : "00000000",
+      "kind" : 3,
+      "name" : "arg1",
+      "type" : "i32"
+    }
+  ],
+  "pathConditionVars" : "",
+  "status" : 2,
+  "testID" : 0,
+  "timeStarted" : "2019-11-15T19:41:01Z",
+  "timeStopped" : "2019-11-15T19:41:01Z",
+  "trace" : [ 1001 ],
+  "traceType" : 1
+}

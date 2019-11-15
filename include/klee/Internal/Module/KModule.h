@@ -62,6 +62,8 @@ namespace klee {
     llvm::DominatorTree domTree;
     llvm::LoopInfo loopInfo;
 
+    bool is_user;
+
   private:
     KFunction(const KFunction&);
 
@@ -75,6 +77,7 @@ namespace klee {
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
+    bool isUser() const {return is_user; }
   };
 
 
@@ -147,7 +150,7 @@ namespace klee {
     /// Initialize local data structures.
     //
     // FIXME: ihandler should not be here
-    void prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ihandler);
+    void prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ihandler, bool build);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
@@ -169,9 +172,17 @@ namespace klee {
 
     llvm::Type *getEquivalentType(const std::string &desc) const;
     void insertTypeDesc(llvm::Type *type)  {
+      std::string test = to_string(type);
       mapTypeDescs[to_string(type)] = type;
       type = type->getPointerTo(0);
       mapTypeDescs[to_string(type)] = type;
+    }
+
+    bool isUserFunction(llvm::Function* fn) const {
+      return user_fns.find(fn) != user_fns.end();
+    }
+    bool isUserGlobal(llvm::GlobalVariable* gb) const {
+      return user_gbs.find(gb) != user_gbs.end();
     }
 
   private:
@@ -179,7 +190,10 @@ namespace klee {
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
     std::map<const llvm::FunctionType*,std::set<const llvm::Function*> >mapFnTypes;
     std::map<std::string,llvm::Type*> mapTypeDescs;
+    std::set<llvm::Function*> user_fns;
+    std::set<llvm::GlobalVariable*> user_gbs;
 };
+
 } // End klee namespace
 
 #endif

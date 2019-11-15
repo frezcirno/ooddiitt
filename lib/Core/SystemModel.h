@@ -24,7 +24,7 @@ class SystemModel {
 
   typedef void handler_t(ExecutionState&,KInstruction*,const llvm::CallSite&,ref<Expr>&);
   typedef handler_t SystemModel::* model_handler_t;
-  typedef std::tuple<std::string,model_handler_t,bool> handler_descriptor_t;
+  typedef std::pair<std::string,model_handler_t> handler_descriptor_t;
 
 public:
   SystemModel(LocalExecutor *e, const ModelOptions &o);
@@ -42,7 +42,7 @@ private:
   void ExecuteFirstArg(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr);
 
   LocalExecutor *executor;
-  ModelOptions opts;
+  const ModelOptions &opts;
   std::map<llvm::Function*,model_handler_t> dispatch;
   std::set<std::string> modeled_names;
 };

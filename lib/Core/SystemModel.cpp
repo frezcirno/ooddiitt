@@ -12,41 +12,45 @@ namespace klee {
 
 SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e), opts(o) {
 
-  vector<handler_descriptor_t> modeled_fns = {
-      { "write", &SystemModel::ExecuteWrite, true },
-      { "isatty", &SystemModel::ExecuteIsaTTY, true },
+  static const vector<handler_descriptor_t> modeled_fns = {
+      {"write", &SystemModel::ExecuteWrite},
+      {"isatty", &SystemModel::ExecuteIsaTTY},
+      {"posix_fadvise", &SystemModel::ExecuteReturn0},
+      {"getuid", &SystemModel::ExecuteReturn0},
+      {"geteuid", &SystemModel::ExecuteReturn0},
+      {"getgid", &SystemModel::ExecuteReturn0},
+      {"getegid", &SystemModel::ExecuteReturn0}
+  };
 
-      { "printf", &SystemModel::ExecuteReturn1, false },
-      { "fprintf", &SystemModel::ExecuteReturn1, false },
-      { "vprintf", &SystemModel::ExecuteReturn1, false },
-      { "vfprintf", &SystemModel::ExecuteReturn1, false },
-
-      { "puts", &SystemModel::ExecuteReturn1, false },
-      { "fputs", &SystemModel::ExecuteReturn1, false },
-      { "fputs_unlocked", &SystemModel::ExecuteReturn1, false },
-
-      { "putchar", &SystemModel::ExecuteFirstArg, false },
-      { "putc", &SystemModel::ExecuteFirstArg, false },
-      { "fputc", &SystemModel::ExecuteFirstArg, false },
-      { "putchar_unlocked", &SystemModel::ExecuteFirstArg, false },
-      { "putc_unlocked", &SystemModel::ExecuteFirstArg, false },
-      { "fputc_unlocked", &SystemModel::ExecuteFirstArg, false },
-
-      { "perror", &SystemModel::ExecuteNoop, false },
-
-      { "posix_fadvise", &SystemModel::ExecuteReturn0, true },
-      { "getuid", &SystemModel::ExecuteReturn0, true },
-      { "geteuid", &SystemModel::ExecuteReturn0, true },
-      { "getgid", &SystemModel::ExecuteReturn0, true },
-      { "getegid", &SystemModel::ExecuteReturn0, true }
+  static const vector<handler_descriptor_t> output_fns = {
+      { "printf", &SystemModel::ExecuteReturn1},
+      { "fprintf", &SystemModel::ExecuteReturn1},
+      { "vprintf", &SystemModel::ExecuteReturn1},
+      { "vfprintf", &SystemModel::ExecuteReturn1},
+      { "puts", &SystemModel::ExecuteReturn1},
+      { "fputs", &SystemModel::ExecuteReturn1},
+      { "fputs_unlocked", &SystemModel::ExecuteReturn1},
+      { "putchar", &SystemModel::ExecuteFirstArg},
+      { "putc", &SystemModel::ExecuteFirstArg},
+      { "fputc", &SystemModel::ExecuteFirstArg},
+      { "putchar_unlocked", &SystemModel::ExecuteFirstArg},
+      { "putc_unlocked", &SystemModel::ExecuteFirstArg},
+      { "fputc_unlocked", &SystemModel::ExecuteFirstArg},
+      { "perror", &SystemModel::ExecuteNoop}
   };
 
   Module *module = executor->getKModule()->module;
-  for (const auto &tpl : modeled_fns) {
-    if (Function *fn = module->getFunction(get<0>(tpl))) {
-      if (opts.doModelStdOutput || get<2>(tpl)) {
-        modeled_names.insert(get<0>(tpl));
-        dispatch[fn] = get<1>(tpl);
+  for (const auto &pr : modeled_fns) {
+    if (Function *fn = module->getFunction(pr.first)) {
+      modeled_names.insert(pr.first);
+      dispatch[fn] = pr.second;
+    }
+  }
+  if (opts.doModelStdOutput) {
+    for (const auto &pr : output_fns) {
+      if (Function *fn = module->getFunction(pr.first)) {
+        modeled_names.insert(pr.first);
+        dispatch[fn] = pr.second;
       }
     }
   }

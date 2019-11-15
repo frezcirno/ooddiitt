@@ -102,7 +102,7 @@ public:
       size(0),
       created_size(0),
       name("hack"),
-      kind(MemKind::fixed),
+      kind(MemKind::invalid),
       type(nullptr),
       count(0),
       parent(NULL),
@@ -132,7 +132,7 @@ public:
   }
 
   bool isValid() const  { return kind != MemKind::invalid; }
-  bool isFixed() const  { return kind == MemKind::fixed; }
+  bool isExternal() const  { return kind == MemKind::external; }
   bool isGlobal() const { return kind == MemKind::global; }
   bool isParam() const  { return kind == MemKind::param; }
   bool isAlloca() const { return kind == MemKind::alloca_l; }
