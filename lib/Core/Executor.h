@@ -235,7 +235,7 @@ protected:
   void initializeGlobalObject(ExecutionState &state, ObjectState *os,
 			      const llvm::Constant *c,
 			      unsigned offset);
-  void initializeGlobals(ExecutionState &state);
+  void initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs);
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);
@@ -431,15 +431,13 @@ protected:
   void addTimer(Timer *timer, double rate);
 
   void initTimers();
-  void processTimers(ExecutionState *current,
-                     double maxInstTime);
+  void processTimers(ExecutionState *current, double maxInstTime);
   void checkMemoryUsage();
   void printDebugInstructions(ExecutionState &state);
   void doDumpStates();
 
 public:
-  Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts,
-      InterpreterHandler *ie);
+  Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ie);
   virtual ~Executor();
 
   const InterpreterHandler& getHandler() {
@@ -510,7 +508,7 @@ public:
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 
   KModule *getKModule() const { return kmodule; }
-  void getModeledExternals(std::set<std::string> &names) const override;
+  void GetModeledExternals(std::set<std::string> &names) const override;
 
 };
 

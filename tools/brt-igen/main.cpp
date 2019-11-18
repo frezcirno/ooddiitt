@@ -374,6 +374,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
         }
         obj["addr"] = toDataString(addr);
         obj["data"] = toDataString(data);
+        obj["align"] = mo->align;
 
         objects.append(obj);
       }
@@ -579,70 +580,6 @@ static int initEnv(Module *mainModule) {
   new StoreInst(oldArgv, argvPtr, initEnvCall);
 
   return 0;
-}
-
-bool has_inline_asm(const Function *fn) {
-
-  for (const auto &bb : *fn) {
-    for (const auto &inst : bb) {
-      if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
-        if (isa<InlineAsm>(ci->getCalledValue())) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
-
-  static set<string> modeledExternals;
-  interpreter->getModeledExternals(modeledExternals);
-  modeledExternals.insert("__dso_handle");
-
-  set<string> undefinedFunctions;
-  set<string> undefinedGlobals;
-
-  // get a list of functions declared, but not defined
-  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
-    const Function *fn = *&itr;
-    if (fn->isDeclaration() && !fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
-      string name = fn->getName();
-      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
-        undefinedFunctions.insert(name);
-      }
-    }
-
-    if (has_inline_asm(fn)) {
-      klee_warning("function \"%s\" has inline asm", fn->getName().str().c_str());
-    }
-  }
-
-  // get a list of globals declared, but not defined
-  for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
-    if (itr->isDeclaration() && !itr->use_empty()) {
-      string name = itr->getName();
-      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
-        undefinedGlobals.insert(name);
-      }
-    }
-  }
-
-  // and remove aliases (they define the symbol after global
-  // initialization)
-  for (auto itr = m->alias_begin(), end = m->alias_end(); itr != end; ++itr) {
-    string name = itr->getName();
-    undefinedFunctions.erase(name);
-    undefinedGlobals.erase(name);
-  }
-
-  for (auto fn: undefinedFunctions) {
-    klee_warning("reference to external function: %s", fn.c_str());
-  }
-  for (auto global: undefinedGlobals) {
-    klee_warning("reference to undefined global: %s", global.c_str());
-  }
 }
 
 static Interpreter *theInterpreter = nullptr;
@@ -873,6 +810,7 @@ int main(int argc, char **argv, char **envp) {
     }
   }
   if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
+  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
 #else
   auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
   if (!Buffer)
@@ -956,9 +894,7 @@ int main(int argc, char **argv, char **envp) {
   MOpts.EntryPoint = EntryPoint;
   MOpts.verbose = Verbose;
 
-  const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
-
-  externalsAndGlobalsCheck(finalModule, theInterpreter);
+  theInterpreter->setModule(mainModule, MOpts);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';

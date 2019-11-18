@@ -49,6 +49,7 @@
 #include <iterator>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <klee/Internal/Support/ModuleUtil.h>
 #include "json/json.h"
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
@@ -363,10 +364,11 @@ void load_test_case(Json::Value &root, TestCase &test) {
       string addr = obj["addr"].asString();
       unsigned count = obj["count"].asUInt();
       string data = obj["data"].asString();
+      size_t align = obj["align"].asInt64();
       MemKind kind = (MemKind) obj["kind"].asUInt();
       string name = obj["name"].asString();
       string type = obj["type"].asString();
-      test.objects.emplace_back(TestObject(addr, count, data, kind, name, type));
+      test.objects.emplace_back(TestObject(addr, count, data, align, kind, name, type));
     }
   }
 }
@@ -422,6 +424,7 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = false;
   MOpts.CheckDivZero = false;
   MOpts.CheckOvershift = false;
+  MOpts.test = &test;
 
   string ErrorMsg;
   llvm::error_code ec;
@@ -452,14 +455,14 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  // RLR TODO: verify module is from brt-prep
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
+  if (!isPrepared(mainModule1)) klee_error("program is not prepared '%s'", InputFile1.c_str());
 
   RecordKleeHandler *handler1 = new RecordKleeHandler(ex_states, mainModule1->getModuleIdentifier());
 
   Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
   handler1->setInterpreter(interpreter1);
-  const Module *finalModule1 = interpreter1->setModule(mainModule1, MOpts);
+  interpreter1->setModule(mainModule1, MOpts);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -515,14 +518,14 @@ int main(int argc, char **argv, char **envp) {
       }
     }
 
-    // RLR TODO: verify module is from brt-prep
     if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
+    if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
 
     RecordKleeHandler *handler2 = new RecordKleeHandler(ex_states, mainModule2->getModuleIdentifier());
 
     Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
     handler2->setInterpreter(interpreter2);
-    const Module *finalModule2 = interpreter2->setModule(mainModule2, MOpts);
+    interpreter2->setModule(mainModule2, MOpts);
 
     start_time = sys_clock::now();
     outs() << "Started: " << to_string(start_time) << '\n';

@@ -25,8 +25,8 @@ namespace klee {
 
 class TestObject {
 public:
-  TestObject(std::string _addr, unsigned _count, std::string _data, MemKind _kind, std::string _name, std::string _type) :
-    count(_count), kind(_kind), name(_name), type(_type) {
+  TestObject(std::string _addr, unsigned _count, std::string _data, size_t _align, MemKind _kind, std::string _name, std::string _type) :
+    count(_count), align(_align), kind(_kind), name(_name), type(_type) {
 
     std::stringstream ss(_addr);
     ss >> std::hex >> addr;
@@ -37,6 +37,7 @@ public:
   uintptr_t addr;
   unsigned count;
   std::vector<unsigned char> data;
+  size_t align;
   MemKind kind;
   std::string name;
   std::string type;

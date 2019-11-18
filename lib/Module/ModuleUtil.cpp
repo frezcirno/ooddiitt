@@ -512,7 +512,7 @@ void klee::enumModuleGlobals(Module *m, set<GlobalVariable*> &gbs) {
 static map<string,string> rewrite_fn_pointers = { {"i64 (i8*, i64)*", "hash_int"}, {"i1 (i8*, i8*)*", "hash_compare_ints"},  {"void (i8*)*", "null"} };
 
 
-void klee::testFunctionPointers(llvm::Module *m, set<Function*> &fns) {
+void klee::rewriteFunctionPointers(llvm::Module *m, set<Function*> &fns) {
 
   map<string,Function*> rewrite;
   for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
@@ -588,5 +588,10 @@ void klee::testFunctionPointers(llvm::Module *m, set<Function*> &fns) {
       }
     }
   }
+}
+
+bool klee::isPrepared(Module *m) {
+  NamedMDNode *NMD = m->getNamedMetadata("brt-klee.usr_fns");
+  return NMD != nullptr;
 }
 

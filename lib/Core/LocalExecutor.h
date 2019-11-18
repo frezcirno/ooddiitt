@@ -156,7 +156,8 @@ protected:
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
-  void getModeledExternals(std::set<std::string> &names) const override;
+  void GetModeledExternals(std::set<std::string> &names) const override;
+  bool ShouldBeModeled(const std::string &name) const override { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); }
   bool isLegalFunction(const llvm::Function *fn) const {
     return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
   }

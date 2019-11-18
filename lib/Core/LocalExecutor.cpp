@@ -152,8 +152,8 @@ LocalExecutor::~LocalExecutor() {
   }
 }
 
-void LocalExecutor::getModeledExternals(std::set<std::string> &names) const {
-  Executor::getModeledExternals(names);
+void LocalExecutor::GetModeledExternals(std::set<std::string> &names) const {
+  Executor::GetModeledExternals(names);
   if (sysModel != nullptr) {
     sysModel->GetModeledExternals(names);
   }
@@ -700,7 +700,7 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
     align = kmodule->targetData->getPrefTypeAlignment(Type::getInt32Ty(ctx));
   }
 
-  MemoryObject *mo = memory->inject(addr, size * count, type, kind, align);
+  MemoryObject *mo = memory->inject(addr, size, type, kind, align);
   if (mo != nullptr) {
     mo->name = name;
     mo->count = count;
@@ -841,7 +841,12 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   baseState->maxLazyDepth = maxLazyDepth;
   baseState->maxLoopForks = maxLoopForks;
 
-  initializeGlobals(*baseState);
+  vector<TestObject> *test_objs = nullptr;
+  if (opts.test != nullptr) {
+    test_objs = &opts.test->objects;
+  }
+
+  initializeGlobals(*baseState, test_objs);
   bindModuleConstants();
   return result;
 }
@@ -918,45 +923,47 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     // if this is main, special case the argument construction
     if (is_main) {
 
-#if 0 == 1
-
-      init_states.resize(SymArgs + 1, nullptr);
-
       // symbolic argc, symbolic argv,
-      const auto &args = fn->getArgumentList();
-      const Argument &argc = args.front();
-      const Argument &argv = args.back();
+      assert(fn->getArgumentList().size() == 2);
+
+      init_states.reserve(SymArgs + 1);
+      unsigned ptr_width =  Context::get().getPointerWidth();
+      LLVMContext &ctx = kmodule->module->getContext();
+      Type *int_type = Type::getInt32Ty(ctx);
+      size_t int_align = kmodule->targetData->getPrefTypeAlignment(int_type);
+      Type *char_type = Type::getInt8Ty(ctx);
+      size_t char_align = kmodule->targetData->getPrefTypeAlignment(char_type);
+      Type *str_type = Type::getInt8PtrTy(ctx);
+      size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
+      Type *pstr_type = str_type->getPointerTo(0);
+      size_t pstr_align = kmodule->targetData->getPrefTypeAlignment(pstr_type);
 
       // argc constrained 1 .. SymArgs + 1
       WObjectPair wopArgc;
-      Type *argType = argc.getType();
-      allocSymbolic(*state, argType, &argc, MemKind::param, "argc", wopArgc, argc.getParamAlignment());
-      ref<Expr> eArgc = wopArgc.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      allocSymbolic(*state, int_type, fn, MemKind::param, "argc", wopArgc, int_align);
+      ref<Expr> eArgc = wopArgc.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(int_type));
       bindArgument(kf, 0, *state, eArgc);
 
-      unsigned ptr_width =  Context::get().getPointerWidth();
-
-      // push the binary name into the state
+      // push the module name into the state
       std::string md_name = kmodule->module->getModuleIdentifier();
-      const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, false);
+      const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, str_type, fn, str_align, true);
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
-      argType = argv.getType()->getPointerElementType();
-      allocSymbolic(*state, argType, &argv, MemKind::fixed, "argv_array", wopArgv_array, 0, SymArgs + 2);
+      allocSymbolic(*state, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgs + 2);
 
       // argv[0] -> binary name
       // argv[1 .. SymArgs] = symbolic value
+      // argv[SymArgs] = null
 
       // despite being symbolic, argv[0] always points to program name
       addConstraint(*state, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
 
       // and finally, the pointer to the argv array to be passed as param to main
       WObjectPair wopArgv;
-      argType = argv.getType();
-      allocSymbolic(*state, argType, &argv, MemKind::param, "argv", wopArgv, argv.getParamAlignment(), 1);
+      allocSymbolic(*state, pstr_type, fn, MemKind::param, "argv", wopArgv, pstr_align, 1);
 
-      ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+      ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(pstr_type));
       addConstraint(*state, EqExpr::create(wopArgv_array.first->getBaseExpr(), eArgv));
       bindArgument(kf, 1, *state, eArgv);
 
@@ -969,9 +976,23 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
         WObjectPair wopArgv_body;
         std::string argName = "argv_" + itostr(index);
-        argType = argv.getType()->getPointerElementType()->getPointerElementType();
-        allocSymbolic(*curr, argType, &argv, MemKind::fixed, argName.c_str(), wopArgv_body, 0, LEN_CMDLINE_ARGS + 1);
-        // null terminate the string
+        allocSymbolic(*curr, char_type, fn, MemKind::param, argName.c_str(), wopArgv_body, char_align, LEN_CMDLINE_ARGS + 1);
+
+        // constrain strings to command line strings, i.e.
+        // [0] must be printable
+        // [ 1 .. N] must be printable or '\0'
+        // [N + 1] must be '\0'
+        for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
+          ref<Expr> ch = wopArgv_body.second->read8(idx);
+          ref<Expr> gt = SgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
+          ref<Expr> lt = SleExpr::create(ch, ConstantExpr::create(0x7e, Expr::Int8));
+          ref<Expr> printable = AndExpr::create(gt, lt);
+          ref<Expr> cmd = printable;
+          if (index > 0) {
+            cmd = OrExpr::create(printable, EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8)));
+          }
+          addConstraint(*curr, cmd);
+        }
         addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
 
         // and constrain pointer in argv array to point to body
@@ -990,7 +1011,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
           addConstraint(*curr, EqExpr::create(ptr, ConstantExpr::createPointer(0)));
         }
       }
-#endif
     } else {
 
       unsigned index = 0;
@@ -1064,20 +1084,13 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
       }
 
       case MemKind::global: {
-        // copy in global values
+        // globals should already be injected, unless it is no longer a global
         auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
-        const MemoryObject *mo = pr.first;
-        if ((obj.data.size() != mo->size) || (obj.count != mo->count)) {
-          klee_error("global attribute mismatch: %s", obj.name.c_str());
+        if (pr.first == nullptr) {
+          injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
         }
-        ObjectState *wos = baseState->addressSpace.getWriteable(mo, pr.second);
-        for (unsigned idx = 0, end = obj.data.size(); idx != end; ++idx) {
-          wos->write8(idx, obj.data[idx]);
-        }
-        injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
         break;
       }
-
       default: {
         outs() << "RLR: what to do with kind: " << kind << '\n';
         break;
@@ -1236,7 +1249,6 @@ void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Fu
     }
   }
 
-
   ExecutionState *state = new ExecutionState(*baseState, kf, fn->getName());
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
 
@@ -1247,7 +1259,7 @@ void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Fu
 
     bindArgument(kf, 0, *state, ConstantExpr::create(args.size(), Expr::Int32));
 
-    Type *str_type = Type::getInt8PtrTy(getGlobalContext());
+    Type *str_type = Type::getInt8PtrTy(kmodule->module->getContext());
     size_t align = kmodule->targetData->getPrefTypeAlignment(str_type);
 
     vector<uint64_t> moArgStrs;

@@ -456,51 +456,40 @@ Executor::~Executor() {
 void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os,
                                       const Constant *c,
                                       unsigned offset) {
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-  TargetData *targetData = kmodule->targetData;
-#else
   DataLayout *targetData = kmodule->targetData;
-#endif
   if (const ConstantVector *cp = dyn_cast<ConstantVector>(c)) {
-    unsigned elementSize =
-      targetData->getTypeStoreSize(cp->getType()->getElementType());
-    for (unsigned i=0, e=cp->getNumOperands(); i != e; ++i)
-      initializeGlobalObject(state, os, cp->getOperand(i),
-			     offset + i*elementSize);
+    unsigned elementSize = targetData->getTypeStoreSize(cp->getType()->getElementType());
+    for (unsigned i=0, e=cp->getNumOperands(); i != e; ++i) {
+      initializeGlobalObject(state, os, cp->getOperand(i), offset + i * elementSize);
+    }
   } else if (isa<ConstantAggregateZero>(c)) {
-    unsigned i, size = targetData->getTypeStoreSize(c->getType());
-    for (i=0; i<size; i++)
+    unsigned size = targetData->getTypeStoreSize(c->getType());
+    for (unsigned i=0; i<size; i++)
       os->write8(offset+i, (uint8_t) 0);
   } else if (const ConstantArray *ca = dyn_cast<ConstantArray>(c)) {
-    unsigned elementSize =
-      targetData->getTypeStoreSize(ca->getType()->getElementType());
-    for (unsigned i=0, e=ca->getNumOperands(); i != e; ++i)
-      initializeGlobalObject(state, os, ca->getOperand(i),
-			     offset + i*elementSize);
+    unsigned elementSize = targetData->getTypeStoreSize(ca->getType()->getElementType());
+    for (unsigned i=0, e=ca->getNumOperands(); i != e; ++i) {
+      initializeGlobalObject(state, os, ca->getOperand(i), offset + i * elementSize);
+    }
   } else if (const ConstantStruct *cs = dyn_cast<ConstantStruct>(c)) {
-    const StructLayout *sl =
-      targetData->getStructLayout(cast<StructType>(cs->getType()));
-    for (unsigned i=0, e=cs->getNumOperands(); i != e; ++i)
-      initializeGlobalObject(state, os, cs->getOperand(i),
-			     offset + sl->getElementOffset(i));
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
-  } else if (const ConstantDataSequential *cds =
-               dyn_cast<ConstantDataSequential>(c)) {
-    unsigned elementSize =
-      targetData->getTypeStoreSize(cds->getElementType());
-    for (unsigned i=0, e=cds->getNumElements(); i != e; ++i)
-      initializeGlobalObject(state, os, cds->getElementAsConstant(i),
-                             offset + i*elementSize);
-#endif
+    const StructLayout *sl = targetData->getStructLayout(cast<StructType>(cs->getType()));
+    for (unsigned i=0, e=cs->getNumOperands(); i != e; ++i) {
+      initializeGlobalObject(state, os, cs->getOperand(i), offset + sl->getElementOffset(i));
+    }
+  } else if (const ConstantDataSequential *cds = dyn_cast<ConstantDataSequential>(c)) {
+    unsigned elementSize = targetData->getTypeStoreSize(cds->getElementType());
+    for (unsigned i=0, e=cds->getNumElements(); i != e; ++i) {
+      initializeGlobalObject(state, os, cds->getElementAsConstant(i), offset + i * elementSize);
+    }
   } else if (!isa<UndefValue>(c)) {
     unsigned StoreBits = targetData->getTypeStoreSizeInBits(c->getType());
     ref<ConstantExpr> C = evalConstant(c);
 
     // Extend the constant if necessary;
     assert(StoreBits >= C->getWidth() && "Invalid store size!");
-    if (StoreBits > C->getWidth())
+    if (StoreBits > C->getWidth()) {
       C = C->ZExt(StoreBits);
-
+    }
     os->write(offset, C);
   }
   os->resetBytesWritten();
@@ -514,7 +503,6 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
                                            unsigned align,
                                            bool isReadOnly) {
 
-//  MemoryObject *mo = memory->allocateFixed((uint64_t) addr, size, 0);
   MemoryObject *mo = memory->allocate(size, type, MemKind::external, site, align);
   ObjectState *os = bindObjectInState(state, mo);
   for(unsigned i = 0; i < size; i++) {
@@ -526,14 +514,14 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 
 extern void *__dso_handle __attribute__ ((__weak__));
 
-void Executor::getModeledExternals(std::set<std::string> &names) const {
+void Executor::GetModeledExternals(std::set<std::string> &names) const {
 
   if (specialFunctionHandler != nullptr) {
     specialFunctionHandler->getSpecialFns(names);
   }
 }
 
-void Executor::initializeGlobals(ExecutionState &state) {
+void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs) {
   Module *m = kmodule->module;
 
   if (m->getModuleInlineAsm() != "")
@@ -599,16 +587,30 @@ void Executor::initializeGlobals(ExecutionState &state) {
 #endif
 #endif
 
+  // construct a map of test objects by name
+  std::map<std::string,const TestObject*> injected_objs;
+  if (test_objs != nullptr) {
+    for (const auto &obj : *test_objs) {
+      injected_objs[obj.name] = &obj;
+    }
+  }
+
   // allocate and initialize globals, done in two passes since we may
   // need address of a global in order to initialize some other one.
+
+  // keep a set of global variables that require initialization
+  std::set<const GlobalVariable*> need_init;
 
   // allocate memory objects for all globals
   bool failed_global = false;
   for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
-    size_t globalObjectAlignment = getAllocationAlignment(v);
+    size_t align = getAllocationAlignment(v);
+    std::string name = v->getName();
 
-    if (i->isDeclaration()) {
+    if (v->isDeclaration()) {
+
+      errs() << "Global declaration without definition.  Does this still happen?\n";
 
       // FIXME: We have no general way of handling unknown external
       // symbols. If we really cared about making external stuff work
@@ -639,7 +641,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
 			(int)i->getName().size(), i->getName().data());
       }
 
-      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, globalObjectAlignment);
+      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, align);
       mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
       globalObjects.insert(std::make_pair(v, mo));
@@ -664,20 +666,35 @@ void Executor::initializeGlobals(ExecutionState &state) {
       }
 
     } else {
-      LLVM_TYPE_Q Type *ty = i->getType()->getElementType();
-      uint64_t size = kmodule->targetData->getTypeStoreSize(ty);
-      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, globalObjectAlignment);
-      if (!mo)
-        llvm::report_fatal_error("out of memory");
-      mo->name = v->getName();
-      mo->type = ty;
-      mo->count = 1;
-      ObjectState *os = bindObjectInState(state, mo);
+      Type *type = v->getType()->getElementType();
+      uint64_t size = kmodule->targetData->getTypeStoreSize(type);
+      MemoryObject *mo = nullptr;
+      auto itr = injected_objs.find(name);
+      if (itr == injected_objs.end()) {
+        mo = memory->allocate(size, type, MemKind::global, v, align);
+        mo->name = name;
+        mo->type = type;
+        mo->count = 1;
+        ObjectState *os = bindObjectInState(state, mo);
+        if (v->hasInitializer()) {
+          need_init.insert(v);
+        } else {
+          os->initializeToRandom();
+        }
+      } else {
+        const TestObject *obj = itr->second;
+        mo = memory->inject((void*) obj->addr, obj->data.size(), type, obj->kind, obj->align);
+        mo->name = name;
+        mo->count = obj->count;
+        mo->created_size = size;
+        ObjectState *os = bindObjectInState(state, mo);
+        for (size_t idx = 0, end = obj->data.size(); idx < end; ++idx) {
+          os->write8(idx, obj->data[idx]);
+        }
+      }
+      assert(mo != nullptr && "unexpected memory allocation failure");
       globalObjects.insert(std::make_pair(v, mo));
       globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
-
-      if (!i->hasInitializer())
-          os->initializeToRandom();
     }
   }
 
@@ -692,16 +709,12 @@ void Executor::initializeGlobals(ExecutionState &state) {
     globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i), evalConstant(i->getAliasee())));
   }
 
-  // once all objects are allocated, do the actual initialization
-  for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
-    if (v->hasInitializer()) {
-      MemoryObject *mo = globalObjects.find(v)->second;
-      const ObjectState *os = state.addressSpace.findObject(mo);
-      assert(os);
-      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-      initializeGlobalObject(state, wos, v->getInitializer(), 0);
-    }
+  // once all objects are allocated, do the actual initialization for those that still need it.
+  for (const GlobalVariable *v : need_init) {
+    MemoryObject *mo = globalObjects.find(v)->second;
+    const ObjectState *os = state.addressSpace.findObject(mo);
+    ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+    initializeGlobalObject(state, wos, v->getInitializer(), 0);
   }
 }
 
@@ -3214,7 +3227,7 @@ void Executor::executeAlloc(ExecutionState &state,
     return;
   }
   size_t allocAlignment = getAllocationAlignment(target->inst);
-  MemoryObject *mo = memory->allocate(allocSize, Type::getInt8PtrTy(getGlobalContext()), kind, target->inst, allocAlignment);
+  MemoryObject *mo = memory->allocate(allocSize, Type::getInt8PtrTy(kmodule->module->getContext()), kind, target->inst, allocAlignment);
   if (mo == nullptr) {
     bindLocal(target, state, ConstantExpr::createPointer(0));
     return;

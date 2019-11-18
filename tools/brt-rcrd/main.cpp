@@ -50,6 +50,7 @@
 #include <iterator>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <klee/Internal/Support/ModuleUtil.h>
 #include "json/json.h"
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
@@ -313,6 +314,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
         }
         obj["addr"] = toDataString(addr);
         obj["data"] = toDataString(data);
+        obj["align"] = mo->align;
 
         objects.append(obj);
       }
@@ -490,8 +492,8 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  // RLR TODO: verify module is from brt-prep
   if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
+  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
 
   if (Function *mainFn = mainModule->getFunction(UserMain)) {
     if (Function *targetFn = mainModule->getFunction(TargetFn)) {
@@ -526,7 +528,7 @@ int main(int argc, char **argv, char **envp) {
 
       theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
       handler->setInterpreter(theInterpreter);
-      const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
+      theInterpreter->setModule(mainModule, MOpts);
 
       auto start_time = sys_clock::now();
       outs() << "Started: " << to_string(start_time) << '\n';

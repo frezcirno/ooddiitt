@@ -327,7 +327,7 @@ bool has_inline_asm(const Function *fn) {
 void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
 
   static set<string> modeledExternals;
-  interpreter->getModeledExternals(modeledExternals);
+  interpreter->GetModeledExternals(modeledExternals);
   modeledExternals.insert("__dso_handle");
 
   set<string> undefinedFunctions;
@@ -336,15 +336,18 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
   // get a list of functions declared, but not defined
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
     const Function *fn = *&itr;
+    string name = fn->getName();
     if (fn->isDeclaration() && !fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
-      string name = fn->getName();
       if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
         undefinedFunctions.insert(name);
       }
     }
+    if (interpreter->ShouldBeModeled(name)) {
+      klee_warning("Function \"%s\" should be modeled", name.c_str());
+    }
 
     if (has_inline_asm(fn)) {
-      klee_warning("function \"%s\" has inline asm", fn->getName().str().c_str());
+      klee_warning("function \"%s\" has inline asm", name.c_str());
     }
   }
 
@@ -623,8 +626,7 @@ int main(int argc, char **argv, char **envp) {
   set<GlobalVariable*> original_globals;
   enumModuleGlobals(mainModule, original_globals);
 
-  // RLR TODO: this should be more permanate
-  testFunctionPointers(mainModule, original_fns);
+  rewriteFunctionPointers(mainModule, original_fns);
 
   string LibraryDir = PrepKleeKandler::getRunTimeLibraryPath(argv[0]);
 

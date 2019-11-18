@@ -330,7 +330,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         values.push_back(fn);
         user_fns.insert(fn);
       }
-      MDNode *Node = MDNode::get(getGlobalContext(), values);
+      MDNode *Node = MDNode::get(ctx, values);
       NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_fns");
       NMD->addOperand(Node);
     }
@@ -341,7 +341,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         values.push_back(gb);
         user_gbs.insert(gb);
       }
-      MDNode *Node = MDNode::get(getGlobalContext(), values);
+      MDNode *Node = MDNode::get(ctx, values);
       NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_gbs");
       NMD->addOperand(Node);
     }

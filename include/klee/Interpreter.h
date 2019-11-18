@@ -109,6 +109,7 @@ public:
     bool verbose;
     std::set<llvm::Function*> *user_fns;
     std::set<llvm::GlobalVariable*> *user_gbs;
+    TestCase *test;
 
     ModuleOptions()
       : Optimize(false),
@@ -120,7 +121,8 @@ public:
         verbose(false),
 #endif
         user_fns(nullptr),
-        user_gbs(nullptr)
+        user_gbs(nullptr),
+        test(nullptr)
       {}
   };
 
@@ -234,7 +236,7 @@ public:
 
   virtual void runFunctionUnconstrained(llvm::Function *fn) { };
   virtual void runFunctionTestCase(const TestCase &test) {};
-  virtual void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) {};
+  virtual void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) {}
 
   /*** Runtime options ***/
 
@@ -260,7 +262,8 @@ public:
   virtual KModule *getKModule() const { return nullptr; }
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
-  virtual void getModeledExternals(std::set<std::string> &names) const {};
+  virtual void GetModeledExternals(std::set<std::string> &names) const {}
+  virtual bool ShouldBeModeled(const std::string &name) const { return false; }
 
 };
 

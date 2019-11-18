@@ -19,7 +19,8 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       {"getuid", &SystemModel::ExecuteReturn0},
       {"geteuid", &SystemModel::ExecuteReturn0},
       {"getgid", &SystemModel::ExecuteReturn0},
-      {"getegid", &SystemModel::ExecuteReturn0}
+      {"getegid", &SystemModel::ExecuteReturn0},
+      {"memset", &SystemModel::ExecuteMemset}
   };
 
   static const vector<handler_descriptor_t> output_fns = {
@@ -30,12 +31,12 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       { "puts", &SystemModel::ExecuteReturn1},
       { "fputs", &SystemModel::ExecuteReturn1},
       { "fputs_unlocked", &SystemModel::ExecuteReturn1},
-      { "putchar", &SystemModel::ExecuteFirstArg},
-      { "putc", &SystemModel::ExecuteFirstArg},
-      { "fputc", &SystemModel::ExecuteFirstArg},
-      { "putchar_unlocked", &SystemModel::ExecuteFirstArg},
-      { "putc_unlocked", &SystemModel::ExecuteFirstArg},
-      { "fputc_unlocked", &SystemModel::ExecuteFirstArg},
+      { "putchar", &SystemModel::ExecuteReturnFirstArg},
+      { "putc", &SystemModel::ExecuteReturnFirstArg},
+      { "fputc", &SystemModel::ExecuteReturnFirstArg},
+      { "putchar_unlocked", &SystemModel::ExecuteReturnFirstArg},
+      { "putc_unlocked", &SystemModel::ExecuteReturnFirstArg},
+      { "fputc_unlocked", &SystemModel::ExecuteReturnFirstArg},
       { "perror", &SystemModel::ExecuteNoop}
   };
 
@@ -61,52 +62,117 @@ void SystemModel::GetModeledExternals(set<string> &names) const {
   names.insert(modeled_names.begin(), modeled_names.end());
 }
 
+bool SystemModel::ShouldBeModeled(const std::string &name) const {
+
+  static set<string> desired = { "memcpy", "memmove", "memcmp", "strlen" };
+  auto itr = desired.find(name);
+  return itr != desired.end();
+}
+
 bool SystemModel::Execute(ExecutionState &state, Function *fn, KInstruction *ki, const CallSite &cs, ref<Expr> &ret) {
 
   auto itr = dispatch.find(fn);
   if (itr != dispatch.end()) {
     handler_t SystemModel::*handler = itr->second;
-    (this->*handler)(state, ki, cs, ret);
-    return true;
+
+    // create a vector of arguments
+    unsigned num_args = cs.arg_size();
+    vector<ref<Expr> > args;
+    args.reserve(num_args);
+    for (unsigned idx = 0; idx < num_args; ++idx) {
+      args.push_back(executor->eval(ki, idx+1, state).value);
+    }
+    return (this->*handler)(state, args, ret);
   }
   return false;
 }
 
-void SystemModel::ExecuteWrite(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteWrite(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
-  retExpr = executor->eval(ki, 3, state).value;
+  if (args.size() == 3) {
+    retExpr = args[2];
+  } else {
+    return ExecuteReturn0(state, args, retExpr);
+  }
+  return true;
 }
 
-void SystemModel::ExecuteIsaTTY(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteIsaTTY(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   unsigned result = 0;
-  ref<Expr> fd = executor->eval(ki, 1, state).value;
-  if (isa<ConstantExpr>(fd)) {
-    ref<ConstantExpr> cfd = cast<ConstantExpr>(fd);
-    unsigned desc = cfd->getZExtValue(Expr::Int32);
-    if (desc < 3) result = 1;
+  if (!args.empty()) {
+    ref<Expr> fd = args[0];
+    if (isa<ConstantExpr>(fd)) {
+      ref<ConstantExpr> cfd = cast<ConstantExpr>(fd);
+      unsigned desc = cfd->getZExtValue(Expr::Int32);
+      if (desc < 3)
+        result = 1;
+    }
   }
   retExpr = ConstantExpr::create(result, Expr::Int32);
+  return true;
 }
 
-void SystemModel::ExecuteReturn1(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteReturn1(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   retExpr = ConstantExpr::create(1, Expr::Int32);
+  return true;
 }
 
-void SystemModel::ExecuteReturn0(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteReturn0(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   retExpr = ConstantExpr::create(0, Expr::Int32);
+  return true;
 }
 
-void SystemModel::ExecuteNoop(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteNoop(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
+  return true;
 }
 
-void SystemModel::ExecuteFirstArg(ExecutionState &state, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &retExpr) {
+bool SystemModel::ExecuteReturnFirstArg(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
-  retExpr = executor->eval(ki, 1, state).value;
+  if (!args.empty()) {
+    retExpr = args[0];
+  } else {
+    return ExecuteReturn0(state, args, retExpr);
+  }
+  return true;
 }
 
+bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 3) {
+    ref<Expr> addr = executor->toUnique(state, args[0]);
+    ref<Expr> val = executor->toUnique(state, args[1]);
+    ref<Expr> count = executor->toUnique(state, args[2]);
+    if ((isa<ConstantExpr>(addr) && isa<ConstantExpr>(count))) {
+
+      ObjectPair op;
+      LocalExecutor::ResolveResult result = executor->resolveMO(state, addr, op);
+      if (result == LocalExecutor::ResolveResult::OK) {
+        const MemoryObject *mo = op.first;
+        const ObjectState *os = op.second;
+
+        uint64_t caddr = cast<ConstantExpr>(addr)->getZExtValue(Expr::Int64);
+        uint64_t ccount = cast<ConstantExpr>(count)->getZExtValue(Expr::Int64);
+        uint64_t offset = caddr - mo->address;
+        if (offset + ccount < mo->address + mo->size) {
+          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+          while (ccount-- > 0) {
+            wos->write8(offset++, val);
+          }
+        }
+      }
+      retExpr = addr;
+      return true;
+    }
+    return false;
+  }
+  retExpr = ConstantExpr::createPointer(0);
+  return true;
+}
+
+// RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,
 
 }
