@@ -591,7 +591,7 @@ void klee::rewriteFunctionPointers(llvm::Module *m, set<Function*> &fns) {
 }
 
 bool klee::isPrepared(Module *m) {
-  NamedMDNode *NMD = m->getNamedMetadata("brt-klee.usr_fns");
+  NamedMDNode *NMD = m->getNamedMetadata("brt-klee.usr-fns");
   return NMD != nullptr;
 }
 

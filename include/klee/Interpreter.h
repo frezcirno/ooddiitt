@@ -11,6 +11,8 @@
 
 #include "TestCase.h"
 #include "klee/util/CommonUtil.h"
+#include "klee/util/Ref.h"
+#include "klee/Expr.h"
 
 #include <vector>
 #include <string>
@@ -36,13 +38,29 @@ class MemoryObject;
 class KModule;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
-typedef SymbolicSolution ConcreteSolution;
+typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
 
 #define HEARTBEAT_INTERVAL   (10)        // secs
 #define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_STUB_FLAG   (2)
+
+enum class LogType
+{
+  STP, //.CVC (STP's native language)
+  KQUERY, //.KQUERY files (kQuery native language)
+  SMTLIB2, //.SMT2 files (SMTLIB version 2 files)
+  SMTVARS  // part of SMT2 containing var declarations
+};
+
+enum class ExecModeID {
+  none, // undefined
+  prep,
+  igen, // interpreter should execute module for cbert input generation
+  rply, // interpreter should execute module for cbert replay
+  irec  // record snapshot at a function entry
+};
 
 class UnconstraintFlagsT : public std::bitset<8> {
 
@@ -126,22 +144,6 @@ public:
       {}
   };
 
-  enum LogType
-  {
-	  STP, //.CVC (STP's native language)
-	  KQUERY, //.KQUERY files (kQuery native language)
-	  SMTLIB2, //.SMT2 files (SMTLIB version 2 files)
-      SMTVARS  // part of SMT2 containing var declarations
-  };
-
-  enum ExecModeID {
-      none, // undefined
-      prep,
-      igen, // interpreter should execute module for cbert input generation
-      rply, // interpreter should execute module for cbert replay
-      irec  // record snapshot at a function entry
-  };
-
   struct ProgressionDesc {
     unsigned timeout;
     UnconstraintFlagsT unconstraintFlags;
@@ -169,7 +171,7 @@ public:
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
-        mode(Interpreter::none),
+        mode(ExecModeID::none),
         userMain(nullptr),
         userSnapshot(nullptr),
         user_mem_base(nullptr),
@@ -180,7 +182,7 @@ public:
         verbose(false),
 #endif
         verify_constraints(false),
-        trace(TraceType::none)
+        trace(TraceType::undefined)
     {}
   };
 
@@ -252,14 +254,16 @@ public:
 
   virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
 
-  virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = STP) = 0;
+  virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = LogType::STP) = 0;
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
-  virtual bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<uint64_t> &args)
-      { return false; };
+  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
+    return getSymbolicSolution(state, res);
+  };
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }
+  virtual TraceType getTraceType() const { return TraceType::undefined; }
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
   virtual void GetModeledExternals(std::set<std::string> &names) const {}

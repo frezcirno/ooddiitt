@@ -127,7 +127,7 @@ namespace klee {
     /// \retval false The copy failed because a read-only object was modified.
     bool copyInConcretes();
     void getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type = nullptr) const;
-    bool getNamedWrittenMemObjs(std::vector<ObjectPair> &listOPs, const std::set<MemKind> &kinds) const;
+    bool getNamedWrittenMemObjs(std::map<std::string,ObjectPair> &objs, const std::set<MemKind> &kinds) const;
     void clearWritten();
     ObjectPair findMemoryObjectByName(const std::string &name, MemKind kind = MemKind::invalid) const;
   };

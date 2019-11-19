@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+
+import argparse
+import subprocess
+import io
+import os
+import re
+
+
+def extract_metadata(txt, trans):
+
+    pattern1 = re.compile(r"^(!\d+)\s= metadata\s!{metadata !\"(\d+)\"}")
+    pattern2 = re.compile(r"^(!\d+)\s= metadata\s!{metadata !\"([a-zA-Z_]\w*)\"}")
+    lines = io.StringIO(txt)
+    for line in lines:
+
+        for pattern in [pattern1, pattern2]:
+            m = pattern.match(line)
+            if m:
+                trans[m.group(1)] = '#' + m.group(2)
+                break
+    return
+
+
+def rewrite_metadata(txt, trans, filename):
+
+    with open(filename, "w") as outfile:
+        pattern1 = re.compile(r".*!brt-klee\.fnID\s(!\d+).*")
+        pattern2 = re.compile(r".*!brt-klee\.bbID\s(!\d+).*")
+
+        lines = io.StringIO(txt)
+        for line in lines:
+            for pat in [pattern1, pattern2]:
+                m = pat.match(line)
+                if m:
+                    start, end = m.span(1)
+                    md_old = m.group(1)
+                    if md_old in trans:
+                        md_new = trans[md_old]
+                        line = line[0:start] + md_new + line[end:]
+            print(line, file=outfile, end='')
+
+
+def raw_disassemble(file):
+
+    result = ""
+    completed = subprocess.run(['llvm-dis-3.4', '-o=-', file], stdout=subprocess.PIPE, encoding='utf-8')
+    if completed.returncode == 0:
+        result = completed.stdout
+    return result
+
+
+def disassemble(file):
+
+    filename, ext = os.path.splitext(file)
+    if ext == ".bc":
+        txt = raw_disassemble(file)
+        if len(txt) > 0:
+            trans = {}
+            extract_metadata(txt, trans)
+            rewrite_metadata(txt, trans, filename + '.llm')
+            return True
+    return False
+
+
+def main(args):
+
+    for file in args.src:
+        if not disassemble(file):
+            print("Failed to disassemble:", file)
+            return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description='produces readable, marked assembly from bc file')
+    parser.add_argument('src', metavar='module.bc', nargs='+', type=str, help='c source file')
+
+    args = parser.parse_args()
+    exit(main(args))

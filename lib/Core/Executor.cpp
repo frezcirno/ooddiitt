@@ -413,7 +413,7 @@ const Module *Executor::setModule(llvm::Module *module,
   specialFunctionHandler = new SpecialFunctionHandler(*this);
 
   specialFunctionHandler->prepare();
-  kmodule->prepare(opts, interpreterHandler, interpreterOpts.mode == ExecModeID::prep);
+  kmodule->prepare(opts, interpreterHandler, interpreterOpts.mode == ExecModeID::prep, interpreterOpts.trace);
   specialFunctionHandler->bind();
 
   std::set<const llvm::Function*> spcs;
@@ -1561,6 +1561,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
+      assert(state.arguments.size() == 0);
+      if (!isVoidReturn) state.arguments.push_back(result);
       terminateStateOnExit(state);
     } else {
       state.popFrame();
@@ -3624,27 +3626,26 @@ unsigned Executor::getSymbolicPathStreamID(const ExecutionState &state) {
   return state.symPathOS.getID();
 }
 
-void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
-                                Interpreter::LogType logFormat) {
+void Executor::getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) {
 
   std::ostringstream info;
 
   switch (logFormat) {
-  case STP: {
+  case LogType::STP: {
     Query query(state.constraints, ConstantExpr::alloc(0, Expr::Bool));
     char *log = solver->getConstraintLog(query);
     res = std::string(log);
     free(log);
   } break;
 
-  case KQUERY: {
+  case LogType::KQUERY: {
     std::string Str;
     llvm::raw_string_ostream info(Str);
     ExprPPrinter::printConstraints(info, state.constraints);
     res = info.str();
   } break;
 
-  case SMTLIB2: {
+  case LogType::SMTLIB2: {
     std::string Str;
     llvm::raw_string_ostream info(Str);
     ExprSMTLIBPrinter printer;
@@ -3655,7 +3656,7 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
     res = info.str();
   } break;
 
-  case SMTVARS: {
+  case LogType::SMTVARS: {
     std::string Str;
     llvm::raw_string_ostream info(Str);
     ExprSMTLIBPrinter printer;

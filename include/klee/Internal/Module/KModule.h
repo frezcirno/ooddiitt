@@ -150,7 +150,10 @@ namespace klee {
     /// Initialize local data structures.
     //
     // FIXME: ihandler should not be here
-    void prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ihandler, bool build);
+    void prepare(const Interpreter::ModuleOptions &opts,
+                 InterpreterHandler *ihandler,
+                 bool build = false,
+                 TraceType trace = TraceType::undefined);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
@@ -185,6 +188,8 @@ namespace klee {
       return user_gbs.find(gb) != user_gbs.end();
     }
 
+    TraceType getModuleTraceType() const { return module_trace; }
+
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
@@ -192,6 +197,7 @@ namespace klee {
     std::map<std::string,llvm::Type*> mapTypeDescs;
     std::set<llvm::Function*> user_fns;
     std::set<llvm::GlobalVariable*> user_gbs;
+    TraceType module_trace;
 };
 
 } // End klee namespace

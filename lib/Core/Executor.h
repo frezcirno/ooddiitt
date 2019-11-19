@@ -497,9 +497,9 @@ public:
 
   virtual void getConstraintLog(const ExecutionState &state,
                                 std::string &res,
-                                Interpreter::LogType logFormat = Interpreter::STP);
+                                LogType logFormat = LogType::STP);
 
-  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res);
+  bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) override;
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res);

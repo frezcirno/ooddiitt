@@ -57,6 +57,10 @@ public:
 
   void setPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated path writer"); }
   void setSymbolicPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated sympath writer"); }
+  bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) override;
+  TraceType getTraceType() const override {
+    return trace_type;
+  }
 
 protected:
   void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
@@ -147,7 +151,7 @@ protected:
                              const char *suffix = nullptr,
                              const llvm::Twine &longMessage = "") override;
 
-  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, std::vector<uint64_t> &args) override;
+//  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, std::vector<uint64_t> &args) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void checkMemoryFnUsage(KFunction *kf = nullptr);
@@ -157,7 +161,7 @@ protected:
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
   void GetModeledExternals(std::set<std::string> &names) const override;
-  bool ShouldBeModeled(const std::string &name) const override { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); }
+  bool ShouldBeModeled(const std::string &name) const override { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); else return false; }
   bool isLegalFunction(const llvm::Function *fn) const {
     return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
   }
@@ -180,6 +184,7 @@ protected:
   std::set<unsigned> break_lines;
   ModelOptions optsModel;
   SystemModel *sysModel;
+  TraceType trace_type;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

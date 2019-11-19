@@ -37,6 +37,7 @@ public:
     constraints(_constraints) {}
 
   ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints) {}
+  ConstraintManager& operator=(const ConstraintManager &other) { constraints = other.constraints; return *this; }
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 

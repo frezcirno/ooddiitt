@@ -70,6 +70,7 @@ namespace {
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+  cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
   cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
   cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
   cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
@@ -276,7 +277,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
 
       // store the path condition
       string constraints;
-      i->getConstraintLog(state, constraints, Interpreter::SMTVARS);
+      i->getConstraintLog(state, constraints, LogType::SMTVARS);
       root["pathConditionVars"] = constraints;
 
       stringstream ss;
@@ -286,11 +287,16 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       }
       root["argV"] = ss.str();
 
-      vector<ConcreteSolution> out;
-      vector<uint64_t> args;
-      if (!i->getConcreteSolution(state, out, args)) {
-        klee_warning("unable to get concrete solution, losing test case");
+      vector<ExprSolution> args;
+      for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
+        args.emplace_back(make_pair(*itr, nullptr));
       }
+
+      vector<SymbolicSolution> out;
+      if (!i->getSymbolicSolution(state, out, args)) {
+        klee_warning("unable to get symbolic solution, losing test case");
+      }
+
       Json::Value &objects = root["objects"] = Json::arrayValue;
 
       unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -320,17 +326,25 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       }
 
       Json::Value &arguments = root["arguments"] = Json::arrayValue;
-      for (auto arg : args) {
-        vector<unsigned char> a;
-        unsigned char *byte = ((unsigned char *) &(arg));
-        for (unsigned index = 0; index < ptr_width; ++index, ++byte) {
-          a.push_back(*byte);
+      for (auto itr = args.begin(), end = args.end(); itr != end; ++itr) {
+        klee::ref<klee::ConstantExpr> ce = itr->second;
+        if (ce.isNull()) {
+          arguments.append("");
+        } else {
+          uint64_t value = ce->getZExtValue();
+          unsigned width = ce->getWidth() / 8;
+          unsigned char *byte = ((unsigned char *) &value) + (sizeof(uint64_t) - width);
+          vector<unsigned char> v;
+          for (unsigned idx = 0; idx < width; ++idx) {
+            v.push_back(*byte++);
+          }
+          arguments.append(toDataString(v));
         }
-        arguments.append(toDataString(a));
       }
 
-      root["traceType"] = opts.trace;
-      if (opts.trace != TraceType::none) {
+      TraceType trace_type = i->getTraceType();
+      if (trace_type != TraceType::undefined) {
+        root["traceType"] = (unsigned) trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
         for (auto entry : state.trace) {
           trace.append(entry);
@@ -506,13 +520,15 @@ int main(int argc, char **argv, char **envp) {
       RecordKleeHandler *handler = new RecordKleeHandler(args, mainModule->getModuleIdentifier());
 
       Interpreter::InterpreterOptions IOpts;
-      IOpts.mode = Interpreter::ExecModeID::irec;
+      IOpts.mode = ExecModeID::irec;
       IOpts.user_mem_base = (void*) 0x80000000000;
       IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
       IOpts.verbose = Verbose;
       IOpts.userSnapshot = targetFn;
 
-      if (TraceBBlocks) {
+      if (TraceNone) {
+        IOpts.trace = TraceType::none;
+      } else if (TraceBBlocks) {
         IOpts.trace = TraceType::bblocks;
       } else if (TraceAssembly) {
         IOpts.trace = TraceType::assembly;

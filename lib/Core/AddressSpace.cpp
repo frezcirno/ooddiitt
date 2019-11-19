@@ -359,17 +359,17 @@ ObjectPair AddressSpace::findMemoryObjectByName(const std::string &name, MemKind
   return std::make_pair(nullptr,nullptr);
 }
 
-bool AddressSpace::getNamedWrittenMemObjs(std::vector<ObjectPair> &listOPs, const std::set<MemKind> &kinds) const {
+bool AddressSpace::getNamedWrittenMemObjs(std::map<std::string,ObjectPair> &objs, const std::set<MemKind> &kinds) const {
 
-  listOPs.clear();
-  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
-    const MemoryObject *mo = it->first;
-    const ObjectState *os = it->second;
-    if (!mo->name.empty() && kinds.find(mo->kind) != kinds.end() && !os->readOnly && os->isWritten()) {
-      listOPs.emplace_back(*it);
+  for (MemoryMap::iterator itr = objects.begin(), end = objects.end(); itr != end; ++itr) {
+    const MemoryObject *mo = itr->first;
+    const ObjectState *os = itr->second;
+    std::string name = mo->name;
+    if (!name.empty() && kinds.find(mo->kind) != kinds.end() && !os->readOnly && os->isWritten()) {
+      objs[name] = *itr;
     }
   }
-  return !listOPs.empty();
+  return !objs.empty();
 }
 
 void AddressSpace::clearWritten() {

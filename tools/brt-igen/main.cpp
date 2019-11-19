@@ -85,6 +85,7 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+  cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
   cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
   cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
   cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
@@ -338,7 +339,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
 
       // store the path condition
       string constraints;
-      i->getConstraintLog(state, constraints, Interpreter::SMTVARS);
+      i->getConstraintLog(state, constraints, LogType::SMTVARS);
       root["pathConditionVars"] = constraints;
 
       stringstream ss;
@@ -348,8 +349,13 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
       }
       root["argV"] = ss.str();
 
+      vector<ExprSolution> args;
+      for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
+        args.emplace_back(make_pair(*itr, nullptr));
+      }
+
       vector<SymbolicSolution> out;
-      if (!i->getSymbolicSolution(state, out)) {
+      if (!i->getSymbolicSolution(state, out, args)) {
         klee_warning("unable to get symbolic solution, losing test case");
       }
       Json::Value &objects = root["objects"] = Json::arrayValue;
@@ -379,9 +385,26 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
         objects.append(obj);
       }
 
-      const Interpreter::InterpreterOptions &opts = i->getOptions();
-      root["traceType"] = opts.trace;
-      if (opts.trace != TraceType::none) {
+      Json::Value &arguments = root["arguments"] = Json::arrayValue;
+      for (auto itr = args.begin(), end = args.end(); itr != end; ++itr) {
+        klee::ref<klee::ConstantExpr> ce = itr->second;
+        if (ce.isNull()) {
+          arguments.append("");
+        } else {
+          uint64_t value = ce->getZExtValue();
+          unsigned width = ce->getWidth() / 8;
+          unsigned char *byte = ((unsigned char *) &value);
+          vector<unsigned char> v;
+          for (unsigned idx = 0; idx < width; ++idx) {
+            v.push_back(*byte++);
+          }
+          arguments.append(toDataString(v));
+        }
+      }
+
+      TraceType trace_type = i->getTraceType();
+      if (trace_type != TraceType::undefined) {
+        root["traceType"] = (unsigned) trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
         for (auto entry : state.trace) {
           trace.append(entry);
@@ -871,14 +894,16 @@ int main(int argc, char **argv, char **envp) {
   if (!parseUnconstraintProgression(IOpts.progression, Progression)) {
     klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
   }
-  IOpts.mode = Interpreter::ExecModeID::igen;
+  IOpts.mode = ExecModeID::igen;
   IOpts.userMain = mainFn;
   IOpts.user_mem_base = (void*) 0x80000000000;
   IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
   IOpts.verbose = Verbose;
   IOpts.verify_constraints = VerifyConstraints;
 
-  if (TraceBBlocks) {
+  if (TraceNone) {
+    IOpts.trace = TraceType::none;
+  } else if (TraceBBlocks) {
     IOpts.trace = TraceType::bblocks;
   } else if (TraceAssembly) {
     IOpts.trace = TraceType::assembly;

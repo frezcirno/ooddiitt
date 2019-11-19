@@ -241,6 +241,7 @@ public:
   std::string terminationMessage;
   const KInstruction *instFaulting;
   std::deque<unsigned> trace;
+  std::vector<ref<Expr> > arguments;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
   const KInstruction* branched_at;
@@ -266,7 +267,15 @@ public:
   void popFrame();
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
-  bool isSymbolic(const MemoryObject *mo);
+  bool isSymbolic(const MemoryObject *mo) const { return findSymbolic(mo) != nullptr; }
+  const Array *findSymbolic(const MemoryObject *mo) const {
+    for (auto &pr : symbolics) {
+      if (pr.first==mo) {
+        return pr.second;
+      }
+    }
+    return nullptr;
+  }
   bool isConcrete(const MemoryObject *mo);
   void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 

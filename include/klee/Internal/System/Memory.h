@@ -33,7 +33,7 @@ class ArrayCache;
 
 inline std::string to_string(MemKind kind) {
   static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
-  return kindStrings[kind];
+  return kindStrings[(unsigned) kind];
 }
 
 inline std::string to_string(const llvm::Type *type) {
@@ -248,6 +248,7 @@ public:
   unsigned getVisibleSize() const { return visible_size; }
   bool referencedAs(const llvm::Type *type) const { return types.count(type) > 0; }
   bool readConcrete(unsigned offset, std::vector<unsigned char> &data) const;
+  uint8_t readConcrete(unsigned offset) const;
 
   ref<Expr> read(ref<Expr> offset, Expr::Width width) const;
   ref<Expr> read(unsigned offset, Expr::Width width) const;
@@ -301,6 +302,8 @@ public:
     }
   }
 
+  bool isByteConcrete(unsigned offset) const;
+
 private:
   const UpdateList &getUpdates() const;
 
@@ -314,7 +317,6 @@ private:
   void flushRangeForRead(unsigned rangeBase, unsigned rangeSize) const;
   void flushRangeForWrite(unsigned rangeBase, unsigned rangeSize);
 
-  bool isByteConcrete(unsigned offset) const;
   bool isByteFlushed(unsigned offset) const;
   bool isByteKnownSymbolic(unsigned offset) const;
 

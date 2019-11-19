@@ -74,7 +74,7 @@ public:
                max_loop_iter(0),
                status(StateStatus::Invalid),
                test_id(UINT_MAX),
-               trace_type(TraceType::none) {}
+               trace_type(TraceType::undefined) {}
   bool is_ready() { return test_id != UINT_MAX; }
 
   int arg_c;

@@ -214,6 +214,6 @@ void MemoryManager::dump() const {
 
   for (auto itr = objects.begin(), end = objects.end(); itr != end; ++itr ) {
     auto obj = *itr;
-    llvm::outs() << obj->name << " " << obj->kind << "\n";
+    llvm::outs() << obj->name << " " << (unsigned) obj->kind << "\n";
   }
 }

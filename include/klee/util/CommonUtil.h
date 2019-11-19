@@ -7,7 +7,7 @@ typedef std::chrono::system_clock sys_clock;
 
 namespace klee {
 
-enum StateStatus {
+enum class StateStatus {
   Invalid,
   Pending,
   Completed,
@@ -19,7 +19,7 @@ enum StateStatus {
   Snapshot
 };
 
-enum MemKind {
+enum class MemKind {
   invalid,
   external,
   global,
@@ -30,7 +30,8 @@ enum MemKind {
   lazy
 };
 
-enum TraceType {
+enum class TraceType {
+  undefined,
   none,
   bblocks,
   assembly,

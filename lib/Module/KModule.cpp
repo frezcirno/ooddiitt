@@ -78,7 +78,8 @@ KModule::KModule(Module *_module)
     targetData(new DataLayout(module)),
     kleeMergeFn(nullptr),
     infos(nullptr),
-    constantTable(nullptr) {}
+    constantTable(nullptr),
+    module_trace(TraceType::undefined) {}
 
 KModule::~KModule() {
   delete[] constantTable;
@@ -200,7 +201,7 @@ static set<string> never_stub = {
     "strstr"
 };
 
-void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, bool build) {
+void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, bool build, TraceType trace) {
 
   LLVMContext &ctx = module->getContext();
 
@@ -331,7 +332,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         user_fns.insert(fn);
       }
       MDNode *Node = MDNode::get(ctx, values);
-      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_fns");
+      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
       NMD->addOperand(Node);
     }
     if (opts.user_gbs != nullptr) {
@@ -342,7 +343,16 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
         user_gbs.insert(gb);
       }
       MDNode *Node = MDNode::get(ctx, values);
-      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr_gbs");
+      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-gbs");
+      NMD->addOperand(Node);
+    }
+
+    if (trace != TraceType::undefined) {
+      Type *int_type = Type::getInt32Ty(ctx);
+      vector<Value*> values;
+      values.push_back(ConstantInt::get(int_type, (unsigned) trace));
+      MDNode *Node = MDNode::get(ctx, values);
+      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.trace-type");
       NMD->addOperand(Node);
     }
 
@@ -377,7 +387,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
 
     // read out the user defined functions from metadata
-    auto node = module->getNamedMetadata("brt-klee.usr_fns");
+    auto node = module->getNamedMetadata("brt-klee.usr-fns");
     if (node->getNumOperands() > 0) {
       auto md = node->getOperand(0);
       for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
@@ -389,7 +399,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
 
     // and now the globals
-    node = module->getNamedMetadata("brt-klee.usr_gbs");
+    node = module->getNamedMetadata("brt-klee.usr-gbs");
     if (node->getNumOperands() > 0) {
       auto md = node->getOperand(0);
       for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
@@ -400,6 +410,15 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       }
     }
 
+    // check to see if a default trace type is set in the module
+    node = module->getNamedMetadata("brt-klee.trace-type");
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      Value *v = md->getOperand(0);
+      if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
+        module_trace = (TraceType) i->getZExtValue();
+      }
+    }
   }
 
   kleeMergeFn = module->getFunction("klee_merge");

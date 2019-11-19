@@ -80,7 +80,8 @@ bool SystemModel::Execute(ExecutionState &state, Function *fn, KInstruction *ki,
     vector<ref<Expr> > args;
     args.reserve(num_args);
     for (unsigned idx = 0; idx < num_args; ++idx) {
-      args.push_back(executor->eval(ki, idx+1, state).value);
+      ref<Expr> arg = executor->eval(ki, idx+1, state).value;
+      args.push_back(arg);
     }
     return (this->*handler)(state, args, ret);
   }
@@ -144,7 +145,8 @@ bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&a
 
   if (args.size() == 3) {
     ref<Expr> addr = executor->toUnique(state, args[0]);
-    ref<Expr> val = executor->toUnique(state, args[1]);
+    ref<Expr> val = ExtractExpr::create(args[1], 0, Expr::Int8);
+    val = executor->toUnique(state, val);
     ref<Expr> count = executor->toUnique(state, args[2]);
     if ((isa<ConstantExpr>(addr) && isa<ConstantExpr>(count))) {
 

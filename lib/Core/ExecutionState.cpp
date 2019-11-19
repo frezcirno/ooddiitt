@@ -93,7 +93,7 @@ ExecutionState::ExecutionState() :
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
-    status(Pending),
+    status(StateStatus::Pending),
     instFaulting(nullptr),
     allBranchCounter(0),
     unconBranchCounter(0),
@@ -136,6 +136,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
     trace(state.trace),
+    arguments(state.arguments),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -201,6 +202,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     terminationMessage(state.terminationMessage),
     instFaulting(state.instFaulting),
     trace(state.trace),
+    arguments(state.arguments),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
     branched_at(state.branched_at)
@@ -240,13 +242,6 @@ void ExecutionState::popFrame() {
 void ExecutionState::addSymbolic(const MemoryObject *mo, const Array *array) {
   mo->refCount++;
   symbolics.push_back(std::make_pair(mo, array));
-}
-
-bool ExecutionState::isSymbolic(const MemoryObject *mo) {
-  for (auto iter = symbolics.begin(), end = symbolics.end(); iter != end; ++iter) {
-    if (iter->first == mo) return true;
-  }
-  return false;
 }
 
 bool ExecutionState::isConcrete(const MemoryObject *mo) {

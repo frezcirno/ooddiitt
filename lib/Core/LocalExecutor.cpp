@@ -95,7 +95,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   baseState(nullptr),
   progression(opts.progression),
   libc_initializing(false),
-  sysModel(nullptr) {
+  sysModel(nullptr),
+  trace_type(TraceType::undefined) {
 
   switch (opts.mode) {
     case ExecModeID::prep:
@@ -902,7 +903,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
 
     const auto &desc = *itr;
-    init_states.clear();
 
     // initialize a common initial state
     ExecutionState *state = new ExecutionState(*baseState, kf, name);
@@ -926,27 +926,22 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       // symbolic argc, symbolic argv,
       assert(fn->getArgumentList().size() == 2);
 
-      init_states.reserve(SymArgs + 1);
+      init_states.clear();
+      init_states.resize(SymArgs + 1);
+
       unsigned ptr_width =  Context::get().getPointerWidth();
       LLVMContext &ctx = kmodule->module->getContext();
-      Type *int_type = Type::getInt32Ty(ctx);
-      size_t int_align = kmodule->targetData->getPrefTypeAlignment(int_type);
+
+      // get some common types we are going to need later
       Type *char_type = Type::getInt8Ty(ctx);
       size_t char_align = kmodule->targetData->getPrefTypeAlignment(char_type);
       Type *str_type = Type::getInt8PtrTy(ctx);
       size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
-      Type *pstr_type = str_type->getPointerTo(0);
-      size_t pstr_align = kmodule->targetData->getPrefTypeAlignment(pstr_type);
-
-      // argc constrained 1 .. SymArgs + 1
-      WObjectPair wopArgc;
-      allocSymbolic(*state, int_type, fn, MemKind::param, "argc", wopArgc, int_align);
-      ref<Expr> eArgc = wopArgc.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(int_type));
-      bindArgument(kf, 0, *state, eArgc);
 
       // push the module name into the state
       std::string md_name = kmodule->module->getModuleIdentifier();
       const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, str_type, fn, str_align, true);
+      moProgramName->name = "_program_name";
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
@@ -958,14 +953,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // despite being symbolic, argv[0] always points to program name
       addConstraint(*state, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
-
-      // and finally, the pointer to the argv array to be passed as param to main
-      WObjectPair wopArgv;
-      allocSymbolic(*state, pstr_type, fn, MemKind::param, "argv", wopArgv, pstr_align, 1);
-
-      ref<Expr> eArgv = wopArgv.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(pstr_type));
-      addConstraint(*state, EqExpr::create(wopArgv_array.first->getBaseExpr(), eArgv));
-      bindArgument(kf, 1, *state, eArgv);
 
       // allocate the command line arg strings for each starting state
       init_states[0] = state;
@@ -1000,20 +987,28 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         addConstraint(*curr, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
       }
 
-      for (unsigned index = 0; index <= SymArgs; index++) {
+      for (unsigned idx1 = 0; idx1 <= SymArgs; ++idx1) {
         // for each state constrain argc
-        ExecutionState *curr = init_states[index];
-        addConstraint(*curr, EqExpr::create(ConstantExpr::create(index + 1, Expr::Int32), eArgc));
+        ExecutionState *curr = init_states[idx1];
 
         // and the remainder of the argv array should be null
-        for (unsigned idx = index; idx <= SymArgs; idx++) {
-          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx + 1), ptr_width);
+        for (unsigned idx2 = idx1; idx2 <= SymArgs; ++idx2) {
+          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx2 + 1), ptr_width);
           addConstraint(*curr, EqExpr::create(ptr, ConstantExpr::createPointer(0)));
         }
+        ref<Expr> eArgC = ConstantExpr::create(idx1 + 1, Expr::Int32);
+        ref<Expr> eArgV = ConstantExpr::createPointer(wopArgv_array.first->address);
+        bindArgument(kf, 0, *curr, eArgC);
+        bindArgument(kf, 1, *curr, eArgV);
+        curr->arguments.clear();
+        curr->arguments.push_back(eArgC);
+        curr->arguments.push_back(eArgV);
       }
+
     } else {
 
       unsigned index = 0;
+      state->arguments.reserve(fn->arg_size());
       for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
 
         const Argument &arg = *ai;
@@ -1025,8 +1020,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
           klee_error("failed to allocate function parameter");
         }
-        ref<Expr> e = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
-        bindArgument(kf, index, *state, e);
+        ref<Expr> eArg = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+        bindArgument(kf, index, *state, eArg);
+        state->arguments.push_back(eArg);
       }
       init_states.push_back(state);
     }
@@ -1092,7 +1088,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
         break;
       }
       default: {
-        outs() << "RLR: what to do with kind: " << kind << '\n';
+        outs() << "RLR: what to do with kind: " << (unsigned) kind << '\n';
         break;
       }
     }
@@ -1356,12 +1352,18 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
   }
 
+  // if trace type is not defined here, then use the default from the module
+  trace_type = interpreterOpts.trace;
+  if (trace_type == TraceType::undefined) {
+    trace_type = kmodule->getModuleTraceType();
+  }
+
   ProgramTracer *tracer = nullptr;
-  if (interpreterOpts.trace == TraceType::bblocks) {
+  if (trace_type == TraceType::bblocks) {
     tracer = new BBlocksTracer(kmodule);
-  } else if (interpreterOpts.trace == TraceType::assembly) {
+  } else if (trace_type == TraceType::assembly) {
     tracer = new AssemblyTracer;
-  } else if (interpreterOpts.trace == TraceType::statements) {
+  } else if (trace_type == TraceType::statements) {
     tracer = new StatementTracer;
   }
 
@@ -1753,6 +1755,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
           state.status = StateStatus::Snapshot;
           state.instFaulting = ki;
+          unsigned numArgs = cs.arg_size();
+
+          // evaluate arguments
+          state.arguments.reserve(numArgs);
+          for (unsigned idx = 0; idx < numArgs; ++idx) {
+            ref<Expr> e = eval(ki, idx + 1, state).value;
+            state.arguments.push_back(toUnique(state, e));
+          }
+
           interpreterHandler->processTestCase(state);
           terminateState(state, "snapshot");
           return;
@@ -1790,6 +1801,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         } else {
           // inject an unconstraining stub
+          assert(false && "should not happen in brt mode");
         }
 
       } else {
@@ -1804,7 +1816,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         arguments.reserve(numArgs);
 
         for (unsigned j=0; j<numArgs; ++j) {
-          arguments.push_back(eval(ki, j + 1, state).value);
+          ref<Expr> arg = eval(ki, j + 1, state).value;
+          arguments.push_back(arg);
         }
 
         vector<Function*> targets;
@@ -2275,56 +2288,53 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   return counter;
 }
 
-bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSolution> &result, vector<uint64_t> &args) {
+bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
 
-    // get the names of the user defined globals
-    set<string> gb_names;
-    for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
-      GlobalVariable *v = itr;
-      if (kmodule->isUserGlobal(v) && v->hasName()) {
-        gb_names.insert(v->getName());
+  if (Executor::getSymbolicSolution(state, res)) {
+
+    // if all expressions are (or can be resolved to) constants, then
+    // no need to resort to the solver
+    bool need_solver = false;
+    for (auto itr = exprs.begin(), end = exprs.end(); itr != end; ++itr) {
+
+      ref<Expr> e = toUnique(state, itr->first);
+      itr->first = e;
+      if (isa<ConstantExpr>(e)) {
+        itr->second = cast<ConstantExpr>(e);
+      } else {
+        need_solver = true;
       }
     }
+    if (need_solver) {
 
-    // copy out all variables except for locals and if faulting instruction is a call site, its parameters.
-    for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
-      const MemoryObject *mo = itr->first;
-      const ObjectState *os = itr->second;
-      if (!mo->isLocal() && !mo->name.empty()) {
-        if ((mo->name[0] == '*') || mo->isHeap() || (gb_names.find(mo->name) != gb_names.end())) {
-          result.emplace_back(make_pair(mo, vector<unsigned char>{}));
-          vector<unsigned char> &value = result.back().second;
-          os->readConcrete(0, value);
+      // not all constant expressions.  need to get get values consistent with
+      // the returned solution.
+      std::vector<ref<Expr> > bindings;
+      for (const auto &solution : res) {
+        const MemoryObject *mo = solution.first;
+        const vector<unsigned char> &value = solution.second;
+        if (const Array *array = state.findSymbolic(mo)) {
+
+          for (unsigned idx = 0, end = array->size; idx < end; ++idx) {
+            unsigned char byte = value[idx];
+            ref<Expr> e = EqExpr::create(ReadExpr::create(UpdateList(array, 0),
+                                         ConstantExpr::alloc(idx, array->getDomain())),
+                                         ConstantExpr::alloc(byte, array->getRange()));
+            bindings.push_back(e);
+          }
         }
       }
-    }
-
-    if (KInstruction *ki = const_cast<KInstruction*>(state.instFaulting)) {
-      if (CallInst* ci = dyn_cast<CallInst>(ki->inst)) {
-        const CallSite cs(ci);
-
-        unsigned numArgs = cs.arg_size();
-
-        // evaluate arguments
-        std::vector< ref<Expr> > arguments;
-        arguments.reserve(numArgs);
-
-        for (unsigned j=0; j<numArgs; ++j) {
-          ref<Expr> e = eval(ki, j + 1, state).value;
-          e = toUnique(state, e);
-          uint64_t  value = 0;
-          if (isa<ConstantExpr>(e)) {
-            ref<ConstantExpr> ce = cast<ConstantExpr>(e);
-            value = ce->getZExtValue(Expr::Int64);
-          }
-          args.push_back(value);
+      ConstraintManager cm(bindings);
+      for (auto itr = exprs.begin(), end = exprs.end(); itr != end; ++itr) {
+        if (itr->second.isNull()) {
+          solver->solver->getValue(Query(cm, itr->first), itr->second);
         }
       }
     }
     return true;
+  }
+  return false;
 }
-
-
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,

@@ -196,7 +196,7 @@ ArrayCache *ObjectState::getArrayCache() const {
 bool ObjectState::readConcrete(unsigned offset, std::vector<unsigned char> &data) const {
 
   data.clear();
-  unsigned size = object->size - offset;
+  unsigned size = visible_size - offset;
   if (concreteStore != nullptr && offset < size) {
     data.reserve(size - offset);
     for (unsigned idx = offset; idx < size; ++idx) {
@@ -207,6 +207,10 @@ bool ObjectState::readConcrete(unsigned offset, std::vector<unsigned char> &data
   return false;
 }
 
+uint8_t ObjectState::readConcrete(unsigned offset) const {
+  assert(isByteConcrete(offset));
+  return concreteStore[offset];
+}
 
 /***/
 

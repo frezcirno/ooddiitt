@@ -18,24 +18,19 @@
 #include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/System/Time.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/KInstruction.h"
-#include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
@@ -46,21 +41,14 @@
 #include "llvm/Support/Signals.h"
 
 #include <openssl/sha.h>
-#include <boost/algorithm/hex.hpp>
-#include <fstream>
 
 #include "llvm/Support/system_error.h"
 #include "json/json.h"
 
 #include <dirent.h>
-#include <signal.h>
 #include <unistd.h>
-#include <sys/wait.h>
 
-#include <cerrno>
 #include <string>
-#include <iomanip>
-#include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <llvm/IR/Intrinsics.h>
@@ -107,6 +95,10 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> OutputCreate("output-create", cl::desc("remove output directory before re-creating"));
   cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
+  cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
+  cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
+  cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
 }
 
 /***/
@@ -681,8 +673,18 @@ int main(int argc, char **argv, char **envp) {
   PrepKleeKandler *handler = new PrepKleeKandler(mainModule->getModuleIdentifier());
 
   Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = Interpreter::ExecModeID::prep;
+  IOpts.mode = ExecModeID::prep;
   IOpts.verbose = Verbose;
+
+  if (TraceNone) {
+    IOpts.trace = TraceType::none;
+  } else if (TraceBBlocks) {
+    IOpts.trace = TraceType::bblocks;
+  } else if (TraceAssembly) {
+    IOpts.trace = TraceType::assembly;
+  } else if (TraceStatements) {
+    IOpts.trace = TraceType::statements;
+  }
 
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);

@@ -63,7 +63,7 @@ namespace {
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> ReplayTest("replay-test", cl::desc("test case to replay"), cl::Required);
+  cl::opt<string> ReplayTest("test", cl::desc("test case to replay"), cl::Required);
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -73,7 +73,7 @@ namespace {
 
 /***/
 
-class RecordKleeHandler : public InterpreterHandler {
+class ReplayKleeHandler : public InterpreterHandler {
 private:
   string indentation;
   boost::filesystem::path outputDirectory;
@@ -81,8 +81,8 @@ private:
   vector<ExecutionState*> &results;
 
 public:
-  RecordKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
-  ~RecordKleeHandler();
+  ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
+  ~ReplayKleeHandler();
 
   void setInterpreter(Interpreter *i) override;
 
@@ -102,39 +102,31 @@ public:
 
 };
 
-RecordKleeHandler::RecordKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
+ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
   : indentation(""),
     outputDirectory(Output),
     results(_results) {
 
   assert(results.empty());
 
-  // create output directory (if required)
-  if (!boost::filesystem::exists(outputDirectory)) {
-    boost::system::error_code ec;
-    boost::filesystem::create_directories(outputDirectory, ec);
-  }
-
-  md_name = boost::filesystem::path(_md_name).stem().string();
-//  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
-RecordKleeHandler::~RecordKleeHandler() {
+ReplayKleeHandler::~ReplayKleeHandler() {
 }
 
-void RecordKleeHandler::setInterpreter(Interpreter *i) {
+void ReplayKleeHandler::setInterpreter(Interpreter *i) {
   InterpreterHandler::setInterpreter(i);
 }
 
-string RecordKleeHandler::getOutputFilename(const string &filename) {
+string ReplayKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *RecordKleeHandler::openOutputFile(const string &filename, bool overwrite) {
+llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
   string Error;
   string path = getOutputFilename(filename);
@@ -160,17 +152,17 @@ llvm::raw_fd_ostream *RecordKleeHandler::openOutputFile(const string &filename, 
   return f;
 }
 
-string RecordKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
+string ReplayKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
   stringstream filename;
   filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *RecordKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
+llvm::raw_fd_ostream *ReplayKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-ostream *RecordKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
+ostream *ReplayKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
   ofstream *result = nullptr;
   string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
@@ -184,7 +176,7 @@ ostream *RecordKleeHandler::openTestCaseFile(const string &prefix, unsigned test
   return result;
 }
 
-string RecordKleeHandler::toDataString(const vector<unsigned char> &data) const {
+string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const {
 
   stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
@@ -198,12 +190,12 @@ string RecordKleeHandler::toDataString(const vector<unsigned char> &data) const 
   return bytes.str();
 }
 
-void RecordKleeHandler::processTestCase(ExecutionState &state) {
+void ReplayKleeHandler::processTestCase(ExecutionState &state) {
 
   results.push_back(new ExecutionState(state));
 }
 
-string RecordKleeHandler::getRunTimeLibraryPath(const char *argv0) {
+string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -342,7 +334,24 @@ void load_test_case(Json::Value &root, TestCase &test) {
       string value = args[idx].asString();
       vector<unsigned char> bytes;
       TestObject::fromDataString(bytes, value);
-      uint64_t v = *((uint64_t*) bytes.data());
+      uint64_t v = 0;
+      switch (bytes.size()) {
+      case 1:
+        v = *((uint8_t*) bytes.data());
+        break;
+      case 2:
+        v = *((uint16_t*) bytes.data());
+        break;
+      case 4:
+        v = *((uint32_t*) bytes.data());
+        break;
+      case 8:
+        v = *((uint64_t*) bytes.data());
+        break;
+      default:
+        assert(false && "unsupported data width");
+        break;
+      }
       test.arguments.push_back(v);
     }
   }
@@ -414,7 +423,7 @@ int main(int argc, char **argv, char **envp) {
 
   // Common setup
   Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = Interpreter::ExecModeID::rply;
+  IOpts.mode = ExecModeID::rply;
   IOpts.user_mem_base = (void*) 0x90000000000;
   IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
   IOpts.trace = test.trace_type;
@@ -458,7 +467,7 @@ int main(int argc, char **argv, char **envp) {
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
   if (!isPrepared(mainModule1)) klee_error("program is not prepared '%s'", InputFile1.c_str());
 
-  RecordKleeHandler *handler1 = new RecordKleeHandler(ex_states, mainModule1->getModuleIdentifier());
+  ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
 
   Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
   handler1->setInterpreter(interpreter1);
@@ -521,7 +530,7 @@ int main(int argc, char **argv, char **envp) {
     if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
     if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
 
-    RecordKleeHandler *handler2 = new RecordKleeHandler(ex_states, mainModule2->getModuleIdentifier());
+    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
 
     Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
     handler2->setInterpreter(interpreter2);
@@ -560,7 +569,8 @@ int main(int argc, char **argv, char **envp) {
   #endif
 
     if (!CompareExecutions(version1, version2)) {
-      outs() << "not the same!\n";
+      outs() << "Behavioral Discrepancy\n";
+      exit_code = 1;
     }
   }
 

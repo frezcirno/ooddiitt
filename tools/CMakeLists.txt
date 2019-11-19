@@ -10,3 +10,5 @@ add_subdirectory(brt-prep)
 add_subdirectory(brt-igen)
 add_subdirectory(brt-rply)
 add_subdirectory(brt-rcrd)
+
+install(PROGRAMS scripts/brt-dis DESTINATION bin)
