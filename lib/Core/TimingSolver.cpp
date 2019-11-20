@@ -72,7 +72,7 @@ bool TimingSolver::mustBeTrue(const ExecutionState& state, ref<Expr> expr, bool 
 
 bool TimingSolver::mustBeTrue(const ExecutionState& state, ref<Expr> expr) {
 
-  bool result;
+  bool result = false;
   mustBeTrue(state, expr, result);
   return result;
 }
@@ -83,7 +83,7 @@ bool TimingSolver::mustBeFalse(const ExecutionState& state, ref<Expr> expr, bool
 
 bool TimingSolver::mustBeFalse(const ExecutionState& state, ref<Expr> expr) {
 
-  bool result;
+  bool result = false;
   mustBeFalse(state, expr, result);
   return result;
 }
@@ -99,7 +99,7 @@ bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr, bool &
 
 bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr) {
 
-  bool result;
+  bool result = false;
   mayBeTrue(state, expr, result);
   return result;
 }
@@ -115,7 +115,7 @@ bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr, bool 
 
 bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr) {
 
-  bool result;
+  bool result = false;
   mayBeFalse(state, expr, result);
   return result;
 }
@@ -127,7 +127,7 @@ bool TimingSolver::getValue(const ExecutionState& state, ref<Expr> expr, ref<Con
     result = CE;
     return true;
   }
-  
+
   sys::TimeValue now = util::getWallTimeVal();
 
   if (simplifyExprs)
@@ -155,7 +155,7 @@ bool TimingSolver::getInitialValues(const ExecutionState& state,
   if (!solver->getInitialValues(Query(state.constraints, ConstantExpr::alloc(0, Expr::Bool)), objects, result)) {
     throw solver_failure();
   }
-  
+
   sys::TimeValue delta = util::getWallTimeVal();
   delta -= now;
   stats::solverTime += delta.usec();

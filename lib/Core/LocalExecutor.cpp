@@ -2145,11 +2145,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // RLR TODO: need to do something about the type-cast
 //      klee_warning("Integer cast to pointer");
       Executor::executeInstruction(state, ki);
+      break;
     }
     case Instruction::PtrToInt: {
       // RLR TODO: need to do something about the type-cast
 //      klee_warning("Pointer cast to integer");
       Executor::executeInstruction(state, ki);
+      break;
     }
 
     case Instruction::BitCast: {

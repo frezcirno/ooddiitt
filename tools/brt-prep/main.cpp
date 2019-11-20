@@ -128,8 +128,6 @@ PrepKleeKandler::PrepKleeKandler(const string &_md_name)
   : indentation(""),
     outputDirectory(Output) {
 
-  // create output directory (if required)
-  bool created = false;
   boost::system::error_code ec;
   if (boost::filesystem::exists(outputDirectory)) {
     if (OutputCreate) {
@@ -137,11 +135,9 @@ PrepKleeKandler::PrepKleeKandler(const string &_md_name)
       // create an empty directory
       boost::filesystem::remove_all(outputDirectory, ec);
       boost::filesystem::create_directories(outputDirectory, ec);
-      created = true;
     }
   } else {
     boost::filesystem::create_directories(outputDirectory, ec);
-    created = true;
   }
 
   md_name = boost::filesystem::path(_md_name).stem().string();
@@ -330,7 +326,7 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
     const Function *fn = *&itr;
     string name = fn->getName();
     if (fn->isDeclaration() && !fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
-      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
+      if (modeledExternals.find(name) == modeledExternals.end()) {
         undefinedFunctions.insert(name);
       }
     }
@@ -347,7 +343,7 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     if (itr->isDeclaration() && !itr->use_empty()) {
       string name = itr->getName();
-      if (auto itr = modeledExternals.find(name) == modeledExternals.end()) {
+      if (modeledExternals.find(name) == modeledExternals.end()) {
         undefinedGlobals.insert(name);
       }
     }
