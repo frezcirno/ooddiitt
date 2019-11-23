@@ -287,13 +287,8 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       }
       root["argV"] = ss.str();
 
-      vector<ExprSolution> args;
-      for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
-        args.emplace_back(make_pair(*itr, nullptr));
-      }
-
-      vector<SymbolicSolution> out;
-      if (!i->getSymbolicSolution(state, out, args)) {
+      vector<ConcreteSolution> out;
+      if (!i->getConcreteSolution(state, out)) {
         klee_warning("unable to get symbolic solution, losing test case");
       }
 
@@ -326,24 +321,27 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       }
 
       Json::Value &arguments = root["arguments"] = Json::arrayValue;
-      for (auto itr = args.begin(), end = args.end(); itr != end; ++itr) {
-        klee::ref<klee::ConstantExpr> ce = itr->second;
-        if (ce.isNull()) {
-          arguments.append("");
-        } else {
-          uint64_t value = ce->getZExtValue();
-          unsigned width = ce->getWidth() / 8;
-          unsigned char *byte = ((unsigned char *) &value) + (sizeof(uint64_t) - width);
-          vector<unsigned char> v;
-          for (unsigned idx = 0; idx < width; ++idx) {
-            v.push_back(*byte++);
+      for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
+        klee::ref<klee::Expr> e = *itr;
+        if (isa<klee::ConstantExpr>(e)) {
+          klee::ref<klee::ConstantExpr> ce = cast<klee::ConstantExpr>(e);
+          if (ce.isNull()) {
+            arguments.append("");
+          } else {
+            uint64_t value = ce->getZExtValue();
+            unsigned width = ce->getWidth() / 8;
+            unsigned char *byte = ((unsigned char *) &value) + (sizeof(uint64_t) - width);
+            vector<unsigned char> v;
+            for (unsigned idx = 0; idx < width; ++idx) {
+              v.push_back(*byte++);
+            }
+            arguments.append(toDataString(v));
           }
-          arguments.append(toDataString(v));
         }
       }
 
       TraceType trace_type = i->getTraceType();
-      if (trace_type != TraceType::undefined) {
+      if (trace_type != TraceType::invalid) {
         root["traceType"] = (unsigned) trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
         for (auto entry : state.trace) {
@@ -557,7 +555,7 @@ int main(int argc, char **argv, char **envp) {
       auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
       outs() << "Elapsed: " << elapsed.count() << '\n';
     } else {
-      errs() << "Module function not found: " << targetFn << '\n';
+      errs() << "Module function not found: " << TargetFn << '\n';
     }
   } else {
     errs() << "Module function not found: " << UserMain << '\n';

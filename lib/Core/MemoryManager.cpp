@@ -93,7 +93,7 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t us
 
 MemoryManager::~MemoryManager() {
   while (!objects.empty()) {
-    MemoryObject *mo = *objects.begin();
+    const MemoryObject *mo = *objects.begin();
     if (!DeterministicAllocation)
       free((void *) (mo->address));
     objects.erase(mo);

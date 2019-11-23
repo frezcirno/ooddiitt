@@ -40,7 +40,8 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       { "perror", &SystemModel::ExecuteNoop}
   };
 
-  Module *module = executor->getKModule()->module;
+  KModule *km = e->getKModule();
+  Module *module = km->module;
   for (const auto &pr : modeled_fns) {
     if (Function *fn = module->getFunction(pr.first)) {
       modeled_names.insert(pr.first);

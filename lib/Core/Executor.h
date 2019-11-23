@@ -104,24 +104,7 @@ public:
 
   typedef std::pair<ExecutionState*,ExecutionState*> StatePair;
 
-  enum TerminateReason {
-    Abort,
-    Assert,
-    Exec,
-    External,
-    Free,
-    Model,
-    Overflow,
-    Ptr,
-    ReadOnly,
-    ReportError,
-    User,
-    Unhandled
-  };
-
 protected:
-  static const char *TerminateReasonNames[];
-
   class TimerInfo;
 
   KModule *kmodule;
@@ -386,24 +369,19 @@ protected:
   bool shouldExitOn(enum TerminateReason termReason);
 
   // remove state from queue and delete
-  virtual void terminateState(ExecutionState &state, const llvm::Twine &message);
+  virtual void terminateState(ExecutionState &state, const std::string &message);
   // call exit handler and terminate state
-  virtual void terminateStateEarly(ExecutionState &state, const llvm::Twine &message);
+  virtual void terminateStateEarly(ExecutionState &state, const std::string &message);
   // call exit handler and terminate state
   virtual void terminateStateOnExit(ExecutionState &state);
   // call error handler and terminate state
-  virtual void terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
-                             enum TerminateReason termReason,
-                             const char *suffix = NULL,
-                             const llvm::Twine &longMessage = "");
+  virtual void terminateStateOnError(ExecutionState &state, TerminateReason termReason, const std::string &message);
 
   // call error handler and terminate state, for execution errors
   // (things that should not be possible, like illegal instruction or
   // unlowered instrinsic, or are unsupported, like inline assembly)
-  virtual void terminateStateOnExecError(ExecutionState &state,
-                                 const llvm::Twine &message,
-                                 const llvm::Twine &info="") {
-    terminateStateOnError(state, message, Exec, NULL, info);
+  virtual void terminateStateOnExecError(ExecutionState &state, const std::string &message) {
+    terminateStateOnError(state, TerminateReason::Exec, message);
   }
 
   /// bindModuleConstants - Initialize the module constant table.

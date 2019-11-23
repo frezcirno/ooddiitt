@@ -17,31 +17,39 @@ using namespace std;
 
 bool CompareExecutions(CompareState &version1, CompareState &version2) {
 
+  string modID1 = version1.kmodule->module->getModuleIdentifier();
+  string modID2 = version2.kmodule->module->getModuleIdentifier();
+
   if (version1.state->status != version2.state->status) {
     outs() << "different completion status\n";
     return false;
   }
 
+  assert(version1.state->arguments.size() <= 1 && version2.state->arguments.size() <= 1);
   if (version1.state->arguments.size() != version2.state->arguments.size()) {
     outs() << "different number of outputs\n";
     return false;
   }
 
   for (unsigned idx = 0, end = version1.state->arguments.size(); idx != end; ++idx) {
-    if (version1.state->arguments[idx] != version2.state->arguments[idx]) {
-      outs() << "different output value at index " << idx << '\n';
+    klee::ref<ConstantExpr> arg1 = dyn_cast<ConstantExpr>(version1.state->arguments[idx]);
+    klee::ref<ConstantExpr> arg2 = dyn_cast<ConstantExpr>(version2.state->arguments[idx]);
+    assert(!arg1.isNull() && !arg2.isNull());
+    if (arg1->getWidth() != arg2->getWidth()) {
+      outs() << "different return width\n";
+      return false;
+    } else if (arg1->getZExtValue() != arg2->getZExtValue()) {
+      outs() << "different return value" << '\n';
       return false;
     }
   }
 
-  static set<MemKind> kinds = { MemKind::global, MemKind::heap, MemKind::param};
+  static set<MemKind> kinds = { MemKind::global, MemKind::heap, MemKind::param, MemKind::lazy};
 
   map<string,ObjectPair> written_objs1;
-  version1.state->addressSpace.getNamedWrittenMemObjs(written_objs1, kinds);
-  string modID1 = version1.kmodule->module->getModuleIdentifier();
-  string modID2 = version2.kmodule->module->getModuleIdentifier();
-
   map<string,ObjectPair> written_objs2;
+
+  version1.state->addressSpace.getNamedWrittenMemObjs(written_objs1, kinds);
   version2.state->addressSpace.getNamedWrittenMemObjs(written_objs2, kinds);
 
   for (const auto &pr : written_objs1) {
@@ -63,17 +71,12 @@ bool CompareExecutions(CompareState &version1, CompareState &version2) {
       }
 
       for (unsigned idx = 0, end = os1->visible_size; idx < end; ++idx) {
-        if (!os1->isByteConcrete(idx)) {
-          outs() << "written variable \'" << name << "\' is not concrete in " << modID1 << " at offset " << idx << '\n';
-          return false;
-        }
-        if (!os2->isByteConcrete(idx)) {
-          outs() << "written variable \'" << name << "\' is not concrete in " << modID2 << " at offset " << idx << '\n';
-          return false;
-        }
-        if (os1->readConcrete(idx) != os2->readConcrete(idx)) {
-          outs() << "written variable \'" << name << "\' differs in " << modID2 << " at offset " << idx << '\n';
-          return false;
+
+        if (os1->isByteWritten(idx) || os2->isByteWritten(idx)) {
+          if (!os1->isByteConcrete(idx) || !os2->isByteConcrete(idx) || os1->readConcrete(idx) != os2->readConcrete(idx)) {
+            outs() << "variable \'" << name << "\' different at offset " << idx << '\n';
+            return false;
+          }
         }
       }
     }

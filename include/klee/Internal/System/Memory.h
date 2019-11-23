@@ -31,11 +31,6 @@ class MemoryManager;
 class Solver;
 class ArrayCache;
 
-inline std::string to_string(MemKind kind) {
-  static const char* kindStrings[] = {"invalid", "fixed", "global", "param", "alloca", "heap", "output", "lazy"};
-  return kindStrings[(unsigned) kind];
-}
-
 inline std::string to_string(const llvm::Type *type) {
   if (type == nullptr) return "nil";
   std::string str;
@@ -303,6 +298,7 @@ public:
   }
 
   bool isByteConcrete(unsigned offset) const;
+  bool isByteWritten(unsigned offset) const;
 
 private:
   const UpdateList &getUpdates() const;
@@ -329,7 +325,6 @@ private:
   void print();
   ArrayCache *getArrayCache() const;
 
-  bool isByteWritten(unsigned offset) const;
   void markByteWritten(unsigned offset);
 };
 

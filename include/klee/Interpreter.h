@@ -39,6 +39,7 @@ class KModule;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
+typedef SymbolicSolution ConcreteSolution;
 
 #define HEARTBEAT_INTERVAL   (10)        // secs
 #define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
@@ -182,7 +183,7 @@ public:
         verbose(false),
 #endif
         verify_constraints(false),
-        trace(TraceType::undefined)
+        trace(TraceType::invalid)
     {}
   };
 
@@ -259,11 +260,12 @@ public:
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
     return getSymbolicSolution(state, res);
-  };
+  }
+  virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result) { return false; }
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }
-  virtual TraceType getTraceType() const { return TraceType::undefined; }
+  virtual TraceType getTraceType() const { return TraceType::invalid; }
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
   virtual void GetModeledExternals(std::set<std::string> &names) const {}

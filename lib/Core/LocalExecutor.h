@@ -141,17 +141,15 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
-  void terminateState(ExecutionState &state, const llvm::Twine &message) override;
+  void terminateState(ExecutionState &state, const std::string &message) override;
   void terminateStateOnExit(ExecutionState &state) override;
-  void terminateStateOnFault(ExecutionState &state, const KInstruction *ki, const llvm::Twine &message);
-  void terminateStateEarly(ExecutionState &state, const llvm::Twine &message) override;
-  void terminateStateOnError(ExecutionState &state,
-                             const llvm::Twine &message,
-                             enum TerminateReason termReason,
-                             const char *suffix = nullptr,
-                             const llvm::Twine &longMessage = "") override;
+  void terminateStateEarly(ExecutionState &state, const std::string &message) override;
+  void terminateStateOnError(ExecutionState &state, TerminateReason termReason, const std::string &message) override;
+  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &message);
+  void terminateStateOnDecimated(ExecutionState &state);
+  void terminateStateOnDiscard(ExecutionState &state);
 
-//  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, std::vector<uint64_t> &args) override;
+  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void checkMemoryFnUsage(KFunction *kf = nullptr);

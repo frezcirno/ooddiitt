@@ -79,7 +79,7 @@ KModule::KModule(Module *_module)
     kleeMergeFn(nullptr),
     infos(nullptr),
     constantTable(nullptr),
-    module_trace(TraceType::undefined) {}
+    module_trace(TraceType::invalid) {}
 
 KModule::~KModule() {
   delete[] constantTable;
@@ -347,7 +347,7 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
       NMD->addOperand(Node);
     }
 
-    if (trace != TraceType::undefined) {
+    if (trace != TraceType::invalid) {
       Type *int_type = Type::getInt32Ty(ctx);
       vector<Value*> values;
       values.push_back(ConstantInt::get(int_type, (unsigned) trace));

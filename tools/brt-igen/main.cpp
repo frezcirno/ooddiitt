@@ -190,7 +190,7 @@ InputGenKleeKandler::InputGenKleeKandler(const vector<string> &_args, const stri
   started_at = sys_clock::now();
 
   boost::system::error_code ec;
-  if (boost::filesystem::exists(outputDirectory)) {
+  if (!boost::filesystem::exists(outputDirectory)) {
     boost::filesystem::create_directories(outputDirectory, ec);
     created = true;
   }
@@ -403,7 +403,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
       }
 
       TraceType trace_type = i->getTraceType();
-      if (trace_type != TraceType::undefined) {
+      if (trace_type != TraceType::invalid) {
         root["traceType"] = (unsigned) trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
         for (auto entry : state.trace) {
@@ -546,6 +546,7 @@ static void parseArguments(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
 
+#if 0 == 1
 static int initEnv(Module *mainModule) {
 
   /*
@@ -604,6 +605,7 @@ static int initEnv(Module *mainModule) {
 
   return 0;
 }
+#endif
 
 static Interpreter *theInterpreter = nullptr;
 

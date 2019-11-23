@@ -59,8 +59,6 @@ using namespace std;
 
 namespace klee {
 
-#define countof(a) (sizeof(a)/ sizeof(a[0]))
-
 class bad_expression : public std::runtime_error
 {
 public:
@@ -93,10 +91,12 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   maxLazyDepth(LazyAllocationDepth),
   maxStatesInLoop(10000),
   baseState(nullptr),
+  timeout(0),
   progression(opts.progression),
   libc_initializing(false),
+  enable_state_switching(true),
   sysModel(nullptr),
-  trace_type(TraceType::undefined) {
+  trace_type(TraceType::invalid) {
 
   switch (opts.mode) {
     case ExecModeID::prep:
@@ -215,7 +215,18 @@ void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
     bindLocal(target, state, ConstantExpr::alloc(0, Context::get().getPointerWidth()));
   } else {
 
-    mo->name = target->inst->getName();
+    string name;
+    const Instruction *inst = target->inst;
+    if (target->inst != nullptr && target->inst->hasName()) {
+      name = inst->getName();
+      if (const BasicBlock *bb = inst->getParent()) {
+        const Function *fn = bb->getParent();
+        if (fn != nullptr && fn->hasName()) {
+          name = fn->getName().str() + '.' + name;
+        }
+      }
+    }
+    mo->name = name;
     mo->count = count;
     ObjectState *os = bindObjectInState(state, mo);
     os->initializeToRandom();
@@ -225,7 +236,6 @@ void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
     bindLocal(target, state, mo->getBaseExpr());
   }
 }
-
 
 void LocalExecutor::executeFree(ExecutionState &state,
                                 ref<Expr> address,
@@ -342,7 +352,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnFault(state, target, "read resolveMO");
+    terminateStateOnMemFault(state, target, "read resolveMO");
     return false;
   }
 
@@ -361,7 +371,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
     if (offset + bytes - 1 > os->visible_size) {
-      terminateStateOnFault(*currState, target, "read OoB const offset");
+      terminateStateOnMemFault(*currState, target, "read OoB const offset");
       return false;
     }
   } else {
@@ -374,9 +384,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     Executor::StatePair sp = fork(*currState, mc, true);
     if (sp.first == nullptr) {
       // no satisfying inbounds solution, both currState and sp.second must terminate
-      terminateStateOnFault(*currState, target, "read OoB1 offset");
+      terminateStateOnMemFault(*currState, target, "read OoB1 offset");
       if (sp.second != nullptr && sp.second != currState) {
-        terminateStateOnFault(*sp.second, target, "read OoB2 offset");
+        terminateStateOnMemFault(*sp.second, target, "read OoB2 offset");
       }
       return false;
 
@@ -384,7 +394,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
       // inbound solution exists.  should continue as currState. sp.second must terminate
       currState = sp.first;
       if (sp.second != nullptr) {
-        terminateStateOnFault(*sp.second, target, "read OoB3 offset");
+        terminateStateOnMemFault(*sp.second, target, "read OoB3 offset");
       }
     }
   }
@@ -523,7 +533,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnFault(state, target, "write resolveMO");
+    terminateStateOnMemFault(state, target, "write resolveMO");
     return false;
   }
 
@@ -531,7 +541,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   const ObjectState *os = op.second;
 
   if (os->readOnly) {
-    terminateStateOnError(state, "memory error: object read only", ReadOnly);
+    terminateStateOnError(state, TerminateReason::ReadOnly, "memory error: object read only");
   }
 
   Expr::Width width = value->getWidth();
@@ -551,7 +561,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
     if (offset + bytes > os->visible_size) {
 
-      terminateStateOnFault(*currState, target, "write OoB const offset");
+      terminateStateOnMemFault(*currState, target, "write OoB const offset");
       return false;
     }
   } else {
@@ -564,9 +574,9 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     Executor::StatePair sp = fork(*currState, mc, true);
     if (sp.first == nullptr) {
       // no satisfying inbounds solution, both currState and sp.second must terminate
-      terminateStateOnFault(*currState, target, "read OoB1 offset");
+      terminateStateOnMemFault(*currState, target, "read OoB1 offset");
       if (sp.second != nullptr && sp.second != currState) {
-        terminateStateOnFault(*sp.second, target, "read OoB2 offset");
+        terminateStateOnMemFault(*sp.second, target, "read OoB2 offset");
       }
       return false;
 
@@ -574,7 +584,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       // inbound solution exists.  should continue as currState. sp.second must terminate
       currState = sp.first;
       if (sp.second != nullptr) {
-        terminateStateOnFault(*sp.second, target, "read OoB3 offset");
+        terminateStateOnMemFault(*sp.second, target, "read OoB3 offset");
       }
     }
   }
@@ -594,7 +604,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       }
       offsetExpr = cex;
     } else {
-      terminateStateOnFault(*currState, target, "write memory solver unable to get example offset");
+      terminateStateOnMemFault(*currState, target, "write memory solver unable to get example offset");
       return false;
     }
   }
@@ -710,6 +720,7 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
     for (size_t idx = 0, end = data.size(); idx < end; ++idx) {
       os->write8(idx, data[idx]);
     }
+    os->resetBytesWritten();
   }
   return mo;
 }
@@ -1071,6 +1082,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     MemKind kind = (MemKind) obj.kind;
     switch (kind) {
       // inject parameters and lazily initialized memory blobs
+      case MemKind::alloca_l:
       case MemKind::external:
       case MemKind::heap:
       case MemKind::param:
@@ -1088,7 +1100,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
         break;
       }
       default: {
-        outs() << "RLR: what to do with kind: " << (unsigned) kind << '\n';
+        outs() << "RLR: what to do with kind: " << to_string(kind) << '\n';
         break;
       }
     }
@@ -1354,7 +1366,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   // if trace type is not defined here, then use the default from the module
   trace_type = interpreterOpts.trace;
-  if (trace_type == TraceType::undefined) {
+  if (trace_type == TraceType::invalid) {
     trace_type = kmodule->getModuleTraceType();
   }
 
@@ -1423,10 +1435,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   loopForkCounter.clear();
   for (ExecutionState *state : states) {
-    if (SavePendingStates) {
-      interpreterHandler->processTestCase(*state);
-    }
-    terminateState(*state, "flushing states on halt");
+    terminateStateEarly(*state, "flushing states on halt");
   }
   updateStates(nullptr);
   assert(states.empty());
@@ -1509,15 +1518,15 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
   return result;
 }
 
-void LocalExecutor::terminateState(ExecutionState &state, const Twine &message) {
+void LocalExecutor::terminateState(ExecutionState &state, const string &message) {
 
-  if (state.status == StateStatus::Completed) {
-    interpreterHandler->processTestCase(state);
-  } else if (state.status == StateStatus::Faulted) {
+  if (state.status == StateStatus::Completed    ||
+     (state.status == StateStatus::MemFaulted)  ||
+     (state.status == StateStatus::Error)       ||
+     (SavePendingStates && state.status == StateStatus::Incomplete) ) {
     interpreterHandler->processTestCase(state);
   } else {
-    // its an error state, pending state, or discarded state
-    // stash faults for later consideration
+    // ??
   }
   Executor::terminateState(state, message);
 }
@@ -1527,24 +1536,30 @@ void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
   Executor::terminateStateOnExit(state);
 }
 
-void LocalExecutor::terminateStateOnFault(ExecutionState &state, const KInstruction *ki, const llvm::Twine &message) {
-  state.status = StateStatus::Faulted;
+void LocalExecutor::terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &message) {
+  state.status = StateStatus::MemFaulted;
   state.instFaulting = ki;
-  state.terminationMessage = message.str();
   terminateState(state, message);
 }
 
-void LocalExecutor::terminateStateEarly(ExecutionState &state, const llvm::Twine &message) {
-  state.status = StateStatus::TerminateEarly;
+void LocalExecutor::terminateStateEarly(ExecutionState &state, const string &message) {
+  state.status = StateStatus::Incomplete;
   Executor::terminateStateEarly(state, message);
 }
 
-void LocalExecutor::terminateStateOnError(ExecutionState &state, const llvm::Twine &message,
-                           enum TerminateReason termReason,
-                           const char *suffix,
-                           const llvm::Twine &longMessage) {
-  state.status = StateStatus::TerminateError;
-  Executor::terminateStateOnError(state, message, termReason, suffix, longMessage);
+void LocalExecutor::terminateStateOnError(ExecutionState &state, TerminateReason termReason, const string &message) {
+  state.status = StateStatus::Error;
+  Executor::terminateStateOnError(state, termReason, message);
+}
+
+void LocalExecutor::terminateStateOnDecimated(ExecutionState &state) {
+  state.status = StateStatus::Decimated;
+  terminateState(state, "decimated");
+}
+
+void LocalExecutor::terminateStateOnDiscard(ExecutionState &state) {
+  state.status = StateStatus::Discarded;
+  terminateState(state, "discarded");
 }
 
 void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
@@ -1601,7 +1616,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_cou
         const LoopFrame &lf = sf.loopFrames.back();
         if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
           state->status = StateStatus::Decimated;
-          terminateState(*state, "decimated");
+          terminateStateOnDecimated(*state);
           killed++;
         }
       }
@@ -1795,7 +1810,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             Executor::executeInstruction(state, ki);
           } else {
             // direct callee with no body.  not good...
-            terminateStateOnError(state, "undefined callee", External);
+            terminateStateOnError(state, TerminateReason::External, "undefined callee");
             klee_warning("undefined callee: %s", fn_name.c_str());
           }
 
@@ -1840,7 +1855,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         unsigned num_targets = targets.size();
         if (num_targets == 0) {
-          terminateStateOnError(state, "legal callee not found", Ptr);
+          terminateStateOnError(state, TerminateReason::Ptr, "legal callee not found");
           klee_warning("legal callee not found");
         } else if (num_targets == 1) {
           executeCall(state, ki, targets.front(), arguments);
@@ -2336,6 +2351,32 @@ bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector
     return true;
   }
   return false;
+}
+
+bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSolution> &result) {
+
+    // RLR TODO: cleanup
+  // get the names of the user defined globals
+//  set<string> gb_names;
+//  for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
+//    GlobalVariable *v = itr;
+//    if (kmodule->isUserGlobal(v) && v->hasName()) {
+//      gb_names.insert(v->getName());
+//    }
+//  }
+
+  // copy out all named variables
+  for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
+    const MemoryObject *mo = itr->first;
+    const ObjectState *os = itr->second;
+    string name = mo->name;
+    if (!name.empty() && name[0] != '.') {
+      result.emplace_back(make_pair(mo, vector<unsigned char>{}));
+      vector<unsigned char> &value = result.back().second;
+      os->readConcrete(0, value);
+    }
+  }
+  return true;
 }
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,

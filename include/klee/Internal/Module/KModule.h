@@ -153,7 +153,7 @@ namespace klee {
     void prepare(const Interpreter::ModuleOptions &opts,
                  InterpreterHandler *ihandler,
                  bool build = false,
-                 TraceType trace = TraceType::undefined);
+                 TraceType trace = TraceType::invalid);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
