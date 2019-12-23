@@ -165,6 +165,7 @@ protected:
   }
 
   unsigned lazyAllocationCount;
+  unsigned lazyStringLength;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;

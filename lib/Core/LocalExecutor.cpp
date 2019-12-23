@@ -52,7 +52,6 @@
 #include <llvm/IR/Intrinsics.h>
 
 #define LEN_CMDLINE_ARGS 8
-#define MIN_LAZY_STRING_LEN 9
 
 using namespace llvm;
 using namespace std;
@@ -75,6 +74,7 @@ class Tracer {
 cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
 cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
 cl::opt<unsigned> MinLazyAllocationSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
 cl::opt<unsigned> LazyAllocationDepth("lazy-allocation-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
@@ -86,6 +86,7 @@ cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line numb
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(LazyAllocationCount),
+  lazyStringLength(LazyStringLength),
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocationDepth),
@@ -496,8 +497,8 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
           // calc lazyAllocationCount by type i8* (string, byte buffer) gets more
           unsigned count = LazyAllocationCount;
-          if (base_type->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
-            count = MIN_LAZY_STRING_LEN;
+          if (base_type->isIntegerTy(8) && count < lazyStringLength) {
+            count = lazyStringLength;
           }
 
           // finally, try with a new object
@@ -1987,8 +1988,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             // LazyAllocationCount needs to be expanded for string and buffer types.
             unsigned count = LazyAllocationCount;
-            if (base_type->isIntegerTy(8) && count < MIN_LAZY_STRING_LEN) {
-              count = MIN_LAZY_STRING_LEN;
+            if (base_type->isIntegerTy(8) && count < lazyStringLength) {
+              count = lazyStringLength;
             }
             // finally, try with a new object
             WObjectPair wop;

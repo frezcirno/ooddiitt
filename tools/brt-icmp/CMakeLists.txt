@@ -6,7 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(brt-rply main.cpp jsoncpp.cpp)
+add_executable(brt-icmp main.cpp jsoncpp.cpp StateComparison.cpp)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
   message(FATAL_ERROR "brt-rply requires at least LLVM version 3.4")
@@ -16,9 +16,9 @@ set(KLEE_LIBS
   kleeCore
 )
 
-target_link_libraries(brt-rply ${KLEE_LIBS} ${Boost_LIBRARIES})
+target_link_libraries(brt-icmp ${KLEE_LIBS} ${Boost_LIBRARIES})
 
-install(TARGETS brt-rply RUNTIME DESTINATION bin)
+install(TARGETS brt-icmp RUNTIME DESTINATION bin)
 
-# The brt-rply binary depends on the runtimes
-add_dependencies(brt-rply BuildKLEERuntimes)
+# The brt-icmp binary depends on the runtimes
+add_dependencies(brt-icmp BuildKLEERuntimes)

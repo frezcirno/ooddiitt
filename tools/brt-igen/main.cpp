@@ -319,6 +319,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
       root["testID"] = testID;
       root["argC"] = args.size();
       root["lazyAllocationCount"] = state.lazyAllocationCount;
+      root["lazyStringLength"] = state.lazyStringLength;
       root["maxLoopIteration"] = state.maxLoopIteration;
       root["maxLoopForks"] = state.maxLoopForks;
       root["maxLazyDepth"] = state.maxLazyDepth;

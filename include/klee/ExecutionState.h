@@ -234,6 +234,7 @@ public:
   std::string name;
   bool isProcessed;
   unsigned lazyAllocationCount;
+  unsigned lazyStringLength;
   unsigned maxLoopIteration;
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
