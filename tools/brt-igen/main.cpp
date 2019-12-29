@@ -1,5 +1,3 @@
-/* -*- mode: c++; c-basic-offset: 2; -*- */
-
 //===-- main.cpp ------------------------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
@@ -120,7 +118,7 @@ namespace {
 
 /***/
 
-class InputGenKleeKandler : public InterpreterHandler {
+class InputGenKleeHandler : public InterpreterHandler {
 private:
   unsigned casesGenerated;
   unsigned nextTestCaseID;
@@ -133,11 +131,12 @@ private:
   boost::filesystem::path outputDirectory;
   map<string,unsigned> terminationCounters;
   string md_name;
+  string file_name;
   sys_clock::time_point started_at;
 
 public:
-  InputGenKleeKandler(const vector<string> &args, const string &_md_name);
-  ~InputGenKleeKandler();
+  InputGenKleeHandler(const vector<string> &args, const string &_md_name);
+  ~InputGenKleeHandler();
 
   unsigned getNumTestCases() const override { return casesGenerated; }
 
@@ -175,7 +174,7 @@ public:
   unsigned getTerminationCount(const string &message) override;
 };
 
-InputGenKleeKandler::InputGenKleeKandler(const vector<string> &_args, const string &_md_name)
+InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name)
   : casesGenerated(0),
     nextTestCaseID(0),
     indentation(""),
@@ -213,28 +212,29 @@ InputGenKleeKandler::InputGenKleeKandler(const vector<string> &_args, const stri
     }
   }
 
+  file_name = _md_name;
   md_name = boost::filesystem::path(_md_name).stem().string();
   outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
-InputGenKleeKandler::~InputGenKleeKandler() {
+InputGenKleeHandler::~InputGenKleeHandler() {
 
 }
 
-void InputGenKleeKandler::setInterpreter(Interpreter *i) {
+void InputGenKleeHandler::setInterpreter(Interpreter *i) {
 
   InterpreterHandler::setInterpreter(i);
 }
 
-string InputGenKleeKandler::getOutputFilename(const string &filename) {
+string InputGenKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *InputGenKleeKandler::openOutputFile(const string &filename, bool overwrite) {
+llvm::raw_fd_ostream *InputGenKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
   string Error;
   string path = getOutputFilename(filename);
@@ -260,17 +260,17 @@ llvm::raw_fd_ostream *InputGenKleeKandler::openOutputFile(const string &filename
   return f;
 }
 
-string InputGenKleeKandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
+string InputGenKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
   stringstream filename;
   filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
   return filename.str();
 }
 
-llvm::raw_fd_ostream *InputGenKleeKandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
+llvm::raw_fd_ostream *InputGenKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
   return openOutputFile(getTestFilename(prefix, ext, id));
 }
 
-ostream *InputGenKleeKandler::openTestCaseFile(const string &prefix, unsigned testID) {
+ostream *InputGenKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
   ofstream *result = nullptr;
   string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
@@ -284,7 +284,7 @@ ostream *InputGenKleeKandler::openTestCaseFile(const string &prefix, unsigned te
   return result;
 }
 
-string InputGenKleeKandler::toDataString(const vector<unsigned char> &data) const {
+string InputGenKleeHandler::toDataString(const vector<unsigned char> &data) const {
 
   stringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
@@ -299,7 +299,7 @@ string InputGenKleeKandler::toDataString(const vector<unsigned char> &data) cons
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void InputGenKleeKandler::processTestCase(ExecutionState &state) {
+void InputGenKleeHandler::processTestCase(ExecutionState &state) {
 
   Interpreter *i = getInterpreter();
   assert(!state.isProcessed);
@@ -315,6 +315,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
       root["module"] = md_name;
+      root["file"] = file_name;
       root["entryFn"] = state.name;
       root["testID"] = testID;
       root["argC"] = args.size();
@@ -432,7 +433,7 @@ void InputGenKleeKandler::processTestCase(ExecutionState &state) {
 }
 
   // load a .path file
-void InputGenKleeKandler::loadPathFile(string name, vector<bool> &buffer) {
+void InputGenKleeHandler::loadPathFile(string name, vector<bool> &buffer) {
 
   ifstream f(name.c_str(), ios::in | ios::binary);
 
@@ -447,7 +448,7 @@ void InputGenKleeKandler::loadPathFile(string name, vector<bool> &buffer) {
   }
 }
 
-void InputGenKleeKandler::getKTestFilesInDir(string directoryPath, vector<string> &results) {
+void InputGenKleeHandler::getKTestFilesInDir(string directoryPath, vector<string> &results) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
   llvm::error_code ec;
 #else
@@ -465,7 +466,7 @@ void InputGenKleeKandler::getKTestFilesInDir(string directoryPath, vector<string
   }
 }
 
-string InputGenKleeKandler::getRunTimeLibraryPath(const char *argv0) {
+string InputGenKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -512,7 +513,7 @@ string InputGenKleeKandler::getRunTimeLibraryPath(const char *argv0) {
   return libDir.str();
 }
 
-bool InputGenKleeKandler::resetWatchDogTimer() const {
+bool InputGenKleeHandler::resetWatchDogTimer() const {
 
   // signal the watchdog process
   if (pid_watchdog != 0) {
@@ -523,18 +524,18 @@ bool InputGenKleeKandler::resetWatchDogTimer() const {
   return false;
 }
 
-void InputGenKleeKandler::incTermination(const string &message) {
+void InputGenKleeHandler::incTermination(const string &message) {
   ++terminationCounters[message];
 }
 
-void InputGenKleeKandler::getTerminationMessages(vector<string> &messages) {
+void InputGenKleeHandler::getTerminationMessages(vector<string> &messages) {
 
   for (const auto &pr : terminationCounters) {
     messages.push_back(pr.first);
   }
 }
 
-unsigned InputGenKleeKandler::getTerminationCount(const string &message) {
+unsigned InputGenKleeHandler::getTerminationCount(const string &message) {
   return terminationCounters[message];
 }
 
@@ -889,7 +890,7 @@ int main(int argc, char **argv, char **envp) {
   args.push_back(InputFile);
   args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  InputGenKleeKandler *handler = new InputGenKleeKandler(args, mainModule->getModuleIdentifier());
+  InputGenKleeHandler *handler = new InputGenKleeHandler(args, mainModule->getModuleIdentifier());
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;

@@ -1,5 +1,3 @@
-/* -*- mode: c++; c-basic-offset: 2; -*- */
-
 //===-- main.cpp ------------------------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
@@ -64,7 +62,7 @@ namespace {
   cl::opt<string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
+//  cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -239,6 +237,7 @@ static void parseArguments(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
 
+#if 0 == 1
 static int initEnv(Module *mainModule) {
 
   /*
@@ -297,6 +296,7 @@ static int initEnv(Module *mainModule) {
 
   return 0;
 }
+#endif
 
 bool has_inline_asm(const Function *fn) {
 

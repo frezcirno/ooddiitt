@@ -80,6 +80,7 @@ public:
   int arg_c;
   std::string arg_v;
   std::string module_name;
+  std::string file_name;
   std::string entry_fn;
   std::string klee_version;
   unsigned lazy_alloc_count;
