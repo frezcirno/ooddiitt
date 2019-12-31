@@ -55,9 +55,12 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+using namespace boost::algorithm;
+
+namespace bfs = boost::filesystem;
 
 namespace {
-  cl::opt<string> ReplayTest(cl::desc("<test case to replay>"), cl::Positional, cl::Required);
+  cl::opt<string> TestDirectory(cl::desc("<test case to replay>"), cl::Positional, cl::Required);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
@@ -66,12 +69,18 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
 }
 
+#define ELEVATE_EXITCODE(c, v)  { if (c < v) c = v; }
+#define EXITCODE_OK       0
+#define EXITCODE_DIVERGED 1
+#define EXITCODE_FORKED   2
+#define EXITCODE_FAULTED  3
+
 /***/
 
 class ReplayKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  boost::filesystem::path outputDirectory;
+  bfs::path outputDirectory;
   string md_name;
   vector<ExecutionState*> &results;
 
@@ -116,7 +125,7 @@ void ReplayKleeHandler::setInterpreter(Interpreter *i) {
 
 string ReplayKleeHandler::getOutputFilename(const string &filename) {
 
-  boost::filesystem::path file = outputDirectory;
+  bfs::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
@@ -135,7 +144,7 @@ llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, 
   f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
 #endif
   if (!Error.empty()) {
-    if (!boost::algorithm::ends_with(Error, "File exists")) {
+    if (!ends_with(Error, "File exists")) {
       klee_warning("error opening file \"%s\".  KLEE may have run out of file "
                    "descriptors: try to increase the maximum number of open file "
                    "descriptors by using ulimit (%s).",
@@ -263,7 +272,7 @@ void stop_forking() {
 }
 
 
-static int exit_code = 0;
+static int exit_code = EXITCODE_OK;
 
 static void interrupt_handle() {
 
@@ -274,7 +283,7 @@ static void interrupt_handle() {
       llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
       halt_execution();
       sys::SetInterruptFunction(interrupt_handle);
-      exit_code = 3;
+      exit_code = EXITCODE_FAULTED;
     } else {
       llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
       exit(4);
@@ -396,6 +405,40 @@ void update_test_case(Json::Value &root, StateStatus status, const deque<unsigne
   }
 }
 
+typedef pair<LLVMContext*,Module*> ModulePair;
+
+ModulePair LoadModule(const string &filename) {
+
+  ModulePair result;
+  string ErrorMsg;
+
+  outs() << "Loading: " << filename << '\n';
+  LLVMContext *ctx = new LLVMContext();
+
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec = MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+  Module *module = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (module) {
+    if (module->MaterializeAllPermanently(&ErrorMsg)) {
+      delete module;
+      module = nullptr;
+    }
+  }
+
+  if (!module)
+    klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  if (!isPrepared(module))
+    klee_error("program is not prepared '%s'", filename.c_str());
+
+  BufferPtr.take();
+  result.first = ctx;
+  result.second = module;
+  return result;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -404,145 +447,144 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
-  exit_code = 0;
 
-  // write out command line info, for reference
-  if (!outs().is_displayed()) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
+  set<string> filenames;
+  set<string> modules;
+  for (bfs::directory_entry &entry : bfs::directory_iterator(TestDirectory)) {
+    bfs::path path = entry.path();
+    string filename = path.filename().string();
+    if (starts_with(filename, "test") && ends_with(filename, ".json")) {
+      filenames.insert(path.string());
+    } else if (ends_with(filename, ".bc")) {
+      modules.insert(path.string());
     }
-    outs() << "PID: " << getpid() << "\n";
   }
 
-  // Load the test case
-  TestCase test;
-  Json::Value root;
-  if (!ReplayTest.empty()) {
+  map<string,ModulePair> moduleCache;
+
+  // pre-load the module cache with all modules found in output directory
+  for (const auto &module : modules) {
+    ModulePair mp = LoadModule(module);
+    moduleCache.insert(make_pair(module, mp));
+  }
+
+  for (const string &fname : filenames) {
+
+    outs() << fname << ": ";
+
+    // Load the test case
+    TestCase test;
+    Json::Value root;
 
     ifstream info;
-    info.open(ReplayTest);
+    info.open(fname);
     if (info.is_open()) {
 
       info >> root;
       load_test_case(root, test);
     }
-  }
 
-  if (!test.is_ready()) {
-    klee_error("failed to load test case '%s'", ReplayTest.c_str());
-  }
-
-  // Common setup
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = ExecModeID::rply;
-  IOpts.user_mem_base = (void*) 0x90000000000;
-  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-  IOpts.trace = test.trace_type;
-
-  Interpreter::ModuleOptions MOpts;
-  MOpts.LibraryDir = "";
-  MOpts.Optimize = false;
-  MOpts.CheckDivZero = false;
-  MOpts.CheckOvershift = false;
-  MOpts.test = &test;
-
-  string ErrorMsg;
-  llvm::error_code ec;
-  vector<ExecutionState*> ex_states;
-
-  // get the input file from the test case
-  string InputFile = test.file_name;
-
-  // Load the bytecode...
-  // load the bytecode emitted in the generation step...
-
-  // load the first module
-  outs() << "Loading: " << InputFile << '\n';
-  Module *mainModule = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr;
-
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ec.message().c_str());
-  }
-
-  LLVMContext ctx;
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
-
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
+    if (!test.is_ready()) {
+      klee_error("failed to load test case '%s'", fname.c_str());
     }
-  }
 
-  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s'", InputFile.c_str());
+    // Common setup
+    Interpreter::InterpreterOptions IOpts;
+    IOpts.mode = ExecModeID::rply;
+    IOpts.user_mem_base = (void *) 0x90000000000;
+    IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+    IOpts.trace = test.trace_type;
 
-  ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, mainModule->getModuleIdentifier());
+    Interpreter::ModuleOptions MOpts;
+    MOpts.LibraryDir = "";
+    MOpts.Optimize = false;
+    MOpts.CheckDivZero = false;
+    MOpts.CheckOvershift = false;
+    MOpts.test = &test;
 
-  Interpreter *interpreter = Interpreter::createLocal(ctx, IOpts, handler);
-  handler->setInterpreter(interpreter);
-  interpreter->setModule(mainModule, MOpts);
+    string ErrorMsg;
+    llvm::error_code ec;
+    vector<ExecutionState *> ex_states;
 
-  auto start_time = sys_clock::now();
-  outs() << "Started: " << to_string(start_time) << '\n';
-  outs().flush();
+    // get the input file from the test case
+    string InputFile = test.file_name;
 
-  theInterpreter = interpreter;
-  interpreter->runFunctionTestCase(test);
-  theInterpreter = nullptr;
+    // Load the bytecode...
+    // load the bytecode emitted in the generation step...
+    LLVMContext *ctx = nullptr;
+    Module *mainModule = nullptr;
 
-  auto finish_time = sys_clock::now();
-  outs() << "Finished: " << to_string(finish_time) << '\n';
-  auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  outs() << "Elapsed: " << elapsed.count() << '\n';
+    // look in cache for the module
+    auto itr = moduleCache.find(InputFile);
+    if (itr != moduleCache.end()) {
+      ctx = itr->second.first;
+      mainModule = itr->second.second;
+    } else {
+      ModulePair mp = LoadModule(InputFile);
+      moduleCache.insert(make_pair(InputFile, mp));
+      ctx = mp.first;
+      mainModule = mp.second;
+    }
 
-  if (ex_states.size() != 1) {
-    errs() << "Replay forked into multiple paths\n";
-    exit_code = 1;
-  } else {
-    ExecutionState *state = ex_states[0];
-    if (test.status == StateStatus::Pending) {
-      if (!compare_traces(test.trace, state->trace, test.trace.size())) {
-        errs() << "Replay diverged from test case\n";
-        exit_code = 1;
+    ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, mainModule->getModuleIdentifier());
+
+    Interpreter *interpreter = Interpreter::createLocal(*ctx, IOpts, handler);
+    handler->setInterpreter(interpreter);
+    interpreter->setModule(mainModule, MOpts);
+
+    theInterpreter = interpreter;
+    interpreter->runFunctionTestCase(test);
+    theInterpreter = nullptr;
+
+    if (ex_states.size() != 1) {
+      outs() << "forked";
+      ELEVATE_EXITCODE(exit_code, EXITCODE_FORKED);
+    } else {
+      ExecutionState *state = ex_states[0];
+      if (test.status == StateStatus::Pending) {
+        if (!compare_traces(test.trace, state->trace, test.trace.size())) {
+          outs() << "diverged";
+          ELEVATE_EXITCODE(exit_code, EXITCODE_DIVERGED);
+        } else {
+
+          // rewrite the incomplete test case with full trace and completed state status
+          ofstream info;
+          info.open(fname);
+          if (info.is_open()) {
+
+            update_test_case(root, state->status, state->trace);
+
+            string indentation = "";
+            if (IndentJson)
+              indentation = "  ";
+
+            Json::StreamWriterBuilder builder;
+            builder["commentStyle"] = "None";
+            builder["indentation"] = indentation;
+            unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+            writer.get()->write(root, &info);
+            info << endl;
+          }
+          outs() << "updated";
+        }
       } else {
-
-        // rewrite the incomplete test case with full trace and completed state status
-        ofstream info;
-        info.open(ReplayTest);
-        if (info.is_open()) {
-
-          update_test_case(root, state->status, state->trace);
-
-          string indentation = "";
-          if (IndentJson) indentation = "  ";
-
-          Json::StreamWriterBuilder builder;
-          builder["commentStyle"] = "None";
-          builder["indentation"] = indentation;
-          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-          writer.get()->write(root, &info);
-          info << endl;
+        if (!compare_traces(test.trace, state->trace)) {
+          outs() << "diverged";
+          ELEVATE_EXITCODE(exit_code, EXITCODE_DIVERGED);
+        } else {
+          outs() << "ok";
         }
       }
-    } else {
-      if (!compare_traces(test.trace, state->trace)) {
-        errs() << "Replay diverged from test case\n";
-        exit_code = 1;
-      }
     }
+
+    ex_states.clear();
+    outs() << '\n';
   }
 
-  ex_states.clear();
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
-  BufferPtr.take();
-#endif
+  for (auto itr : moduleCache) {
+    // deleting the context will also delete its associated module
+    delete itr.second.first;
+  }
 
   return exit_code;
 }
