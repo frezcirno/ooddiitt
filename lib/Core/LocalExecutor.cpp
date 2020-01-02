@@ -840,10 +840,9 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
-const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions &opts) {
+void LocalExecutor::attachModule(KModule *kmodule) {
 
-  assert(kmodule == nullptr);
-  const Module *result = Executor::setModule(module, opts);
+  Executor::attachModule(kmodule);
   specialFunctionHandler->setLocalExecutor(this);
   sysModel = new SystemModel(this, optsModel);
 
@@ -855,28 +854,28 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   baseState->maxLoopForks = maxLoopForks;
 
   vector<TestObject> *test_objs = nullptr;
-  if (opts.test != nullptr) {
-    test_objs = &opts.test->objects;
+  if (interpreterOpts.test != nullptr) {
+    test_objs = &interpreterOpts.test->objects;
   }
 
   initializeGlobals(*baseState, test_objs);
   bindModuleConstants();
-  return result;
 }
 
 void LocalExecutor::bindModuleConstants() {
 
-  assert(kmodule->constantTable == nullptr);
-  kmodule->constantTable = new Cell[kmodule->constants.size()];
-  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-    Cell &c = kmodule->constantTable[i];
-    c.value = evalConstant(kmodule->constants[i]);
-  }
+  if (kmodule->constantTable == nullptr) {
+    kmodule->constantTable = new Cell[kmodule->constants.size()];
+    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+      Cell &c = kmodule->constantTable[i];
+      c.value = evalConstant(kmodule->constants[i]);
+    }
 
-  for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
-    KFunction *kf = *it;
-    for (unsigned i = 0; i < kf->numInstructions; ++i) {
-      bindInstructionConstants(kf->instructions[i]);
+    for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
+      KFunction *kf = *it;
+      for (unsigned i = 0; i < kf->numInstructions; ++i) {
+        bindInstructionConstants(kf->instructions[i]);
+      }
     }
   }
 }

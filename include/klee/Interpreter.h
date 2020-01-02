@@ -121,27 +121,18 @@ public:
   /// registering a module with the interpreter.
   struct ModuleOptions {
     std::string LibraryDir;
-    std::string EntryPoint;
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
-    bool verbose;
     std::set<llvm::Function*> *user_fns;
     std::set<llvm::GlobalVariable*> *user_gbs;
-    TestCase *test;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
         CheckOvershift(false),
-#ifdef _DEBUG
-        verbose(true),
-#else
-        verbose(false),
-#endif
         user_fns(nullptr),
-        user_gbs(nullptr),
-        test(nullptr)
+        user_gbs(nullptr)
       {}
   };
 
@@ -168,6 +159,7 @@ public:
     size_t user_mem_size;
     bool verbose;
     bool verify_constraints;
+    TestCase *test;
     TraceType trace;
 
     InterpreterOptions()
@@ -183,6 +175,7 @@ public:
         verbose(false),
 #endif
         verify_constraints(false),
+        test(nullptr),
         trace(TraceType::invalid)
     {}
   };
@@ -205,11 +198,7 @@ public:
 
   const InterpreterOptions &getOptions() const { return interpreterOpts; }
 
-  /// Register the module to be executed.
-  ///
-  /// \return The final module after it has been optimized, checks
-  /// inserted, and modified for interpretation.
-  virtual const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) = 0;
+  virtual void attachModule(KModule *kmodule) = 0;
 
   // supply a tree stream writer which the interpreter will use
   // to record the concrete path (as a stream of '0' and '1' bytes).

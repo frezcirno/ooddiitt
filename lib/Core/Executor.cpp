@@ -383,12 +383,9 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
   }
 }
 
+void Executor::attachModule(KModule *km) {
 
-const Module *Executor::setModule(llvm::Module *module,
-                                  const ModuleOptions &opts) {
-  assert(!kmodule && module && "can only register one module"); // XXX gross
-
-  kmodule = new KModule(module);
+  kmodule = km;
 
   // Initialize the context, if not already
   if (!Context::is_initialized()) {
@@ -399,7 +396,7 @@ const Module *Executor::setModule(llvm::Module *module,
   specialFunctionHandler = new SpecialFunctionHandler(*this);
 
   specialFunctionHandler->prepare();
-  kmodule->prepare(opts, interpreterHandler, interpreterOpts.mode == ExecModeID::prep, interpreterOpts.trace);
+  kmodule->prepare();
   specialFunctionHandler->bind();
 
   std::set<const llvm::Function*> spcs;
@@ -414,8 +411,8 @@ const Module *Executor::setModule(llvm::Module *module,
                                       userSearcherRequiresMD2U());
     }
   }
-  return module;
 }
+
 
 Executor::~Executor() {
   delete memory;
@@ -427,7 +424,6 @@ Executor::~Executor() {
   if (statsTracker)
     delete statsTracker;
   delete solver;
-  delete kmodule;
   while(!timers.empty()) {
     delete timers.back();
     timers.pop_back();

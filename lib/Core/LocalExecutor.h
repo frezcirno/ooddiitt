@@ -46,7 +46,7 @@ public:
 
   virtual ~LocalExecutor();
 
-  const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
+  void attachModule(KModule *kmodule) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
   void runFunctionUnconstrained(llvm::Function *fn) override;
@@ -159,10 +159,10 @@ protected:
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
   void GetModeledExternals(std::set<std::string> &names) const override;
-  bool ShouldBeModeled(const std::string &name) const override { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); else return false; }
-  bool isLegalFunction(const llvm::Function *fn) const {
-    return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
-  }
+  bool ShouldBeModeled(const std::string &name) const override
+    { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); else return false; }
+  bool isLegalFunction(const llvm::Function *fn) const
+    { return legalFunctions.find((uint64_t) fn) != legalFunctions.end(); }
 
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;

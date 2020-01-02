@@ -506,9 +506,12 @@ int main(int argc, char **argv, char **envp) {
 
   if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
   if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
+  BufferPtr.take();
 
   if (Function *mainFn = mainModule->getFunction(UserMain)) {
     if (Function *targetFn = mainModule->getFunction(TargetFn)) {
+
+      KModule *kmodule = new KModule(mainModule);
 
       vector<string> args;
       args.reserve(InputArgv.size() + 1);
@@ -534,15 +537,9 @@ int main(int argc, char **argv, char **envp) {
         IOpts.trace = TraceType::statements;
       }
 
-      Interpreter::ModuleOptions MOpts;
-      MOpts.LibraryDir = "";
-      MOpts.Optimize = false;
-      MOpts.CheckDivZero = false;
-      MOpts.CheckOvershift = false;
-
       theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
       handler->setInterpreter(theInterpreter);
-      theInterpreter->setModule(mainModule, MOpts);
+      theInterpreter->attachModule(kmodule);
 
       auto start_time = sys_clock::now();
       outs() << "Started: " << to_string(start_time) << '\n';
@@ -560,13 +557,6 @@ int main(int argc, char **argv, char **envp) {
   } else {
     errs() << "Module function not found: " << UserMain << '\n';
   }
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
-  BufferPtr.take();
-#endif
 
   return exit_code;
 }

@@ -57,10 +57,10 @@ using namespace klee;
 using namespace std;
 using namespace boost::algorithm;
 
-namespace bfs = boost::filesystem;
+namespace boostfs = boost::filesystem;
 
 namespace {
-  cl::opt<string> TestDirectory(cl::desc("<test case to replay>"), cl::Positional, cl::Required);
+  cl::opt<string> TestDirectory(cl::desc("<test cases to replay>"), cl::Positional, cl::Required);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
@@ -80,7 +80,7 @@ namespace {
 class ReplayKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  bfs::path outputDirectory;
+  boostfs::path outputDirectory;
   string md_name;
   vector<ExecutionState*> &results;
 
@@ -125,7 +125,7 @@ void ReplayKleeHandler::setInterpreter(Interpreter *i) {
 
 string ReplayKleeHandler::getOutputFilename(const string &filename) {
 
-  bfs::path file = outputDirectory;
+  boostfs::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
@@ -319,6 +319,21 @@ bool compare_traces(const vector<unsigned> &test_trace, const deque<unsigned> &s
   return true;
 }
 
+string to_string(const string &module, const string &fn, const deque<unsigned> &trace) {
+
+  stringstream ss;
+  ss << module << ':' << fn << ':';
+
+  bool first = true;
+  for (unsigned element : trace) {
+    if (first) first = false;
+    else ss << ',';
+
+    ss << element;
+  }
+  return ss.str();
+}
+
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -405,14 +420,12 @@ void update_test_case(Json::Value &root, StateStatus status, const deque<unsigne
   }
 }
 
-typedef pair<LLVMContext*,Module*> ModulePair;
+KModule *LoadModule(const string &filename) {
 
-ModulePair LoadModule(const string &filename) {
-
-  ModulePair result;
   string ErrorMsg;
 
   outs() << "Loading: " << filename << '\n';
+  // context will be tracked (and freed) through the module
   LLVMContext *ctx = new LLVMContext();
 
   OwningPtr<MemoryBuffer> BufferPtr;
@@ -434,9 +447,7 @@ ModulePair LoadModule(const string &filename) {
     klee_error("program is not prepared '%s'", filename.c_str());
 
   BufferPtr.take();
-  result.first = ctx;
-  result.second = module;
-  return result;
+  return new KModule(module);
 }
 
 int main(int argc, char **argv, char **envp) {
@@ -450,8 +461,9 @@ int main(int argc, char **argv, char **envp) {
 
   set<string> filenames;
   set<string> modules;
-  for (bfs::directory_entry &entry : bfs::directory_iterator(TestDirectory)) {
-    bfs::path path = entry.path();
+  set<string> traces;
+  for (boostfs::directory_entry &entry : boostfs::directory_iterator(TestDirectory)) {
+    boostfs::path path = entry.path();
     string filename = path.filename().string();
     if (starts_with(filename, "test") && ends_with(filename, ".json")) {
       filenames.insert(path.string());
@@ -460,12 +472,13 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  map<string,ModulePair> moduleCache;
+  map<string,KModule*> moduleCache;
 
   // pre-load the module cache with all modules found in output directory
   for (const auto &module : modules) {
-    ModulePair mp = LoadModule(module);
-    moduleCache.insert(make_pair(module, mp));
+    if (KModule *km = LoadModule(module)) {
+      moduleCache.insert(make_pair(module, km));
+    }
   }
 
   for (const string &fname : filenames) {
@@ -494,16 +507,8 @@ int main(int argc, char **argv, char **envp) {
     IOpts.user_mem_base = (void *) 0x90000000000;
     IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
     IOpts.trace = test.trace_type;
+    IOpts.test = &test;
 
-    Interpreter::ModuleOptions MOpts;
-    MOpts.LibraryDir = "";
-    MOpts.Optimize = false;
-    MOpts.CheckDivZero = false;
-    MOpts.CheckOvershift = false;
-    MOpts.test = &test;
-
-    string ErrorMsg;
-    llvm::error_code ec;
     vector<ExecutionState *> ex_states;
 
     // get the input file from the test case
@@ -512,27 +517,25 @@ int main(int argc, char **argv, char **envp) {
     // Load the bytecode...
     // load the bytecode emitted in the generation step...
     LLVMContext *ctx = nullptr;
-    Module *mainModule = nullptr;
+    KModule *kmodule = nullptr;
 
     // look in cache for the module
     auto itr = moduleCache.find(InputFile);
     if (itr != moduleCache.end()) {
-      ctx = itr->second.first;
-      mainModule = itr->second.second;
+      kmodule = itr->second;
     } else {
-      ModulePair mp = LoadModule(InputFile);
-      moduleCache.insert(make_pair(InputFile, mp));
-      ctx = mp.first;
-      mainModule = mp.second;
+      kmodule = LoadModule(InputFile);
+      moduleCache.insert(make_pair(InputFile, kmodule));
     }
+    ctx = &(kmodule->module->getContext());
 
-    ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, mainModule->getModuleIdentifier());
+    unique_ptr<ReplayKleeHandler> handler(new ReplayKleeHandler(ex_states, kmodule->module->getModuleIdentifier()));
+    unique_ptr<Interpreter> interpreter(Interpreter::createLocal(*ctx, IOpts, handler.get()));
 
-    Interpreter *interpreter = Interpreter::createLocal(*ctx, IOpts, handler);
-    handler->setInterpreter(interpreter);
-    interpreter->setModule(mainModule, MOpts);
+    handler->setInterpreter(interpreter.get());
+    interpreter->attachModule(kmodule);
 
-    theInterpreter = interpreter;
+    theInterpreter = interpreter.get();
     interpreter->runFunctionTestCase(test);
     theInterpreter = nullptr;
 
@@ -575,6 +578,8 @@ int main(int argc, char **argv, char **envp) {
           outs() << "ok";
         }
       }
+      auto pr = traces.insert(to_string(test.module_name, test.entry_fn, state->trace));
+      if (!pr.second) outs() << " DUPLICATE";
     }
 
     ex_states.clear();
@@ -582,8 +587,11 @@ int main(int argc, char **argv, char **envp) {
   }
 
   for (auto itr : moduleCache) {
+    KModule *kmodule = itr.second;
     // deleting the context will also delete its associated module
-    delete itr.second.first;
+    LLVMContext *ctx = &(kmodule->module->getContext());
+    delete kmodule;
+    delete ctx;
   }
 
   return exit_code;

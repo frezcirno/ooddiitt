@@ -836,6 +836,7 @@ int main(int argc, char **argv, char **envp) {
       mainModule = nullptr;
     }
   }
+  BufferPtr.take();
   if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
   if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
 #else
@@ -918,12 +919,8 @@ int main(int argc, char **argv, char **envp) {
   theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
 
-  Interpreter::ModuleOptions MOpts;
-
-  MOpts.EntryPoint = EntryPoint;
-  MOpts.verbose = Verbose;
-
-  theInterpreter->setModule(mainModule, MOpts);
+  KModule *kmodule = new KModule(mainModule);
+  theInterpreter->attachModule(kmodule);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -988,14 +985,8 @@ int main(int argc, char **argv, char **envp) {
     outs() << "brt-igen: done: generated tests = " << handler->getNumTestCases() << "\n";
   }
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
-  BufferPtr.take();
-#endif
-
   delete handler;
+  delete kmodule;
 
   return exit_code;
 }

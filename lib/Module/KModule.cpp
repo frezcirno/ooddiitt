@@ -92,13 +92,12 @@ KModule::~KModule() {
     delete it->second;
 
   delete targetData;
-  delete module;
 }
 
 /***/
 
 namespace llvm {
-extern void Optimize(Module *, const string &EntryPoint);
+extern void Optimize(Module *);
 }
 
 // what a hack
@@ -201,7 +200,155 @@ static set<string> never_stub = {
     "strstr"
 };
 
-void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler *ih, bool build, TraceType trace) {
+
+void KModule::transform(const Interpreter::ModuleOptions &opts, TraceType ttrace) {
+
+  assert(module != nullptr);
+
+  LLVMContext &ctx = module->getContext();
+
+  if (!MergeAtExit.empty()) {
+    Function *mergeFn = module->getFunction("klee_merge");
+    if (!mergeFn) {
+      LLVM_TYPE_Q llvm::FunctionType *Ty = FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type *>(), false);
+      mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage, "klee_merge", module);
+    }
+
+    for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
+      string &name = *it;
+      Function *f = module->getFunction(name);
+      if (!f) {
+        klee_error("cannot insert merge-at-exit for: %s (cannot find)", name.c_str());
+      } else if (f->isDeclaration()) {
+        klee_error("cannot insert merge-at-exit for: %s (external)", name.c_str());
+      }
+
+      BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
+      PHINode *result = 0;
+      if (f->getReturnType() != Type::getVoidTy(ctx))
+        result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
+      CallInst::Create(mergeFn, "", exit);
+      ReturnInst::Create(ctx, result, exit);
+
+      llvm::errs() << "KLEE: adding klee_merge at exit of: " << name << "\n";
+      for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); bbit != bbie; ++bbit) {
+        BasicBlock *bb = static_cast<BasicBlock *>(bbit);
+        if (bb != exit) {
+          Instruction *i = bbit->getTerminator();
+          if (i->getOpcode() == Instruction::Ret) {
+            if (result) {
+              result->addIncoming(i->getOperand(0), bb);
+            }
+            i->eraseFromParent();
+            BranchInst::Create(exit, bb);
+          }
+        }
+      }
+    }
+  }
+
+  // Inject checks prior to optimization... we also perform the
+  // invariant transformations that we will end up doing later so that
+  // optimize is seeing what is as close as possible to the final
+  // module.
+  {
+    PassManager pm;
+    pm.add(new RaiseAsmPass());
+    if (opts.CheckDivZero) {
+      pm.add(new DivCheckPass());
+    }
+    if (opts.CheckOvershift) {
+      pm.add(new OvershiftCheckPass());
+    }
+    // FIXME: This false here is to work around a bug in
+    // IntrinsicLowering which caches values which may eventually be
+    // deleted (via RAUW). This can be removed once LLVM fixes this
+    // issue.
+    pm.add(new IntrinsicCleanerPass(*targetData, false));
+    pm.run(*module);
+  }
+
+  if (opts.Optimize) Optimize(module);
+
+  SmallString<128> LibPath(opts.LibraryDir);
+  string intrinsicLib = "kleeRuntimeIntrinsic";
+  Expr::Width width = targetData->getPointerSizeInBits();
+
+  if (width == Expr::Int32) {
+    intrinsicLib += "-32";
+  } else if (width == Expr::Int64) {
+    intrinsicLib += "-64";
+  }
+
+  intrinsicLib += ".bc";
+  llvm::sys::path::append(LibPath, intrinsicLib);
+  module = linkWithLibrary(module, LibPath.str());
+
+  // Needs to happen after linking (since ctors/dtors can be modified)
+  // and optimization (since global optimization can rewrite lists).
+  injectStaticConstructorsAndDestructors(module);
+
+  // Finally, run the passes that maintain invariants we expect during
+  // interpretation. We run the intrinsic cleaner just in case we
+  // linked in something with intrinsics but any external calls are
+  // going to be unresolved. We really need to handle the intrinsics
+  // directly I think?
+
+  {
+    PassManager pm;
+    pm.add(createCFGSimplificationPass());
+    pm.add(createLoopSimplifyPass());
+
+    switch (SwitchType) {
+    case eSwitchTypeInternal: break;
+    case eSwitchTypeSimple: pm.add(new LowerSwitchPass());
+      break;
+    case eSwitchTypeLLVM: pm.add(createLowerSwitchPass());
+      break;
+    default: klee_error("invalid --switch-type");
+    }
+
+    pm.add(new IntrinsicCleanerPass(*targetData));
+    pm.add(new PhiCleanerPass());
+    pm.add(new InstructionOperandTypeCheckPass());
+    pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, never_stub));
+    pm.run(*module);
+  }
+
+  if (opts.user_fns != nullptr) {
+    vector<Value*> values;
+    values.reserve(opts.user_fns->size());
+    for (auto fn : *opts.user_fns) {
+      values.push_back(fn);
+      user_fns.insert(fn);
+    }
+    MDNode *Node = MDNode::get(ctx, values);
+    NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
+    NMD->addOperand(Node);
+  }
+  if (opts.user_gbs != nullptr) {
+    vector<Value*> values;
+    values.reserve(opts.user_gbs->size());
+    for (auto gb : *opts.user_gbs) {
+      values.push_back(gb);
+      user_gbs.insert(gb);
+    }
+    MDNode *Node = MDNode::get(ctx, values);
+    NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-gbs");
+    NMD->addOperand(Node);
+  }
+
+  if (ttrace != TraceType::invalid) {
+    Type *int_type = Type::getInt32Ty(ctx);
+    vector<Value*> values;
+    values.push_back(ConstantInt::get(int_type, (unsigned) ttrace));
+    MDNode *Node = MDNode::get(ctx, values);
+    NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.trace-type");
+    NMD->addOperand(Node);
+  }
+}
+
+void KModule::prepare() {
 
   LLVMContext &ctx = module->getContext();
 
@@ -215,209 +362,61 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts, InterpreterHandler
     }
   }
 
-  if (build) {
-    if (!MergeAtExit.empty()) {
-      Function *mergeFn = module->getFunction("klee_merge");
-      if (!mergeFn) {
-        LLVM_TYPE_Q llvm::FunctionType *Ty = FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type *>(), false);
-        mergeFn = Function::Create(Ty, GlobalVariable::ExternalLinkage, "klee_merge", module);
-      }
+  // module has already been prepared, need to retrieve prepared values
 
-      for (auto it = MergeAtExit.begin(), ie = MergeAtExit.end(); it != ie; ++it) {
-        string &name = *it;
-        Function *f = module->getFunction(name);
-        if (!f) {
-          klee_error("cannot insert merge-at-exit for: %s (cannot find)", name.c_str());
-        } else if (f->isDeclaration()) {
-          klee_error("cannot insert merge-at-exit for: %s (external)", name.c_str());
+  // since markers are already assigned, need to retrieve them from the module
+  unsigned mdkind_fnID = module->getMDKindID("brt-klee.fnID");
+  unsigned mdkind_bbID = module->getMDKindID("brt-klee.bbID");
+
+  for (auto md_itr = module->begin(), md_end = module->end(); md_itr != md_end; ++md_itr) {
+    Function *fn = md_itr;
+    for (auto fn_itr = fn->begin(), fn_end = fn->end(); fn_itr != fn_end; ++fn_itr) {
+      BasicBlock *bb = fn_itr;
+      for (auto bb_itr = bb->begin(), bb_end = bb->end(); bb_itr != bb_end; ++bb_itr) {
+        Instruction *inst = bb_itr;
+        if (MDNode *node = inst->getMetadata(mdkind_fnID)) {
+          string str = cast<MDString>(node->getOperand(0))->getString();
+          if (!str.empty()) mapFnMarkers[fn] = std::stoi(str);
         }
-
-        BasicBlock *exit = BasicBlock::Create(ctx, "exit", f);
-        PHINode *result = 0;
-        if (f->getReturnType() != Type::getVoidTy(ctx))
-        result = PHINode::Create(f->getReturnType(), 0, "retval", exit);
-        CallInst::Create(mergeFn, "", exit);
-        ReturnInst::Create(ctx, result, exit);
-
-        llvm::errs() << "KLEE: adding klee_merge at exit of: " << name << "\n";
-        for (llvm::Function::iterator bbit = f->begin(), bbie = f->end(); bbit != bbie; ++bbit) {
-          BasicBlock *bb = static_cast<BasicBlock *>(bbit);
-          if (bb != exit) {
-            Instruction *i = bbit->getTerminator();
-            if (i->getOpcode() == Instruction::Ret) {
-              if (result) {
-                result->addIncoming(i->getOperand(0), bb);
-              }
-              i->eraseFromParent();
-              BranchInst::Create(exit, bb);
-            }
-          }
+        if (MDNode *node = inst->getMetadata(mdkind_bbID)) {
+          string str = cast<MDString>(node->getOperand(0))->getString();
+          if (!str.empty()) mapBBMarkers[bb] = std::stoi(str);
         }
       }
     }
+  }
 
-    // Inject checks prior to optimization... we also perform the
-    // invariant transformations that we will end up doing later so that
-    // optimize is seeing what is as close as possible to the final
-    // module.
-    {
-      PassManager pm;
-      pm.add(new RaiseAsmPass());
-      if (opts.CheckDivZero) {
-        pm.add(new DivCheckPass());
-      }
-      if (opts.CheckOvershift) {
-        pm.add(new OvershiftCheckPass());
-      }
-      // FIXME: This false here is to work around a bug in
-      // IntrinsicLowering which caches values which may eventually be
-      // deleted (via RAUW). This can be removed once LLVM fixes this
-      // issue.
-      pm.add(new IntrinsicCleanerPass(*targetData, false));
-      pm.run(*module);
-    }
-
-    if (opts.Optimize) Optimize(module, opts.EntryPoint);
-
-    SmallString<128> LibPath(opts.LibraryDir);
-    string intrinsicLib = "kleeRuntimeIntrinsic";
-    Expr::Width width = targetData->getPointerSizeInBits();
-
-    if (width == Expr::Int32) {
-      intrinsicLib += "-32";
-    } else if (width == Expr::Int64) {
-      intrinsicLib += "-64";
-    }
-
-    intrinsicLib += ".bc";
-    llvm::sys::path::append(LibPath, intrinsicLib);
-    module = linkWithLibrary(module, LibPath.str());
-
-    // Needs to happen after linking (since ctors/dtors can be modified)
-    // and optimization (since global optimization can rewrite lists).
-    injectStaticConstructorsAndDestructors(module);
-
-    // Finally, run the passes that maintain invariants we expect during
-    // interpretation. We run the intrinsic cleaner just in case we
-    // linked in something with intrinsics but any external calls are
-    // going to be unresolved. We really need to handle the intrinsics
-    // directly I think?
-
-    {
-      PassManager pm;
-      pm.add(createCFGSimplificationPass());
-      pm.add(createLoopSimplifyPass());
-
-      switch (SwitchType) {
-      case eSwitchTypeInternal: break;
-      case eSwitchTypeSimple: pm.add(new LowerSwitchPass());
-        break;
-      case eSwitchTypeLLVM: pm.add(createLowerSwitchPass());
-        break;
-      default: klee_error("invalid --switch-type");
-      }
-
-      pm.add(new IntrinsicCleanerPass(*targetData));
-      pm.add(new PhiCleanerPass());
-      pm.add(new InstructionOperandTypeCheckPass());
-      pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, never_stub));
-      pm.run(*module);
-    }
-
-    if (opts.user_fns != nullptr) {
-      vector<Value*> values;
-      values.reserve(opts.user_fns->size());
-      for (auto fn : *opts.user_fns) {
-        values.push_back(fn);
+  // read out the user defined functions from metadata
+  auto node = module->getNamedMetadata("brt-klee.usr-fns");
+  if (node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+      Value *v = md->getOperand(idx);
+      if (Function *fn = dyn_cast<Function>(v)) {
         user_fns.insert(fn);
       }
-      MDNode *Node = MDNode::get(ctx, values);
-      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
-      NMD->addOperand(Node);
     }
-    if (opts.user_gbs != nullptr) {
-      vector<Value*> values;
-      values.reserve(opts.user_gbs->size());
-      for (auto gb : *opts.user_gbs) {
-        values.push_back(gb);
+  }
+
+  // and now the globals
+  node = module->getNamedMetadata("brt-klee.usr-gbs");
+  if (node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+      Value *v = md->getOperand(idx);
+      if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
         user_gbs.insert(gb);
       }
-      MDNode *Node = MDNode::get(ctx, values);
-      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-gbs");
-      NMD->addOperand(Node);
     }
+  }
 
-    if (trace != TraceType::invalid) {
-      Type *int_type = Type::getInt32Ty(ctx);
-      vector<Value*> values;
-      values.push_back(ConstantInt::get(int_type, (unsigned) trace));
-      MDNode *Node = MDNode::get(ctx, values);
-      NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.trace-type");
-      NMD->addOperand(Node);
-    }
-
-    if (llvm::raw_fd_ostream *os = ih->openOutputBitCode()) {
-      WriteBitcodeToFile(module, *os);
-      delete os;
-    }
-  } else {
-
-    // module has already been prepared, need to retrieve prepared values
-
-    // since markers are already assigned, need to retrieve them from the module
-    unsigned mdkind_fnID = module->getMDKindID("brt-klee.fnID");
-    unsigned mdkind_bbID = module->getMDKindID("brt-klee.bbID");
-
-    for (auto md_itr = module->begin(), md_end = module->end(); md_itr != md_end; ++md_itr) {
-      Function *fn = md_itr;
-      for (auto fn_itr = fn->begin(), fn_end = fn->end(); fn_itr != fn_end; ++fn_itr) {
-        BasicBlock *bb = fn_itr;
-        for (auto bb_itr = bb->begin(), bb_end = bb->end(); bb_itr != bb_end; ++bb_itr) {
-          Instruction *inst = bb_itr;
-          if (MDNode *node = inst->getMetadata(mdkind_fnID)) {
-            string str = cast<MDString>(node->getOperand(0))->getString();
-            if (!str.empty()) mapFnMarkers[fn] = std::stoi(str);
-          }
-          if (MDNode *node = inst->getMetadata(mdkind_bbID)) {
-            string str = cast<MDString>(node->getOperand(0))->getString();
-            if (!str.empty()) mapBBMarkers[bb] = std::stoi(str);
-          }
-        }
-      }
-    }
-
-    // read out the user defined functions from metadata
-    auto node = module->getNamedMetadata("brt-klee.usr-fns");
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-        Value *v = md->getOperand(idx);
-        if (Function *fn = dyn_cast<Function>(v)) {
-          user_fns.insert(fn);
-        }
-      }
-    }
-
-    // and now the globals
-    node = module->getNamedMetadata("brt-klee.usr-gbs");
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-        Value *v = md->getOperand(idx);
-        if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
-          user_gbs.insert(gb);
-        }
-      }
-    }
-
-    // check to see if a default trace type is set in the module
-    node = module->getNamedMetadata("brt-klee.trace-type");
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      Value *v = md->getOperand(0);
-      if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
-        module_trace = (TraceType) i->getZExtValue();
-      }
+  // check to see if a default trace type is set in the module
+  node = module->getNamedMetadata("brt-klee.trace-type");
+  if (node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    Value *v = md->getOperand(0);
+    if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
+      module_trace = (TraceType) i->getZExtValue();
     }
   }
 

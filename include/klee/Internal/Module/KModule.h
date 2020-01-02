@@ -150,10 +150,8 @@ namespace klee {
     /// Initialize local data structures.
     //
     // FIXME: ihandler should not be here
-    void prepare(const Interpreter::ModuleOptions &opts,
-                 InterpreterHandler *ihandler,
-                 bool build = false,
-                 TraceType trace = TraceType::invalid);
+    void prepare();
+    void transform(const Interpreter::ModuleOptions &opts, TraceType ttrace = TraceType::invalid);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);

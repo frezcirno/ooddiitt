@@ -427,13 +427,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.user_mem_base = (void*) 0x90000000000;
   IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
   IOpts.trace = test.trace_type;
-
-  Interpreter::ModuleOptions MOpts;
-  MOpts.LibraryDir = "";
-  MOpts.Optimize = false;
-  MOpts.CheckDivZero = false;
-  MOpts.CheckOvershift = false;
-  MOpts.test = &test;
+  IOpts.test = &test;
 
   string ErrorMsg;
   llvm::error_code ec;
@@ -466,12 +460,13 @@ int main(int argc, char **argv, char **envp) {
 
   if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
   if (!isPrepared(mainModule1)) klee_error("program is not prepared '%s'", InputFile1.c_str());
+  KModule *kmodule1 = new KModule(mainModule1);
 
   ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
 
   Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
   handler1->setInterpreter(interpreter1);
-  interpreter1->setModule(mainModule1, MOpts);
+  interpreter1->attachModule(kmodule1);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -529,12 +524,13 @@ int main(int argc, char **argv, char **envp) {
 
     if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
     if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
+    KModule *kmodule2 = new KModule(mainModule2);
 
     ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
 
     Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
     handler2->setInterpreter(interpreter2);
-    interpreter2->setModule(mainModule2, MOpts);
+    interpreter2->attachModule(kmodule2);
 
     start_time = sys_clock::now();
     outs() << "Started: " << to_string(start_time) << '\n';
