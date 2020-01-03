@@ -2553,6 +2553,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 }
 
 void Executor::updateStates(ExecutionState *current) {
+
   if (searcher) {
     searcher->update(current, addedStates, removedStates);
   }
@@ -2560,17 +2561,12 @@ void Executor::updateStates(ExecutionState *current) {
   states.insert(addedStates.begin(), addedStates.end());
   addedStates.clear();
 
-  for (std::vector<ExecutionState *>::iterator it = removedStates.begin(),
-                                               ie = removedStates.end();
-       it != ie; ++it) {
-    ExecutionState *es = *it;
-    std::set<ExecutionState*>::iterator it2 = states.find(es);
-    assert(it2!=states.end());
-    states.erase(it2);
-    std::map<ExecutionState*, std::vector<SeedInfo> >::iterator it3 =
-      seedMap.find(es);
-    if (it3 != seedMap.end())
-      seedMap.erase(it3);
+  for (ExecutionState *es : removedStates) {
+
+    auto itr = states.find(es);
+    if (itr != states.end()) {
+      states.erase(itr);
+    }
     processTree->remove(es->ptreeNode);
     delete es;
   }

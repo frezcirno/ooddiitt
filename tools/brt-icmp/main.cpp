@@ -58,12 +58,15 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+using namespace boost::algorithm;
+
+namespace boostfs = boost::filesystem;
 
 namespace {
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> ReplayTest("test", cl::desc("test case to replay"), cl::Required);
+  cl::opt<string> TestDirectory("tests", cl::desc("<test cases to replay>"), cl::init("."));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -288,25 +291,6 @@ static void interrupt_handle() {
   }
 }
 
-size_t compare_traces(const vector<unsigned> &test_trace, const deque<unsigned> &state_trace, size_t length) {
-
-  auto itr_t = test_trace.begin();
-  auto end_t = test_trace.end();
-  auto itr_s = state_trace.begin();
-  auto end_s = state_trace.end();
-
-  size_t index = 0;
-  while (itr_t != end_t || itr_s != end_s) {
-    if (itr_t == end_t || itr_s == end_s || *itr_t != *itr_s) {
-      return index;
-    }
-    if (++index == length) break;
-    ++itr_t;
-    ++itr_s;
-  }
-  return UINT64_MAX;
-}
-
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -314,6 +298,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.arg_v = root["argV"].asString();
 
   test.module_name = root["module"].asString();
+  test.file_name = root["file"].asString();
   test.entry_fn = root["entryFn"].asString();
   test.klee_version = root["kleeRevision"].asString();
   test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
@@ -382,6 +367,63 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
+KModule *LoadModule(const string &filename) {
+
+  string ErrorMsg;
+
+  outs() << "Loading: " << filename << '\n';
+  // context will be tracked (and freed) through the module
+  LLVMContext *ctx = new LLVMContext();
+
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec = MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+  Module *module = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (module) {
+    if (module->MaterializeAllPermanently(&ErrorMsg)) {
+      delete module;
+      module = nullptr;
+    }
+  }
+
+  if (!module)
+    klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  if (!isPrepared(module))
+    klee_error("program is not prepared '%s'", filename.c_str());
+
+  BufferPtr.take();
+  return new KModule(module);
+}
+
+pair<Interpreter*,ExecutionState*> run_testcase(KModule *kmodule, TestCase *test) {
+
+  Interpreter::InterpreterOptions IOpts;
+  IOpts.mode = ExecModeID::rply;
+  IOpts.user_mem_base = (void*) 0x90000000000;
+  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+  IOpts.trace = test->trace_type;
+  IOpts.test = test;
+  vector<ExecutionState*> ex_states;
+
+  ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmodule->module->getModuleIdentifier());
+  Interpreter *interpreter = Interpreter::createLocal(kmodule->module->getContext(), IOpts, handler);
+  handler->setInterpreter(interpreter);
+  interpreter->attachModule(kmodule);
+
+  theInterpreter = interpreter;
+  interpreter->runFunctionTestCase(*test);
+  theInterpreter = nullptr;
+
+  assert(ex_states.size() == 1);
+
+  delete handler;
+
+  ExecutionState *state = ex_states.front();
+  return make_pair(interpreter, state);
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -400,175 +442,75 @@ int main(int argc, char **argv, char **envp) {
     outs() << "PID: " << getpid() << "\n";
   }
 
-  // Load the test case
-  TestCase test;
-  if (!ReplayTest.empty()) {
+  // load the modules
+  KModule *kmodule1 = LoadModule(InputFile1);
+  KModule *kmodule2 = LoadModule(InputFile2);
+
+  set<string> testcases;
+  for (boostfs::directory_entry &entry : boostfs::directory_iterator(TestDirectory)) {
+    boostfs::path path = entry.path();
+    string filename = path.filename().string();
+    if (starts_with(filename, "test") && ends_with(filename, ".json")) {
+      testcases.insert(path.string());
+    }
+  }
+
+  for (const string &fname : testcases) {
+    outs() << fname << ": ";
+
+    // Load the test case
+    TestCase test;
 
     ifstream info;
-    info.open(ReplayTest);
+    info.open(fname);
     if (info.is_open()) {
 
       Json::Value root;
       info >> root;
       load_test_case(root, test);
     }
-  }
 
-  if (!test.is_ready()) {
-    klee_error("failed to load test case '%s'", ReplayTest.c_str());
-  }
-
-  size_t test_trace_length = 0;
-  if (test.status == StateStatus::Pending) test_trace_length = test.trace.size();
-
-  // Common setup
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = ExecModeID::rply;
-  IOpts.user_mem_base = (void*) 0x90000000000;
-  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-  IOpts.trace = test.trace_type;
-  IOpts.test = &test;
-
-  string ErrorMsg;
-  llvm::error_code ec;
-  vector<ExecutionState*> ex_states;
-
-  CompareState version1;
-
-  // Load the bytecode...
-  // load the bytecode emitted in the generation step...
-
-  // load the first module
-  outs() << "Loading: " << InputFile1 << '\n';
-  Module *mainModule1 = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr1;
-
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr1);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile1.c_str(), ec.message().c_str());
-  }
-
-  LLVMContext ctx1;
-  mainModule1 = getLazyBitcodeModule(BufferPtr1.get(), ctx1, &ErrorMsg);
-
-  if (mainModule1) {
-    if (mainModule1->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule1;
-      mainModule1 = nullptr;
-    }
-  }
-
-  if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule1)) klee_error("program is not prepared '%s'", InputFile1.c_str());
-  KModule *kmodule1 = new KModule(mainModule1);
-
-  ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
-
-  Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
-  handler1->setInterpreter(interpreter1);
-  interpreter1->attachModule(kmodule1);
-
-  auto start_time = sys_clock::now();
-  outs() << "Started: " << to_string(start_time) << '\n';
-  outs().flush();
-
-  theInterpreter = interpreter1;
-  interpreter1->runFunctionTestCase(test);
-  theInterpreter = nullptr;
-
-  auto finish_time = sys_clock::now();
-  outs() << "Finished: " << to_string(finish_time) << '\n';
-  auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  outs() << "Elapsed: " << elapsed.count() << '\n';
-
-  version1.kmodule = interpreter1->getKModule();
-  assert(ex_states.size() == 1);
-  version1.state = ex_states.front();
-  ex_states.clear();
-
-  if (test.status != StateStatus::Snapshot && handler1->getModuleName() == test.module_name) {
-    size_t index = compare_traces(test.trace, version1.state->trace, test_trace_length);
-    if (index != UINT64_MAX) {
-      errs() << "replay diverged at index " << index << '\n';
-    }
-  }
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
-  BufferPtr1.take();
-#endif
-
-
-  // now, lets do it all again with the second module
-  if (InputFile2.size() > 0) {
-    CompareState version2;
-
-    outs() << "Loading: " << InputFile2 << '\n';
-    Module *mainModule2 = nullptr;
-    OwningPtr<MemoryBuffer> BufferPtr2;
-    ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
-    if (ec) {
-      klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
+    if (!test.is_ready()) {
+      klee_error("failed to load test case '%s'", fname.c_str());
     }
 
-    LLVMContext ctx2;
-    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx2, &ErrorMsg);
-    if (mainModule2) {
-      if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
-        delete mainModule2;
-        mainModule2 = nullptr;
-      }
-    }
-
-    if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
-    if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
-    KModule *kmodule2 = new KModule(mainModule2);
-
-    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
-
-    Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
-    handler2->setInterpreter(interpreter2);
-    interpreter2->attachModule(kmodule2);
-
-    start_time = sys_clock::now();
-    outs() << "Started: " << to_string(start_time) << '\n';
+    // setup two states versions for comparison
+    CompareState version1 = {kmodule1, nullptr};
+    CompareState version2 = {kmodule2, nullptr};
+    pair<Interpreter*,ExecutionState*> pr;
+    pr = run_testcase(kmodule1, &test);
+    outs() << "1 ";
     outs().flush();
+    Interpreter *interpreter1 = pr.first;
+    version1.state = pr.second;
+    pr = run_testcase(kmodule2, &test);
+    outs() << "2 ";
+    outs().flush();
+    Interpreter *interpreter2 = pr.first;
+    version2.state = pr.second;
+    string msg;
 
-    theInterpreter = interpreter2;
-    interpreter2->runFunctionTestCase(test);
-    theInterpreter = nullptr;
-
-    finish_time = sys_clock::now();
-    outs() << "Finished: " << to_string(finish_time) << '\n';
-    elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-    outs() << "Elapsed: " << elapsed.count() << '\n';
-
-    version2.kmodule = interpreter2->getKModule();
-    assert(ex_states.size() == 1);
-    version2.state = ex_states.front();
-    ex_states.clear();
-
-    if (handler2->getModuleName() == test.module_name) {
-      size_t index = compare_traces(test.trace, version2.state->trace, test_trace_length);
-      if (index != UINT64_MAX) {
-        errs() << "replay diverged at index " << index << '\n';
-      }
-    }
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-    // FIXME: This really doesn't look right
-    // This is preventing the module from being
-    // deleted automatically
-    BufferPtr2.take();
-  #endif
-
-    if (!CompareExecutions(version1, version2)) {
-      outs() << "Behavioral Discrepancy\n";
+    if (!CompareExecutions(version1, version2, msg)) {
+      outs() << "discrepancy";
       exit_code = 1;
+    } else {
+      outs() << "ok";
     }
+    if (!msg.empty()) outs() << " (" << msg << ")\n";
+    else outs() << '\n';
+
+    delete version1.state;
+    delete interpreter1;
+    delete version2.state;
+    delete interpreter2;
   }
+
+  LLVMContext *ctx1 = &(kmodule1->module->getContext());
+  delete kmodule1;
+  delete ctx1;
+  LLVMContext *ctx2 = &(kmodule2->module->getContext());
+  delete kmodule2;
+  delete ctx2;
 
   return exit_code;
 }

@@ -580,6 +580,7 @@ int main(int argc, char **argv, char **envp) {
       }
       auto pr = traces.insert(to_string(test.module_name, test.entry_fn, state->trace));
       if (!pr.second) outs() << " DUPLICATE";
+      delete state;
     }
 
     ex_states.clear();

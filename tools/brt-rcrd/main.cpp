@@ -551,6 +551,10 @@ int main(int argc, char **argv, char **envp) {
       outs() << "Finished: " << to_string(finish_time) << '\n';
       auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
       outs() << "Elapsed: " << elapsed.count() << '\n';
+
+      delete handler;
+      delete kmodule;
+
     } else {
       errs() << "Module function not found: " << TargetFn << '\n';
     }

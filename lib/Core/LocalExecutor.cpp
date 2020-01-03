@@ -864,18 +864,22 @@ void LocalExecutor::attachModule(KModule *kmodule) {
 
 void LocalExecutor::bindModuleConstants() {
 
-  if (kmodule->constantTable == nullptr) {
-    kmodule->constantTable = new Cell[kmodule->constants.size()];
-    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-      Cell &c = kmodule->constantTable[i];
-      c.value = evalConstant(kmodule->constants[i]);
-    }
+  // if this module was previously bound, then remove and recalculate
+  // could potentially reuse bindings, but would require extensive validation
+  if (kmodule->constantTable != nullptr) {
+    delete kmodule->constantTable;
+  }
 
-    for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
-      KFunction *kf = *it;
-      for (unsigned i = 0; i < kf->numInstructions; ++i) {
-        bindInstructionConstants(kf->instructions[i]);
-      }
+  kmodule->constantTable = new Cell[kmodule->constants.size()];
+  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+    Cell &c = kmodule->constantTable[i];
+    c.value = evalConstant(kmodule->constants[i]);
+  }
+
+  for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+    for (unsigned i = 0; i < kf->numInstructions; ++i) {
+      bindInstructionConstants(kf->instructions[i]);
     }
   }
 }

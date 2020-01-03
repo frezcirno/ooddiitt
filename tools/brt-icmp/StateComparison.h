@@ -5,6 +5,8 @@
 #ifndef BRT_KLEE_STATECOMPARISON_H
 #define BRT_KLEE_STATECOMPARISON_H
 
+#include <string>
+
 namespace klee {
 
 class KModule;
@@ -17,7 +19,7 @@ struct CompareState {
 
 }
 
-bool CompareExecutions(klee::CompareState &version1, klee::CompareState &version2);
+bool CompareExecutions(klee::CompareState &version1, klee::CompareState &version2, std::string &msg);
 
 
 #endif //BRT_KLEE_STATECOMPARISON_H
