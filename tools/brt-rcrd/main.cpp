@@ -87,6 +87,7 @@ private:
   const vector<string> &args;
   boost::filesystem::path outputDirectory;
   string md_name;
+  string file_name;
   sys_clock::time_point started_at;
 
 public:
@@ -149,6 +150,7 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
     }
   }
 
+  file_name = _md_name;
   md_name = boost::filesystem::path(_md_name).stem().string();
   outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
@@ -253,6 +255,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
       root["module"] = md_name;
+      root["file"] = file_name;
       root["entryFn"] = opts.userSnapshot->getName().str();
       root["testID"] = testID;
       root["argC"] = args.size();
@@ -534,26 +537,15 @@ int main(int argc, char **argv, char **envp) {
         IOpts.trace = TraceType::statements;
       }
 
-      Interpreter::ModuleOptions MOpts;
-      MOpts.LibraryDir = "";
-      MOpts.Optimize = false;
-      MOpts.CheckDivZero = false;
-      MOpts.CheckOvershift = false;
-
       theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
       handler->setInterpreter(theInterpreter);
-      theInterpreter->setModule(mainModule, MOpts);
-
-      auto start_time = sys_clock::now();
-      outs() << "Started: " << to_string(start_time) << '\n';
-      outs().flush();
+      theInterpreter->bindModule(mainModule);
 
       theInterpreter->runMainConcrete(mainFn, args, targetFn);
 
-      auto finish_time = sys_clock::now();
-      outs() << "Finished: " << to_string(finish_time) << '\n';
-      auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-      outs() << "Elapsed: " << elapsed.count() << '\n';
+      delete theInterpreter;
+      delete handler;
+
     } else {
       errs() << "Module function not found: " << TargetFn << '\n';
     }
@@ -561,12 +553,7 @@ int main(int argc, char **argv, char **envp) {
     errs() << "Module function not found: " << UserMain << '\n';
   }
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
   BufferPtr.take();
-#endif
 
   return exit_code;
 }

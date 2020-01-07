@@ -920,10 +920,7 @@ int main(int argc, char **argv, char **envp) {
 
   Interpreter::ModuleOptions MOpts;
 
-  MOpts.EntryPoint = EntryPoint;
-  MOpts.verbose = Verbose;
-
-  theInterpreter->setModule(mainModule, MOpts);
+  theInterpreter->bindModule(mainModule);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -988,13 +985,8 @@ int main(int argc, char **argv, char **envp) {
     outs() << "brt-igen: done: generated tests = " << handler->getNumTestCases() << "\n";
   }
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
+  delete theInterpreter;
   BufferPtr.take();
-#endif
-
   delete handler;
 
   return exit_code;

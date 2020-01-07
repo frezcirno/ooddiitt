@@ -46,7 +46,7 @@ public:
 
   virtual ~LocalExecutor();
 
-  const llvm::Module *setModule(llvm::Module *module, const ModuleOptions &opts) override;
+  void bindModule(llvm::Module *module, const ModuleOptions *MOpts) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
   void runFunctionUnconstrained(llvm::Function *fn) override;

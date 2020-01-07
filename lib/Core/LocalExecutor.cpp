@@ -840,10 +840,11 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
-const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions &opts) {
+void LocalExecutor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
 
   assert(kmodule == nullptr);
-  const Module *result = Executor::setModule(module, opts);
+
+  Executor::bindModule(module, MOpts);
   specialFunctionHandler->setLocalExecutor(this);
   sysModel = new SystemModel(this, optsModel);
 
@@ -854,14 +855,8 @@ const Module *LocalExecutor::setModule(llvm::Module *module, const ModuleOptions
   baseState->maxLazyDepth = maxLazyDepth;
   baseState->maxLoopForks = maxLoopForks;
 
-  vector<TestObject> *test_objs = nullptr;
-  if (opts.test != nullptr) {
-    test_objs = &opts.test->objects;
-  }
-
-  initializeGlobals(*baseState, test_objs);
+  initializeGlobals(*baseState, interpreterOpts.test_objs);
   bindModuleConstants();
-  return result;
 }
 
 void LocalExecutor::bindModuleConstants() {

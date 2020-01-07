@@ -438,13 +438,7 @@ int main(int argc, char **argv, char **envp) {
   IOpts.user_mem_base = (void*) 0x90000000000;
   IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
   IOpts.trace = test.trace_type;
-
-  Interpreter::ModuleOptions MOpts;
-  MOpts.LibraryDir = "";
-  MOpts.Optimize = false;
-  MOpts.CheckDivZero = false;
-  MOpts.CheckOvershift = false;
-  MOpts.test = &test;
+  IOpts.test_objs = &test.objects;
 
   string ErrorMsg;
   llvm::error_code ec;
@@ -483,66 +477,59 @@ int main(int argc, char **argv, char **envp) {
 
   Interpreter *interpreter = Interpreter::createLocal(ctx, IOpts, handler);
   handler->setInterpreter(interpreter);
-  interpreter->setModule(mainModule, MOpts);
-
-  auto start_time = sys_clock::now();
-  outs() << "Started: " << to_string(start_time) << '\n';
-  outs().flush();
+  interpreter->bindModule(mainModule);
 
   theInterpreter = interpreter;
   interpreter->runFunctionTestCase(test);
   theInterpreter = nullptr;
 
-  auto finish_time = sys_clock::now();
-  outs() << "Finished: " << to_string(finish_time) << '\n';
-  auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
-  outs() << "Elapsed: " << elapsed.count() << '\n';
+  outs() << ReplayTest << ": ";
 
   if (ex_states.size() != 1) {
-    errs() << "Replay forked into multiple paths\n";
+    errs() << "Replay forked into multiple paths";
     exit_code = 1;
   } else {
     ExecutionState *state = ex_states[0];
     if (test.status == StateStatus::Pending) {
       if (!compare_traces(test.trace, state->trace, test.trace.size())) {
-        errs() << "Replay diverged from test case\n";
+        errs() << "Replay diverged from test case";
         exit_code = 1;
       } else {
 
-        // rewrite the incomplete test case with full trace and completed state status
-        ofstream info;
-        info.open(ReplayTest);
-        if (info.is_open()) {
-
-          update_test_case(root, state->status, state->trace);
-
-          string indentation = "";
-          if (IndentJson) indentation = "  ";
-
-          Json::StreamWriterBuilder builder;
-          builder["commentStyle"] = "None";
-          builder["indentation"] = indentation;
-          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-          writer.get()->write(root, &info);
-          info << endl;
-        }
+//        // rewrite the incomplete test case with full trace and completed state status
+//        ofstream info;
+//        info.open(ReplayTest);
+//        if (info.is_open()) {
+//
+//          update_test_case(root, state->status, state->trace);
+//
+//          string indentation = "";
+//          if (IndentJson) indentation = "  ";
+//
+//          Json::StreamWriterBuilder builder;
+//          builder["commentStyle"] = "None";
+//          builder["indentation"] = indentation;
+//          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+//          writer.get()->write(root, &info);
+//          info << endl;
+//        }
       }
     } else {
       if (!compare_traces(test.trace, state->trace)) {
-        errs() << "Replay diverged from test case\n";
+        errs() << "Replay diverged from test case";
         exit_code = 1;
+      } else {
+        outs() << "ok";
       }
     }
   }
+  outs() << '\n';
 
   ex_states.clear();
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
+  delete interpreter;
   BufferPtr.take();
-#endif
+  delete handler;
 
   return exit_code;
 }

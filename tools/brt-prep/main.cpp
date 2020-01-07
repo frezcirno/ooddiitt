@@ -101,15 +101,15 @@ namespace {
 
 /***/
 
-class PrepKleeKandler : public InterpreterHandler {
+class PrepKleeHandler : public InterpreterHandler {
 private:
   string indentation;
   boost::filesystem::path outputDirectory;
   string md_name;
 
 public:
-  PrepKleeKandler(const string &_md_name);
-  ~PrepKleeKandler();
+  PrepKleeHandler(const string &_md_name);
+  ~PrepKleeHandler();
 
   void setInterpreter(Interpreter *i) override;
 
@@ -122,7 +122,7 @@ public:
   static string getRunTimeLibraryPath(const char *argv0);
 };
 
-PrepKleeKandler::PrepKleeKandler(const string &_md_name)
+PrepKleeHandler::PrepKleeHandler(const string &_md_name)
   : indentation(""),
     outputDirectory(Output) {
 
@@ -143,23 +143,23 @@ PrepKleeKandler::PrepKleeKandler(const string &_md_name)
   if (IndentJson) indentation = "  ";
 }
 
-PrepKleeKandler::~PrepKleeKandler() {
+PrepKleeHandler::~PrepKleeHandler() {
 
 }
 
-void PrepKleeKandler::setInterpreter(Interpreter *i) {
+void PrepKleeHandler::setInterpreter(Interpreter *i) {
 
   InterpreterHandler::setInterpreter(i);
 }
 
-string PrepKleeKandler::getOutputFilename(const string &filename) {
+string PrepKleeHandler::getOutputFilename(const string &filename) {
 
   boost::filesystem::path file = outputDirectory;
   file /= filename;
   return file.string();
 }
 
-llvm::raw_fd_ostream *PrepKleeKandler::openOutputFile(const string &filename, bool overwrite) {
+llvm::raw_fd_ostream *PrepKleeHandler::openOutputFile(const string &filename, bool overwrite) {
   llvm::raw_fd_ostream *f;
   string Error;
   string path = getOutputFilename(filename);
@@ -181,7 +181,7 @@ llvm::raw_fd_ostream *PrepKleeKandler::openOutputFile(const string &filename, bo
   return f;
 }
 
-string PrepKleeKandler::getRunTimeLibraryPath(const char *argv0) {
+string PrepKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -236,67 +236,6 @@ static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
-
-#if 0 == 1
-static int initEnv(Module *mainModule) {
-
-  /*
-    nArgcP = alloc oldArgc->getType()
-    nArgvV = alloc oldArgv->getType()
-    store oldArgc nArgcP
-    store oldArgv nArgvP
-    klee_init_environment(nArgcP, nArgvP)
-    nArgc = load nArgcP
-    nArgv = load nArgvP
-    oldArgc->replaceAllUsesWith(nArgc)
-    oldArgv->replaceAllUsesWith(nArgv)
-  */
-
-  Function *mainFn = mainModule->getFunction(UserMain);
-  if (!mainFn) {
-    klee_error("'%s' function not found in module.", UserMain.c_str());
-  }
-
-  if (mainFn->arg_size() < 2) {
-    klee_error("Cannot handle ""--posix-runtime"" when main() has less than two arguments.\n");
-  }
-
-  Instruction *firstInst = static_cast<Instruction *>(mainFn->begin()->begin());
-
-  Value *oldArgc = static_cast<Argument *>(mainFn->arg_begin());
-  Value *oldArgv = static_cast<Argument *>(++mainFn->arg_begin());
-
-  AllocaInst* argcPtr = new AllocaInst(oldArgc->getType(), "argcPtr", firstInst);
-  AllocaInst* argvPtr = new AllocaInst(oldArgv->getType(), "argvPtr", firstInst);
-
-  /* Insert void klee_init_env(int* argc, char*** argv) */
-  vector<const Type*> params;
-  LLVMContext &ctx = mainModule->getContext();
-  params.push_back(Type::getInt32Ty(ctx));
-  params.push_back(Type::getInt32Ty(ctx));
-  Function* initEnvFn = cast<Function>(mainModule->getOrInsertFunction("klee_init_env",
-                                                                       Type::getVoidTy(ctx),
-                                                                       argcPtr->getType(),
-                                                                       argvPtr->getType(),
-                                                                       NULL));
-  assert(initEnvFn);
-  vector<Value*> args;
-  args.push_back(argcPtr);
-  args.push_back(argvPtr);
-  Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
-					      "", firstInst);
-  Value *argc = new LoadInst(argcPtr, "newArgc", firstInst);
-  Value *argv = new LoadInst(argvPtr, "newArgv", firstInst);
-
-  oldArgc->replaceAllUsesWith(argc);
-  oldArgv->replaceAllUsesWith(argv);
-
-  new StoreInst(oldArgc, argcPtr, initEnvCall);
-  new StoreInst(oldArgv, argvPtr, initEnvCall);
-
-  return 0;
-}
-#endif
 
 bool has_inline_asm(const Function *fn) {
 
@@ -366,40 +305,7 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
 }
 
 static Interpreter *theInterpreter = nullptr;
-
-static bool interrupted = false;
-
-// Pulled out so it can be easily called from a debugger.
-extern "C"
-void halt_execution() {
-  theInterpreter->setHaltExecution(true);
-}
-
-extern "C"
-void stop_forking() {
-  theInterpreter->setInhibitForking(true);
-}
-
-
 static int exit_code = 0;
-
-static void interrupt_handle() {
-
-  if (theInterpreter == nullptr) {
-    llvm::errs() << "KLEE: ctrl-c received without interpreter\n";
-  } else {
-    if (!interrupted) {
-      llvm::errs() << "KLEE: ctrl-c detected, requesting interpreter to halt.\n";
-      halt_execution();
-      sys::SetInterruptFunction(interrupt_handle);
-      exit_code = 3;
-    } else {
-      llvm::errs() << "KLEE: 2nd ctrl-c detected, exiting.\n";
-      exit(4);
-    }
-    interrupted = true;
-  }
-}
 
 #ifndef SUPPORT_KLEE_UCLIBC
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
@@ -552,7 +458,6 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
-  sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
 
   // write out command line info, for reference
@@ -571,8 +476,7 @@ int main(int argc, char **argv, char **envp) {
   OwningPtr<MemoryBuffer> BufferPtr;
   llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
   if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
+    klee_error("error loading program '%s': %s", InputFile.c_str(), ec.message().c_str());
   }
 
   mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
@@ -616,7 +520,7 @@ int main(int argc, char **argv, char **envp) {
 
   rewriteFunctionPointers(mainModule, original_fns);
 
-  string LibraryDir = PrepKleeKandler::getRunTimeLibraryPath(argv[0]);
+  string LibraryDir = PrepKleeHandler::getRunTimeLibraryPath(argv[0]);
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -666,7 +570,7 @@ int main(int argc, char **argv, char **envp) {
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
 
-  PrepKleeKandler *handler = new PrepKleeKandler(mainModule->getModuleIdentifier());
+  PrepKleeHandler *handler = new PrepKleeHandler(mainModule->getModuleIdentifier());
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = ExecModeID::prep;
@@ -691,24 +595,21 @@ int main(int argc, char **argv, char **envp) {
   MOpts.Optimize = OptimizeModule;
   MOpts.CheckDivZero = CheckDivZero;
   MOpts.CheckOvershift = CheckOvershift;
-  MOpts.verbose = Verbose;
   MOpts.user_fns = &original_fns;
   MOpts.user_gbs = &original_globals;
 
-  const Module *finalModule = theInterpreter->setModule(mainModule, MOpts);
+  theInterpreter->bindModule(mainModule, &MOpts);
 
-  externalsAndGlobalsCheck(finalModule, theInterpreter);
+  externalsAndGlobalsCheck(mainModule, theInterpreter);
+
+  llvm::raw_fd_ostream *os = handler->openOutputBitCode();
+  if (os != nullptr) {
+    WriteBitcodeToFile(theInterpreter->getKModule()->module, *os);
+    delete os;
+  }
 
   delete theInterpreter;
-  theInterpreter = nullptr;
-
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  // FIXME: This really doesn't look right
-  // This is preventing the module from being
-  // deleted automatically
   BufferPtr.take();
-#endif
-
   delete handler;
 
   return exit_code;

@@ -66,10 +66,10 @@ static cl::alias ExportDynamic("export-dynamic",
   cl::aliasopt(DisableInternalize),
   cl::desc("Alias for -disable-internalize"));
 
-static cl::opt<bool> Strip("strip-all", 
+static cl::opt<bool> Strip("strip-all",
   cl::desc("Strip all symbol info from executable"));
 
-static cl::alias A0("s", cl::desc("Alias for --strip-all"), 
+static cl::alias A0("s", cl::desc("Alias for --strip-all"),
   cl::aliasopt(Strip));
 
 static cl::opt<bool> StripDebug("strip-debug",
@@ -163,7 +163,7 @@ static void AddStandardCompilePasses(PassManager &PM) {
 /// Optimize - Perform link time optimizations. This will run the scalar
 /// optimizations, any loaded plugin-optimization modules, and then the
 /// inter-procedural optimizations if applicable.
-void Optimize(Module *M, const std::string &EntryPoint) {
+void Optimize(Module *M /*, const std::string &EntryPoint */) {
 
   // Instantiate the pass manager to organize the passes.
   PassManager Passes;
@@ -191,18 +191,18 @@ void Optimize(Module *M, const std::string &EntryPoint) {
     // for a main function.  If main is defined, mark all other functions
     // internal.
     if (!DisableInternalize) {
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-      ModulePass *pass = createInternalizePass(
-          std::vector<const char *>(1, EntryPoint.c_str()));
-#else
-      ModulePass *pass = createInternalizePass(true);
-#endif
-      addPass(Passes, pass);
+//#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
+//      ModulePass *pass = createInternalizePass(
+//          std::vector<const char *>(1, EntryPoint.c_str()));
+//#else
+//      ModulePass *pass = createInternalizePass(true);
+//#endif
+//      addPass(Passes, pass);
     }
 
     // Propagate constants at call sites into the functions they call.  This
     // opens opportunities for globalopt (and inlining) by substituting function
-    // pointers passed as arguments to direct uses of functions.  
+    // pointers passed as arguments to direct uses of functions.
     addPass(Passes, createIPSCCPPass());
 
     // Now that we internalized some globals, see if we can hack on them!
@@ -251,7 +251,7 @@ void Optimize(Module *M, const std::string &EntryPoint) {
 
     addPass(Passes, createJumpThreadingPass());        // Thread jumps.
     addPass(Passes, createPromoteMemoryToRegisterPass()); // Cleanup jumpthread.
-    
+
     // Delete basic blocks, which optimization passes may have killed...
     addPass(Passes, createCFGSimplificationPass());
 

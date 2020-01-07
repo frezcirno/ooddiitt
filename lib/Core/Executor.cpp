@@ -384,11 +384,16 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
 }
 
 
-const Module *Executor::setModule(llvm::Module *module,
-                                  const ModuleOptions &opts) {
+void Executor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
+
   assert(!kmodule && module && "can only register one module"); // XXX gross
 
   kmodule = new KModule(module);
+
+  if (!isPrepared(module)) {
+    assert(MOpts != nullptr);
+    kmodule->transform(*MOpts, interpreterOpts.trace);
+  }
 
   // Initialize the context, if not already
   if (!Context::is_initialized()) {
@@ -399,7 +404,7 @@ const Module *Executor::setModule(llvm::Module *module,
   specialFunctionHandler = new SpecialFunctionHandler(*this);
 
   specialFunctionHandler->prepare();
-  kmodule->prepare(opts, interpreterHandler, interpreterOpts.mode == ExecModeID::prep, interpreterOpts.trace);
+  kmodule->prepare();
   specialFunctionHandler->bind();
 
   std::set<const llvm::Function*> spcs;
@@ -414,7 +419,6 @@ const Module *Executor::setModule(llvm::Module *module,
                                       userSearcherRequiresMD2U());
     }
   }
-  return module;
 }
 
 Executor::~Executor() {
