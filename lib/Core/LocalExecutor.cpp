@@ -73,6 +73,7 @@ class Tracer {
 
 cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
+cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
 cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
@@ -1517,8 +1518,8 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 void LocalExecutor::terminateState(ExecutionState &state, const string &message) {
 
   if (state.status == StateStatus::Completed    ||
-     (state.status == StateStatus::MemFaulted)  ||
-     (state.status == StateStatus::Error)       ||
+     (state.status == StateStatus::Error) ||
+     (interpreterOpts.mode != ExecModeID::igen && state.status == StateStatus::MemFaulted) ||
      (SavePendingStates && state.status == StateStatus::Incomplete) ) {
     interpreterHandler->processTestCase(state);
   } else {

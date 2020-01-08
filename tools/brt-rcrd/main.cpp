@@ -68,7 +68,7 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("."));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
   cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
   cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));

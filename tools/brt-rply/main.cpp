@@ -283,33 +283,6 @@ static void interrupt_handle() {
   }
 }
 
-bool compare_traces(const vector<unsigned> &test_trace, const deque<unsigned> &state_trace, size_t length = 0) {
-
-  // if length is zero, then return if the traces are identical
-  if (length == 0) {
-    if (test_trace.size() != state_trace.size()) {
-      return false;
-    }
-    length = test_trace.size();
-  } else {
-
-    // if length is not zero, then only compare up to length trace elements
-    if (test_trace.size() < length || state_trace.size() < length) {
-      return false;
-    }
-  }
-
-  auto itr_t = test_trace.begin();
-  auto itr_s = state_trace.begin();
-
-  for (size_t index = 0; index < length; ++index) {
-    if (*itr_t++ != *itr_s++) {
-      return false;
-    }
-  }
-  return true;
-}
-
 void load_test_case(Json::Value &root, TestCase &test) {
 
   // complete test case from json structure
@@ -386,16 +359,6 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-void update_test_case(Json::Value &root, StateStatus status, const deque<unsigned> &trace) {
-
-  // update test case status and trace values
-  root["status"] = (unsigned) status;
-  Json::Value &t = root["trace"] = Json::arrayValue;
-  for (auto entry : trace) {
-    t.append(entry);
-  }
-}
-
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -450,8 +413,7 @@ int main(int argc, char **argv, char **envp) {
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
 
-  // load the first module
-  outs() << "Loading: " << InputFile << '\n';
+  // load the  module
   Module *mainModule = nullptr;
   OwningPtr<MemoryBuffer> BufferPtr;
 
@@ -485,42 +447,36 @@ int main(int argc, char **argv, char **envp) {
 
   outs() << ReplayTest << ": ";
 
-  if (ex_states.size() != 1) {
+  if (ex_states.empty()) {
+    errs() << "Failed to replay";
+    exit_code = 1;
+  } else if (ex_states.size() > 1) {
     errs() << "Replay forked into multiple paths";
     exit_code = 1;
   } else {
-    ExecutionState *state = ex_states[0];
-    if (test.status == StateStatus::Pending) {
-      if (!compare_traces(test.trace, state->trace, test.trace.size())) {
-        errs() << "Replay diverged from test case";
-        exit_code = 1;
-      } else {
+    ExecutionState *state = ex_states.front();
+    if (test.status != state->status) {
 
-//        // rewrite the incomplete test case with full trace and completed state status
-//        ofstream info;
-//        info.open(ReplayTest);
-//        if (info.is_open()) {
-//
-//          update_test_case(root, state->status, state->trace);
-//
-//          string indentation = "";
-//          if (IndentJson) indentation = "  ";
-//
-//          Json::StreamWriterBuilder builder;
-//          builder["commentStyle"] = "None";
-//          builder["indentation"] = indentation;
-//          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-//          writer.get()->write(root, &info);
-//          info << endl;
-//        }
+      // rewrite the incomplete test case with full trace and completed state status
+      ofstream info;
+      info.open(ReplayTest);
+      if (info.is_open()) {
+
+        root["status"] = (unsigned) state->status;
+
+        string indentation;
+        if (IndentJson) indentation = "  ";
+
+        Json::StreamWriterBuilder builder;
+        builder["commentStyle"] = "None";
+        builder["indentation"] = indentation;
+        unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+        writer->write(root, &info);
+        info << endl;
       }
+      outs() << "updated status";
     } else {
-      if (!compare_traces(test.trace, state->trace)) {
-        errs() << "Replay diverged from test case";
-        exit_code = 1;
-      } else {
-        outs() << "ok";
-      }
+      outs() << "ok";
     }
   }
   outs() << '\n';

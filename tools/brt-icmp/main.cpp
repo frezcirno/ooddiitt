@@ -400,9 +400,6 @@ int main(int argc, char **argv, char **envp) {
     klee_error("failed to load test case '%s'", ReplayTest.c_str());
   }
 
-  size_t test_trace_length = 0;
-  if (test.status == StateStatus::Pending) test_trace_length = test.trace.size();
-
   // Common setup
   Interpreter::InterpreterOptions IOpts;
   IOpts.mode = ExecModeID::rply;
@@ -415,13 +412,13 @@ int main(int argc, char **argv, char **envp) {
   llvm::error_code ec;
   vector<ExecutionState*> ex_states;
 
+  outs() << ReplayTest << ": ";
   CompareState version1;
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
 
   // load the first module
-  outs() << "Loading: " << InputFile1 << '\n';
   Module *mainModule1 = nullptr;
   OwningPtr<MemoryBuffer> BufferPtr1;
 
@@ -454,60 +451,73 @@ int main(int argc, char **argv, char **envp) {
   theInterpreter = nullptr;
 
   version1.kmodule = interpreter1->getKModule();
-  assert(ex_states.size() == 1);
-  version1.state = ex_states.front();
-  ex_states.clear();
-
-  // now, lets do it all again with the second module
-  CompareState version2;
-
-  outs() << "Loading: " << InputFile2 << '\n';
-  Module *mainModule2 = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr2;
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
-  }
-
-  LLVMContext ctx2;
-  mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx2, &ErrorMsg);
-  if (mainModule2) {
-    if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule2;
-      mainModule2 = nullptr;
+  if (ex_states.empty()) {
+    if (test.status == StateStatus::Pending || test.status == StateStatus::Incomplete) {
+      outs() << "N/A";
+    } else {
+      outs() << "Failed to replay";
     }
+  } else if (ex_states.size() > 1) {
+    klee_error("replay forked to multple states");
+  } else {
+
+    version1.state = ex_states.front();
+    ex_states.clear();
+
+    // now, lets do it all again with the second module
+    CompareState version2;
+
+    Module *mainModule2 = nullptr;
+    OwningPtr<MemoryBuffer> BufferPtr2;
+    ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
+    if (ec) {
+      klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
+    }
+
+    LLVMContext ctx2;
+    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx2, &ErrorMsg);
+    if (mainModule2) {
+      if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
+        delete mainModule2;
+        mainModule2 = nullptr;
+      }
+    }
+
+    if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
+    if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
+
+    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
+
+    Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
+    handler2->setInterpreter(interpreter2);
+    interpreter2->bindModule(mainModule2);
+
+    theInterpreter = interpreter2;
+    interpreter2->runFunctionTestCase(test);
+    theInterpreter = nullptr;
+
+    version2.kmodule = interpreter2->getKModule();
+    assert(ex_states.size() == 1);
+    version2.state = ex_states.front();
+    ex_states.clear();
+
+    if (!CompareExecutions(version1, version2)) {
+      outs() << ", behavioral discrepancy";
+      exit_code = 1;
+    } else {
+      outs() << "ok";
+    }
+
+    delete interpreter2;
+    BufferPtr2.take();
+    delete handler2;
   }
-
-  if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
-
-  ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
-
-  Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
-  handler2->setInterpreter(interpreter2);
-  interpreter2->bindModule(mainModule2);
-
-  theInterpreter = interpreter2;
-  interpreter2->runFunctionTestCase(test);
-  theInterpreter = nullptr;
-
-  version2.kmodule = interpreter2->getKModule();
-  assert(ex_states.size() == 1);
-  version2.state = ex_states.front();
-  ex_states.clear();
-
-  if (!CompareExecutions(version1, version2)) {
-    outs() << "Behavioral Discrepancy\n";
-    exit_code = 1;
-  }
+  outs() << '\n';
 
   delete interpreter1;
   BufferPtr1.take();
   delete handler1;
 
-  delete interpreter2;
-  BufferPtr2.take();
-  delete handler2;
 
   return exit_code;
 }
