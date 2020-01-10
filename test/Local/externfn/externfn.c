@@ -1,6 +1,5 @@
 #include <stdlib.h>
-
-void bar() __attribute__ ((noreturn));
+#include <stdio.h>
 
 void bar() {
 
@@ -8,4 +7,18 @@ void bar() {
 
 void foo00() {
   bar();
+}
+
+void foo01(int num) {
+  printf("Hello %d\n", num);
+}
+
+int foo02() {
+
+  int result = 0;
+  int ch = getchar();
+  if (ch == 'a') {
+    result = 1;
+  }
+  return result;
 }

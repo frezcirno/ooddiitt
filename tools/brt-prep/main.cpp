@@ -437,15 +437,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   const FunctionType *ft = uclibcMainFn->getFunctionType();
   assert(ft->getNumParams() == 7);
 
-  // and trivialize functions we will never use
-  // RLR TODO: may need to trivialize or capture other functions
-  set<string> drop_fns { "isatty", "tcgetattr", "ioctl" };
-  for (const auto &name : drop_fns) {
-    if (Function *fn = mainModule->getFunction(name)) {
-      fn->dropAllReferences();
-    }
-  }
-
+  // modify module for cbert
+  modify_clib(mainModule);
   outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;
 }

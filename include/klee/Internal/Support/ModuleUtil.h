@@ -23,8 +23,7 @@ namespace llvm {
 namespace klee {
 
   /// Link a module with a specified bitcode archive.
-  llvm::Module *linkWithLibrary(llvm::Module *module,
-                                const std::string &libraryName);
+  llvm::Module *linkWithLibrary(llvm::Module *module, const std::string &libraryName);
 
   /// Return the Function* target of a Call or Invoke instruction, or
   /// null if it cannot be determined (should be only for indirect
@@ -45,6 +44,7 @@ namespace klee {
   void enumModuleGlobals(llvm::Module *m, std::set<llvm::GlobalVariable*> &gbs);
   void rewriteFunctionPointers(llvm::Module *m, std::set<llvm::Function*> &fns);
   bool isPrepared(llvm::Module *m);
+  void modify_clib(llvm::Module *m);
 }
 
 #endif

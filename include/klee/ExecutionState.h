@@ -146,6 +146,28 @@ struct StackFrame {
   ~StackFrame();
 };
 
+class CharacterOutput : public std::deque<std::vector<unsigned char> > {
+public:
+
+  size_t accum_size() const {
+    size_t size = 0;
+    for (const auto &v : *this) {
+      size += v.size();
+    }
+    return size;
+  }
+
+  void get_data(std::vector<unsigned char> &data) const {
+    data.clear();
+    // two iterations, one just collect size, the other to insert data
+    data.reserve(accum_size());
+    for (const auto &v : *this) {
+      data.insert(data.end(), v.begin(), v.end());
+    }
+  }
+
+};
+
 /// @brief ExecutionState representing a path under exploration
 class ExecutionState {
 public:
@@ -246,6 +268,11 @@ public:
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
   const KInstruction* branched_at;
+
+  CharacterOutput stdout_capture;
+  CharacterOutput stderr_capture;
+  unsigned stdin_offset;
+  bool stdin_closed;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

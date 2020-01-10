@@ -37,9 +37,6 @@
 
 #include "klee/Internal/Support/ModuleUtil.h"
 
-//#include "llvm/IR/TypeFinder.h"
-//#include "llvm/IR/Metadata.h"
-
 #include <map>
 #include <set>
 #include <string>
@@ -66,8 +63,7 @@ using namespace std;
 ///  UndefinedSymbols - A set of C++ strings containing the name of all
 ///                     undefined symbols.
 ///
-static void
-GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
+static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
   static const string llvmIntrinsicPrefix="llvm.";
   set<string> DefinedSymbols;
   UndefinedSymbols.clear();
@@ -233,8 +229,7 @@ static bool linkBCA(object::Archive* archive, Module* composite, string& errorMe
       if (buff)
       {
         // FIXME: Maybe load bitcode file lazily? Then if we need to link, materialise the module
-        Result = ParseBitcodeFile(buff.get(), composite->getContext(),
-	    &errorMessage);
+        Result = ParseBitcodeFile(buff.get(), composite->getContext(), &errorMessage);
 
         if(!Result)
         {
@@ -595,3 +590,31 @@ bool klee::isPrepared(Module *m) {
   return NMD != nullptr;
 }
 
+
+void klee::modify_clib(llvm::Module *module) {
+
+  // remove the body of __check_one_fd
+
+  // and trivialize functions we will never use
+  // RLR TODO: may need to trivialize or capture other functions
+  set<string> drop_fns { "isatty", "tcgetattr", "ioctl", "__check_one_fd" };
+  for (const auto &name : drop_fns) {
+    if (Function *fn = module->getFunction(name)) {
+      fn->dropAllReferences();
+    }
+  }
+
+  // clean up unused declarations
+  set<Function*> unused_decls;
+  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+    Function *fn = itr;
+    if (fn->isDeclaration() && fn->getNumUses() == 0) {
+      unused_decls.insert(fn);
+    }
+  }
+
+  for (auto fn : unused_decls) {
+    fn->eraseFromParent();
+  }
+
+}

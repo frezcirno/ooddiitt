@@ -301,6 +301,8 @@ protected:
               const std::vector< ref<Expr> > &conditions,
               std::vector<ExecutionState*> &result);
 
+  ExecutionState *clone(ExecutionState *es);
+
   // Fork current and return states in which condition holds / does
   // not hold, respectively. One of the states is necessarily the
   // current state, and one of the states may be null.

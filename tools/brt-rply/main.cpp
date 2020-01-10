@@ -455,6 +455,7 @@ int main(int argc, char **argv, char **envp) {
     exit_code = 1;
   } else {
     ExecutionState *state = ex_states.front();
+
     if (test.status != state->status) {
 
       // rewrite the incomplete test case with full trace and completed state status
@@ -463,6 +464,10 @@ int main(int argc, char **argv, char **envp) {
       if (info.is_open()) {
 
         root["status"] = (unsigned) state->status;
+        string message = root["message"].asString();
+        if (!message.empty()) message += "; ";
+        message =+ "completed by brt-rply";
+        root["message"] = message;
 
         string indentation;
         if (IndentJson) indentation = "  ";

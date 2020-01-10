@@ -98,7 +98,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   libc_initializing(false),
   enable_state_switching(true),
   sysModel(nullptr),
-  trace_type(TraceType::invalid) {
+  trace_type(TraceType::invalid),
+  moStdInBuff(nullptr) {
 
   switch (opts.mode) {
     case ExecModeID::prep:
@@ -905,7 +906,25 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     }
   }
 
+
   std::vector<ExecutionState*> init_states;
+
+  // useful values for later
+  // get some common types we are going to need later
+  LLVMContext &ctx = kmodule->module->getContext();
+  Type *char_type = Type::getInt8Ty(ctx);
+  size_t char_align = kmodule->targetData->getPrefTypeAlignment(char_type);
+  Type *str_type = Type::getInt8PtrTy(ctx);
+  size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
+  Type *int_type = Type::getInt32Ty(ctx);
+  size_t int_align = kmodule->targetData->getPrefTypeAlignment(int_type);
+
+  unsigned ptr_width =  Context::get().getPointerWidth();
+
+
+  WObjectPair wopStdIn;
+  allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, LEN_CMDLINE_ARGS + 1);
+  moStdInBuff = wopStdIn.first;
 
   // iterate through each phase of unconstrained progression
   for (auto itr = progression.begin(), end = progression.end(); itr != end; ++itr) {
@@ -927,6 +946,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       unconstrainGlobals(*state, fn);
     }
 
+
     // create parameter values
     // if this is main, special case the argument construction
     if (is_main) {
@@ -936,15 +956,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       init_states.clear();
       init_states.resize(SymArgs + 1);
-
-      unsigned ptr_width =  Context::get().getPointerWidth();
-      LLVMContext &ctx = kmodule->module->getContext();
-
-      // get some common types we are going to need later
-      Type *char_type = Type::getInt8Ty(ctx);
-      size_t char_align = kmodule->targetData->getPrefTypeAlignment(char_type);
-      Type *str_type = Type::getInt8PtrTy(ctx);
-      size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
 
       // push the module name into the state
       std::string md_name = kmodule->module->getModuleIdentifier();
@@ -1807,7 +1818,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             Executor::executeInstruction(state, ki);
           } else {
             // direct callee with no body.  not good...
-            terminateStateOnError(state, TerminateReason::External, "undefined callee");
+            stringstream ss;
+            ss << "undefined callee: " << fn_name;
+            terminateStateOnError(state, TerminateReason::External, ss.str());
             klee_warning("undefined callee: %s", fn_name.c_str());
           }
 
@@ -2370,7 +2383,7 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSo
     if (!name.empty() && name[0] != '.') {
       result.emplace_back(make_pair(mo, vector<unsigned char>{}));
       vector<unsigned char> &value = result.back().second;
-      os->readConcrete(0, value);
+      os->readConcrete(value);
     }
   }
   return true;

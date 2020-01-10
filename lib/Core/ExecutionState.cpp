@@ -98,7 +98,9 @@ ExecutionState::ExecutionState() :
     instFaulting(nullptr),
     allBranchCounter(0),
     unconBranchCounter(0),
-    branched_at(nullptr)
+    branched_at(nullptr),
+    stdin_offset(0),
+    stdin_closed(false)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -141,7 +143,11 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     arguments(state.arguments),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
-    branched_at(state.branched_at)
+    branched_at(state.branched_at),
+    stdout_capture(state.stdout_capture),
+    stderr_capture(state.stderr_capture),
+    stdin_offset(state.stdin_offset),
+    stdin_closed(state.stdin_closed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -208,7 +214,11 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     arguments(state.arguments),
     allBranchCounter(state.allBranchCounter),
     unconBranchCounter(state.unconBranchCounter),
-    branched_at(state.branched_at)
+    branched_at(state.branched_at),
+    stdout_capture(state.stdout_capture),
+    stderr_capture(state.stderr_capture),
+    stdin_offset(state.stdin_offset),
+    stdin_closed(state.stdin_closed)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

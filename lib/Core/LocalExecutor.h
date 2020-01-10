@@ -184,6 +184,7 @@ protected:
   ModelOptions optsModel;
   SystemModel *sysModel;
   TraceType trace_type;
+  MemoryObject *moStdInBuff;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

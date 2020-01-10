@@ -19,21 +19,15 @@
 #include "ObjectHolder.h"
 #include "MemoryManager.h"
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Value.h>
-#else
-#include <llvm/Function.h>
-#include <llvm/Instruction.h>
-#include <llvm/Value.h>
-#endif
-
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
 #include <sstream>
+#include <algorithm>
 
 using namespace llvm;
 using namespace klee;
@@ -193,13 +187,13 @@ ArrayCache *ObjectState::getArrayCache() const {
 }
 
 
-bool ObjectState::readConcrete(unsigned offset, std::vector<unsigned char> &data) const {
+bool ObjectState::readConcrete(std::vector<unsigned char> &data, unsigned offset, unsigned length) const {
 
   data.clear();
-  unsigned size = visible_size - offset;
-  if (concreteStore != nullptr && offset < size) {
-    data.reserve(size - offset);
-    for (unsigned idx = offset; idx < size; ++idx) {
+  if (concreteStore != nullptr && offset < visible_size) {
+    unsigned count = std::min(visible_size - offset, length);
+    data.reserve(count);
+    for (unsigned idx = offset, end = offset + count; idx < end; ++idx) {
       data.push_back(concreteStore[idx]);
     }
     return true;

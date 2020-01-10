@@ -780,6 +780,17 @@ void Executor::branch(ExecutionState &state,
       addConstraint(*result[i], conditions[i]);
 }
 
+ExecutionState *Executor::clone(ExecutionState *es) {
+
+  ExecutionState *ns = es->branch();
+  addedStates.push_back(ns);
+  es->ptreeNode->data = nullptr;
+  std::pair<PTree::Node*,PTree::Node*> res = processTree->split(es->ptreeNode, ns, es);
+  ns->ptreeNode = res.first;
+  es->ptreeNode = res.second;
+  return ns;
+}
+
 Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   Solver::Validity res;
 

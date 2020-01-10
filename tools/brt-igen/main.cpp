@@ -147,7 +147,7 @@ public:
 
   void processTestCase(ExecutionState  &state) override;
 
-  string toDataString(const vector<unsigned char> &data) const;
+  string toDataString(const vector<unsigned char> &data, unsigned max = UINT32_MAX) const;
 
   string getOutputFilename(const string &filename) override;
   string getTestFilename(const string &prefix, const string &ext, unsigned id);
@@ -284,10 +284,11 @@ ostream *InputGenKleeHandler::openTestCaseFile(const string &prefix, unsigned te
   return result;
 }
 
-string InputGenKleeHandler::toDataString(const vector<unsigned char> &data) const {
+string InputGenKleeHandler::toDataString(const vector<unsigned char> &data, unsigned max) const {
 
+  unsigned counter = 0;
   stringstream bytes;
-  for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
+  for (auto itrData = data.begin(), endData = data.end(); (itrData != endData) && (counter++ < max); ++itrData) {
 
     unsigned char hi = (unsigned char) (*itrData >> 4);
     unsigned char low = (unsigned char) (*itrData & 0x0F);
@@ -383,6 +384,10 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
         obj["addr"] = toDataString(addr);
         obj["data"] = toDataString(data);
         obj["align"] = mo->align;
+
+        if (mo->name == "#stdin_buff") {
+          root["stdin"] = toDataString(data, state.stdin_offset);
+        }
 
         objects.append(obj);
       }
