@@ -186,6 +186,12 @@ namespace klee {
       return user_gbs.find(gb) != user_gbs.end();
     }
 
+    unsigned getFunctionID(llvm::Function *fn) {
+      auto itr = mapFnMarkers.find(fn);
+      if (itr != mapFnMarkers.end()) return itr->second;
+      else return 0;
+    }
+
     TraceType getModuleTraceType() const { return module_trace; }
 
   private:

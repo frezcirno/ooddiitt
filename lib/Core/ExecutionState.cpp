@@ -147,7 +147,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     stdout_capture(state.stdout_capture),
     stderr_capture(state.stderr_capture),
     stdin_offset(state.stdin_offset),
-    stdin_closed(state.stdin_closed)
+    stdin_closed(state.stdin_closed),
+    stdin_buffer(state.stdin_buffer)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -218,7 +219,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     stdout_capture(state.stdout_capture),
     stderr_capture(state.stderr_capture),
     stdin_offset(state.stdin_offset),
-    stdin_closed(state.stdin_closed)
+    stdin_closed(state.stdin_closed),
+    stdin_buffer(state.stdin_buffer)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

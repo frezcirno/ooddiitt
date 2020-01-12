@@ -26,7 +26,7 @@ namespace klee {
 class TestObject {
 public:
   TestObject(std::string _addr, unsigned _count, std::string _data, size_t _align, MemKind _kind, std::string _name, std::string _type) :
-    count(_count), align(_align), kind(_kind), name(_name), type(_type) {
+      count(_count), align(_align), kind(_kind), name(_name), type(_type) {
 
     std::stringstream ss(_addr);
     ss >> std::hex >> addr;
@@ -42,7 +42,7 @@ public:
   std::string name;
   std::string type;
 
-static void fromDataString(std::vector<unsigned char> &data, const std::string &str) {
+  static void fromDataString(std::vector<unsigned char> &data, const std::string &str) {
 
     assert(str.size() % 2 == 0);
     data.clear();
@@ -62,6 +62,7 @@ static void fromDataString(std::vector<unsigned char> &data, const std::string &
       }
     }
   }
+
 };
 
 class TestCase {
@@ -69,6 +70,7 @@ public:
 
   TestCase() : arg_c(0),
                lazy_alloc_count(0),
+               lazy_string_length(0),
                max_lazy_depth(0),
                max_loop_forks(0),
                max_loop_iter(0),
@@ -84,6 +86,7 @@ public:
   std::string entry_fn;
   std::string klee_version;
   unsigned lazy_alloc_count;
+  unsigned lazy_string_length;
   unsigned max_lazy_depth;
   unsigned max_loop_forks;
   unsigned max_loop_iter;
@@ -97,6 +100,7 @@ public:
   std::vector<uint64_t> arguments;
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;
+  std::vector<unsigned char> stdin_buffer;
 };
 
 }

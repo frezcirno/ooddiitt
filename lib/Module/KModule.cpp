@@ -388,35 +388,41 @@ void KModule::prepare() {
 
   // read out the user defined functions from metadata
   auto node = module->getNamedMetadata("brt-klee.usr-fns");
-  if (node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-      Value *v = md->getOperand(idx);
-      if (Function *fn = dyn_cast<Function>(v)) {
-        user_fns.insert(fn);
+  if (node != nullptr) {
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        Value *v = md->getOperand(idx);
+        if (Function *fn = dyn_cast<Function>(v)) {
+          user_fns.insert(fn);
+        }
       }
     }
   }
 
   // and now the globals
   node = module->getNamedMetadata("brt-klee.usr-gbs");
-  if (node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-      Value *v = md->getOperand(idx);
-      if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
-        user_gbs.insert(gb);
+  if (node != nullptr) {
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        Value *v = md->getOperand(idx);
+        if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
+          user_gbs.insert(gb);
+        }
       }
     }
   }
 
   // check to see if a default trace type is set in the module
   node = module->getNamedMetadata("brt-klee.trace-type");
-  if (node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    Value *v = md->getOperand(0);
-    if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
-      module_trace = (TraceType) i->getZExtValue();
+  if (node != nullptr) {
+    if (node->getNumOperands() > 0) {
+      auto md = node->getOperand(0);
+      Value *v = md->getOperand(0);
+      if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
+        module_trace = (TraceType) i->getZExtValue();
+      }
     }
   }
 

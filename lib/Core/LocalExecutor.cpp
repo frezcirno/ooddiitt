@@ -906,7 +906,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     }
   }
 
-
   std::vector<ExecutionState*> init_states;
 
   // useful values for later
@@ -916,11 +915,8 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   size_t char_align = kmodule->targetData->getPrefTypeAlignment(char_type);
   Type *str_type = Type::getInt8PtrTy(ctx);
   size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
-  Type *int_type = Type::getInt32Ty(ctx);
-  size_t int_align = kmodule->targetData->getPrefTypeAlignment(int_type);
 
   unsigned ptr_width =  Context::get().getPointerWidth();
-
 
   WObjectPair wopStdIn;
   allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, LEN_CMDLINE_ARGS + 1);
@@ -945,7 +941,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     if (unconstraintFlags.isUnconstrainGlobals() || !is_main) {
       unconstrainGlobals(*state, fn);
     }
-
 
     // create parameter values
     // if this is main, special case the argument construction
@@ -1082,6 +1077,15 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
       delete baseState;
       baseState = initState;
     }
+  }
+
+  // reverse the stdin data.  then we can pop data from end
+  size_t stdin_size = test.stdin_buffer.size();
+  if (stdin_size > 2) {
+    baseState->stdin_buffer.reserve(stdin_size);
+    reverse_copy(test.stdin_buffer.begin(), test.stdin_buffer.end(), baseState->stdin_buffer.begin());
+  } else {
+    baseState->stdin_buffer = test.stdin_buffer;
   }
 
   // inject the test case memory objects into the replay state
@@ -1373,12 +1377,13 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   // if trace type is not defined here, then use the default from the module
+  ProgramTracer *tracer = nullptr;
   trace_type = interpreterOpts.trace;
+
   if (trace_type == TraceType::invalid) {
     trace_type = kmodule->getModuleTraceType();
   }
 
-  ProgramTracer *tracer = nullptr;
   if (trace_type == TraceType::bblocks) {
     tracer = new BBlocksTracer(kmodule);
   } else if (trace_type == TraceType::assembly) {

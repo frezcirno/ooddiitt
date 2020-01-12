@@ -64,6 +64,7 @@ namespace {
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
+  cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
 }
 
 /***/
@@ -294,6 +295,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.entry_fn = root["entryFn"].asString();
   test.klee_version = root["kleeRevision"].asString();
   test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
+  test.lazy_string_length = root["lazyStringLength"].asUInt();
   test.max_lazy_depth = root["maxLazyDepth"].asUInt();
   test.max_loop_forks = root["maxLoopForks"].asUInt();
   test.max_loop_iter = root["maxLoopIteration"].asUInt();
@@ -303,6 +305,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.test_id = root["testID"].asUInt();
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
+  TestObject::fromDataString(test.stdin_buffer, root["stdin"].asString());
 
   Json::Value &args = root["arguments"];
   if (args.isArray()) {
@@ -445,6 +448,10 @@ int main(int argc, char **argv, char **envp) {
   interpreter->runFunctionTestCase(test);
   theInterpreter = nullptr;
 
+  vector<unsigned char> stdout_capture;
+  vector<unsigned char> stderr_capture;
+  map<unsigned,unsigned> counters;
+
   outs() << ReplayTest << ": ";
 
   if (ex_states.empty()) {
@@ -455,6 +462,9 @@ int main(int argc, char **argv, char **envp) {
     exit_code = 1;
   } else {
     ExecutionState *state = ex_states.front();
+
+    state->stdout_capture.get_data(stdout_capture);
+    state->stderr_capture.get_data(stderr_capture);
 
     if (test.status != state->status) {
 
@@ -483,8 +493,49 @@ int main(int argc, char **argv, char **envp) {
     } else {
       outs() << "ok";
     }
+
+    // count fn markers in the trace
+    for (unsigned mark : state->trace) {
+      counters[mark/1000] += 1;
+    }
   }
   outs() << '\n';
+
+  if (Verbose) {
+    // display captured output
+    if (!stdout_capture.empty()) {
+      string output(stdout_capture.begin(), stdout_capture.end());
+      outs() << "stdout: " << output << '\n';
+    }
+    if (!stderr_capture.empty()) {
+      string output(stderr_capture.begin(), stderr_capture.end());
+      outs() << "stderr: " << output << '\n';
+    }
+
+    // build an inverse map of fnIDs
+    KModule *kmodule = interpreter->getKModule();
+    Module *module = kmodule->module;
+    map<unsigned,string> fnIDtoName;
+    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+      Function *fn = itr;
+      unsigned fnID = kmodule->getFunctionID(fn);
+      if (fnID != 0) {
+        fnIDtoName[fnID] = fn->getName().str();
+      }
+    }
+
+    // display a sorted list of trace statements from each block.
+    // this can be used to determine when a libc function should be modeled for performance.
+    vector<pair<unsigned,unsigned> >fn_counter;
+    fn_counter.reserve(counters.size());
+    for (auto &itr : counters) {
+      fn_counter.emplace_back(make_pair(itr.second, itr.first));
+    }
+    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
+    for (const auto &pr : fn_counter) {
+      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
+    }
+  }
 
   ex_states.clear();
 

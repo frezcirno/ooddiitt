@@ -273,6 +273,7 @@ public:
   CharacterOutput stderr_capture;
   unsigned stdin_offset;
   bool stdin_closed;
+  std::vector<unsigned char> stdin_buffer;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

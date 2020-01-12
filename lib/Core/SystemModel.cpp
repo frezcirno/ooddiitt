@@ -131,6 +131,7 @@ bool SystemModel::ExecuteWrite(ExecutionState &state, std::vector<ref<Expr> >&ar
 
 bool SystemModel::ExecuteRead(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
+  unsigned ret = 0;
   if (args.size() == 3) {
 
     ref<ConstantExpr> efd = dyn_cast<ConstantExpr>(executor->toUnique(state, args[0]));
@@ -138,29 +139,56 @@ bool SystemModel::ExecuteRead(ExecutionState &state, std::vector<ref<Expr> >&arg
 //    ref<ConstantExpr> ecount = dyn_cast<ConstantExpr>(executor->toUnique(state, args[2]));
     if (efd.get() && eaddr.get()) {
       int fd = efd->getZExtValue(Expr::Int32);
-      if ((fd == 0) && (!state.stdin_closed) && (state.stdin_offset < executor->moStdInBuff->size)) {
-        ExecutionState *ns = executor->clone(&state);
+      if (fd == 0) {
+        if (executor->moStdInBuff != nullptr) {
+          // if not null then we are generating symbolic inputs
+          if ((!state.stdin_closed) && (state.stdin_offset < executor->moStdInBuff->size)) {
+            ExecutionState *ns = executor->clone(&state);
 
-        // close state so no further reads will succeed
-        state.stdin_closed = true;
+            // close state so no further reads will succeed
+            state.stdin_closed = true;
 
-        ObjectPair op;
-        LocalExecutor::ResolveResult result = executor->resolveMO(*ns, eaddr, op);
-        if (result == LocalExecutor::ResolveResult::OK) {
-          const MemoryObject *mo = op.first;
-          const ObjectState *os = op.second;
+            ObjectPair op;
+            LocalExecutor::ResolveResult result = executor->resolveMO(*ns, eaddr, op);
+            if (result == LocalExecutor::ResolveResult::OK) {
+              const MemoryObject *mo = op.first;
+              const ObjectState *os = op.second;
 
-          const ObjectState *stdin_os = ns->addressSpace.findObject(executor->moStdInBuff);
-          ref<Expr> ch = stdin_os->read8(ns->stdin_offset++);
-          ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
-          wos->write8(0, ch);
-          ref<Expr> one = ConstantExpr::create(1, Expr::Int64);
-          executor->bindLocal(ki, *ns, one);
+              const ObjectState *stdin_os = ns->addressSpace.findObject(executor->moStdInBuff);
+              ref<Expr> ch = stdin_os->read8(ns->stdin_offset++);
+              ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
+              unsigned offset = eaddr->getZExtValue() - mo->address;
+              wos->write8(offset, ch);
+              ref<Expr> one = ConstantExpr::create(1, Expr::Int64);
+              executor->bindLocal(ki, *ns, one);
+            }
+          }
+        } else {
+          // since moStdInBuff is null, then we are replaying previous data
+
+          if (!state.stdin_buffer.empty()) {
+
+            // pop off a character to return
+            unsigned char ch = state.stdin_buffer.back();
+            state.stdin_buffer.pop_back();
+
+            ObjectPair op;
+            LocalExecutor::ResolveResult result = executor->resolveMO(state, eaddr, op);
+            if (result == LocalExecutor::ResolveResult::OK) {
+              const MemoryObject *mo = op.first;
+              const ObjectState *os = op.second;
+
+              ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+              unsigned offset = eaddr->getZExtValue() - mo->address;
+              wos->write8(offset, ch);
+              ret = 1;
+            }
+          }
         }
       }
     }
   }
-  retExpr = ConstantExpr::create(0, Expr::Int64);
+  retExpr = ConstantExpr::create(ret, Expr::Int64);
   return true;
 }
 

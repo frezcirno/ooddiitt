@@ -18,7 +18,10 @@ int foo02() {
   int result = 0;
   int ch = getchar();
   if (ch == 'a') {
+    printf("Got a letter a!\n");
     result = 1;
+  } else {
+    printf("Didn't get my letter?\n");
   }
   return result;
 }
