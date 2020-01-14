@@ -466,6 +466,10 @@ int main(int argc, char **argv, char **envp) {
     state->stdout_capture.get_data(stdout_capture);
     state->stderr_capture.get_data(stderr_capture);
 
+    if (state->status != StateStatus::Completed) {
+      outs() << "(" << state->terminationMessage << ") ";
+    }
+
     if (test.status != state->status) {
 
       // rewrite the incomplete test case with full trace and completed state status

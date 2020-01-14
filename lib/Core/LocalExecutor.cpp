@@ -71,10 +71,10 @@ class Tracer {
 };
 
 
-cl::opt<unsigned> SymArgs("sym-args", cl::init(0), cl::desc("Maximum number of command line arguments"));
+cl::opt<unsigned> SymArgs("sym-args", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
-cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(1), cl::desc("Number of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
 cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
 cl::opt<unsigned> MinLazyAllocationSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
@@ -268,7 +268,7 @@ void LocalExecutor::executeFree(ExecutionState &state,
   }
 }
 
-bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) {
+bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) const {
 
   if (!isa<ConstantExpr>(e)) {
 
@@ -310,6 +310,19 @@ bool LocalExecutor::isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e)
     }
   }
   return false;
+}
+
+bool LocalExecutor::isReadExpr(ref<Expr> e) const {
+
+  Expr::Kind k = e->getKind();
+  if (k == Expr::Kind::Read) {
+    return true;
+  } else if (k == Expr::Kind::Concat) {
+    ref<ConcatExpr> ce = dyn_cast<ConcatExpr>(e);
+    return (ce->getLeft()->getKind() == Expr::Kind::Read) && (isReadExpr(ce->getRight()));
+  } else {
+    return false;
+  }
 }
 
 void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
@@ -1533,6 +1546,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 
 void LocalExecutor::terminateState(ExecutionState &state, const string &message) {
 
+  state.terminationMessage = message;
   if (state.status == StateStatus::Completed    ||
      (state.status == StateStatus::Error) ||
      (interpreterOpts.mode != ExecModeID::igen && state.status == StateStatus::MemFaulted) ||
@@ -2048,6 +2062,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // see if we can find a memory object containing base
       // if see, it may need lazy initializing.
       // if no object is found, then its not necessarily an error
+      base = toUnique(state, base);
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
       if (result == ResolveResult::OK) {
@@ -2055,13 +2070,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           unsigned ptr_width =  Context::get().getPointerWidth();
           ref<Expr> ptr = op.second->read(0, ptr_width);
           ptr = toUnique(state, ptr);
-          assert(!isUnconstrainedPtr(state, ptr));
-//          if (isUnconstrainedPtr(state, ptr)) {
-//            expandLazyAllocation(state, ptr, i->getType(), ki, i->getName());
-//            state.restartInstruction();
-//            return;
-//          }
+          if (isReadExpr(ptr) && isUnconstrainedPtr(state, ptr)) {
+            state.restartInstruction();
+            expandLazyAllocation(state, ptr, i->getType(), ki, i->getName());
+            return;
+          }
         }
+      } else if (result == ResolveResult::NullAccess) {
+        // well, ..., that cannot be good.
+        terminateState(state, "GEP from NULL base");
+        return;
       }
 
       for (auto itr = kgepi->indices.begin(), end = kgepi->indices.end(); itr != end; ++itr) {
@@ -2076,75 +2094,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
       bindLocal(ki, state, base);
 
-#if 0 == 1
-      if (isUnconstrainedPtr(state, base)) {
-        outs() << "RLR TODO: Debug this\n";
-        state.restartInstruction();
-        expandLazyAllocation(state, base, i->getType(), ki, i->getName());
-      } else {
-
-        ref<Expr> offset = ConstantExpr::ConstantExpr::create(0, base->getWidth());
-
-        ObjectPair op;
-        ResolveResult result = resolveMO(state, base, op);
-        if (result == ResolveResult::OK) {
-          const MemoryObject *mo = op.first;
-          const ObjectState *os = op.second;
-
-          assert(i->getType()->isPtrOrPtrVectorTy());
-
-          for (auto it = kgepi->indices.begin(), ie = kgepi->indices.end(); it != ie; ++it) {
-            uint64_t elementSize = it->second;
-            ref<Expr> index = eval(ki, it->first, state).value;
-
-            offset = AddExpr::create(offset,
-                                     MulExpr::create(Expr::createSExtToPointerWidth(index),
-                                                   Expr::createPointer(elementSize)));
-          }
-          if (kgepi->offset) {
-            offset = AddExpr::create(offset, Expr::createPointer(kgepi->offset));
-          }
-
-          // if we are looking for faults and
-          // this is a base pointer into a lazy init with a non-zero offset,
-          // then this could be a memory bounds fail.
-          if (doSaveFault && mo->kind == MemKind::lazy) {
-            if (solver->mayBeTrue(state, Expr::createIsZero(offset))) {
-
-              // generate a test case
-              const KInstruction *prior = state.instFaulting;
-              state.instFaulting = ki;
-              interpreterHandler->processTestCase(state);
-              state.instFaulting = prior;
-            }
-          }
-
-          ref<Expr> addr = AddExpr::create(base, offset);
-
-          // if we are in zop mode, insure the pointer is inbounds
-          if (doAssumeInBounds) {
-
-            Expr::Width width = getWidthForLLVMType(i->getType()->getPointerElementType());
-            unsigned bytes = Expr::getMinBytesForWidth(width);
-
-            // base must point into an allocation
-            ref<Expr> mc = os->getBoundsCheckPointer(addr, bytes);
-
-            if (!solver->mustBeTrue(state, mc)) {
-              if (solver->mayBeTrue(state, mc)) {
-                addConstraint(state, mc);
-              }
-            }
-          }
-
-          bindLocal(ki, state, addr);
-        } else {
-
-          // invalid memory access, fault at ki and base
-          terminateStateOnFault(state, ki, "GEP resolveMO");
-        }
-      }
-#endif
       break;
     }
 

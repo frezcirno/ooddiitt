@@ -42,7 +42,6 @@ typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
 typedef SymbolicSolution ConcreteSolution;
 
 #define HEARTBEAT_INTERVAL   (10)        // secs
-#define HEARTBEAT_TIMEOUT    (5 * 60)    // secs
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_STUB_FLAG   (2)
@@ -263,8 +262,6 @@ public:
 
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
   virtual void GetModeledExternals(std::set<std::string> &names) const {}
-  virtual bool ShouldBeModeled(const std::string &name) const { return false; }
-
 };
 
 } // End klee namespace

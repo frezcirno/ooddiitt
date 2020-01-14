@@ -520,13 +520,13 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
   // since reading/writing via a function pointer is unsupported anyway.
   for (Module::iterator i = m->begin(), ie = m->end(); i != ie; ++i) {
     Function *f = static_cast<Function *>(i);
-    ref<ConstantExpr> addr(0);
+
+    ref<ConstantExpr> addr = ConstantExpr::createPointer(0);
 
     // If the symbol has external weak linkage then it is implicitly
     // not defined in this module; if it isn't resolvable then it
     // should be null.
-    if (f->hasExternalWeakLinkage() &&
-        !externalDispatcher->resolveSymbol(f->getName())) {
+    if (f->hasExternalWeakLinkage() && !externalDispatcher->resolveSymbol(f->getName())) {
       addr = Expr::createPointer(0);
     } else if (!f->isDeclaration())  {
       addr = Expr::createPointer((uint64_t) f);
@@ -1072,7 +1072,6 @@ ref<klee::ConstantExpr> Executor::evalConstant(const Constant *c) {
       return Expr::createPointer(0);
     } else if (isa<UndefValue>(c) || isa<ConstantAggregateZero>(c)) {
       return ConstantExpr::create(0, getWidthForLLVMType(c->getType()));
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
     } else if (const ConstantDataSequential *cds =
                  dyn_cast<ConstantDataSequential>(c)) {
       std::vector<ref<Expr> > kids;
@@ -1082,7 +1081,6 @@ ref<klee::ConstantExpr> Executor::evalConstant(const Constant *c) {
       }
       ref<Expr> res = ConcatExpr::createN(kids.size(), kids.data());
       return cast<ConstantExpr>(res);
-#endif
     } else if (const ConstantStruct *cs = dyn_cast<ConstantStruct>(c)) {
       const StructLayout *sl = kmodule->targetData->getStructLayout(cs->getType());
       llvm::SmallVector<ref<Expr>, 4> kids;

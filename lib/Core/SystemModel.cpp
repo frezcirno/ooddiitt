@@ -17,12 +17,21 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       {"read", &SystemModel::ExecuteRead},
       {"isatty", &SystemModel::ExecuteIsaTTY},
       {"posix_fadvise", &SystemModel::ExecuteReturn0_32},
+      {"is_selinux_enabled", &SystemModel::ExecuteReturn0_32},
+      {"kill", &SystemModel::ExecuteReturn0_32},
+      {"nanosleep", &SystemModel::ExecuteReturn0_32},
+      {"getpid", &SystemModel::ExecuteReturn42_32},
       {"getuid", &SystemModel::ExecuteReturn0_32},
       {"geteuid", &SystemModel::ExecuteReturn0_32},
       {"getgid", &SystemModel::ExecuteReturn0_32},
       {"getegid", &SystemModel::ExecuteReturn0_32},
       {"memset", &SystemModel::ExecuteMemset},
       {"lseek64", &SystemModel::ExecuteReturnMinus1_64},
+      {"lseek", &SystemModel::ExecuteReturnMinus1_64},
+      {"open", &SystemModel::ExecuteReturnMinus1_32},
+      {"openat", &SystemModel::ExecuteReturnMinus1_32},
+      {"close", &SystemModel::ExecuteReturn0_32},
+      {"fcntl", &SystemModel::ExecuteReturnMinus1_32},
       {"__check_one_fd", &SystemModel::ExecuteNoop}
   };
 
@@ -64,13 +73,6 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
 void SystemModel::GetModeledExternals(set<string> &names) const {
 
   names.insert(modeled_names.begin(), modeled_names.end());
-}
-
-bool SystemModel::ShouldBeModeled(const std::string &name) const {
-
-  static set<string> desired = { "memcpy", "memmove", "memcmp", "strlen" };
-  auto itr = desired.find(name);
-  return itr != desired.end();
 }
 
 bool SystemModel::Execute(ExecutionState &state, Function *fn, KInstruction *ki, const CallSite &cs, ref<Expr> &ret) {
@@ -214,15 +216,27 @@ bool SystemModel::ExecuteReturn1_32(ExecutionState &state, std::vector<ref<Expr>
   return true;
 }
 
-bool SystemModel::ExecuteReturnMinus1_64(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
-
-  retExpr = ConstantExpr::create(-1, Expr::Int64);
-  return true;
-}
-
 bool SystemModel::ExecuteReturn0_32(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   retExpr = ConstantExpr::create(0, Expr::Int32);
+  return true;
+}
+
+bool SystemModel::ExecuteReturn42_32(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  retExpr = ConstantExpr::create(42, Expr::Int32);
+  return true;
+}
+
+bool SystemModel::ExecuteReturnMinus1_32(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  retExpr = ConstantExpr::create(-1, Expr::Int32);
+  return true;
+}
+
+bool SystemModel::ExecuteReturnMinus1_64(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  retExpr = ConstantExpr::create(-1, Expr::Int64);
   return true;
 }
 
@@ -243,10 +257,10 @@ bool SystemModel::ExecuteReturnFirstArg(ExecutionState &state, std::vector<ref<E
 bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   if (args.size() == 3) {
-    ref<Expr> addr = executor->toUnique(state, args[0]);
+    ref<Expr> addr = executor->ensureUnique(state, args[0]);
     ref<Expr> val = ExtractExpr::create(args[1], 0, Expr::Int8);
     val = executor->toUnique(state, val);
-    ref<Expr> count = executor->toUnique(state, args[2]);
+    ref<Expr> count = executor->ensureUnique(state, args[2]);
     if ((isa<ConstantExpr>(addr) && isa<ConstantExpr>(count))) {
 
       ObjectPair op;
@@ -258,11 +272,15 @@ bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&a
         uint64_t caddr = cast<ConstantExpr>(addr)->getZExtValue(Expr::Int64);
         uint64_t ccount = cast<ConstantExpr>(count)->getZExtValue(Expr::Int64);
         uint64_t offset = caddr - mo->address;
-        if (offset + ccount < mo->address + mo->size) {
+        if (offset + ccount <= mo->size) {
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
           while (ccount-- > 0) {
             wos->write8(offset++, val);
           }
+        } else {
+          // copy out-of-bounds
+          executor->terminateState(state, "out-of-bounds memset");
+          return true;
         }
       }
       retExpr = addr;

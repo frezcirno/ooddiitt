@@ -137,7 +137,8 @@ protected:
   void newUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
-  bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e);
+  bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) const;
+  bool isReadExpr(ref<Expr> e) const;
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
@@ -159,7 +160,6 @@ protected:
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
   void GetModeledExternals(std::set<std::string> &names) const override;
-  bool ShouldBeModeled(const std::string &name) const override { if (sysModel != nullptr) return sysModel->ShouldBeModeled(name); else return false; }
   bool isLegalFunction(const llvm::Function *fn) const {
     return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
   }

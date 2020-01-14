@@ -118,6 +118,7 @@ public:
   llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
   llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
   llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
+  string getOutputBitCodeFilename() { return getOutputFilename(md_name + ".bc"); }
 
   static string getRunTimeLibraryPath(const char *argv0);
 };
@@ -139,7 +140,6 @@ PrepKleeHandler::PrepKleeHandler(const string &_md_name)
   }
 
   md_name = boost::filesystem::path(_md_name).stem().string();
-  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
@@ -268,9 +268,6 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
       if (modeledExternals.find(name) == modeledExternals.end()) {
         undefinedFunctions.insert(name);
       }
-    }
-    if (interpreter->ShouldBeModeled(name)) {
-      klee_warning("Function \"%s\" should be modeled", name.c_str());
     }
 
     if (has_inline_asm(fn)) {
@@ -439,7 +436,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // modify module for cbert
   modify_clib(mainModule);
-  outs() << "NOTE: Using klee-uclibc: " << uclibcBCA << '\n';
+  outs() << "NOTE: Linking with klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;
 }
 #endif
@@ -458,7 +455,6 @@ int main(int argc, char **argv, char **envp) {
     for (int i = 0; i < argc; i++) {
       outs() << argv[i] << (i + 1 < argc ? " " : "\n");
     }
-    outs() << "PID: " << getpid() << "\n";
   }
 
   // Load the bytecode...
@@ -597,6 +593,7 @@ int main(int argc, char **argv, char **envp) {
 
   llvm::raw_fd_ostream *os = handler->openOutputBitCode();
   if (os != nullptr) {
+    outs() << "writing " << handler->getOutputBitCodeFilename() << '\n';
     WriteBitcodeToFile(theInterpreter->getKModule()->module, *os);
     delete os;
   }

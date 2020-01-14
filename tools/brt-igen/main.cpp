@@ -113,7 +113,7 @@ namespace {
 				                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
 				                "Used for testing."),
                        cl::init(0));
-  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs"), cl::init(0));
+  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0));
 }
 
 /***/
@@ -669,7 +669,7 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   if (str.empty()) {
     // default progression
     UnconstraintFlagsT flags;
-    progression.emplace_back(60, flags);
+    progression.emplace_back(300, flags);
     result = true;
   } else {
 
@@ -742,7 +742,7 @@ int main(int argc, char **argv, char **envp) {
 
       MonotonicTimer timer;
       const unsigned tid_watchdog = 1;
-      timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
+      timer.set(tid_watchdog, Watchdog);
 
       // Simple stupid code...
       while (true) {
@@ -768,7 +768,7 @@ int main(int argc, char **argv, char **envp) {
           unsigned expired = timer.expired();
           if (reset_watchdog_timer) {
 
-            timer.set(tid_watchdog, HEARTBEAT_TIMEOUT);
+            timer.set(tid_watchdog, Watchdog);
             reset_watchdog_timer = false;
 
           } else if (expired == tid_watchdog) {

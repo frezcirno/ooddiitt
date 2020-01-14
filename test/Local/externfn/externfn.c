@@ -25,3 +25,9 @@ int foo02() {
   }
   return result;
 }
+
+int nobar();
+
+int foo03() {
+  return nobar();
+}
