@@ -20,6 +20,21 @@ bool CompareExecutions(CompareState &version1, CompareState &version2) {
   string modID1 = version1.kmodule->module->getModuleIdentifier();
   string modID2 = version2.kmodule->module->getModuleIdentifier();
 
+  vector<unsigned char> stdout1;
+  version1.state->stdout_capture.get_data(stdout1);
+  vector<unsigned char> stderr1;
+  version1.state->stderr_capture.get_data(stderr1);
+
+  vector<unsigned char> stdout2;
+  version2.state->stdout_capture.get_data(stdout2);
+  vector<unsigned char> stderr2;
+  version2.state->stderr_capture.get_data(stderr2);
+
+  if (stdout1 != stdout2) {
+    outs() << "stdout differs";
+    return false;
+  }
+
   if (version1.state->status != version2.state->status) {
     outs() << "different completion status";
     return false;
@@ -82,5 +97,21 @@ bool CompareExecutions(CompareState &version1, CompareState &version2) {
       }
     }
   }
+
+//  vector<unsigned char> stdout1;
+//  version1.state->stdout_capture.get_data(stdout1);
+//  vector<unsigned char> stderr1;
+//  version1.state->stderr_capture.get_data(stderr1);
+//
+//  vector<unsigned char> stdout2;
+//  version2.state->stdout_capture.get_data(stdout2);
+//  vector<unsigned char> stderr2;
+//  version2.state->stderr_capture.get_data(stderr2);
+
+//  if (stdout1 != stdout2) {
+//    outs() << "stdout differs";
+//    return false;
+//  }
+
   return true;
 }

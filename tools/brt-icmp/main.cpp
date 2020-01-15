@@ -375,12 +375,11 @@ int main(int argc, char **argv, char **envp) {
   exit_code = 0;
 
   // write out command line info, for reference
-  if (!outs().is_displayed()) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-    }
-    outs() << "PID: " << getpid() << "\n";
-  }
+//  if (!outs().is_displayed()) {
+//    for (int i = 0; i < argc; i++) {
+//      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
+//    }
+//  }
 
   // Load the test case
   TestCase test;
