@@ -64,6 +64,9 @@ namespace {
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
+  cl::opt<bool> UpdateStatus("update-status", cl::desc("update test case state status"));
+  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace"));
+  cl::opt<bool> UpdateAll("update-all", cl::desc("update test case state status and trace"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
 }
 
@@ -380,6 +383,11 @@ int main(int argc, char **argv, char **envp) {
     outs() << "PID: " << getpid() << "\n";
   }
 
+  if (UpdateAll) {
+    UpdateStatus = true;
+    UpdateTrace = true;
+  }
+
   // Load the test case
   TestCase test;
   Json::Value root;
@@ -472,28 +480,41 @@ int main(int argc, char **argv, char **envp) {
 
     if (test.status != state->status) {
 
-      // rewrite the incomplete test case with full trace and completed state status
-      ofstream info;
-      info.open(ReplayTest);
-      if (info.is_open()) {
+      if (UpdateStatus || UpdateTrace) {
 
-        root["status"] = (unsigned) state->status;
-        string message = root["message"].asString();
-        if (!message.empty()) message += "; ";
-        message =+ "completed by brt-rply";
-        root["message"] = message;
+        // rewrite the incomplete test case with full trace and completed state status
+        ofstream info;
+        info.open(ReplayTest);
+        if (info.is_open()) {
 
-        string indentation;
-        if (IndentJson) indentation = "  ";
+          root["status"] = (unsigned) state->status;
+          string message = root["message"].asString();
+          if (!message.empty())
+            message += "; ";
+          message = +"completed by brt-rply";
+          root["message"] = message;
 
-        Json::StreamWriterBuilder builder;
-        builder["commentStyle"] = "None";
-        builder["indentation"] = indentation;
-        unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-        writer->write(root, &info);
-        info << endl;
+          string indentation;
+          if (IndentJson)
+            indentation = "  ";
+
+          Json::StreamWriterBuilder builder;
+          builder["commentStyle"] = "None";
+          builder["indentation"] = indentation;
+          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+          writer->write(root, &info);
+          info << endl;
+          if (test.status == StateStatus::Incomplete) {
+            outs() << "completed status";
+          } else {
+            outs() << "updated status";
+          }
+        } else {
+          outs() << "error writing test case";
+        }
+      } else {
+        outs() << "differing status";
       }
-      outs() << "updated status";
     } else {
       outs() << "ok";
     }
@@ -509,11 +530,11 @@ int main(int argc, char **argv, char **envp) {
     // display captured output
     if (!stdout_capture.empty()) {
       string output(stdout_capture.begin(), stdout_capture.end());
-      outs() << "stdout: " << output << '\n';
+      outs() << "stdout:\n" << output << '\n';
     }
     if (!stderr_capture.empty()) {
       string output(stderr_capture.begin(), stderr_capture.end());
-      outs() << "stderr: " << output << '\n';
+      outs() << "stderr:\n" << output << '\n';
     }
 
     // build an inverse map of fnIDs

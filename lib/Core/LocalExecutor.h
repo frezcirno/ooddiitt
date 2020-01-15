@@ -122,7 +122,7 @@ protected:
                      llvm::Type *type,
                      const llvm::Value *allocSite,
                      MemKind kind,
-                     std::string name,
+                     const std::string &name,
                      WObjectPair &wop,
                      size_t align = 0,
                      unsigned count = 1);

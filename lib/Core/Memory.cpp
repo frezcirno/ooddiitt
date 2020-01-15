@@ -421,6 +421,10 @@ void ObjectState::setKnownSymbolic(unsigned offset,
   }
 }
 
+
+// !!! Warning: this does not do what I thought it did.  the assignement
+// does not create a constraint and will not be reflected in the generated solution
+
 bool ObjectState::cloneWritten(const ObjectState *src) {
 
   // copy attributes over from src

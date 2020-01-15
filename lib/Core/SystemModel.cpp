@@ -230,7 +230,8 @@ bool SystemModel::ExecuteReturn42_32(ExecutionState &state, std::vector<ref<Expr
 
 bool SystemModel::ExecuteReturnMinus1_32(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
-  retExpr = ConstantExpr::create(-1, Expr::Int32);
+  uint64_t val = (uint32_t) -1;
+  retExpr = ConstantExpr::create(val, Expr::Int32);
   return true;
 }
 

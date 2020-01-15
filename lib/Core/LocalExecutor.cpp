@@ -72,7 +72,7 @@ class Tracer {
 
 
 cl::opt<unsigned> SymArgs("sym-args", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
-cl::opt<bool> SavePendingStates("save-pending-states", cl::init(true), cl::desc("at timeout, save states that have not completed"));
+cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
@@ -169,6 +169,8 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
     addConstraint(state, e);
     return true;
   }
+
+  // WARNING: if this function returns false, state must not be accessed again
   terminateState(state, "added invalid constraint");
   return false;
 }
@@ -434,14 +436,18 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     // give a meaningful name to the symbolic variable.
     // do not have original c field names, so use field index
     string name = mo->name;
+    string suffix;
     if (const StructType *st = dyn_cast<StructType>(mo->type)) {
       if (isa<ConstantExpr>(offsetExpr)) {
         unsigned offset = cast<ConstantExpr>(offsetExpr)->getZExtValue();
         const StructLayout *targetStruct = kmodule->targetData->getStructLayout(const_cast<StructType*>(st));
         unsigned index = targetStruct->getElementContainingOffset(offset);
-        name += ':' + std::to_string(index);
+        suffix= std::to_string(index);
+      } else {
+        suffix = "?";
       }
     }
+    if (!suffix.empty()) name += ':' + suffix;
 
     // this is an unconstrained ptr-ptr.
     expandLazyAllocation(state, e, type->getPointerElementType(), target, name);
@@ -471,6 +477,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
       // too deep. no more forking for this pointer.
       addConstraintOrTerminate(state, eqNull);
+      // must not touch state again in case of failure
 
     } else {
 
@@ -518,14 +525,19 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
           // finally, try with a new object
           WObjectPair wop;
-          allocSymbolic(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, wop, 0, count);
-          ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->created_size / count));
-          ref<Expr> eq = EqExpr::create(addr, ptr);
-          addConstraintOrTerminate(*next_fork, eq);
-
-          // insure strings are null-terminated
-          if (base_type->isIntegerTy(8)) {
-            addConstraint(*next_fork, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+          if (allocSymbolic(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, wop, 0, count)) {
+            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->created_size / count));
+            ref<Expr> eq = EqExpr::create(addr, ptr);
+            if (addConstraintOrTerminate(*next_fork, eq)) {
+              // insure strings are null-terminated
+              if (base_type->isIntegerTy(8)) {
+                addConstraint(*next_fork, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+              }
+            } else {
+              // state was terminated
+            }
+          } else {
+            terminateState(*next_fork, "gep symbolic allocation failed");
           }
         }
       }
@@ -534,6 +546,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
     // just say NO to function pointers
     ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
     addConstraintOrTerminate(state, eqNull);
+    // do not touch state again, in case of termination
   } else {
     klee_warning("lazy initialization of unknown type: %s", to_string(base_type).c_str());
   }
@@ -672,10 +685,10 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
 }
 
 MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
-                                         llvm::Type *type,
-                                         const llvm::Value *allocSite,
+                                         Type *type,
+                                         const Value *allocSite,
                                          MemKind kind,
-                                         const std::string &name,
+                                         const string &name,
                                          size_t align,
                                          unsigned count) {
 
@@ -745,23 +758,28 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   Type *type,
                                   const llvm::Value *allocSite,
                                   MemKind kind,
-                                  std::string name,
+                                  const std::string &name,
                                   WObjectPair &wop,
                                   size_t align,
                                   unsigned count) {
 
   wop.first = nullptr;
   wop.second = nullptr;
-  MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
-  if (mo != nullptr) {
-    ObjectState *os = makeSymbolic(state, mo);
-    wop.first = mo;
-    wop.second = os;
-    return true;
+  // empty symolic name is rather pointless
+  if (!name.empty()) {
+    MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
+    if (mo != nullptr) {
+      ObjectState *os = makeSymbolic(state, mo);
+      if (os != nullptr) {
+        wop.first = mo;
+        wop.second = os;
+        return true;
+      }
+      delete mo;
+    }
   }
   return false;
 }
-
 
 bool LocalExecutor::duplicateSymbolic(ExecutionState &state,
                                       const MemoryObject *origMO,
@@ -932,7 +950,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   unsigned ptr_width =  Context::get().getPointerWidth();
 
   WObjectPair wopStdIn;
-  allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, LEN_CMDLINE_ARGS + 1);
+  if (!allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, LEN_CMDLINE_ARGS + 1)) {
+    klee_error("failed to allocate symbolic stdin_buff");
+  }
   moStdInBuff = wopStdIn.first;
 
   // iterate through each phase of unconstrained progression
@@ -967,19 +987,33 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // push the module name into the state
       std::string md_name = kmodule->module->getModuleIdentifier();
-      const MemoryObject *moProgramName = addExternalObject(*state, (void*) md_name.c_str(), md_name.size() + 1, str_type, fn, str_align, true);
-      moProgramName->name = "_program_name";
+
+      WObjectPair wopProgName;
+      if (!allocSymbolic(*state, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, md_name.size() + 1)) {
+        klee_error("failed to allocate symbolic argv_array");
+      }
+      MemoryObject *moProgName = wopProgName.first;
+      ObjectState *osProgName = wopProgName.second;
+
+      for (unsigned idx = 0, end = md_name.size(); idx < end; ++idx) {
+        char ch = md_name[idx];
+        addConstraint(*state, EqExpr::create(osProgName->read8(idx), ConstantExpr::create(ch, Expr::Int8)));
+      }
+      // null terminate the string
+      addConstraint(*state, EqExpr::create(osProgName->read8(md_name.size()), ConstantExpr::create(0, Expr::Int8)));
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
-      allocSymbolic(*state, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgs + 2);
+      if (!allocSymbolic(*state, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgs + 2)) {
+        klee_error("failed to allocate symbolic argv_array");
+      }
 
       // argv[0] -> binary name
       // argv[1 .. SymArgs] = symbolic value
       // argv[SymArgs] = null
 
       // despite being symbolic, argv[0] always points to program name
-      addConstraint(*state, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgramName->getBaseExpr()));
+      addConstraint(*state, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgName->getBaseExpr()));
 
       // allocate the command line arg strings for each starting state
       init_states[0] = state;
@@ -990,7 +1024,9 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
         WObjectPair wopArgv_body;
         std::string argName = "argv_" + itostr(index);
-        allocSymbolic(*curr, char_type, fn, MemKind::param, argName.c_str(), wopArgv_body, char_align, LEN_CMDLINE_ARGS + 1);
+        if (!allocSymbolic(*curr, char_type, fn, MemKind::param, argName.c_str(), wopArgv_body, char_align, LEN_CMDLINE_ARGS + 1)) {
+          klee_error("failed to allocate symbolic command line arg");
+        }
 
         // constrain strings to command line strings, i.e.
         // [0] must be printable
@@ -1045,7 +1081,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
         WObjectPair wop;
         if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
-          klee_error("failed to allocate function parameter");
+          klee_error("failed to allocate symbolic function parameter");
         }
         ref<Expr> eArg = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
         bindArgument(kf, index, *state, eArg);
@@ -1884,8 +1920,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         unsigned num_targets = targets.size();
         if (num_targets == 0) {
-          terminateStateOnError(state, TerminateReason::Ptr, "legal callee not found");
-          klee_warning("legal callee not found");
+          terminateStateOnError(state, TerminateReason::Ptr, "legal indirect callee not found");
+          klee_warning("legal indirect callee not found");
         } else if (num_targets == 1) {
           executeCall(state, ki, targets.front(), arguments);
         } else {
@@ -2072,12 +2108,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           ptr = toUnique(state, ptr);
           if (isReadExpr(ptr) && isUnconstrainedPtr(state, ptr)) {
             state.restartInstruction();
-            expandLazyAllocation(state, ptr, i->getType(), ki, i->getName());
+
+            string name = op.first->name + ":?";
+            // RLR TODO: need offset now to be more precise
+            expandLazyAllocation(state, ptr, i->getType(), ki, name);
             return;
           }
         }
       } else if (result == ResolveResult::NullAccess) {
-        // well, ..., that cannot be good.
+        // well, ..., that can't be good.
         terminateState(state, "GEP from NULL base");
         return;
       }
