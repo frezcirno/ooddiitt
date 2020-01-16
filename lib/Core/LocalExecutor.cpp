@@ -2135,7 +2135,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             state.restartInstruction();
 
             string name = op.first->name + ":?";
-            klee_warning("RLR TODO: this needs validation on type of lazy allocation");
+            Type *type = i->getType();
+            if (GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(i)) {
+              Value *v = gep->getPointerOperand();
+              type = v->getType();
+            }
             // RLR TODO: need offset now to be more precise
             expandLazyAllocation(state, ptr, i->getType(), ki, name, false);
             return;
