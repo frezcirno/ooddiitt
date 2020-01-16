@@ -459,7 +459,8 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
                                          ref<Expr> addr,
                                          const llvm::Type *type,
                                          KInstruction *target,
-                                         const std::string &name) {
+                                         const std::string &name,
+                                         bool allow_null) {
 
   assert(type->isPointerTy());
 
@@ -475,16 +476,25 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
     if (depth >= maxLazyDepth) {
 
-      // too deep. no more forking for this pointer.
-      addConstraintOrTerminate(state, eqNull);
+      if (allow_null) {
+        // too deep. no more forking for this pointer.
+        addConstraintOrTerminate(state, eqNull);
+      } else {
+        terminateState(state, "memory depth exceeded");
+      }
       // must not touch state again in case of failure
 
     } else {
 
-      StatePair sp = fork(state, eqNull, true);
+      ExecutionState *next_fork;
+      if (allow_null) {
+        StatePair sp = fork(state, eqNull, true);
 
-      // in the true case, ptr is null, so nothing further to do
-      ExecutionState *next_fork = sp.second;
+        // in the true case, ptr is null, so nothing further to do
+        next_fork = sp.second;
+      } else {
+        next_fork = &state;
+      }
 
       // in the false case, allocate new memory for the ptr and
       // constrain the ptr to point to it.
@@ -497,7 +507,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
           // consider any existing objects in memory of the same type
           std::vector<ObjectPair> listOPs;
-          sp.second->addressSpace.getMemoryObjects(listOPs, base_type);
+          next_fork->addressSpace.getMemoryObjects(listOPs, base_type);
           for (const auto &pr : listOPs) {
 
             if (next_fork == nullptr || counter >= LazyAllocationExt)
@@ -509,9 +519,9 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               // fork a new state
               ref<ConstantExpr> ptr = existingMO->getBaseExpr();
               ref<Expr> eq = EqExpr::create(addr, ptr);
-              StatePair sp2 = fork(*next_fork, eq, true);
+              StatePair sp = fork(*next_fork, eq, true);
               counter += 1;
-              next_fork = sp2.second;
+              next_fork = sp.second;
             }
           }
         }
@@ -537,7 +547,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               // state was terminated
             }
           } else {
-            terminateState(*next_fork, "gep symbolic allocation failed");
+            terminateState(*next_fork, "lazy symbolic allocation failed");
           }
         }
       }
@@ -2099,6 +2109,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       // if see, it may need lazy initializing.
       // if no object is found, then its not necessarily an error
       base = toUnique(state, base);
+
+      if (isReadExpr(base) && isUnconstrainedPtr(state, base)) {
+
+        string name = "#gepbase";
+        Type *type = i->getType();
+        if (GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(i)) {
+          Value *v = gep->getPointerOperand();
+          if (v->hasName()) name = v->getName().str();
+          type = v->getType();
+        }
+        state.restartInstruction();
+        expandLazyAllocation(state, base, type, ki, name, false);
+        return;
+      }
+
       ObjectPair op;
       ResolveResult result = resolveMO(state, base, op);
       if (result == ResolveResult::OK) {
@@ -2110,8 +2135,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             state.restartInstruction();
 
             string name = op.first->name + ":?";
+            klee_warning("RLR TODO: this needs validation on type of lazy allocation");
             // RLR TODO: need offset now to be more precise
-            expandLazyAllocation(state, ptr, i->getType(), ki, name);
+            expandLazyAllocation(state, ptr, i->getType(), ki, name, false);
             return;
           }
         }

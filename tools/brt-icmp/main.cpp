@@ -62,8 +62,9 @@ using namespace std;
 namespace {
   cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional, cl::Required);
-  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> ReplayTest("test", cl::desc("test case to replay"), cl::Required);
+  cl::opt<string> EntryPoint("entry-point", cl::desc("Only run tests starting from this entrypoint"));
+  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -411,7 +412,12 @@ int main(int argc, char **argv, char **envp) {
   llvm::error_code ec;
   vector<ExecutionState*> ex_states;
 
-  outs() << ReplayTest << ": ";
+  outs() << ReplayTest << ":" << test.entry_fn << ": ";
+  if (!EntryPoint.empty() && EntryPoint != test.entry_fn) {
+    outs() << "skipped\n";
+    return 0;
+  }
+
   CompareState version1;
 
   // Load the bytecode...
@@ -500,7 +506,7 @@ int main(int argc, char **argv, char **envp) {
     version2.state = ex_states.front();
     ex_states.clear();
 
-    if (!CompareExecutions(version1, version2)) {
+    if (!CompareExecutions(version1, version2, test.is_main())) {
       outs() << ", behavioral discrepancy";
       exit_code = 1;
     } else {

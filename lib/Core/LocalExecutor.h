@@ -116,7 +116,8 @@ protected:
                             ref<Expr> addr,
                             const llvm::Type *type,
                             KInstruction *target,
-                            const std::string &name);
+                            const std::string &name,
+                            bool allow_null = true);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,

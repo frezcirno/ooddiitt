@@ -15,20 +15,29 @@ using namespace llvm;
 using namespace klee;
 using namespace std;
 
-bool CompareExecutions(CompareState &version1, CompareState &version2) {
+bool CompareExecutions(CompareState &version1, CompareState &version2, bool extern_only) {
+
+  ExecutionState *state1 = version1.state;
+  ExecutionState *state2 = version2.state;
 
   string modID1 = version1.kmodule->module->getModuleIdentifier();
   string modID2 = version2.kmodule->module->getModuleIdentifier();
 
+  if (state1->status != state2->status) {
+    outs() << "diff status: 1=" << to_string(state1->status) << " 2=" << to_string(state2->status);
+    return false;
+  }
+
+#if 0 == 1
   vector<unsigned char> stdout1;
   version1.state->stdout_capture.get_data(stdout1);
-  vector<unsigned char> stderr1;
-  version1.state->stderr_capture.get_data(stderr1);
+//  vector<unsigned char> stderr1;
+//  version1.state->stderr_capture.get_data(stderr1);
 
   vector<unsigned char> stdout2;
   version2.state->stdout_capture.get_data(stdout2);
-  vector<unsigned char> stderr2;
-  version2.state->stderr_capture.get_data(stderr2);
+//  vector<unsigned char> stderr2;
+//  version2.state->stderr_capture.get_data(stderr2);
 
   if (stdout1 != stdout2) {
     outs() << "stdout differs";
@@ -112,6 +121,6 @@ bool CompareExecutions(CompareState &version1, CompareState &version2) {
 //    outs() << "stdout differs";
 //    return false;
 //  }
-
+#endif
   return true;
 }

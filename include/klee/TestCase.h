@@ -101,6 +101,15 @@ public:
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;
   std::vector<unsigned char> stdin_buffer;
+
+  bool is_main() {
+    for (const auto &obj : objects) {
+      // this object is only inserted by unconstrained ex from main
+      if (obj.name == "#program_name") return true;
+    }
+    return false;
+  }
+
 };
 
 }

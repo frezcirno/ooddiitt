@@ -30,10 +30,7 @@ static const char *errorPrefix = "ERROR";
 static const char *notePrefix = "NOTE";
 
 namespace {
-cl::opt<bool> WarningsOnlyToFile(
-    "warnings-only-to-file", cl::init(false),
-    cl::desc("All warnings will be written to warnings.txt only.  If disabled, "
-             "they are also written on screen."));
+cl::opt<bool> Silent("silent", cl::init(false), cl::desc("do not display information or warning messages"));
 }
 
 static bool shouldSetColor(const char *pfx, const char *msg,
@@ -100,13 +97,6 @@ static void klee_vfmessage(FILE *fp, const char *pfx, const char *msg,
   fdos.flush();
 }
 
-void klee::klee_message(const char *msg, ...) {
-  va_list ap;
-  va_start(ap, msg);
-  klee_vfmessage(stdout, NULL, msg, ap);
-  va_end(ap);
-}
-
 void klee::klee_error(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
@@ -116,30 +106,45 @@ void klee::klee_error(const char *msg, ...) {
 }
 
 void klee::klee_warning(const char *msg, ...) {
-  va_list ap;
-  va_start(ap, msg);
-  klee_vfmessage(stdout, warningPrefix, msg, ap);
-  va_end(ap);
+  if (!Silent) {
+    va_list ap;
+    va_start(ap, msg);
+    klee_vfmessage(stdout, warningPrefix, msg, ap);
+    va_end(ap);
+  }
 }
 
 /* Prints a warning once per message. */
 void klee::klee_warning_once(const void *id, const char *msg, ...) {
   static std::set<std::pair<const void *, const char *> > keys;
-  std::pair<const void *, const char *> key;
 
-  /* "calling external" messages contain the actual arguments with
-     which we called the external function, so we need to ignore them
-     when computing the key. */
-  if (strncmp(msg, "calling external", strlen("calling external")) != 0)
-    key = std::make_pair(id, msg);
-  else
-    key = std::make_pair(id, "calling external");
+  if (!Silent) {
+    std::pair<const void *, const char *> key;
 
-  if (!keys.count(key)) {
-    keys.insert(key);
+    /* "calling external" messages contain the actual arguments with
+       which we called the external function, so we need to ignore them
+       when computing the key. */
+    if (strncmp(msg, "calling external", strlen("calling external")) != 0)
+      key = std::make_pair(id, msg);
+    else
+      key = std::make_pair(id, "calling external");
+
+    if (!keys.count(key)) {
+      keys.insert(key);
+      va_list ap;
+      va_start(ap, msg);
+      klee_vfmessage(stdout, warningOncePrefix, msg, ap);
+      va_end(ap);
+    }
+  }
+}
+
+void klee::klee_message(const char *msg, ...) {
+  if (!Silent) {
     va_list ap;
     va_start(ap, msg);
-    klee_vfmessage(stdout, warningOncePrefix, msg, ap);
+    klee_vfmessage(stdout, NULL, msg, ap);
     va_end(ap);
   }
 }
+

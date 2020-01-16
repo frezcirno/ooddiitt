@@ -17,7 +17,7 @@ struct CompareState {
 
 }
 
-bool CompareExecutions(klee::CompareState &version1, klee::CompareState &version2);
+bool CompareExecutions(klee::CompareState &version1, klee::CompareState &version2, bool extern_only);
 
 
 #endif //BRT_KLEE_STATECOMPARISON_H

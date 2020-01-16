@@ -507,7 +507,7 @@ int main(int argc, char **argv, char **envp) {
   set<GlobalVariable*> original_globals;
   enumModuleGlobals(mainModule, original_globals);
 
-  rewriteFunctionPointers(mainModule, original_fns);
+//  rewriteFunctionPointers(mainModule, original_fns);
 
   string LibraryDir = PrepKleeHandler::getRunTimeLibraryPath(argv[0]);
 
