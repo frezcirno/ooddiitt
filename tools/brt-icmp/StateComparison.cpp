@@ -4,6 +4,7 @@
 
 #include "StateComparison.h"
 #include <vector>
+#include <boost/filesystem.hpp>
 
 #include "klee/ExecutionState.h"
 #include "klee/Internal/System/Memory.h"
@@ -15,17 +16,68 @@ using namespace llvm;
 using namespace klee;
 using namespace std;
 
+bool CompareOutput(const CharacterOutput &out1, const CharacterOutput &out2) {
+
+  vector<unsigned char> output1;
+  vector<unsigned char> output2;
+  out1.get_data(output1);
+  out2.get_data(output2);
+  return output1 == output2;
+}
+
+string get_module_name(KModule *km) {
+
+  boost::filesystem::path path(km->module->getModuleIdentifier());
+  return path.filename().string();
+}
+
 bool CompareExecutions(CompareState &version1, CompareState &version2, bool extern_only) {
 
+  // unpack the versions for easier access
   ExecutionState *state1 = version1.state;
+  KModule *kmodule1 = version1.kmodule;
   ExecutionState *state2 = version2.state;
+  KModule *kmodule2 = version2.kmodule;
 
-  string modID1 = version1.kmodule->module->getModuleIdentifier();
-  string modID2 = version2.kmodule->module->getModuleIdentifier();
+  boost::filesystem::path path1(kmodule1->module->getModuleIdentifier());
+  boost::filesystem::path path2(kmodule2->module->getModuleIdentifier());
+
+  string modID1 = get_module_name(kmodule1);
+  string modID2 = get_module_name(kmodule2);
 
   if (state1->status != state2->status) {
-    outs() << "diff status: 1=" << to_string(state1->status) << " 2=" << to_string(state2->status);
+    outs() << "diff status: " << modID1 << '=' << to_string(state1->status) << ' ' << modID2 << '=' << to_string(state2->status);
     return false;
+  }
+
+  if (extern_only) {
+    assert(state1->arguments.size() < 2);
+    assert(state2->arguments.size() < 2);
+    if (state1->arguments.empty() || state2->arguments.empty()) {
+      outs() << modID1 << " or " << modID2 << " did not return a value";
+      return false;
+    }
+    unsigned exit_code1 = cast<ConstantExpr>(state1->arguments[0])->getZExtValue(Expr::Int32);
+    unsigned exit_code2 = cast<ConstantExpr>(state2->arguments[0])->getZExtValue(Expr::Int32);
+    if (exit_code1 != exit_code2) {
+      outs() << "diff exit_code: " << modID1 << '=' << exit_code1 << ' ' << modID2 << '=' << exit_code2;
+      return false;
+    }
+
+    if (!CompareOutput(state1->stdout_capture, state2->stdout_capture)) {
+      outs() << "diff stdout";
+      return false;
+    }
+
+    if (!CompareOutput(state1->stderr_capture, state2->stderr_capture)) {
+      outs() << "diff stderr";
+      return false;
+    }
+  } else {
+
+    // need to check internal state
+
+
   }
 
 #if 0 == 1

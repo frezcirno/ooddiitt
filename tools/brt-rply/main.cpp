@@ -62,11 +62,9 @@ namespace {
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
-  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<bool> UpdateStatus("update-status", cl::desc("update test case state status"));
-  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace"));
-  cl::opt<bool> UpdateAll("update-all", cl::desc("update test case state status and trace"));
+  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
+  cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
 }
 
@@ -365,6 +363,51 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
+bool update_test_case(const string &fname, Json::Value &root, const deque<unsigned> &trace) {
+
+  // add the new trace as a new entity
+  Json::Value &rtrace = root["replyTrace"] = Json::arrayValue;
+  for (auto entry : trace) {
+    rtrace.append(entry);
+  }
+
+  ofstream info;
+  info.open(fname);
+  if (info.is_open()) {
+
+    string indentation;
+    if (IndentJson)
+      indentation = "  ";
+
+    Json::StreamWriterBuilder builder;
+    builder["commentStyle"] = "None";
+    builder["indentation"] = indentation;
+    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+    writer->write(root, &info);
+    info << endl;
+  } else {
+    errs() << "error writing test case\n";
+    return false;
+  }
+  return true;
+}
+
+bool compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
+
+  if (t_trace.size() == s_trace.size()) {
+    auto t_itr = t_trace.begin();
+    auto t_end = t_trace.end();
+    auto s_itr = s_trace.begin();
+    auto s_end = s_trace.end();
+    while (t_itr != t_end) {
+      assert(s_itr != s_end);
+      if (*t_itr++ != *s_itr++) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -374,19 +417,6 @@ int main(int argc, char **argv, char **envp) {
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
-
-  // write out command line info, for reference
-  if (!outs().is_displayed()) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-    }
-    outs() << "PID: " << getpid() << "\n";
-  }
-
-  if (UpdateAll) {
-    UpdateStatus = true;
-    UpdateTrace = true;
-  }
 
   // Load the test case
   TestCase test;
@@ -456,6 +486,7 @@ int main(int argc, char **argv, char **envp) {
   interpreter->runFunctionTestCase(test);
   theInterpreter = nullptr;
 
+  // only used for verbose output
   vector<unsigned char> stdout_capture;
   vector<unsigned char> stderr_capture;
   map<unsigned,unsigned> counters;
@@ -464,65 +495,40 @@ int main(int argc, char **argv, char **envp) {
 
   if (ex_states.empty()) {
     errs() << "Failed to replay";
-    exit_code = 1;
+    exit_code = 2;
   } else if (ex_states.size() > 1) {
     errs() << "Replay forked into multiple paths";
-    exit_code = 1;
+    exit_code = 2;
   } else {
     ExecutionState *state = ex_states.front();
 
-    state->stdout_capture.get_data(stdout_capture);
-    state->stderr_capture.get_data(stderr_capture);
+    if (Verbose) {
+      state->stdout_capture.get_data(stdout_capture);
+      state->stderr_capture.get_data(stderr_capture);
+      // count fn markers in the trace
+      for (unsigned mark : state->trace) {
+        counters[mark/1000] += 1;
+      }
+    }
+
+    if (CheckTrace) {
+      if (!compare_traces(test.trace, state->trace)) {
+        outs() << "trace differs, ";
+        update_test_case(ReplayTest, root, state->trace);
+      }
+    }
+
+    if (test.status != state->status) {
+      outs() << "status differs, test: " << to_string(test.status) << ", state: ", to_string(state->status);
+      exit_code = 1;
+    } else {
+      outs() << "ok";
+    }
 
     if (state->status != StateStatus::Completed) {
       outs() << "(" << state->terminationMessage << ") ";
     }
 
-    if (test.status != state->status) {
-
-      if (UpdateStatus || UpdateTrace) {
-
-        // rewrite the incomplete test case with full trace and completed state status
-        ofstream info;
-        info.open(ReplayTest);
-        if (info.is_open()) {
-
-          root["status"] = (unsigned) state->status;
-          string message = root["message"].asString();
-          if (!message.empty())
-            message += "; ";
-          message = +"completed by brt-rply";
-          root["message"] = message;
-
-          string indentation;
-          if (IndentJson)
-            indentation = "  ";
-
-          Json::StreamWriterBuilder builder;
-          builder["commentStyle"] = "None";
-          builder["indentation"] = indentation;
-          unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-          writer->write(root, &info);
-          info << endl;
-          if (test.status == StateStatus::Incomplete) {
-            outs() << "completed status";
-          } else {
-            outs() << "updated status";
-          }
-        } else {
-          outs() << "error writing test case";
-        }
-      } else {
-        outs() << "differing status";
-      }
-    } else {
-      outs() << "ok";
-    }
-
-    // count fn markers in the trace
-    for (unsigned mark : state->trace) {
-      counters[mark/1000] += 1;
-    }
   }
   outs() << '\n';
 

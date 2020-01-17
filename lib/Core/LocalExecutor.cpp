@@ -1833,6 +1833,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (fn != nullptr) {
         string fn_name = fn->getName();
 
+        if (fn_name == "exit") {
+          outs() << "break";
+        }
+
         if (break_fns.find(fn) != break_fns.end()) {
           outs() << "break at " << fn->getName() << '\n';
 #ifdef _DEBUG
@@ -2141,7 +2145,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               type = v->getType();
             }
             // RLR TODO: need offset now to be more precise
-            expandLazyAllocation(state, ptr, i->getType(), ki, name, false);
+            expandLazyAllocation(state, ptr, type, ki, name, false);
             return;
           }
         }
