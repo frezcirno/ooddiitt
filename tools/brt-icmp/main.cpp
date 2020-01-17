@@ -412,7 +412,7 @@ int main(int argc, char **argv, char **envp) {
   llvm::error_code ec;
   vector<ExecutionState*> ex_states;
 
-  outs() << ReplayTest << ":" << test.entry_fn << ": ";
+  outs() << ReplayTest << "::" << test.entry_fn << "| ";
   if (!EntryPoint.empty() && EntryPoint != test.entry_fn) {
     outs() << "skipped\n";
     return 0;
@@ -457,7 +457,7 @@ int main(int argc, char **argv, char **envp) {
 
   version1.kmodule = interpreter1->getKModule();
   if (ex_states.empty()) {
-    if (test.status == StateStatus::Pending || test.status == StateStatus::Incomplete) {
+    if (test.status == StateStatus::Incomplete) {
       outs() << "N/A";
     } else {
       outs() << "Failed to replay";
@@ -506,18 +506,29 @@ int main(int argc, char **argv, char **envp) {
     version2.state = ex_states.front();
     ex_states.clear();
 
-    if (!CompareExecutions(version1, version2, test.is_main())) {
-      outs() << ", behavioral discrepancy";
-      exit_code = 1;
+    deque<string> diffs;
+    bool is_same = false;
+
+    if (test.is_main()) {
+      is_same = CompareExternalExecutions(version1, version2, diffs);
     } else {
-      outs() << "ok";
+      is_same = CompareInternalExecutions(version1, version2, diffs);
+    }
+
+    if (is_same) {
+      outs() << "ok\n";
+    } else {
+      outs() << "differs\n";
+      for (const auto &diff : diffs) {
+        outs() << "  * " << diff << '\n';
+      }
+      exit_code = 1;
     }
 
     delete interpreter2;
     BufferPtr2.take();
     delete handler2;
   }
-  outs() << '\n';
 
   delete interpreter1;
   BufferPtr1.take();

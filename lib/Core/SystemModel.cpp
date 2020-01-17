@@ -185,6 +185,8 @@ bool SystemModel::ExecuteRead(ExecutionState &state, std::vector<ref<Expr> >&arg
               wos->write8(offset, ch);
               ret = 1;
             }
+          } else {
+            state.eof_counter += 1;
           }
         }
       }

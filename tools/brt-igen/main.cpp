@@ -287,7 +287,7 @@ ostream *InputGenKleeHandler::openTestCaseFile(const string &prefix, unsigned te
 string InputGenKleeHandler::toDataString(const vector<unsigned char> &data, unsigned max) const {
 
   unsigned counter = 0;
-  stringstream bytes;
+  ostringstream bytes;
   for (auto itrData = data.begin(), endData = data.end(); (itrData != endData) && (counter++ < max); ++itrData) {
 
     unsigned char hi = (unsigned char) (*itrData >> 4);

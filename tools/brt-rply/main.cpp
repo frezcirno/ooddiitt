@@ -408,6 +408,20 @@ bool compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_tr
   return false;
 }
 
+string to_string(const vector<unsigned char> &buffer, unsigned max = 256) {
+  unsigned counter = 0;
+  ostringstream bytes;
+  for (auto itr = buffer.begin(), end = buffer.end(); (itr != end) && (counter++ < max); ++itr) {
+
+    unsigned char hi = (unsigned char) (*itr >> 4);
+    unsigned char low = (unsigned char) (*itr & 0x0F);
+    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+    bytes << hi << low;
+  }
+  return bytes.str();
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -491,7 +505,7 @@ int main(int argc, char **argv, char **envp) {
   vector<unsigned char> stderr_capture;
   map<unsigned,unsigned> counters;
 
-  outs() << ReplayTest << ": ";
+  outs() << ReplayTest << "::" << test.entry_fn << "| ";
 
   if (ex_states.empty()) {
     errs() << "Failed to replay";
@@ -519,14 +533,14 @@ int main(int argc, char **argv, char **envp) {
     }
 
     if (test.status != state->status) {
-      outs() << "status differs, test: " << to_string(test.status) << ", state: ", to_string(state->status);
+      outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
       exit_code = 1;
     } else {
       outs() << "ok";
     }
 
     if (state->status != StateStatus::Completed) {
-      outs() << "(" << state->terminationMessage << ") ";
+      outs() << " (" << state->terminationMessage << ')';
     }
 
   }
@@ -535,37 +549,35 @@ int main(int argc, char **argv, char **envp) {
   if (Verbose) {
     // display captured output
     if (!stdout_capture.empty()) {
-      string output(stdout_capture.begin(), stdout_capture.end());
-      outs() << "stdout:\n" << output << '\n';
+      outs() << "stdout: " << to_string(stdout_capture, 64) << '\n';
     }
     if (!stderr_capture.empty()) {
-      string output(stderr_capture.begin(), stderr_capture.end());
-      outs() << "stderr:\n" << output << '\n';
+      outs() << "stdout: " << to_string(stderr_capture, 64) << '\n';
     }
 
     // build an inverse map of fnIDs
-    KModule *kmodule = interpreter->getKModule();
-    Module *module = kmodule->module;
-    map<unsigned,string> fnIDtoName;
-    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-      Function *fn = itr;
-      unsigned fnID = kmodule->getFunctionID(fn);
-      if (fnID != 0) {
-        fnIDtoName[fnID] = fn->getName().str();
-      }
-    }
-
-    // display a sorted list of trace statements from each block.
-    // this can be used to determine when a libc function should be modeled for performance.
-    vector<pair<unsigned,unsigned> >fn_counter;
-    fn_counter.reserve(counters.size());
-    for (auto &itr : counters) {
-      fn_counter.emplace_back(make_pair(itr.second, itr.first));
-    }
-    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
-    for (const auto &pr : fn_counter) {
-      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
-    }
+//    KModule *kmodule = interpreter->getKModule();
+//    Module *module = kmodule->module;
+//    map<unsigned,string> fnIDtoName;
+//    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+//      Function *fn = itr;
+//      unsigned fnID = kmodule->getFunctionID(fn);
+//      if (fnID != 0) {
+//        fnIDtoName[fnID] = fn->getName().str();
+//      }
+//    }
+//
+//    // display a sorted list of trace statements from each block.
+//    // this can be used to determine when a libc function should be modeled for performance.
+//    vector<pair<unsigned,unsigned> >fn_counter;
+//    fn_counter.reserve(counters.size());
+//    for (auto &itr : counters) {
+//      fn_counter.emplace_back(make_pair(itr.second, itr.first));
+//    }
+//    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
+//    for (const auto &pr : fn_counter) {
+//      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
+//    }
   }
 
   ex_states.clear();

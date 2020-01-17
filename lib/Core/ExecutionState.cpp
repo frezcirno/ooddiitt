@@ -100,7 +100,8 @@ ExecutionState::ExecutionState() :
     unconBranchCounter(0),
     branched_at(nullptr),
     stdin_offset(0),
-    stdin_closed(false)
+    stdin_closed(false),
+    eof_counter(0)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -148,7 +149,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     stderr_capture(state.stderr_capture),
     stdin_offset(state.stdin_offset),
     stdin_closed(state.stdin_closed),
-    stdin_buffer(state.stdin_buffer)
+    stdin_buffer(state.stdin_buffer),
+    eof_counter(state.eof_counter)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -220,7 +222,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     stderr_capture(state.stderr_capture),
     stdin_offset(state.stdin_offset),
     stdin_closed(state.stdin_closed),
-    stdin_buffer(state.stdin_buffer)
+    stdin_buffer(state.stdin_buffer),
+    eof_counter(state.eof_counter)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

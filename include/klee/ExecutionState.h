@@ -274,6 +274,7 @@ public:
   unsigned stdin_offset;
   bool stdin_closed;
   std::vector<unsigned char> stdin_buffer;
+  unsigned eof_counter;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
