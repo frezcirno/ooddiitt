@@ -42,7 +42,8 @@ namespace klee {
 
   void enumModuleFunctions(llvm::Module *m, std::set<llvm::Function*> &fns);
   void enumModuleGlobals(llvm::Module *m, std::set<llvm::GlobalVariable*> &gbs);
-  void rewriteFunctionPointers(llvm::Module *m, std::set<llvm::Function*> &fns);
+  void enumModuleVisibleDefines(llvm::Module *m, std::set<llvm::Function*> &fns, std::set<llvm::GlobalVariable*> &gbs);
+  llvm::Module *rewriteFunctionPointers(llvm::Module *m, std::set<llvm::Function*> &fns);
   bool isPrepared(llvm::Module *m);
   void modify_clib(llvm::Module *m);
 }

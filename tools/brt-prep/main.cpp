@@ -59,10 +59,10 @@ using namespace std;
 
 namespace {
 
-  cl::opt<string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+  cl::opt<string> InputFile1(cl::desc("<original input bytecode>"), cl::Positional, cl::Required);
+  cl::opt<string> InputFile2(cl::desc("<modified input bytecode>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-//  cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -82,10 +82,12 @@ namespace {
        cl::init(UcLibc));
 
 
+#if 0 == 1
   cl::opt<bool>
   WithPOSIXRuntime("posix-runtime",
 		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
 		cl::init(false));
+#endif
 
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
@@ -119,8 +121,6 @@ public:
   llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
   llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
   string getOutputBitCodeFilename() { return getOutputFilename(md_name + ".bc"); }
-
-  static string getRunTimeLibraryPath(const char *argv0);
 };
 
 PrepKleeHandler::PrepKleeHandler(const string &_md_name)
@@ -181,7 +181,12 @@ llvm::raw_fd_ostream *PrepKleeHandler::openOutputFile(const string &filename, bo
   return f;
 }
 
-string PrepKleeHandler::getRunTimeLibraryPath(const char *argv0) {
+//===----------------------------------------------------------------------===//
+// main Driver function
+//
+
+
+string getRunTimeLibraryPath(const char *argv0) {
   // allow specifying the path to the runtime library
   const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
   if (env) {
@@ -195,9 +200,7 @@ string PrepKleeHandler::getRunTimeLibraryPath(const char *argv0) {
   // Take any function from the execution binary but not main (as not allowed by
   // C++ standard)
   void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(
-      llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-      );
+  SmallString<128> toolRoot(llvm::sys::fs::getMainExecutable(argv0, MainExecAddr));
 
   // Strip off executable so we have a directory path
   llvm::sys::path::remove_filename(toolRoot);
@@ -206,31 +209,22 @@ string PrepKleeHandler::getRunTimeLibraryPath(const char *argv0) {
 
   if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
       strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR ))
-  {
+      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR )) {
     KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
                          "Using installed KLEE library runtime: ");
     libDir = toolRoot.str().substr(0,
                toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
     llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  }
-  else
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using build directory KLEE library runtime :");
+  } else {
+    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() << "Using build directory KLEE library runtime :");
     libDir = KLEE_DIR;
     llvm::sys::path::append(libDir,RUNTIME_CONFIGURATION);
     llvm::sys::path::append(libDir,"lib");
   }
 
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                       libDir.c_str() << "\n");
+  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() << libDir.c_str() << "\n");
   return libDir.str();
 }
-
-//===----------------------------------------------------------------------===//
-// main Driver function
-//
 
 static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
@@ -301,9 +295,6 @@ void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
   }
 }
 
-static Interpreter *theInterpreter = nullptr;
-static int exit_code = 0;
-
 #ifndef SUPPORT_KLEE_UCLIBC
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
   klee_error("invalid libc, no uclibc support!\n");
@@ -354,6 +345,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // force import of __uClibc_main
   mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), true));
 
+#if 0 == 1
   // force various imports
   if (WithPOSIXRuntime) {
     LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
@@ -375,6 +367,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
                                     PointerType::getUnqual(i8Ty),
                                     NULL);
   }
+#endif
 
   f = mainModule->getFunction("__ctype_get_mb_cur_max");
   if (f) f->setName("_stdlib_mb_cur_max");
@@ -441,100 +434,58 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #endif
 
-int main(int argc, char **argv, char **envp) {
 
-  atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
-  llvm::InitializeNativeTarget();
-
-  parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
-  exit_code = 0;
-
-  // write out command line info, for reference
-  if (!outs().is_displayed()) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-    }
-  }
+Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
   string ErrorMsg;
-  LLVMContext ctx;
-  Module *mainModule = nullptr;
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
+  auto *ctx = new LLVMContext();
+  Module *result = nullptr;
   OwningPtr<MemoryBuffer> BufferPtr;
-  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
   if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ec.message().c_str());
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
   }
 
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
-
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
+  result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (result != nullptr) {
+    if (result->MaterializeAllPermanently(&ErrorMsg)) {
+      delete result;
+      result = nullptr;
     }
   }
-  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-#else
-  auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
-  if (!Buffer)
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               Buffer.getError().message().c_str());
+  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  BufferPtr.take();
+  return result;
+}
 
-  auto mainModuleOrError = getLazyBitcodeModule(Buffer->get(), ctx);
-
-  if (!mainModuleOrError) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               mainModuleOrError.getError().message().c_str());
-  }
-  else {
-    // The module has taken ownership of the MemoryBuffer so release it
-    // from the unique_ptr
-    Buffer->release();
-  }
-
-  mainModule = *mainModuleOrError;
-  if (auto ec = mainModule->materializeAllPermanently()) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
-  }
-#endif
-
-  set<Function*> original_fns;
-  enumModuleFunctions(mainModule, original_fns);
-  set<GlobalVariable*> original_globals;
-  enumModuleGlobals(mainModule, original_globals);
-
-//  rewriteFunctionPointers(mainModule, original_fns);
-
-  string LibraryDir = PrepKleeHandler::getRunTimeLibraryPath(argv[0]);
+Module *LinkModule(Module *module, const string &libDir) {
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
     break;
 
-  // RLR TODO: uclibc is 64-bit only
+    // RLR TODO: uclibc is 64-bit only
   case KleeLibc: {
     // FIXME: Find a reasonable solution for this.
-    SmallString<128> Path(LibraryDir);
+    SmallString<128> Path(libDir);
     llvm::sys::path::append(Path, "klee-libc.bc");
-    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
-    assert(mainModule && "unable to link with klee-libc");
+    module = klee::linkWithLibrary(module, Path.c_str());
+    assert(module && "unable to link with klee-libc");
     break;
   }
 
   case UcLibc:
-    mainModule = linkWithUclibc(mainModule, LibraryDir);
+    module = linkWithUclibc(module, libDir);
     break;
   }
 
+#if 0 == 1
   if (WithPOSIXRuntime) {
     SmallString<128> Path(LibraryDir);
 
     string posixLib = "libkleeRuntimePOSIX";
-    Module::PointerSize width = mainModule->getPointerSize();
+    Module::PointerSize width = module->getPointerSize();
     if (width == Module::PointerSize::Pointer32) {
       posixLib += "-32";
     } else if (width == Module::PointerSize::Pointer64) {
@@ -544,63 +495,105 @@ int main(int argc, char **argv, char **envp) {
 
     llvm::sys::path::append(Path, posixLib);
     outs() << "NOTE: Using model: " << Path.c_str() << '\n';
-    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
-    assert(mainModule && "unable to link with simple model");
+    module = klee::linkWithLibrary(module, Path.c_str());
+    assert(module && "unable to link with simple model");
   }
+#endif
 
-  vector<string>::iterator libs_it;
-  vector<string>::iterator libs_ie;
-  for (libs_it = LinkLibraries.begin(), libs_ie = LinkLibraries.end();
-          libs_it != libs_ie; ++libs_it) {
-    const char * libFilename = libs_it->c_str();
+  for (auto itr = LinkLibraries.begin(), end = LinkLibraries.end(); itr != end; ++itr) {
+    const char * libFilename = itr->c_str();
     outs() << "Linking in library: " << libFilename << '\n';
-    mainModule = klee::linkWithLibrary(mainModule, libFilename);
+    module = klee::linkWithLibrary(module, libFilename);
   }
-  // Get the desired main function.  klee_main initializes uClibc
-  // locale and other data and then calls main.
+  return module;
+}
 
-  PrepKleeHandler *handler = new PrepKleeHandler(mainModule->getModuleIdentifier());
+Module *PrepareModule(const string &filename, const string& libDir, TraceType ttype) {
 
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = ExecModeID::prep;
-  IOpts.verbose = Verbose;
+  if (Module *module = LoadModule(filename)) {
 
+    set<Function*> module_fns;
+    set<GlobalVariable*> module_globals;
+    enumModuleVisibleDefines(module, module_fns, module_globals);
+
+    module = rewriteFunctionPointers(module, module_fns);
+    module = LinkModule(module, libDir);
+
+    PrepKleeHandler *handler = new PrepKleeHandler(module->getModuleIdentifier());
+
+    Interpreter::InterpreterOptions IOpts;
+    IOpts.mode = ExecModeID::prep;
+    IOpts.verbose = Verbose;
+    IOpts.trace = ttype;
+
+    Interpreter *interpreter = Interpreter::createLocal(module->getContext(), IOpts, handler);
+    handler->setInterpreter(interpreter);
+
+    Interpreter::ModuleOptions MOpts;
+
+    MOpts.LibraryDir = libDir;
+    MOpts.Optimize = OptimizeModule;
+    MOpts.CheckDivZero = CheckDivZero;
+    MOpts.CheckOvershift = CheckOvershift;
+    MOpts.user_fns = &module_fns;
+    MOpts.user_gbs = &module_globals;
+
+    interpreter->bindModule(module, &MOpts);
+    externalsAndGlobalsCheck(module, interpreter);
+
+    // RLR TODO: one of these may try to delete the module
+    delete interpreter;
+    delete handler;
+
+    return module;
+  }
+  return nullptr;
+}
+
+bool SaveModule(Module *module, const string &outDir) {
+
+  boost::filesystem::path path(outDir);
+  string pathname = (path /= module->getModuleIdentifier()).string() + ".bc";
+
+  string fs_err;
+  sys::fs::OpenFlags fs_options = sys::fs::F_Binary | sys::fs::F_Excl;
+  raw_fd_ostream outFile(pathname.c_str(), fs_err, fs_options);
+  if (fs_err.empty()) {
+    outs() << "writing " << pathname << '\n';
+    WriteBitcodeToFile(module, outFile);
+  } else {
+    outs() << "failed to open " << pathname << '\n';
+  }
+}
+
+int main(int argc, char **argv, char **envp) {
+
+  atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
+  llvm::InitializeNativeTarget();
+
+  parseArguments(argc, argv);
+  sys::PrintStackTraceOnErrorSignal();
+  int exit_code = 0;
+
+  string libDir = getRunTimeLibraryPath(argv[0]);
+  TraceType ttype;
   if (TraceNone) {
-    IOpts.trace = TraceType::none;
+    ttype = TraceType::none;
   } else if (TraceBBlocks) {
-    IOpts.trace = TraceType::bblocks;
+    ttype = TraceType::bblocks;
   } else if (TraceAssembly) {
-    IOpts.trace = TraceType::assembly;
+    ttype = TraceType::assembly;
   } else if (TraceStatements) {
-    IOpts.trace = TraceType::statements;
+    ttype = TraceType::statements;
   }
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
-  handler->setInterpreter(theInterpreter);
-
-  Interpreter::ModuleOptions MOpts;
-
-  MOpts.LibraryDir = LibraryDir;
-  MOpts.Optimize = OptimizeModule;
-  MOpts.CheckDivZero = CheckDivZero;
-  MOpts.CheckOvershift = CheckOvershift;
-  MOpts.user_fns = &original_fns;
-  MOpts.user_gbs = &original_globals;
-
-  theInterpreter->bindModule(mainModule, &MOpts);
-
-  externalsAndGlobalsCheck(mainModule, theInterpreter);
-
-  llvm::raw_fd_ostream *os = handler->openOutputBitCode();
-  if (os != nullptr) {
-    outs() << "writing " << handler->getOutputBitCodeFilename() << '\n';
-    WriteBitcodeToFile(theInterpreter->getKModule()->module, *os);
-    delete os;
+  Module *module1 = PrepareModule(InputFile1, libDir, ttype);
+  SaveModule(module1, Output);
+  Module *module2 = nullptr;
+  if (!InputFile2.empty()) {
+    module2 = PrepareModule(InputFile2, libDir, ttype);
+    SaveModule(module2, Output);
   }
-
-  delete theInterpreter;
-  BufferPtr.take();
-  delete handler;
 
   return exit_code;
 }

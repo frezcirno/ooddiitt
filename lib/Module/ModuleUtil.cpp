@@ -503,11 +503,17 @@ void klee::enumModuleGlobals(Module *m, set<GlobalVariable*> &gbs) {
   }
 }
 
+void klee::enumModuleVisibleDefines(Module *m, set<Function*> &fns, set<GlobalVariable*> &gbs) {
+
+  enumModuleFunctions(m, fns);
+  enumModuleGlobals(m, gbs);
+}
+
 // RLR TODO: this is a hack that might need rework
 static map<string,string> rewrite_fn_pointers = { {"i64 (i8*, i64)*", "hash_int"}, {"i1 (i8*, i8*)*", "hash_compare_ints"},  {"void (i8*)*", "null"} };
 
 
-void klee::rewriteFunctionPointers(llvm::Module *m, set<Function*> &fns) {
+Module *klee::rewriteFunctionPointers(Module *m, set<Function*> &fns) {
 
   map<string,Function*> rewrite;
   for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
@@ -583,6 +589,7 @@ void klee::rewriteFunctionPointers(llvm::Module *m, set<Function*> &fns) {
       }
     }
   }
+  return m;
 }
 
 bool klee::isPrepared(Module *m) {
