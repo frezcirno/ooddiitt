@@ -12,10 +12,12 @@
 
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/Module.h"
 
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
 #include "klee/Internal/System/Memory.h"
+#include "klee/Internal/Support/ModuleUtil.h"
 
 #include <map>
 #include <set>
@@ -146,6 +148,11 @@ namespace klee {
   public:
     KModule(llvm::Module *_module);
     ~KModule();
+
+    llvm::Module *detachModule() { llvm::Module *m = module; module = nullptr; return m; }
+    bool isPrepared() const { return module != nullptr && klee::isPrepared(module); }
+    std::string getModuleIdentifier() const
+      { std::string result; if (module) result = module->getModuleIdentifier(); return result; }
 
     /// Initialize local data structures.
     //

@@ -17,7 +17,6 @@
 #include "klee/Internal/Module/Cell.h"
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/InstructionInfoTable.h"
-#include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/System/Memory.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
@@ -88,6 +87,7 @@ KModule::~KModule() {
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) delete *it;
   for (auto it=constantMap.begin(), itE=constantMap.end(); it!=itE;++it) delete it->second;
   delete targetData;
+  delete module;
 }
 
 /***/

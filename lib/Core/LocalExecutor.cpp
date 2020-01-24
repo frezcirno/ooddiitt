@@ -883,13 +883,9 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
-void LocalExecutor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
+void LocalExecutor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
 
-  assert(kmodule == nullptr);
-
-  // RLR TODO: remove kmodule handling from here
-
-  Executor::bindModule(module, MOpts);
+  Executor::bindModule(kmodule, MOpts);
   specialFunctionHandler->setLocalExecutor(this);
   sysModel = new SystemModel(this, optsModel);
 

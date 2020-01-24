@@ -201,7 +201,7 @@ public:
   ///
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
-  virtual void bindModule(llvm::Module *module, const ModuleOptions *MOpts = nullptr) = 0;
+  virtual void bindModule(KModule *kmodule, const ModuleOptions *MOpts = nullptr) = 0;
 
 
   // supply a tree stream writer which the interpreter will use

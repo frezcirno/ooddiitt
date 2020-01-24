@@ -103,89 +103,9 @@ namespace {
   cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<bool> OutputCreate("output-create", cl::desc("remove output directory before re-creating"));
   cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
 }
 
-/***/
-
-class PrepKleeHandler : public InterpreterHandler {
-private:
-  string indentation;
-  boost::filesystem::path outputDirectory;
-  string md_name;
-
-public:
-  PrepKleeHandler(const string &_md_name);
-  ~PrepKleeHandler();
-
-  void setInterpreter(Interpreter *i) override;
-
-  string getOutputFilename(const string &filename) override;
-  string getModuleName() const override { return md_name; }
-  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
-  llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
-  llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
-  string getOutputBitCodeFilename() { return getOutputFilename(md_name + ".bc"); }
-};
-
-PrepKleeHandler::PrepKleeHandler(const string &_md_name)
-  : indentation(""),
-    outputDirectory(Output) {
-
-  boost::system::error_code ec;
-  if (boost::filesystem::exists(outputDirectory)) {
-    if (OutputCreate) {
-
-      // create an empty directory
-      boost::filesystem::remove_all(outputDirectory, ec);
-      boost::filesystem::create_directories(outputDirectory, ec);
-    }
-  } else {
-    boost::filesystem::create_directories(outputDirectory, ec);
-  }
-
-  md_name = boost::filesystem::path(_md_name).stem().string();
-  if (IndentJson) indentation = "  ";
-}
-
-PrepKleeHandler::~PrepKleeHandler() {
-
-}
-
-void PrepKleeHandler::setInterpreter(Interpreter *i) {
-
-  InterpreterHandler::setInterpreter(i);
-}
-
-string PrepKleeHandler::getOutputFilename(const string &filename) {
-
-  boost::filesystem::path file = outputDirectory;
-  file /= filename;
-  return file.string();
-}
-
-llvm::raw_fd_ostream *PrepKleeHandler::openOutputFile(const string &filename, bool overwrite) {
-  llvm::raw_fd_ostream *f;
-  string Error;
-  string path = getOutputFilename(filename);
-  llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (overwrite) {
-    fs_options |= llvm::sys::fs::F_Excl;
-  }
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
-  if (!Error.empty()) {
-    if (!boost::algorithm::ends_with(Error, "File exists")) {
-      klee_warning("error opening file \"%s\".  KLEE may have run out of file "
-                   "descriptors: try to increase the maximum number of open file "
-                   "descriptors by using ulimit (%s).",
-                   filename.c_str(), Error.c_str());
-    }
-    delete f;
-    f = nullptr;
-  }
-  return f;
-}
 
 //===----------------------------------------------------------------------===//
 // main Driver function
@@ -553,16 +473,15 @@ KModule *PrepareModule(const string &filename, const string& libDir, TraceType t
 bool SaveModule(KModule *kmod, const string &outDir) {
 
   bool result = false;
-  Module *module = kmod->module;
-  assert(module != nullptr);
+  assert(kmod->module != nullptr);
   boost::filesystem::path path(outDir);
-  string pathname = (path /= module->getModuleIdentifier()).string();
+  string pathname = (path /= kmod->getModuleIdentifier()).string();
 
   string fs_err;
   raw_fd_ostream outFile(pathname.c_str(), fs_err, sys::fs::F_Binary);
   if (fs_err.empty()) {
     outs() << "writing " << pathname << '\n';
-    WriteBitcodeToFile(module, outFile);
+    WriteBitcodeToFile(kmod->module, outFile);
     result = true;
   } else {
     outs() << fs_err << '\n';
@@ -584,6 +503,11 @@ int main(int argc, char **argv, char **envp) {
 
   string libDir = getRunTimeLibraryPath(argv[0]);
 
+  boost::filesystem::path outPath(Output);
+  if (!boost::filesystem::exists(outPath)) {
+    boost::filesystem::create_directories(outPath);
+  }
+
   int exit_code = 1;
   if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT)) {
     if (SaveModule(kmod1, Output)) {
@@ -596,9 +520,11 @@ int main(int argc, char **argv, char **envp) {
           SaveModule(kmod2, Output);
           // two for two
           exit_code = 0;
+          delete kmod2;
         }
       }
     }
+    delete kmod1;
   }
   return exit_code;
 }

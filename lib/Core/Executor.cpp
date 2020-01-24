@@ -384,16 +384,10 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
 }
 
 
-void Executor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
+void Executor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
 
-  assert(!kmodule && module && "can only register one module"); // XXX gross
-
-  // RLR TODO: remove kmodule handling from here
-  kmodule = new KModule(module);
-
-  if (!isPrepared(module)) {
-    assert(MOpts != nullptr);
-    kmodule->transform(*MOpts, interpreterOpts.trace);
+  if (!kmodule->isPrepared()) {
+    klee_error("%s module unprepared", kmodule->getModuleIdentifier().c_str());
   }
 
   // Initialize the context, if not already
@@ -429,7 +423,6 @@ Executor::~Executor() {
   delete specialFunctionHandler;
   delete statsTracker;
   delete solver;
-  delete kmodule;
   while(!timers.empty()) {
     delete timers.back();
     timers.pop_back();
