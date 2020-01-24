@@ -493,12 +493,14 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 
 extern void *__dso_handle __attribute__ ((__weak__));
 
+#if 0 == 1
 void Executor::GetModeledExternals(std::set<std::string> &names) const {
 
   if (specialFunctionHandler != nullptr) {
     specialFunctionHandler->getSpecialFns(names);
   }
 }
+#endif
 
 void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs) {
   Module *m = kmodule->module;

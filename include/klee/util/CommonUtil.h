@@ -7,6 +7,10 @@ typedef std::chrono::system_clock sys_clock;
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
 
+namespace llvm {
+  class Value;
+}
+
 namespace klee {
 
 enum class TerminateReason {
@@ -27,10 +31,9 @@ enum class TerminateReason {
 inline std::string to_string(TerminateReason s) {
   static const char *strings[] = {"abort", "assert", "exec", "external", "free", "model", "overflow",
                                   "ptr", "readonly", "report_error", "user", "unhandled"};
-  unsigned idx = (unsigned) s;
-  if (idx >= countof(strings))
+  if ((unsigned) s >= countof(strings))
     return "";
-  return strings[idx];
+  return strings[(unsigned) s];
 }
 
 enum class StateStatus {
@@ -48,10 +51,9 @@ enum class StateStatus {
 inline std::string to_string(StateStatus s) {
   static const char *strings[] = {"invalid", "pending", "completed", "error", "faulted",
                                   "incomplete", "decimated", "discarded", "snapshot"};
-  unsigned idx = (unsigned) s;
-  if (idx >= countof(strings))
+  if ((unsigned) s >= countof(strings))
     return "";
-  return strings[idx];
+  return strings[(unsigned) s];
 }
 
 enum class MemKind {
@@ -67,10 +69,9 @@ enum class MemKind {
 
 inline std::string to_string(MemKind k) {
   static const char *strings[] = {"invalid", "external", "global", "param", "alloca", "heap", "output", "lazy"};
-  unsigned idx = (unsigned) k;
-  if (idx >= countof(strings))
+  if ((unsigned) k >= countof(strings))
     return "";
-  return strings[idx];
+  return strings[(unsigned) k];
 }
 
 enum class TraceType {
@@ -83,15 +84,33 @@ enum class TraceType {
 
 inline std::string to_string(TraceType t) {
   static const char *strings[] = {"invalid", "none", "bblocks", "assembly", "statements"};
-  unsigned idx = (unsigned) t;
-  if (idx >= countof(strings))
+  if ((unsigned) t >= countof(strings))
     return "";
-  return strings[idx];
+  return strings[(unsigned) t];
 }
+
+enum class MarkScope {
+  invalid,
+  none,
+  module,
+  all
+};
+
+inline std::string to_string(MarkScope m) {
+  static const char *strings[] = {"invalid", "none", "module", "all"};
+  if ((unsigned) m >= countof(strings))
+    return "";
+  return strings[(unsigned) m];
+}
+
+
+void filterHandledFunctions(std::set<const llvm::Value*> &fns);
+void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 
 sys_clock::time_point to_time_point(const std::string &str);
 std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
+
 
 #ifdef _DEBUG
 bool EnableMemDebuggingChecks();

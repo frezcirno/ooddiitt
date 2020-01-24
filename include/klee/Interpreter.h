@@ -94,7 +94,7 @@ public:
   virtual void processTestCase(ExecutionState &state) {};
   virtual bool resetWatchDogTimer() const { return false; }
 
-  std::string flags_to_string(UnconstraintFlagsT flags) const {
+  std::string to_string(UnconstraintFlagsT flags) const {
 
     const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
         std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
@@ -123,15 +123,11 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
-    std::set<llvm::Function*> *user_fns;
-    std::set<llvm::GlobalVariable*> *user_gbs;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
-        CheckOvershift(false),
-        user_fns(nullptr),
-        user_gbs(nullptr)
+        CheckOvershift(false)
       {}
   };
 
@@ -259,9 +255,7 @@ public:
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }
   virtual TraceType getTraceType() const { return TraceType::invalid; }
-
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
-  virtual void GetModeledExternals(std::set<std::string> &names) const {}
 };
 
 } // End klee namespace

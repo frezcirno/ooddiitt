@@ -161,6 +161,33 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
 #undef add
 };
 
+// static
+void SpecialFunctionHandler::filterHandledFunctions(std::set<const llvm::Value*> &fns) {
+
+  // gather a list of functions handled here
+  std::set<std::string> names;
+  for (unsigned idx = 0, end = sizeof(handlerInfo)/sizeof(handlerInfo[0]); idx != end; ++idx) {
+    names.insert(handlerInfo[idx].name);
+  }
+  // remove functions defined here
+  auto itr = fns.begin(), end = fns.end();
+  while (itr != end) {
+    const llvm::Value *val = *itr;
+    const auto *fn = dyn_cast<const llvm::Function>(val);
+    if (fn != nullptr && fn->hasName() && names.count(fn->getName().str())) {
+      itr = fns.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
+}
+
+// static
+void SpecialFunctionHandler::filterHandledGlobals(std::set<const llvm::Value*> &gbs) {
+  // none
+}
+
+
 SpecialFunctionHandler::const_iterator SpecialFunctionHandler::begin() {
   return SpecialFunctionHandler::const_iterator(handlerInfo);
 }

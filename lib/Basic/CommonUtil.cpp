@@ -3,7 +3,12 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <set>
 #include "klee/util/CommonUtil.h"
+#include "../Core/SpecialFunctionHandler.h"
+#include "../Core/SystemModel.h"
+#include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 
 using namespace std;
 
@@ -29,6 +34,18 @@ string currentISO8601TimeUTC() {
   return to_string(sys_clock::now());
 }
 
+
+void filterHandledFunctions(set<const llvm::Value*> &fns) {
+
+  SpecialFunctionHandler::filterHandledFunctions(fns);
+  SystemModel::filterHandledFunctions(fns);
+}
+
+void filterHandledGlobals(set<const llvm::Value*> &gbs) {
+
+  SpecialFunctionHandler::filterHandledGlobals(gbs);
+  SystemModel::filterHandledGlobals(gbs);
+}
 
 #ifdef _DEBUG
 
@@ -62,6 +79,7 @@ bool EnableMemDebuggingChecks() {
 
   atexit(DisableMemDebuggingChecks);
 //  return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
+  return true;
 }
 
 #endif // _DEBUG

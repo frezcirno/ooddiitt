@@ -28,7 +28,7 @@ bool FnMarkerPass::doInitialization(llvm::Module &module) {
 bool FnMarkerPass::runOnFunction(Function &fn) {
 
   LLVMContext &ctx = fn.getContext();
-  if (fn.hasName() && skipFns.count(fn.getName().str()) == 0) {
+  if (fns.find(&fn) != fns.end()) {
 
     unsigned next_bbID = 1;
 

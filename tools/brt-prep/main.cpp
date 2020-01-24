@@ -19,7 +19,6 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
-#include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/KInstruction.h"
 
 #include "llvm/IR/Constants.h"
@@ -43,9 +42,6 @@
 #include "llvm/Support/system_error.h"
 #include "json/json.h"
 
-#include <dirent.h>
-#include <unistd.h>
-
 #include <string>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
@@ -56,6 +52,8 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+namespace alg = boost::algorithm;
+namespace fs = boost::filesystem;
 
 namespace {
 
@@ -63,16 +61,22 @@ namespace {
   cl::opt<string> InputFile2(cl::desc("<modified input bytecode>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<TraceType>
-    TraceT("trace",
-      cl::desc("Choose libc version (none by default)."),
-      cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
-                 clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
-                 clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
-                 clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
-                 clEnumValEnd),
-      cl::init(TraceType::bblocks));
+  cl::opt<TraceType> TraceT("trace",
+    cl::desc("Choose the type of trace (default=marked basic blocks"),
+    cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+               clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+               clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+               clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+               clEnumValEnd),
+    cl::init(TraceType::bblocks));
 
+  cl::opt<MarkScope> MarkS("mark",
+    cl::desc("Choose the scope for function marking (default=module"),
+    cl::values(clEnumValN(MarkScope::none, "none", "do not mark functions"),
+    clEnumValN(MarkScope::module, "module", "add IR markers to module functions"),
+    clEnumValN(MarkScope::all, "all", "add IR markers to all functions"),
+    clEnumValEnd),
+    cl::init(MarkScope::module));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -82,14 +86,13 @@ namespace {
     NoLibc, KleeLibc, UcLibc
   };
 
-  cl::opt<LibcType>
-    Libc("libc",
-      cl::desc("Choose libc version (none by default)."),
-      cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
-                 clEnumValN(KleeLibc, "klee", "Link in klee libc"),
-	             clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
-	             clEnumValEnd),
-      cl::init(UcLibc));
+  cl::opt<LibcType> Libc("libc",
+   cl::desc("Choose libc version (none by default)."),
+   cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
+     clEnumValN(KleeLibc, "klee", "Link in klee libc"),
+     clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
+     clEnumValEnd),
+   cl::init(UcLibc));
 
 
 #if 0 == 1
@@ -171,55 +174,80 @@ bool has_inline_asm(const Function *fn) {
   return false;
 }
 
+void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &msg) {
+
+  vector<string> names;
+  names.reserve(vals.size());
+  for (auto val : vals) {
+    if (val->hasName()) {
+      names.push_back(val->getName().str());
+    } else {
+      names.push_back("#unnamed");
+    }
+  }
+  ostringstream ss;
+  ss << msg;
+  if (names.size() > 1) {
+    ss << 's';
+  }
+  klee_warning("%s: %s", ss.str().c_str(), alg::join(names, ", ").c_str());
+}
+
 void externalsAndGlobalsCheck(const Module *m) {
 
-  static set<string> modeledExternals;
-  // RLR TODO: check these warnings
-//  interpreter->GetModeledExternals(modeledExternals);
-  modeledExternals.insert("__dso_handle");
-
-  set<string> undefinedFunctions;
-  set<string> undefinedGlobals;
+  // get a set of undefined symbols
+  set<const Value*> undefined_fns;
+  set<const Value*> defined_fns;
+  set<const Value*> undefined_gbs;
+  set<const Value*> defined_gbs;
+  set<const Value*> inline_assm_fns;
 
   // get a list of functions declared, but not defined
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
     const Function *fn = *&itr;
-    string name = fn->getName();
     if (fn->isDeclaration() && !fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
-      if (modeledExternals.find(name) == modeledExternals.end()) {
-        undefinedFunctions.insert(name);
-      }
+      undefined_fns.insert(fn);
+    } else {
+      defined_fns.insert(fn);
     }
 
     if (has_inline_asm(fn)) {
-      klee_warning("function \"%s\" has inline asm", name.c_str());
+      inline_assm_fns.insert(fn);
     }
   }
 
   // get a list of globals declared, but not defined
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     if (itr->isDeclaration() && !itr->use_empty()) {
-      string name = itr->getName();
-      if (modeledExternals.find(name) == modeledExternals.end()) {
-        undefinedGlobals.insert(name);
+      undefined_gbs.insert(itr);
+    } else {
+      defined_gbs.insert(itr);
+    }
+  }
+
+  // if the target of the alias is not defined, then we still have an undefined value.
+  for (auto itr = m->alias_begin(), end = m->alias_end(); itr != end; ++itr) {
+    const auto aliassee = itr->getAliasee();
+    if (const auto fn = dyn_cast<Function>(aliassee)) {
+      if (defined_fns.find(fn) == defined_fns.end()) {
+        undefined_fns.insert(fn);
+      }
+    } else if (const auto gv = dyn_cast<GlobalVariable>(aliassee)) {
+      if (defined_gbs.find(gv) == defined_gbs.end()) {
+        undefined_gbs.insert(gv);
       }
     }
   }
 
-  // and remove aliases (they define the symbol after global
-  // initialization)
-  for (auto itr = m->alias_begin(), end = m->alias_end(); itr != end; ++itr) {
-    string name = itr->getName();
-    undefinedFunctions.erase(name);
-    undefinedGlobals.erase(name);
-  }
+  // the remaining undefined symbols may be handled by various either the SpecialFunctionHandler or SysModel
+  // these should be removed from the warning list.
+  filterHandledFunctions(undefined_fns);
+  filterHandledGlobals(undefined_gbs);
 
-  for (auto fn: undefinedFunctions) {
-    klee_warning("reference to external function: %s", fn.c_str());
-  }
-  for (auto global: undefinedGlobals) {
-    klee_warning("reference to undefined global: %s", global.c_str());
-  }
+  // report anything found
+  if (!undefined_fns.empty()) emitGlobalValueWarning(undefined_fns, "Undefined function");
+  if (!undefined_gbs.empty()) emitGlobalValueWarning(undefined_fns, "Undefined global");
+  if (!inline_assm_fns.empty()) emitGlobalValueWarning(undefined_fns, "Inline assembly in function");
 }
 
 #ifndef SUPPORT_KLEE_UCLIBC
@@ -435,7 +463,7 @@ Module *LinkModule(Module *module, const string &libDir) {
   return module;
 }
 
-KModule *PrepareModule(const string &filename, const string& libDir, TraceType ttype) {
+KModule *PrepareModule(const string &filename, const string& libDir, TraceType ttype, MarkScope mscope) {
 
   if (Module *module = LoadModule(filename)) {
 
@@ -457,10 +485,8 @@ KModule *PrepareModule(const string &filename, const string& libDir, TraceType t
         MOpts.Optimize = OptimizeModule;
         MOpts.CheckDivZero = CheckDivZero;
         MOpts.CheckOvershift = CheckOvershift;
-        MOpts.user_fns = &module_fns;
-        MOpts.user_gbs = &module_globals;
 
-        kmodule->transform(MOpts, ttype);
+        kmodule->transform(MOpts, module_fns, module_globals, ttype, mscope);
         externalsAndGlobalsCheck(module);
         return kmodule;
       }
@@ -474,7 +500,7 @@ bool SaveModule(KModule *kmod, const string &outDir) {
 
   bool result = false;
   assert(kmod->module != nullptr);
-  boost::filesystem::path path(outDir);
+  fs::path path(outDir);
   string pathname = (path /= kmod->getModuleIdentifier()).string();
 
   string fs_err;
@@ -503,20 +529,20 @@ int main(int argc, char **argv, char **envp) {
 
   string libDir = getRunTimeLibraryPath(argv[0]);
 
-  boost::filesystem::path outPath(Output);
-  if (!boost::filesystem::exists(outPath)) {
-    boost::filesystem::create_directories(outPath);
+  fs::path outPath(Output);
+  if (!fs::exists(outPath)) {
+    fs::create_directories(outPath);
   }
 
   int exit_code = 1;
-  if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT)) {
+  if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT, MarkS)) {
     if (SaveModule(kmod1, Output)) {
       if (InputFile2.empty()) {
         // all done
         exit_code = 0;
       } else {
         // now get the modified module
-        if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT)) {
+        if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT, MarkS)) {
           SaveModule(kmod2, Output);
           // two for two
           exit_code = 0;

@@ -488,8 +488,6 @@ public:
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 
   KModule *getKModule() const { return kmodule; }
-  void GetModeledExternals(std::set<std::string> &names) const override;
-
 };
 
 } // End klee namespace

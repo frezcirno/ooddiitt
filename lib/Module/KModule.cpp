@@ -173,32 +173,45 @@ bool KModule::addInternalFunction(string name) {
   return false;
 }
 
+// RLR TODO: this is an executor issue, not module
+//static set<string> never_stub = {
+//    "__ctype_b_loc",
+//    "memset",
+//    "memchr",
+//    "memcmp",
+//    "memcpy",
+//    "strchr",
+//    "strcmp",
+//    "strcpy",
+//    "strcspn",
+//    "strdup",
+//    "strlen",
+//    "strncmp",
+//    "strncpy",
+//    "strnlen",
+//    "strnlen",
+//    "strpbrk",
+//    "strrchr",
+//    "strspn",
+//    "strstr"
+//};
 
-static set<string> never_stub = {
-    "__ctype_b_loc",
-    "memset",
-    "memchr",
-    "memcmp",
-    "memcpy",
-    "strchr",
-    "strcmp",
-    "strcpy",
-    "strcspn",
-    "strdup",
-    "strlen",
-    "strncmp",
-    "strncpy",
-    "strnlen",
-    "strnlen",
-    "strpbrk",
-    "strrchr",
-    "strspn",
-    "strstr"
-};
-
-void KModule::transform(const Interpreter::ModuleOptions &opts, TraceType ttrace) {
+void KModule::transform(const Interpreter::ModuleOptions &opts,
+                        const set<Function*> &module_fns,
+                        const set<GlobalVariable*> &module_gbs,
+                        TraceType ttrace,
+                        MarkScope mscope) {
 
   assert(module != nullptr);
+
+  set<Function*> fns_to_mark;
+  if (mscope == MarkScope::module) {
+    fns_to_mark = module_fns;
+  } else if (mscope == MarkScope::all) {
+    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+      fns_to_mark.insert(itr);
+    }
+  }
 
   LLVMContext &ctx = module->getContext();
 
@@ -306,26 +319,28 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, TraceType ttrace
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
     pm.add(new InstructionOperandTypeCheckPass());
-    pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, never_stub));
+    if (!fns_to_mark.empty()) {
+      pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, fns_to_mark));
+    }
     pm.run(*module);
   }
 
-  if (opts.user_fns != nullptr) {
+  if (!module_fns.empty()) {
     vector<Value*> values;
-    values.reserve(opts.user_fns->size());
-    for (auto fn : *opts.user_fns) {
-      values.push_back(fn);
+    values.reserve(module_fns.size());
+    for (auto fn : module_fns) {
+      values.push_back((Value*) fn);
       user_fns.insert(fn);
     }
     MDNode *Node = MDNode::get(ctx, values);
     NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
     NMD->addOperand(Node);
   }
-  if (opts.user_gbs != nullptr) {
+  if (!module_gbs.empty()) {
     vector<Value*> values;
-    values.reserve(opts.user_gbs->size());
-    for (auto gb : *opts.user_gbs) {
-      values.push_back(gb);
+    values.reserve(module_gbs.size());
+    for (auto gb : module_gbs) {
+      values.push_back((Value*) gb);
       user_gbs.insert(gb);
     }
     MDNode *Node = MDNode::get(ctx, values);
@@ -428,12 +443,6 @@ void KModule::prepare() {
   infos = new InstructionInfoTable(module);
 
   /* Build shadow structures */
-
-  // never stub some functions
-  for (const auto &fn_name : never_stub) {
-    addInternalFunction(fn_name);
-  }
-
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
 
     Function *fn = static_cast<Function *>(it);

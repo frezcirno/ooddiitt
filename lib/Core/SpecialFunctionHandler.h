@@ -16,6 +16,7 @@
 #include <string>
 
 namespace llvm {
+  class Value;
   class Function;
 }
 
@@ -94,6 +95,8 @@ namespace klee {
     bool isSpecial(llvm::Function *f) const;
     void getSpecialFns(std::set<std::string> &names) const;
     void getSpecialFns(std::set<const llvm::Function*> &fns) const;
+    static void filterHandledFunctions(std::set<const llvm::Value*> &fns);
+    static void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 
     /* Convenience routines */
 

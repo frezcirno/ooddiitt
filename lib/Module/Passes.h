@@ -188,8 +188,7 @@ public:
   static char ID;
   InstructionOperandTypeCheckPass()
       : llvm::ModulePass(ID), instructionOperandsConform(true) {}
-  // TODO: Add `override` when we switch to C++11
-  bool runOnModule(llvm::Module &M);
+  bool runOnModule(llvm::Module &M) override;
   bool checkPassed() const { return instructionOperandsConform; }
 };
 
@@ -199,14 +198,14 @@ class FnMarkerPass : public llvm::FunctionPass {
 public:
   FnMarkerPass(std::map<const llvm::Function*,unsigned> &_mapFn,
                std::map<const llvm::BasicBlock*, unsigned> &_mapBB,
-               const std::set<std::string> &_skip) :
+               const std::set<llvm::Function*> &_fns) :
         llvm::FunctionPass(ID),
         mdkind_fnID(0),
         mdkind_bbID(0),
         next_fnID(1),
         mapFn(_mapFn),
         mapBB(_mapBB),
-        skipFns(_skip) {}
+        fns(_fns) {}
   bool runOnFunction(llvm::Function &f) override;
   bool doInitialization(llvm::Module &module) override;
   bool doFinalization(llvm::Module &module) override;
@@ -216,7 +215,7 @@ private:
   unsigned next_fnID;
   std::map<const llvm::Function*,unsigned> &mapFn;
   std::map<const llvm::BasicBlock*, unsigned> &mapBB;
-  const std::set<std::string> &skipFns;
+  const std::set<llvm::Function*> &fns;
 };
 
 }

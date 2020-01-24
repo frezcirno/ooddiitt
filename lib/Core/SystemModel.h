@@ -33,6 +33,9 @@ public:
   void GetModeledExternals(std::set<std::string> &names) const;
   bool Execute(ExecutionState &state, llvm::Function *fn, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &ret);
 
+  static void filterHandledFunctions(std::set<const llvm::Value*> &fns);
+  static void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
+
 private:
   bool ExecuteWrite(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteRead(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
@@ -53,6 +56,9 @@ private:
 
   KInstruction *ki;
   llvm::Function *fn;
+
+  static const std::vector<handler_descriptor_t> modeled_fns;
+  static const std::vector<handler_descriptor_t> output_fns;
 };
 
 } // namespace

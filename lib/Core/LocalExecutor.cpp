@@ -156,12 +156,14 @@ LocalExecutor::~LocalExecutor() {
   }
 }
 
+#if 0 == 1
 void LocalExecutor::GetModeledExternals(std::set<std::string> &names) const {
   Executor::GetModeledExternals(names);
   if (sysModel != nullptr) {
     sysModel->GetModeledExternals(names);
   }
 }
+#endif
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
 
@@ -1098,7 +1100,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       init_states.push_back(state);
     }
 
-    outs() << fn->getName().str() << ": " << interpreterHandler->flags_to_string(unconstraintFlags) << '\n';
+    outs() << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
     outs().flush();
 
     runFn(kf, init_states);

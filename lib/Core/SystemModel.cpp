@@ -10,47 +10,48 @@ using namespace llvm;
 
 namespace klee {
 
+const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
+    {"write", &SystemModel::ExecuteWrite},
+    {"read", &SystemModel::ExecuteRead},
+    {"isatty", &SystemModel::ExecuteIsaTTY},
+    {"posix_fadvise", &SystemModel::ExecuteReturn0_32},
+    {"is_selinux_enabled", &SystemModel::ExecuteReturn0_32},
+    {"kill", &SystemModel::ExecuteReturn0_32},
+    {"nanosleep", &SystemModel::ExecuteReturn0_32},
+    {"getpid", &SystemModel::ExecuteReturn42_32},
+    {"getuid", &SystemModel::ExecuteReturn0_32},
+    {"geteuid", &SystemModel::ExecuteReturn0_32},
+    {"getgid", &SystemModel::ExecuteReturn0_32},
+    {"getegid", &SystemModel::ExecuteReturn0_32},
+    {"memset", &SystemModel::ExecuteMemset},
+    {"lseek64", &SystemModel::ExecuteReturnMinus1_64},
+    {"lseek", &SystemModel::ExecuteReturnMinus1_64},
+    {"open", &SystemModel::ExecuteReturnMinus1_32},
+    {"openat", &SystemModel::ExecuteReturnMinus1_32},
+    {"close", &SystemModel::ExecuteReturn0_32},
+    {"fcntl", &SystemModel::ExecuteReturnMinus1_32},
+    {"__check_one_fd", &SystemModel::ExecuteNoop}
+};
+
+const vector<SystemModel::handler_descriptor_t> SystemModel::output_fns = {
+    { "printf", &SystemModel::ExecuteReturn1_32},
+    { "fprintf", &SystemModel::ExecuteReturn1_32},
+    { "vprintf", &SystemModel::ExecuteReturn1_32},
+    { "vfprintf", &SystemModel::ExecuteReturn1_32},
+    { "puts", &SystemModel::ExecuteReturn1_32},
+    { "fputs", &SystemModel::ExecuteReturn1_32},
+    { "fputs_unlocked", &SystemModel::ExecuteReturn1_32},
+    { "putchar", &SystemModel::ExecuteReturnFirstArg},
+    { "putc", &SystemModel::ExecuteReturnFirstArg},
+    { "fputc", &SystemModel::ExecuteReturnFirstArg},
+    { "putchar_unlocked", &SystemModel::ExecuteReturnFirstArg},
+    { "putc_unlocked", &SystemModel::ExecuteReturnFirstArg},
+    { "fputc_unlocked", &SystemModel::ExecuteReturnFirstArg},
+    { "perror", &SystemModel::ExecuteNoop}
+};
+
+
 SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e), opts(o), ki(nullptr), fn(nullptr) {
-
-  static const vector<handler_descriptor_t> modeled_fns = {
-      {"write", &SystemModel::ExecuteWrite},
-      {"read", &SystemModel::ExecuteRead},
-      {"isatty", &SystemModel::ExecuteIsaTTY},
-      {"posix_fadvise", &SystemModel::ExecuteReturn0_32},
-      {"is_selinux_enabled", &SystemModel::ExecuteReturn0_32},
-      {"kill", &SystemModel::ExecuteReturn0_32},
-      {"nanosleep", &SystemModel::ExecuteReturn0_32},
-      {"getpid", &SystemModel::ExecuteReturn42_32},
-      {"getuid", &SystemModel::ExecuteReturn0_32},
-      {"geteuid", &SystemModel::ExecuteReturn0_32},
-      {"getgid", &SystemModel::ExecuteReturn0_32},
-      {"getegid", &SystemModel::ExecuteReturn0_32},
-      {"memset", &SystemModel::ExecuteMemset},
-      {"lseek64", &SystemModel::ExecuteReturnMinus1_64},
-      {"lseek", &SystemModel::ExecuteReturnMinus1_64},
-      {"open", &SystemModel::ExecuteReturnMinus1_32},
-      {"openat", &SystemModel::ExecuteReturnMinus1_32},
-      {"close", &SystemModel::ExecuteReturn0_32},
-      {"fcntl", &SystemModel::ExecuteReturnMinus1_32},
-      {"__check_one_fd", &SystemModel::ExecuteNoop}
-  };
-
-  static const vector<handler_descriptor_t> output_fns = {
-      { "printf", &SystemModel::ExecuteReturn1_32},
-      { "fprintf", &SystemModel::ExecuteReturn1_32},
-      { "vprintf", &SystemModel::ExecuteReturn1_32},
-      { "vfprintf", &SystemModel::ExecuteReturn1_32},
-      { "puts", &SystemModel::ExecuteReturn1_32},
-      { "fputs", &SystemModel::ExecuteReturn1_32},
-      { "fputs_unlocked", &SystemModel::ExecuteReturn1_32},
-      { "putchar", &SystemModel::ExecuteReturnFirstArg},
-      { "putc", &SystemModel::ExecuteReturnFirstArg},
-      { "fputc", &SystemModel::ExecuteReturnFirstArg},
-      { "putchar_unlocked", &SystemModel::ExecuteReturnFirstArg},
-      { "putc_unlocked", &SystemModel::ExecuteReturnFirstArg},
-      { "fputc_unlocked", &SystemModel::ExecuteReturnFirstArg},
-      { "perror", &SystemModel::ExecuteNoop}
-  };
 
   KModule *km = e->getKModule();
   Module *module = km->module;
@@ -68,6 +69,37 @@ SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e),
       }
     }
   }
+}
+
+// static
+void SystemModel::filterHandledFunctions(std::set<const llvm::Value*> &fns) {
+
+  // gather a list of functions handled here
+  std::set<std::string> names;
+  for (const auto &handler : modeled_fns) {
+    names.insert(handler.first);
+  }
+  for (const auto &handler : output_fns) {
+    names.insert(handler.first);
+  }
+
+  // remove functions defined here
+  auto itr = fns.begin(), end = fns.end();
+  while (itr != end) {
+    const llvm::Value *val = *itr;
+    const auto fn = dyn_cast<const llvm::Function>(val);
+    if (fn != nullptr && fn->hasName() && names.count(fn->getName().str())) {
+      itr = fns.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
+}
+
+// static
+void SystemModel::filterHandledGlobals(std::set<const llvm::Value*> &gbs) {
+
+  // none
 }
 
 void SystemModel::GetModeledExternals(set<string> &names) const {

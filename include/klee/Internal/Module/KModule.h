@@ -158,7 +158,11 @@ namespace klee {
     //
     // FIXME: ihandler should not be here
     void prepare();
-    void transform(const Interpreter::ModuleOptions &opts, TraceType ttrace = TraceType::invalid);
+    void transform(const Interpreter::ModuleOptions &opts,
+                   const std::set<llvm::Function*> &module_fns,
+                   const std::set<llvm::GlobalVariable*> &module_globals,
+                   TraceType ttrace = TraceType::invalid,
+                   MarkScope mscope = MarkScope::invalid);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
