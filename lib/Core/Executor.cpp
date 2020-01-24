@@ -388,6 +388,7 @@ void Executor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
 
   assert(!kmodule && module && "can only register one module"); // XXX gross
 
+  // RLR TODO: remove kmodule handling from here
   kmodule = new KModule(module);
 
   if (!isPrepared(module)) {
@@ -424,21 +425,16 @@ void Executor::bindModule(llvm::Module *module, const ModuleOptions *MOpts) {
 Executor::~Executor() {
   delete memory;
   delete externalDispatcher;
-  if (processTree)
-    delete processTree;
-  if (specialFunctionHandler)
-    delete specialFunctionHandler;
-  if (statsTracker)
-    delete statsTracker;
+  delete processTree;
+  delete specialFunctionHandler;
+  delete statsTracker;
   delete solver;
   delete kmodule;
   while(!timers.empty()) {
     delete timers.back();
     timers.pop_back();
   }
-  if (debugInstFile) {
-    delete debugInstFile;
-  }
+  delete debugInstFile;
 }
 
 /***/

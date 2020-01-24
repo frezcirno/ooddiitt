@@ -143,6 +143,7 @@ else()
   endif()
 
   add_compile_options("$<$<CONFIG:DEBUG>:-D_DEBUG>")
+  add_compile_options("$<$<CONFIG:DEBUG>:-D_GLIBCXX_DEBUG>")
 endif()
 
 

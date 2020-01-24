@@ -38,7 +38,7 @@
 #include "llvm/IR/Metadata.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 
-#include "llvm/IR/TypeFinder.h"
+#include "ModuleTypes.h"
 
 
 using namespace llvm;
@@ -82,17 +82,12 @@ KModule::KModule(Module *_module)
     module_trace(TraceType::invalid) {}
 
 KModule::~KModule() {
+
   delete[] constantTable;
   delete infos;
-
-  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it)
-    delete *it;
-
-  for (auto it=constantMap.begin(), itE=constantMap.end(); it!=itE;++it)
-    delete it->second;
-
+  for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) delete *it;
+  for (auto it=constantMap.begin(), itE=constantMap.end(); it!=itE;++it) delete it->second;
   delete targetData;
-  delete module;
 }
 
 /***/
@@ -353,6 +348,7 @@ void KModule::prepare() {
   LLVMContext &ctx = module->getContext();
 
   // gather a list of original module functions
+  // RLR TODO: not sure I really need this anymore
   set<const Function*> orig_functions;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
@@ -487,9 +483,9 @@ void KModule::prepare() {
   }
 
   // enum descriptions of all types in the module
-  TypeFinder typeFinder;
-  typeFinder.run(*module, false);
-  for (auto type : typeFinder) {
+  set<Type*> types;
+  ModuleTypes mod_types(module, types);
+  for (auto type : types) {
     insertTypeDesc(type);
   }
 

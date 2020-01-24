@@ -63,6 +63,16 @@ namespace {
   cl::opt<string> InputFile2(cl::desc("<modified input bytecode>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+  cl::opt<TraceType>
+    TraceT("trace",
+      cl::desc("Choose libc version (none by default)."),
+      cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+                 clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+                 clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+                 clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+                 clEnumValEnd),
+      cl::init(TraceType::bblocks));
+
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -73,13 +83,13 @@ namespace {
   };
 
   cl::opt<LibcType>
-  Libc("libc",
-       cl::desc("Choose libc version (none by default)."),
-       cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
-                  clEnumValN(KleeLibc, "klee", "Link in klee libc"),
-		          clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
-		          clEnumValEnd),
-       cl::init(UcLibc));
+    Libc("libc",
+      cl::desc("Choose libc version (none by default)."),
+      cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
+                 clEnumValN(KleeLibc, "klee", "Link in klee libc"),
+	             clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
+	             clEnumValEnd),
+      cl::init(UcLibc));
 
 
 #if 0 == 1
@@ -95,10 +105,6 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> OutputCreate("output-create", cl::desc("remove output directory before re-creating"));
   cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
-  cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
-  cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
-  cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
-  cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
 }
 
 /***/
@@ -245,10 +251,11 @@ bool has_inline_asm(const Function *fn) {
   return false;
 }
 
-void externalsAndGlobalsCheck(const Module *m, const Interpreter *interpreter) {
+void externalsAndGlobalsCheck(const Module *m) {
 
   static set<string> modeledExternals;
-  interpreter->GetModeledExternals(modeledExternals);
+  // RLR TODO: check these warnings
+//  interpreter->GetModeledExternals(modeledExternals);
   modeledExternals.insert("__dso_handle");
 
   set<string> undefinedFunctions;
@@ -508,62 +515,59 @@ Module *LinkModule(Module *module, const string &libDir) {
   return module;
 }
 
-Module *PrepareModule(const string &filename, const string& libDir, TraceType ttype) {
+KModule *PrepareModule(const string &filename, const string& libDir, TraceType ttype) {
 
   if (Module *module = LoadModule(filename)) {
 
-    set<Function*> module_fns;
-    set<GlobalVariable*> module_globals;
-    enumModuleVisibleDefines(module, module_fns, module_globals);
+    if (isPrepared(module)) {
+      errs() << "already prepared" << module->getModuleIdentifier() << '\n';
+    } else {
 
-    module = rewriteFunctionPointers(module, module_fns);
-    module = LinkModule(module, libDir);
+      set<Function*> module_fns;
+      set<GlobalVariable*> module_globals;
+      enumModuleVisibleDefines(module, module_fns, module_globals);
 
-    PrepKleeHandler *handler = new PrepKleeHandler(module->getModuleIdentifier());
+      module = rewriteFunctionPointers(module, module_fns);
+      module = LinkModule(module, libDir);
 
-    Interpreter::InterpreterOptions IOpts;
-    IOpts.mode = ExecModeID::prep;
-    IOpts.verbose = Verbose;
-    IOpts.trace = ttype;
+      if (KModule *kmodule = new KModule(module)) {
 
-    Interpreter *interpreter = Interpreter::createLocal(module->getContext(), IOpts, handler);
-    handler->setInterpreter(interpreter);
+        Interpreter::ModuleOptions MOpts;
+        MOpts.LibraryDir = libDir;
+        MOpts.Optimize = OptimizeModule;
+        MOpts.CheckDivZero = CheckDivZero;
+        MOpts.CheckOvershift = CheckOvershift;
+        MOpts.user_fns = &module_fns;
+        MOpts.user_gbs = &module_globals;
 
-    Interpreter::ModuleOptions MOpts;
-
-    MOpts.LibraryDir = libDir;
-    MOpts.Optimize = OptimizeModule;
-    MOpts.CheckDivZero = CheckDivZero;
-    MOpts.CheckOvershift = CheckOvershift;
-    MOpts.user_fns = &module_fns;
-    MOpts.user_gbs = &module_globals;
-
-    interpreter->bindModule(module, &MOpts);
-    externalsAndGlobalsCheck(module, interpreter);
-
-    // RLR TODO: one of these may try to delete the module
-    delete interpreter;
-    delete handler;
-
-    return module;
+        kmodule->transform(MOpts, ttype);
+        externalsAndGlobalsCheck(module);
+        return kmodule;
+      }
+    }
+    delete module;
   }
   return nullptr;
 }
 
-bool SaveModule(Module *module, const string &outDir) {
+bool SaveModule(KModule *kmod, const string &outDir) {
 
+  bool result = false;
+  Module *module = kmod->module;
+  assert(module != nullptr);
   boost::filesystem::path path(outDir);
-  string pathname = (path /= module->getModuleIdentifier()).string() + ".bc";
+  string pathname = (path /= module->getModuleIdentifier()).string();
 
   string fs_err;
-  sys::fs::OpenFlags fs_options = sys::fs::F_Binary | sys::fs::F_Excl;
-  raw_fd_ostream outFile(pathname.c_str(), fs_err, fs_options);
+  raw_fd_ostream outFile(pathname.c_str(), fs_err, sys::fs::F_Binary);
   if (fs_err.empty()) {
     outs() << "writing " << pathname << '\n';
     WriteBitcodeToFile(module, outFile);
+    result = true;
   } else {
-    outs() << "failed to open " << pathname << '\n';
+    outs() << fs_err << '\n';
   }
+  return result;
 }
 
 int main(int argc, char **argv, char **envp) {
@@ -573,27 +577,28 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
-  int exit_code = 0;
+
+#ifdef _DEBUG
+  EnableMemDebuggingChecks();
+#endif // _DEBUG
 
   string libDir = getRunTimeLibraryPath(argv[0]);
-  TraceType ttype;
-  if (TraceNone) {
-    ttype = TraceType::none;
-  } else if (TraceBBlocks) {
-    ttype = TraceType::bblocks;
-  } else if (TraceAssembly) {
-    ttype = TraceType::assembly;
-  } else if (TraceStatements) {
-    ttype = TraceType::statements;
-  }
 
-  Module *module1 = PrepareModule(InputFile1, libDir, ttype);
-  SaveModule(module1, Output);
-  Module *module2 = nullptr;
-  if (!InputFile2.empty()) {
-    module2 = PrepareModule(InputFile2, libDir, ttype);
-    SaveModule(module2, Output);
+  int exit_code = 1;
+  if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT)) {
+    if (SaveModule(kmod1, Output)) {
+      if (InputFile2.empty()) {
+        // all done
+        exit_code = 0;
+      } else {
+        // now get the modified module
+        if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT)) {
+          SaveModule(kmod2, Output);
+          // two for two
+          exit_code = 0;
+        }
+      }
+    }
   }
-
   return exit_code;
 }

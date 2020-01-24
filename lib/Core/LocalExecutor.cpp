@@ -887,6 +887,8 @@ void LocalExecutor::bindModule(llvm::Module *module, const ModuleOptions *MOpts)
 
   assert(kmodule == nullptr);
 
+  // RLR TODO: remove kmodule handling from here
+
   Executor::bindModule(module, MOpts);
   specialFunctionHandler->setLocalExecutor(this);
   sysModel = new SystemModel(this, optsModel);
