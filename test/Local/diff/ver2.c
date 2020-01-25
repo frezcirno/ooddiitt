@@ -14,6 +14,9 @@ void added_fn() {
 
 }
 
+void changed_sig_fn(long i) {
+
+}
 
 int main(int argc, char *argv[]) {
 

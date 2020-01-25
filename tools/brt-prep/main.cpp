@@ -514,6 +514,72 @@ bool SaveModule(KModule *kmod, const string &outDir) {
   return result;
 }
 
+
+uint64_t calcFnHash(Function *fn) {
+
+  HashAccumulator hash;
+  vector<const BasicBlock*> worklist;
+  set<const BasicBlock*> visited;
+
+  if (!fn->empty()) {
+    const BasicBlock *entry = &fn->getEntryBlock();
+    worklist.push_back(entry);
+    visited.insert(entry);
+    while (!worklist.empty()) {
+      const BasicBlock *bb = worklist.back();
+      worklist.pop_back();
+
+      // add a block header
+      hash.add(0x4df1d4db);
+      for (auto &inst : *bb) {
+        // add the instruction to the hash
+        hash.add(inst.getOpcode());
+        for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {
+          Value *v = inst.getOperand(idx);
+          if (auto c = dyn_cast<Constant>(v)) {
+
+            if (auto ba = dyn_cast<BlockAddress>(c)) {
+
+            } else if (auto ci = dyn_cast<ConstantInt>(c)) {
+              hash.add(ci->getValue().getZExtValue());
+            } else if (auto fp = dyn_cast<ConstantFP>(c)) {
+
+            } else if (auto az = dyn_cast<ConstantAggregateZero>(c)) {
+
+            } else if (auto ca = dyn_cast<ConstantArray>(c)) {
+
+            } else if (auto cs = dyn_cast<ConstantStruct>(c)) {
+
+            } else if (auto cv = dyn_cast<ConstantVector>(c)) {
+
+            } else if (auto pn = dyn_cast<ConstantPointerNull>(c)) {
+
+            } else if (auto ds = dyn_cast<ConstantDataSequential>(c)) {
+
+            } else if (auto cx = dyn_cast<llvm::ConstantExpr>(c)) {
+
+            } else if (auto uv = dyn_cast<UndefValue>(c)) {
+
+            } else if (auto gv = dyn_cast<GlobalValue>(c)) {
+
+            }
+          } else {
+          }
+        }
+      }
+
+      const TerminatorInst *term = bb->getTerminator();
+      for (unsigned idx = 0, end = term->getNumSuccessors(); idx != end; ++idx) {
+        const BasicBlock *next = term->getSuccessor(idx);
+        if (!(visited.insert(next).second))
+          continue;
+        worklist.push_back(next);
+      }
+    }
+  }
+  return hash.get();
+}
+
 void diffFns(KModule *kmod1,
              KModule *kmod2,
              Json::Value &added,
@@ -554,8 +620,17 @@ void diffFns(KModule *kmod1,
     fn_pairs.emplace_back(make_pair(mod1->getFunction(fn), mod2->getFunction(fn)));
   }
 
-  //
-
+  // check function signatures
+  for (const auto &pr : fn_pairs) {
+    assert(pr.first && pr.second);
+    Function *fn1 = pr.first;
+    Function *fn2 = pr.second;
+    if (to_string(fn1->getType()) != to_string(fn2->getType())) {
+      sig.append(fn1->getName().str());
+    } else if (calcFnHash(fn1) != calcFnHash(fn2)){
+      body.append(fn1->getName().str());
+    }
+  }
 }
 
 void diffGbs(KModule *kmod1,
@@ -603,7 +678,6 @@ void diffGbs(KModule *kmod1,
       type.append(pr.first->getName().str());
     }
   }
-
 }
 
 

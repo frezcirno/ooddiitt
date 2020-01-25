@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <llvm/IR/Type.h>
+#include <llvm/ADT/Hashing.h>
 
 typedef std::chrono::system_clock sys_clock;
 
@@ -86,6 +87,13 @@ sys_clock::time_point to_time_point(const std::string &str);
 std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
 
+class HashAccumulator {
+  uint64_t hash;
+public:
+  HashAccumulator() : hash(0x89f88ec5e917b55e) {}
+  void add(uint64_t val) { hash = llvm::hashing::detail::hash_16_bytes(hash, val); }
+  uint64_t get() const { return hash; }
+};
 
 #ifdef _DEBUG
 bool EnableMemDebuggingChecks();

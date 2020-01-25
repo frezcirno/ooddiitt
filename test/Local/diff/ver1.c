@@ -4,13 +4,17 @@
 
 int foo(char *bar) {
 
-  int result = atoi(bar) * 2;
+  int result = atoi(bar) * 3;
   return result;
 }
 
 unsigned changed_gb = 0;
 int removed_gb = 5;
 void removed_fn() {
+
+}
+
+void changed_sig_fn(int i) {
 
 }
 
