@@ -8,6 +8,13 @@ int foo(char *bar) {
   return result;
 }
 
+unsigned long changed_gb = 0;
+int added_gb = 5;
+void added_fn() {
+
+}
+
+
 int main(int argc, char *argv[]) {
 
   int exit_code = 1;

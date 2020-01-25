@@ -31,14 +31,6 @@ class MemoryManager;
 class Solver;
 class ArrayCache;
 
-inline std::string to_string(const llvm::Type *type) {
-  if (type == nullptr) return "nil";
-  std::string str;
-  llvm::raw_string_ostream rss(str);
-  type->print(rss);
-  return rss.str();
-}
-
 class MemoryObject {
   friend class STPBuilder;
   friend class ObjectState;

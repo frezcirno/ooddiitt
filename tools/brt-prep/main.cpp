@@ -384,7 +384,6 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // modify module for cbert
   modify_clib(mainModule);
-  outs() << "NOTE: Linking with klee-uclibc: " << uclibcBCA << '\n';
   return mainModule;
 }
 #endif
@@ -515,6 +514,134 @@ bool SaveModule(KModule *kmod, const string &outDir) {
   return result;
 }
 
+void diffFns(KModule *kmod1,
+             KModule *kmod2,
+             Json::Value &added,
+             Json::Value &removed,
+             Json::Value &sig,
+             Json::Value &body) {
+
+  Module *mod1 = kmod1->module;
+  Module *mod2 = kmod2->module;
+  assert(mod1 && mod2);
+  set<string> fn_names1;
+  set<string> fn_names2;
+
+  for (auto itr = mod1->begin(), end = mod1->end(); itr != end; ++itr) {
+    if (itr->hasName()) fn_names1.insert(itr->getName());
+  }
+  for (auto itr = mod2->begin(), end = mod2->end(); itr != end; ++itr) {
+    if (itr->hasName()) fn_names2.insert(itr->getName());
+  }
+
+  // find the functions that have been added (in 2 but not in 1)
+  set<string> fns_added;
+  set_difference(fn_names2.begin(), fn_names2.end(), fn_names1.begin(), fn_names1.end(), inserter(fns_added, fns_added.end()));
+  for (auto fn : fns_added) added.append(fn);
+
+  // find the functions that have been removed (in 1 but not in 2)
+  set<string> fns_removed;
+  set_difference(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_removed, fns_removed.end()));
+  for (auto fn : fns_removed) removed.append(fn);
+
+  // those that are in both will need further checks
+  set<string> fns_both;
+  set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_both, fns_both.end()));
+
+  vector<pair<Function*,Function*> > fn_pairs;
+  fn_pairs.reserve(fns_both.size());
+  for (auto fn : fns_both) {
+    fn_pairs.emplace_back(make_pair(mod1->getFunction(fn), mod2->getFunction(fn)));
+  }
+
+  //
+
+}
+
+void diffGbs(KModule *kmod1,
+             KModule *kmod2,
+             Json::Value &added,
+             Json::Value &removed,
+             Json::Value &type) {
+
+  Module *mod1 = kmod1->module;
+  Module *mod2 = kmod2->module;
+  assert(mod1 && mod2);
+  set<string> gb_names1;
+  set<string> gb_names2;
+
+  for (auto itr = mod1->global_begin(), end = mod1->global_end(); itr != end; ++itr) {
+    if (itr->hasName()) gb_names1.insert(itr->getName());
+  }
+  for (auto itr = mod2->global_begin(), end = mod2->global_end(); itr != end; ++itr) {
+    if (itr->hasName()) gb_names2.insert(itr->getName());
+  }
+
+  // find the globals that have been added (in 2 but not in 1)
+  set<string> gbs_added;
+  set_difference(gb_names2.begin(), gb_names2.end(), gb_names1.begin(), gb_names1.end(), inserter(gbs_added, gbs_added.end()));
+  for (auto gb : gbs_added) added.append(gb);
+
+  // find the globals that have been removed (in 1 but not in 2)
+  set<string> gbs_removed;
+  set_difference(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_removed, gbs_removed.end()));
+  for (auto gb : gbs_removed) removed.append(gb);
+
+  // those that are in both will need further checks
+  set<string> gbs_both;
+  set_intersection(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_both, gbs_both.end()));
+
+  vector<pair<GlobalVariable*,GlobalVariable*> > gb_pairs;
+  gb_pairs.reserve(gbs_both.size());
+  for (auto gb : gbs_both) {
+    gb_pairs.emplace_back(make_pair(mod1->getNamedGlobal(gb), mod2->getNamedGlobal(gb)));
+  }
+
+  for (const auto &pr : gb_pairs) {
+    assert(pr.first && pr.second);
+    if (to_string(pr.first->getType()) != to_string(pr.second->getType())) {
+      type.append(pr.first->getName().str());
+    }
+  }
+
+}
+
+
+void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
+
+  fs::path path(outDir);
+  string pathname = (path /= "diff.json").string();
+  ofstream out(pathname, ofstream::out);
+  if (out.is_open()) {
+
+    // construct the json object representing the differences
+    Json::Value root = Json::objectValue;
+    Json::Value &functions = root["functions"] = Json::objectValue;
+    Json::Value &fns_added = functions["added"] = Json::arrayValue;
+    Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
+    Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
+    Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
+    diffFns(kmod1, kmod2, fns_added, fns_removed, fns_changed_sig, fns_changed_body);
+
+    Json::Value &globals = root["globals"] = Json::objectValue;
+    Json::Value &gbs_added = globals["added"] = Json::arrayValue;
+    Json::Value &gbs_removed = globals["removed"] = Json::arrayValue;
+    Json::Value &gbs_changed_type = globals["type"] = Json::arrayValue;
+    diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed_type);
+
+    string indent;
+    if (IndentJson) indent = "  ";
+
+    // write the constructed json object to file
+    Json::StreamWriterBuilder builder;
+    builder["commentStyle"] = "None";
+    builder["indentation"] = indent;
+    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+    writer->write(root, &out);
+    out << '\n';
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -545,6 +672,7 @@ int main(int argc, char **argv, char **envp) {
         if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT, MarkS)) {
           SaveModule(kmod2, Output);
           // two for two
+          emitDiff(kmod1, kmod2, Output);
           exit_code = 0;
           delete kmod2;
         }

@@ -47,6 +47,51 @@ void filterHandledGlobals(set<const llvm::Value*> &gbs) {
   SystemModel::filterHandledGlobals(gbs);
 }
 
+std::string to_string(TerminateReason s) {
+  static const char *strings[] = {"abort", "assert", "exec", "external", "free", "model", "overflow",
+                                  "ptr", "readonly", "report_error", "user", "unhandled"};
+  if ((unsigned) s >= countof(strings))
+    return "";
+  return strings[(unsigned) s];
+}
+
+std::string to_string(StateStatus s) {
+  static const char *strings[] = {"invalid", "pending", "completed", "error", "faulted",
+                                  "incomplete", "decimated", "discarded", "snapshot"};
+  if ((unsigned) s >= countof(strings))
+    return "";
+  return strings[(unsigned) s];
+}
+
+std::string to_string(MemKind k) {
+  static const char *strings[] = {"invalid", "external", "global", "param", "alloca", "heap", "output", "lazy"};
+  if ((unsigned) k >= countof(strings))
+    return "";
+  return strings[(unsigned) k];
+}
+
+std::string to_string(TraceType t) {
+  static const char *strings[] = {"invalid", "none", "bblocks", "assembly", "statements"};
+  if ((unsigned) t >= countof(strings))
+    return "";
+  return strings[(unsigned) t];
+}
+
+std::string to_string(MarkScope m) {
+  static const char *strings[] = {"invalid", "none", "module", "all"};
+  if ((unsigned) m >= countof(strings))
+    return "";
+  return strings[(unsigned) m];
+}
+
+std::string to_string(const llvm::Type *type) {
+  if (type == nullptr) return "nil";
+  std::string str;
+  llvm::raw_string_ostream rss(str);
+  type->print(rss);
+  return rss.str();
+}
+
 #ifdef _DEBUG
 
 #include <gperftools/tcmalloc.h>
