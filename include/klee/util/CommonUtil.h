@@ -92,6 +92,8 @@ class HashAccumulator {
 public:
   HashAccumulator() : hash(0x89f88ec5e917b55e) {}
   void add(uint64_t val) { hash = llvm::hashing::detail::hash_16_bytes(hash, val); }
+  void add(double val)   { assert(sizeof(uint64_t) == sizeof(double)); hash = llvm::hashing::detail::hash_16_bytes(hash, (uint64_t) val); }
+  void add(const std::string &str);
   uint64_t get() const { return hash; }
 };
 

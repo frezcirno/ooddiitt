@@ -530,10 +530,10 @@ uint64_t calcFnHash(Function *fn) {
       worklist.pop_back();
 
       // add a block header
-      hash.add(0x4df1d4db);
+      hash.add((uint64_t) 0x4df1d4db);
       for (auto &inst : *bb) {
         // add the instruction to the hash
-        hash.add(inst.getOpcode());
+        hash.add((uint64_t) inst.getOpcode());
         for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {
           Value *v = inst.getOperand(idx);
           if (auto c = dyn_cast<Constant>(v)) {
@@ -543,7 +543,7 @@ uint64_t calcFnHash(Function *fn) {
             } else if (auto ci = dyn_cast<ConstantInt>(c)) {
               hash.add(ci->getValue().getZExtValue());
             } else if (auto fp = dyn_cast<ConstantFP>(c)) {
-
+              hash.add(fp->getValueAPF().convertToDouble());
             } else if (auto az = dyn_cast<ConstantAggregateZero>(c)) {
 
             } else if (auto ca = dyn_cast<ConstantArray>(c)) {
@@ -561,7 +561,7 @@ uint64_t calcFnHash(Function *fn) {
             } else if (auto uv = dyn_cast<UndefValue>(c)) {
 
             } else if (auto gv = dyn_cast<GlobalValue>(c)) {
-
+              hash.add(gv->getName());
             }
           } else {
           }
@@ -587,18 +587,11 @@ void diffFns(KModule *kmod1,
              Json::Value &sig,
              Json::Value &body) {
 
-  Module *mod1 = kmod1->module;
-  Module *mod2 = kmod2->module;
-  assert(mod1 && mod2);
   set<string> fn_names1;
   set<string> fn_names2;
 
-  for (auto itr = mod1->begin(), end = mod1->end(); itr != end; ++itr) {
-    if (itr->hasName()) fn_names1.insert(itr->getName());
-  }
-  for (auto itr = mod2->begin(), end = mod2->end(); itr != end; ++itr) {
-    if (itr->hasName()) fn_names2.insert(itr->getName());
-  }
+  kmod1->getUserFunctions(fn_names1);
+  kmod2->getUserFunctions(fn_names2);
 
   // find the functions that have been added (in 2 but not in 1)
   set<string> fns_added;
@@ -614,6 +607,9 @@ void diffFns(KModule *kmod1,
   set<string> fns_both;
   set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_both, fns_both.end()));
 
+  Module *mod1 = kmod1->module;
+  Module *mod2 = kmod2->module;
+  assert(mod1 && mod2);
   vector<pair<Function*,Function*> > fn_pairs;
   fn_pairs.reserve(fns_both.size());
   for (auto fn : fns_both) {
@@ -639,18 +635,11 @@ void diffGbs(KModule *kmod1,
              Json::Value &removed,
              Json::Value &type) {
 
-  Module *mod1 = kmod1->module;
-  Module *mod2 = kmod2->module;
-  assert(mod1 && mod2);
   set<string> gb_names1;
   set<string> gb_names2;
 
-  for (auto itr = mod1->global_begin(), end = mod1->global_end(); itr != end; ++itr) {
-    if (itr->hasName()) gb_names1.insert(itr->getName());
-  }
-  for (auto itr = mod2->global_begin(), end = mod2->global_end(); itr != end; ++itr) {
-    if (itr->hasName()) gb_names2.insert(itr->getName());
-  }
+  kmod1->getUserGlobals(gb_names1);
+  kmod2->getUserGlobals(gb_names2);
 
   // find the globals that have been added (in 2 but not in 1)
   set<string> gbs_added;
@@ -666,6 +655,9 @@ void diffGbs(KModule *kmod1,
   set<string> gbs_both;
   set_intersection(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_both, gbs_both.end()));
 
+  Module *mod1 = kmod1->module;
+  Module *mod2 = kmod2->module;
+  assert(mod1 && mod2);
   vector<pair<GlobalVariable*,GlobalVariable*> > gb_pairs;
   gb_pairs.reserve(gbs_both.size());
   for (auto gb : gbs_both) {

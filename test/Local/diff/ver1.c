@@ -4,7 +4,7 @@
 
 int foo(char *bar) {
 
-  int result = atoi(bar) * 3;
+  int result = atoi(bar) * 2;
   return result;
 }
 

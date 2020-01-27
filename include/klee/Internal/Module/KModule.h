@@ -193,8 +193,29 @@ namespace klee {
     bool isUserFunction(llvm::Function* fn) const {
       return user_fns.find(fn) != user_fns.end();
     }
+
+    void getUserFunctions(std::set<llvm::Function*> &fns) const {
+      fns.clear();
+      for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert(*itr);
+    }
+
+    void getUserFunctions(std::set<std::string> &fns) const {
+      fns.clear();
+      for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert((*itr)->getName());
+    }
+
     bool isUserGlobal(llvm::GlobalVariable* gb) const {
       return user_gbs.find(gb) != user_gbs.end();
+    }
+
+    void getUserGlobals(std::set<llvm::GlobalVariable*> &gbs) const {
+      gbs.clear();
+      for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) gbs.insert(*itr);
+    }
+
+    void getUserGlobals(std::set<std::string> &gbs) {
+      gbs.clear();
+      for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) gbs.insert((*itr)->getName());
     }
 
     unsigned getFunctionID(llvm::Function *fn) {

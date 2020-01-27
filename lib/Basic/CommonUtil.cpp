@@ -92,6 +92,34 @@ std::string to_string(const llvm::Type *type) {
   return rss.str();
 }
 
+void HashAccumulator::add(const std::string &str) {
+
+  if (str.empty()) {
+    add((uint64_t) 0xf7614045);
+  } else {
+
+    // treat each succeeding chucks of the string as a number
+    unsigned idx = 0, end = str.length();
+    while (idx < end) {
+      if (end - idx > sizeof(uint64_t)) {
+        const char *bytes = str.substr(idx, sizeof(uint64_t)).c_str();
+        add(*((uint64_t *) bytes));
+        idx += sizeof(uint64_t);
+      } else {
+        // remaining bytes will not fit into a uint64_t.
+        // this alternate buffer insures bytes after remaining tail of string are the same
+        unsigned char buffer[sizeof(uint64_t)];
+        memset(buffer, 0x1e, sizeof(buffer));
+        unsigned remaining = end - idx;
+        const char *bytes = str.substr(idx, remaining).c_str();
+        memcpy(buffer, bytes, remaining);
+        add(*((uint64_t *) buffer));
+      }
+    }
+  }
+}
+
+
 #ifdef _DEBUG
 
 #include <gperftools/tcmalloc.h>
