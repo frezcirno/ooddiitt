@@ -72,6 +72,23 @@ public:
   void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
 };
 
+inline std::string to_string(UnconstraintFlagsT flags) {
+
+  const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
+      std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
+      std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
+  };
+
+  std::string result("inputs,");
+  for (auto p: flag2name) {
+    if (flags.test(p.first)) {
+      result += p.second;
+    }
+  }
+  result.pop_back();
+  return result;
+}
+
 class InterpreterHandler {
 public:
   InterpreterHandler() : interpreter(nullptr)  {}
@@ -94,22 +111,6 @@ public:
   virtual void processTestCase(ExecutionState &state) {};
   virtual bool resetWatchDogTimer() const { return false; }
 
-  std::string to_string(UnconstraintFlagsT flags) const {
-
-    const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
-        std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
-        std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
-    };
-
-    std::string result("inputs,");
-    for (auto p: flag2name) {
-      if (flags.test(p.first)) {
-        result += p.second;
-      }
-    }
-    result.pop_back();
-    return result;
-  }
 private:
   Interpreter *interpreter;
 };
@@ -197,7 +198,7 @@ public:
   ///
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
-  virtual void bindModule(KModule *kmodule, const ModuleOptions *MOpts = nullptr) = 0;
+  virtual void bindModule(KModule *kmodule) = 0;
 
 
   // supply a tree stream writer which the interpreter will use

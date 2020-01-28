@@ -61,7 +61,7 @@ StackFrame::StackFrame(const StackFrame &s)
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
-    loopFrames(s.loopFrames),
+//    loopFrames(s.loopFrames),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];

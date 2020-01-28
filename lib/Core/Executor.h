@@ -446,7 +446,7 @@ public:
     replayPosition = 0;
   }
 
-  void bindModule(KModule *kmodule, const ModuleOptions *MOpts) override;
+  void bindModule(KModule *kmodule) override;
 
   virtual void useSeeds(const std::vector<struct KTest *> *seeds) {
     usingSeeds = seeds;

@@ -132,8 +132,6 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   add("malloc", handleMalloc, true),
   add("realloc", handleRealloc, true),
 
-  add("memset", handleMemset, true),
-
   // operator delete[](void*)
   add("_ZdaPv", handleDeleteArray, false),
   // operator delete(void*)
@@ -227,6 +225,7 @@ void SpecialFunctionHandler::prepare() {
     if (!StubMemAlloc || alloc_fns.count(hi.name) == 0) {
 
       Function *f = executor.kmodule->module->getFunction(hi.name);
+      executor.kmodule->addInternalFunction(f);
 
       // No need to create if the function doesn't exist, since it cannot
       // be called in that case.
@@ -286,20 +285,6 @@ bool SpecialFunctionHandler::isSpecial(llvm::Function *f) const {
   if (f == nullptr) return false;
   const auto &itr = handlers.find(f);
   return (itr != handlers.end());
-}
-
-void SpecialFunctionHandler::getSpecialFns(std::set<std::string> &names) const {
-
-  for (auto itr = handlers.begin(), end = handlers.end(); itr != end; ++itr) {
-    names.insert(itr->first->getName());
-  }
-}
-
-void SpecialFunctionHandler::getSpecialFns(std::set<const Function*> &fns) const {
-
-  for (auto itr = handlers.begin(), end = handlers.end(); itr != end; ++itr) {
-    fns.insert(itr->first);
-  }
 }
 
 /****/
@@ -466,36 +451,6 @@ void SpecialFunctionHandler::handleMalloc(ExecutionState &state,
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to malloc");
   executor.executeAlloc(state, arguments[0], MemKind::heap, target);
-}
-
-void SpecialFunctionHandler::handleMemset(ExecutionState &state,
-                                          KInstruction *target,
-                                          std::vector<ref<Expr> > &arguments) {
-  // XXX should type check args
-  assert(arguments.size()==3 && "invalid number of arguments to memset");
-  ref<Expr> addr = lcl_exec->toUnique(state, arguments[0]);
-  ref<Expr> val = lcl_exec->toUnique(state, arguments[1]);
-  ref<Expr> count = lcl_exec->toUnique(state, arguments[2]);
-  assert(isa<ConstantExpr>(addr) && isa<ConstantExpr>(val) && isa<ConstantExpr>(count));
-
-  ObjectPair op;
-  LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, addr, op);
-  if (result == LocalExecutor::ResolveResult::OK) {
-    const MemoryObject *mo = op.first;
-    const ObjectState *os = op.second;
-
-    uint64_t caddr = cast<ConstantExpr>(addr)->getZExtValue(Expr::Int64);
-    unsigned char cval = (unsigned char) cast<ConstantExpr>(val)->getZExtValue(Expr::Int32);
-    uint64_t ccount = cast<ConstantExpr>(count)->getZExtValue(Expr::Int64);
-    uint64_t offset = caddr - mo->address;
-    if (offset + ccount < mo->address + mo->size) {
-      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-      while (ccount-- > 0) {
-        wos->write8(offset++, cval);
-      }
-    }
-  }
-  executor.bindLocal(target, state, addr);
 }
 
 void SpecialFunctionHandler::handleAssume(ExecutionState &state,

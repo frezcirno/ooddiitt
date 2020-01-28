@@ -43,26 +43,25 @@
 #include "llvm/Analysis/DebugInfo.h"
 #endif
 
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <map>
 #include <string>
+#include <klee/Internal/Support/ErrorHandling.h>
 
 using namespace llvm;
 using namespace klee;
 
 class InstructionToLineAnnotator : public llvm::AssemblyAnnotationWriter {
 public:
-  void emitInstructionAnnot(const Instruction *i,
-                            llvm::formatted_raw_ostream &os) {
+  void emitInstructionAnnot(const Instruction *i, llvm::formatted_raw_ostream &os) override {
     os << "%%%";
     os << (uintptr_t) i;
   }
 };
-        
+
 static void buildInstructionToLineMap(Module *m,
-                                      std::map<const Instruction*, unsigned> &out) {  
+                                      std::map<const Instruction*, unsigned> &out) {
   InstructionToLineAnnotator a;
   std::string str;
   llvm::raw_string_ostream os(str);
@@ -99,75 +98,89 @@ static std::string getDSPIPath(DILocation Loc) {
   }
 }
 
-bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, 
-                                                   const std::string *&File,
-                                                   unsigned &Line) {
+bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, unsigned &Line) {
+
   if (MDNode *N = I->getMetadata("dbg")) {
     DILocation Loc(N);
-    File = internString(getDSPIPath(Loc));
+    File = getDSPIPath(Loc);
     Line = Loc.getLineNumber();
     return true;
   }
-
   return false;
 }
 
-InstructionInfoTable::InstructionInfoTable(Module *m) 
-  : dummyString(""), dummyInfo(0, dummyString, 0, 0) {
-  unsigned id = 0;
+void InstructionInfoTable::BuildTable(llvm::Module *m) {
 
-  llvm::LLVMContext &C = m->getContext();
+  llvm::LLVMContext &ctx = m->getContext();
   unsigned int mdkline = m->getMDKindID("klee.assemblyLine");
+  unsigned id = 0;
 
   std::map<const Instruction*, unsigned> lineTable;
   buildInstructionToLineMap(m, lineTable);
 
-  for (Module::iterator fnIt = m->begin(), fn_ie = m->end(); 
-       fnIt != fn_ie; ++fnIt) {
-    Function *fn = static_cast<Function *>(fnIt);
+  for (auto fn_it = m->begin(), fn_ie = m->end(); fn_it != fn_ie; ++fn_it) {
 
     // We want to ensure that as all instructions have source information, if
     // available. Clang sometimes will not write out debug information on the
     // initial instructions in a function (correspond to the formal parameters),
     // so we first search forward to find the first instruction with debug info,
     // if any.
-    const std::string *initialFile = &dummyString;
-    unsigned initialLine = 0;
-    for (inst_iterator it = inst_begin(fn), ie = inst_end(fn); it != ie; ++it) {
-      if (getInstructionDebugInfo(&*it, initialFile, initialLine))
+    std::string file;
+    unsigned line = 0;
+    for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
+      Instruction *instr = &*inst_it;
+      if (getInstructionDebugInfo(instr, file, line))
         break;
     }
 
-    const std::string *file = initialFile;
-    unsigned line = initialLine;
-    for (inst_iterator it = inst_begin(fn), ie = inst_end(fn); it != ie;
-        ++it) {
-      Instruction *instr = &*it;
+    // start over, using the first found debug values from above
+    for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
+      Instruction *instr = &*inst_it;
       unsigned assemblyLine = lineTable[instr];
 
       // Update our source level debug information.
       getInstructionDebugInfo(instr, file, line);
 
-      MDNode *N = MDNode::get(C, MDString::get(C, std::to_string(assemblyLine)));
+      MDNode *N = MDNode::get(ctx, MDString::get(ctx, std::to_string(assemblyLine)));
       instr->setMetadata(mdkline, N);
-      infos.insert(std::make_pair(instr, InstructionInfo(id++, *file, line, assemblyLine)));
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, line, assemblyLine)));
     }
   }
 }
 
-InstructionInfoTable::~InstructionInfoTable() {
-  for (auto it = internedStrings.begin(), ie = internedStrings.end(); it != ie; ++it)
-    delete *it;
-}
+void InstructionInfoTable::LoadTable(llvm::Module *m) {
 
-const std::string *InstructionInfoTable::internString(std::string s) {
-  auto it = internedStrings.find(&s);
-  if (it==internedStrings.end()) {
-    std::string *interned = new std::string(s);
-    internedStrings.insert(interned);
-    return interned;
-  } else {
-    return *it;
+  unsigned int mdkline = m->getMDKindID("klee.assemblyLine");
+  unsigned id = 0;
+
+  for (auto fn_it = m->begin(), fn_ie = m->end(); fn_it != fn_ie; ++fn_it) {
+
+    // We want to ensure that as all instructions have source information, if
+    // available. Clang sometimes will not write out debug information on the
+    // initial instructions in a function (correspond to the formal parameters),
+    // so we first search forward to find the first instruction with debug info,
+    // if any.
+    std::string file;
+    unsigned line = 0;
+    for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
+      Instruction *instr = &*inst_it;
+      if (getInstructionDebugInfo(instr, file, line))
+        break;
+    }
+
+    // start over, using the first found debug values from above
+    for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
+      Instruction *instr = &*inst_it;
+
+      // Update our source level debug information.
+      getInstructionDebugInfo(instr, file, line);
+      unsigned assemblyLine = 0;
+      if (MDNode *node = instr->getMetadata(mdkline)) {
+        std::string str = cast<MDString>(node->getOperand(0))->getString();
+        assemblyLine = std::stoi(str);
+      }
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, line, assemblyLine)));
+    }
   }
 }
 
@@ -175,19 +188,19 @@ unsigned InstructionInfoTable::getMaxID() const {
   return infos.size();
 }
 
-const InstructionInfo &
-InstructionInfoTable::getInfo(const Instruction *inst) const {
-  std::map<const llvm::Instruction*, InstructionInfo>::const_iterator it = 
-    infos.find(inst);
-  if (it == infos.end())
-    llvm::report_fatal_error("invalid instruction, not present in "
-                             "initial module!");
-  return it->second;
+const InstructionInfo &InstructionInfoTable::getInfo(const Instruction *inst) const {
+  auto itr = infos.find(inst);
+  if (itr == infos.end()) {
+    klee_error("invalid instruction, not present in initial module!");
+  }
+  return itr->second;
 }
 
-const InstructionInfo &
-InstructionInfoTable::getFunctionInfo(const Function *f) const {
+const InstructionInfo &InstructionInfoTable::getFunctionInfo(const Function *f) const {
+
   if (f->isDeclaration()) {
+
+    static InstructionInfo dummyInfo;
     // FIXME: We should probably eliminate this dummyInfo object, and instead
     // allocate a per-function object to track the stats for that function
     // (otherwise, anyone actually trying to use those stats is getting ones
@@ -195,6 +208,6 @@ InstructionInfoTable::getFunctionInfo(const Function *f) const {
     // and construct a test case for it if it does, though.
     return dummyInfo;
   } else {
-    return getInfo(static_cast<const Instruction *>(f->begin()->begin()));
+    return getInfo(f->begin()->begin());
   }
 }

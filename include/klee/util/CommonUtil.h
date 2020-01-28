@@ -99,6 +99,7 @@ public:
 
 #ifdef _DEBUG
 bool EnableMemDebuggingChecks();
+void ShowMemStats();
 #endif // _DEBUG
 
 } // namespace klee

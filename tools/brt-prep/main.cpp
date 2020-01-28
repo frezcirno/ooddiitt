@@ -48,6 +48,11 @@
 #include <llvm/IR/Intrinsics.h>
 #include "klee/util/CommonUtil.h"
 
+#ifdef _DEBUG
+#include <gperftools/tcmalloc.h>
+#include <gperftools/heap-profiler.h>
+#include <gperftools/heap-checker.h>
+#endif
 
 using namespace llvm;
 using namespace klee;
@@ -467,7 +472,7 @@ KModule *PrepareModule(const string &filename, const string& libDir, TraceType t
   if (Module *module = LoadModule(filename)) {
 
     if (isPrepared(module)) {
-      errs() << "already prepared" << module->getModuleIdentifier() << '\n';
+      errs() << "already prepared: " << module->getModuleIdentifier() << '\n';
     } else {
 
       set<Function*> module_fns;
@@ -721,7 +726,6 @@ int main(int argc, char **argv, char **envp) {
 #endif // _DEBUG
 
   string libDir = getRunTimeLibraryPath(argv[0]);
-
   fs::path outPath(Output);
   if (!fs::exists(outPath)) {
     fs::create_directories(outPath);
@@ -729,6 +733,7 @@ int main(int argc, char **argv, char **envp) {
 
   int exit_code = 1;
   if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT, MarkS)) {
+    const LLVMContext *ctx1 = kmod1->getContextPtr();
     if (SaveModule(kmod1, Output)) {
       if (InputFile2.empty()) {
         // all done
@@ -736,15 +741,18 @@ int main(int argc, char **argv, char **envp) {
       } else {
         // now get the modified module
         if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT, MarkS)) {
+          const LLVMContext *ctx2 = kmod1->getContextPtr();
           SaveModule(kmod2, Output);
           // two for two
           emitDiff(kmod1, kmod2, Output);
           exit_code = 0;
           delete kmod2;
+          delete ctx2;
         }
       }
     }
     delete kmod1;
+    delete ctx1;
   }
   return exit_code;
 }

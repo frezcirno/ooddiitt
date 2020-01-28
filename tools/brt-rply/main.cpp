@@ -12,11 +12,9 @@
 #include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
@@ -37,11 +35,6 @@
 #include "llvm/Support/system_error.h"
 #endif
 
-#include <signal.h>
-#include <unistd.h>
-#include <sys/wait.h>
-
-#include <cerrno>
 #include <string>
 #include <iomanip>
 #include <iterator>
@@ -52,12 +45,19 @@
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
 
+#ifdef _DEBUG
+#include <gperftools/tcmalloc.h>
+#include <gperftools/heap-profiler.h>
+#include <gperftools/heap-checker.h>
+#endif
+
 using namespace llvm;
 using namespace klee;
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace {
-  cl::opt<string> ReplayTest(cl::desc("<test case to replay>"), cl::Positional, cl::Required);
+  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::OneOrMore);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
@@ -65,7 +65,17 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
+  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"), cl::init(false));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
+  cl::opt<TraceType> TraceT("trace",
+                            cl::desc("Choose the type of trace (default=marked basic blocks"),
+                            cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+                                       clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+                                       clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+                                       clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+                                       clEnumValEnd),
+                            cl::init(TraceType::invalid));
+
 }
 
 /***/
@@ -422,6 +432,86 @@ string to_string(const vector<unsigned char> &buffer, unsigned max = 256) {
   return bytes.str();
 }
 
+Module *LoadModule(const string &filename) {
+
+  // Load the bytecode...
+  string ErrorMsg;
+  auto *ctx = new LLVMContext();
+  Module *result = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+
+  result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (result != nullptr) {
+    if (result->MaterializeAllPermanently(&ErrorMsg)) {
+      delete result;
+      result = nullptr;
+    }
+  }
+  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  BufferPtr.take();
+  return result;
+}
+
+map<string,KModule*> module_cache;
+
+KModule *PrepareModule(const string &filename) {
+
+  auto itr = module_cache.find(filename);
+  if (itr != module_cache.end()) {
+    return itr->second;
+  } else {
+    if (Module *module = LoadModule(filename)) {
+      if (!isPrepared(module)) {
+        errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+      } else {
+        if (KModule *kmodule = new KModule(module)) {
+          kmodule->prepare();
+          module_cache.insert(make_pair(filename, kmodule));
+          return kmodule;
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
+//#define DO_HEAP_PROFILE 1
+
+#define EXIT_OK               0
+#define EXIT_REPLAY_ERROR     1
+#define EXIT_STATUS_CONFLICT  2
+#define EXIT_TRACE_CONFLICT   3
+
+void expand_test_files(deque<string> &files) {
+
+  for (const auto &str : ReplayTests) {
+    fs::path entry(str);
+    boost::system::error_code ec;
+    fs::file_status s = fs::status(entry, ec);
+    if (fs::is_regular_file(s)) {
+      files.push_back(str);
+    } else if (fs::is_directory(s)) {
+      for (fs::directory_iterator itr{entry}, end{}; itr != end; ++itr) {
+        // add regular files of the form test*.json
+        fs::path pfile(itr->path());
+        if (fs::is_regular_file(pfile) &&
+           (pfile.extension().string() == ".json") &&
+           (boost::starts_with(pfile.filename().string(), "test"))) {
+
+          files.push_back(pfile.string());
+        }
+      }
+    } else {
+      errs() << "Entry not found: " << str << '\n';
+    }
+  }
+  sort(files.begin(), files.end());
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -430,161 +520,161 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
-  exit_code = 0;
+  exit_code = EXIT_OK;
 
-  // Load the test case
-  TestCase test;
-  Json::Value root;
-  if (!ReplayTest.empty()) {
+#ifdef _DEBUG
+  EnableMemDebuggingChecks();
+#endif // _DEBUG
 
+#ifdef DO_HEAP_PROFILE
+  HeapProfilerStart("brt-rply");
+#endif
+
+  deque<string> test_files;
+  expand_test_files(test_files);
+
+  for (const string &test_file : test_files) {
+
+    TestCase test;
     ifstream info;
-    info.open(ReplayTest);
+    Json::Value root;  // needed here if we intend to update later
+    info.open(test_file);
     if (info.is_open()) {
-
       info >> root;
       load_test_case(root, test);
     }
-  }
-
-  if (!test.is_ready()) {
-    klee_error("failed to load test case '%s'", ReplayTest.c_str());
-  }
-
-  // Common setup
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = ExecModeID::rply;
-  IOpts.user_mem_base = (void*) 0x90000000000;
-  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-  IOpts.trace = test.trace_type;
-  IOpts.test_objs = &test.objects;
-
-  string ErrorMsg;
-  llvm::error_code ec;
-  vector<ExecutionState*> ex_states;
-
-  // get the input file from the test case
-  string InputFile = test.file_name;
-
-  // Load the bytecode...
-  // load the bytecode emitted in the generation step...
-
-  // load the  module
-  Module *mainModule = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr;
-
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ec.message().c_str());
-  }
-
-  LLVMContext ctx;
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
-
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
+    if (!test.is_ready()) {
+      klee_error("failed to load test case '%s'", test_file.c_str());
     }
-  }
+    KModule *kmod = PrepareModule(test.file_name);
+    LLVMContext *ctx = kmod->getContextPtr();
 
-  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s'", InputFile.c_str());
+    // Common setup
+    Interpreter::InterpreterOptions IOpts;
+    IOpts.mode = ExecModeID::rply;
+    IOpts.user_mem_base = (void *) 0x90000000000;
+    IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+    IOpts.test_objs = &test.objects;
+    IOpts.verbose = Verbose;
+    IOpts.trace = test.trace_type;
+    if (TraceT != TraceType::invalid) {
+      IOpts.trace = TraceT;
+    }
 
-  ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, mainModule->getModuleIdentifier());
+    vector<ExecutionState *> ex_states;
+    ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());
 
-  Interpreter *interpreter = Interpreter::createLocal(ctx, IOpts, handler);
-  handler->setInterpreter(interpreter);
-  interpreter->bindModule(mainModule);
+    Interpreter *interpreter = Interpreter::createLocal(*ctx, IOpts, handler);
+    handler->setInterpreter(interpreter);
+    interpreter->bindModule(kmod);
 
-  theInterpreter = interpreter;
-  interpreter->runFunctionTestCase(test);
-  theInterpreter = nullptr;
+    theInterpreter = interpreter;
+    interpreter->runFunctionTestCase(test);
+    theInterpreter = nullptr;
 
-  // only used for verbose output
-  vector<unsigned char> stdout_capture;
-  vector<unsigned char> stderr_capture;
-  map<unsigned,unsigned> counters;
+    // only used for verbose output
+    vector<unsigned char> stdout_capture;
+    vector<unsigned char> stderr_capture;
+    map<unsigned, unsigned> counters;
 
-  outs() << ReplayTest << "::" << test.entry_fn << "| ";
+    outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> ";
 
-  if (ex_states.empty()) {
-    errs() << "Failed to replay";
-    exit_code = 2;
-  } else if (ex_states.size() > 1) {
-    errs() << "Replay forked into multiple paths";
-    exit_code = 2;
-  } else {
-    ExecutionState *state = ex_states.front();
+    if (ex_states.empty()) {
+      errs() << "Failed to replay";
+      exit_code = max(exit_code, EXIT_REPLAY_ERROR);
+    } else if (ex_states.size() > 1) {
+      errs() << "Replay forked into multiple paths";
+      exit_code = max(exit_code, EXIT_REPLAY_ERROR);
+    } else {
+      ExecutionState *state = ex_states.front();
+
+      if (Verbose) {
+        state->stdout_capture.get_data(stdout_capture);
+        state->stderr_capture.get_data(stderr_capture);
+        // count fn markers in the trace
+        for (unsigned mark : state->trace) {
+          counters[mark / 1000] += 1;
+        }
+      }
+
+      if (CheckTrace || UpdateTrace) {
+        if (IOpts.trace == test.trace_type) {
+          if (!compare_traces(test.trace, state->trace)) {
+            outs() << "trace differs, ";
+            exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
+            if (UpdateTrace) {
+              update_test_case(test_file, root, state->trace);
+            }
+          }
+        } else {
+          errs() << "incomparable trace types, ";
+          exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
+        }
+      }
+
+      if (test.status != state->status) {
+        outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+        exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
+      } else {
+        outs() << "ok";
+      }
+
+      if (state->status != StateStatus::Completed) {
+        outs() << " (" << state->terminationMessage << ')';
+      }
+
+    }
+    outs() << '\n';
 
     if (Verbose) {
-      state->stdout_capture.get_data(stdout_capture);
-      state->stderr_capture.get_data(stderr_capture);
-      // count fn markers in the trace
-      for (unsigned mark : state->trace) {
-        counters[mark/1000] += 1;
+      // display captured output
+      if (!stdout_capture.empty()) {
+        outs() << "stdout: " << to_string(stdout_capture, 64) << '\n';
       }
-    }
-
-    if (CheckTrace) {
-      if (!compare_traces(test.trace, state->trace)) {
-        outs() << "trace differs, ";
-        update_test_case(ReplayTest, root, state->trace);
+      if (!stderr_capture.empty()) {
+        outs() << "stdout: " << to_string(stderr_capture, 64) << '\n';
       }
+
+      // build an inverse map of fnIDs
+      //    KModule *kmodule = interpreter->getKModule();
+      //    Module *module = kmodule->module;
+      //    map<unsigned,string> fnIDtoName;
+      //    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+      //      Function *fn = itr;
+      //      unsigned fnID = kmodule->getFunctionID(fn);
+      //      if (fnID != 0) {
+      //        fnIDtoName[fnID] = fn->getName().str();
+      //      }
+      //    }
+      //
+      //    // display a sorted list of trace statements from each block.
+      //    // this can be used to determine when a libc function should be modeled for performance.
+      //    vector<pair<unsigned,unsigned> >fn_counter;
+      //    fn_counter.reserve(counters.size());
+      //    for (auto &itr : counters) {
+      //      fn_counter.emplace_back(make_pair(itr.second, itr.first));
+      //    }
+      //    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
+      //    for (const auto &pr : fn_counter) {
+      //      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
+      //    }
     }
 
-    if (test.status != state->status) {
-      outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
-      exit_code = 1;
-    } else {
-      outs() << "ok";
+    for (auto state : ex_states) {
+      delete state;
     }
+    ex_states.clear();
 
-    if (state->status != StateStatus::Completed) {
-      outs() << " (" << state->terminationMessage << ')';
-    }
-
-  }
-  outs() << '\n';
-
-  if (Verbose) {
-    // display captured output
-    if (!stdout_capture.empty()) {
-      outs() << "stdout: " << to_string(stdout_capture, 64) << '\n';
-    }
-    if (!stderr_capture.empty()) {
-      outs() << "stdout: " << to_string(stderr_capture, 64) << '\n';
-    }
-
-    // build an inverse map of fnIDs
-//    KModule *kmodule = interpreter->getKModule();
-//    Module *module = kmodule->module;
-//    map<unsigned,string> fnIDtoName;
-//    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-//      Function *fn = itr;
-//      unsigned fnID = kmodule->getFunctionID(fn);
-//      if (fnID != 0) {
-//        fnIDtoName[fnID] = fn->getName().str();
-//      }
-//    }
-//
-//    // display a sorted list of trace statements from each block.
-//    // this can be used to determine when a libc function should be modeled for performance.
-//    vector<pair<unsigned,unsigned> >fn_counter;
-//    fn_counter.reserve(counters.size());
-//    for (auto &itr : counters) {
-//      fn_counter.emplace_back(make_pair(itr.second, itr.first));
-//    }
-//    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
-//    for (const auto &pr : fn_counter) {
-//      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
-//    }
+    delete interpreter;
+    delete handler;
   }
 
-  ex_states.clear();
-
-  delete interpreter;
-  BufferPtr.take();
-  delete handler;
+  // clean up the cached modules
+  for (auto &pr : module_cache) {
+    LLVMContext *ctx = pr.second->getContextPtr();
+    delete pr.second;
+    delete ctx;
+  }
 
   return exit_code;
 }

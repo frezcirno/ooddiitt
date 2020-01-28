@@ -114,6 +114,7 @@ void HashAccumulator::add(const std::string &str) {
         const char *bytes = str.substr(idx, remaining).c_str();
         memcpy(buffer, bytes, remaining);
         add(*((uint64_t *) buffer));
+        idx += remaining;
       }
     }
   }
@@ -130,16 +131,20 @@ void HashAccumulator::add(const std::string &str) {
 #define MEM_ALLOCD  (0xCD)
 #define MEM_FREEDD  (0xCD)
 
+int64_t allocation_counter;
+
 static void DebugNewHook(const void *ptr, size_t size) {
 
-  memset((void*) ptr, MEM_ALLOCD, size);
+  allocation_counter += 1;
+//  memset((void*) ptr, MEM_ALLOCD, size);
 }
 
 static void DebugDeleteHook(const void *ptr) {
 
-  if (size_t size = tc_malloc_size((void*) ptr) > 0) {
-    memset((void*) ptr, MEM_FREEDD, size);
-  }
+  allocation_counter -= 1;
+//  if (size_t size = tc_malloc_size((void*) ptr) > 0) {
+//    memset((void*) ptr, MEM_FREEDD, size);
+//  }
 }
 
 static void DisableMemDebuggingChecks() {
@@ -151,9 +156,13 @@ static void DisableMemDebuggingChecks() {
 bool EnableMemDebuggingChecks() {
 
   atexit(DisableMemDebuggingChecks);
-//  return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
-  return true;
+  return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
 }
+
+void ShowMemStats() {
+  llvm::errs() << "Allocation Counter: " << allocation_counter << '\n';
+}
+
 
 #endif // _DEBUG
 

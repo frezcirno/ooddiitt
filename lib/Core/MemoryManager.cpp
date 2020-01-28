@@ -39,24 +39,6 @@ llvm::cl::opt<unsigned> RedZoneSpace(
     llvm::cl::desc("Set the amount of free space between allocations. This is "
                    "important to detect out-of-bound accesses (default=10)."),
     llvm::cl::init(10));
-
-
-#if 0 == 1
-
-llvm::cl::opt<unsigned> DeterministicAllocationSize(
-    "allocate-determ-size",
-    llvm::cl::desc(
-        "Preallocated memory for deterministic allocation in MB (default=100)"),
-    llvm::cl::init(100));
-
-llvm::cl::opt<unsigned long long> DeterministicStartAddress(
-    "allocate-determ-start-address",
-    llvm::cl::desc("Start address for deterministic allocation. Has to be page "
-                   "aligned (default=0x7ff30000000)."),
-    llvm::cl::init(0x7ff30000000));
-
-#endif
-
 }
 
 /***/
@@ -64,26 +46,6 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t us
     : arrayCache(_arrayCache), deterministicSpace(nullptr), nextFreeSlot(nullptr), spaceSize(user_size) {
 
   if (DeterministicAllocation) {
-
-#if 0 == 1
-    // Page boundary
-    void *expectedAddress = (void *)DeterministicStartAddress.getValue();
-
-    char *newSpace =
-        (char *)mmap(expectedAddress, spaceSize, PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-
-    if (newSpace == MAP_FAILED) {
-      klee_error("Couldn't mmap() memory for deterministic allocations");
-    }
-    if (expectedAddress != newSpace && expectedAddress != 0) {
-      klee_error("Could not allocate memory deterministically");
-    }
-
-    klee_message("Deterministic memory allocation starting from %p", newSpace);
-    deterministicSpace = newSpace;
-    nextFreeSlot = newSpace;
-#endif
     if (user_base != nullptr) deterministicSpace = (char*) user_base;
     else deterministicSpace = (char*) 0x7ff30000000;
     nextFreeSlot = deterministicSpace;
@@ -92,18 +54,11 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t us
 }
 
 MemoryManager::~MemoryManager() {
-  while (!objects.empty()) {
-    const MemoryObject *mo = *objects.begin();
-    if (!DeterministicAllocation)
-      free((void *) (mo->address));
-    objects.erase(mo);
+  for (auto mo : objects) {
+    if (!DeterministicAllocation) free((void*) mo->address);
     delete mo;
   }
-
-#if 0 == 1
-  if (DeterministicAllocation)
-    munmap(deterministicSpace, spaceSize);
-#endif
+  objects.clear();
 }
 
 MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {

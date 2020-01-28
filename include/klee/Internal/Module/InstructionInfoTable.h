@@ -17,7 +17,7 @@
 namespace llvm {
   class Function;
   class Instruction;
-  class Module; 
+  class Module;
 }
 
 namespace klee {
@@ -25,16 +25,17 @@ namespace klee {
   /* Stores debug information for a KInstruction */
   struct InstructionInfo {
     unsigned id;
-    const std::string &file;
+    const std::string file;
     unsigned line;
     unsigned assemblyLine;
 
   public:
+    InstructionInfo() : id(0), line(0), assemblyLine(0) {};
     InstructionInfo(unsigned _id,
-                    const std::string &_file,
+                    std::string &_file,
                     unsigned _line,
                     unsigned _assemblyLine)
-      : id(_id), 
+      : id(_id),
         file(_file),
         line(_line),
         assemblyLine(_assemblyLine) {
@@ -42,30 +43,28 @@ namespace klee {
   };
 
   class InstructionInfoTable {
-    struct ltstr { 
-      bool operator()(const std::string *a, const std::string *b) const {
-        return *a<*b;
-      }
-    };
-
-    std::string dummyString;
-    InstructionInfo dummyInfo;
+//    std::string dummyString;
+//    InstructionInfo dummyInfo;
     std::map<const llvm::Instruction*, InstructionInfo> infos;
-    std::set<const std::string *, ltstr> internedStrings;
+//    std::set<const std::string> internedStrings;
+
+
 
   private:
-    const std::string *internString(std::string s);
-    bool getInstructionDebugInfo(const llvm::Instruction *I,
-                                 const std::string *&File, unsigned &Line);
+//    const std::string *internString(std::string s);
+    bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, unsigned &Line);
 
   public:
-    InstructionInfoTable(llvm::Module *m);
-    ~InstructionInfoTable();
+    InstructionInfoTable() = default;
+    virtual ~InstructionInfoTable() = default;
+
+    void LoadTable(llvm::Module *m);
+    void BuildTable(llvm::Module *m);
 
     unsigned getMaxID() const;
     const InstructionInfo &getInfo(const llvm::Instruction*) const;
     const InstructionInfo &getFunctionInfo(const llvm::Function*) const;
-    std::map<const llvm::Instruction *,InstructionInfo> &getInfos(void) { return infos; }
+//    std::map<const llvm::Instruction *,InstructionInfo> &getInfos() { return infos; }
   };
 
 }

@@ -384,11 +384,9 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
 }
 
 
-void Executor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
+void Executor::bindModule(KModule *kmod) {
 
-  if (!kmodule->isPrepared()) {
-    klee_error("%s module unprepared", kmodule->getModuleIdentifier().c_str());
-  }
+  kmodule = kmod;
 
   // Initialize the context, if not already
   if (!Context::is_initialized()) {
@@ -397,14 +395,8 @@ void Executor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
   }
 
   specialFunctionHandler = new SpecialFunctionHandler(*this);
-
   specialFunctionHandler->prepare();
-  kmodule->prepare();
   specialFunctionHandler->bind();
-
-  std::set<const llvm::Function*> spcs;
-  specialFunctionHandler->getSpecialFns(spcs);
-  kmodule->addIntenalFunctions(spcs);
 
   if (interpreterOpts.mode == ExecModeID::igen) {
     if (StatsTracker::useStatistics() || userSearcherRequiresMD2U()) {
@@ -492,15 +484,6 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 }
 
 extern void *__dso_handle __attribute__ ((__weak__));
-
-#if 0 == 1
-void Executor::GetModeledExternals(std::set<std::string> &names) const {
-
-  if (specialFunctionHandler != nullptr) {
-    specialFunctionHandler->getSpecialFns(names);
-  }
-}
-#endif
 
 void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs) {
   Module *m = kmodule->module;
@@ -2598,19 +2581,15 @@ void Executor::computeOffsets(KGEPInstruction *kgepi, TypeIt ib, TypeIt ie) {
       const StructLayout *sl = kmodule->targetData->getStructLayout(st);
       const ConstantInt *ci = cast<ConstantInt>(ii.getOperand());
       uint64_t addend = sl->getElementOffset((unsigned) ci->getZExtValue());
-      constantOffset = constantOffset->Add(ConstantExpr::alloc(addend,
-                                                               Context::get().getPointerWidth()));
+      constantOffset = constantOffset->Add(ConstantExpr::alloc(addend, Context::get().getPointerWidth()));
     } else {
+
       const SequentialType *set = cast<SequentialType>(*ii);
-      uint64_t elementSize =
-        kmodule->targetData->getTypeStoreSize(set->getElementType());
+      uint64_t elementSize = kmodule->targetData->getTypeStoreSize(set->getElementType());
       Value *operand = ii.getOperand();
       if (Constant *c = dyn_cast<Constant>(operand)) {
-        ref<ConstantExpr> index =
-          evalConstant(c)->SExt(Context::get().getPointerWidth());
-        ref<ConstantExpr> addend =
-          index->Mul(ConstantExpr::alloc(elementSize,
-                                         Context::get().getPointerWidth()));
+        ref<ConstantExpr> index = evalConstant(c)->SExt(Context::get().getPointerWidth());
+        ref<ConstantExpr> addend = index->Mul(ConstantExpr::alloc(elementSize, Context::get().getPointerWidth()));
         constantOffset = constantOffset->Add(addend);
       } else {
         kgepi->indices.push_back(std::make_pair(index, elementSize));

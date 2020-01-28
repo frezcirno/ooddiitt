@@ -13,27 +13,20 @@
 #include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
-#include "klee/Internal/System/Time.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/System/Memory.h"
-#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/InstrTypes.h"
-#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
@@ -42,17 +35,22 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
+#include "klee/util/CommonUtil.h"
 
 #include <openssl/sha.h>
-#include <boost/algorithm/hex.hpp>
-#include <fstream>
+
+#ifdef _DEBUG
+#include <gperftools/tcmalloc.h>
+#include <gperftools/heap-profiler.h>
+#include <gperftools/heap-checker.h>
+#endif
+
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/system_error.h"
 #include "json/json.h"
 #endif
 
-#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -63,8 +61,6 @@
 #include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <llvm/IR/Intrinsics.h>
-#include "klee/util/CommonUtil.h"
 
 
 using namespace llvm;
@@ -83,10 +79,14 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
-  cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
-  cl::opt<bool> TraceStatements("trace-stmt", cl::init(false), cl::desc("trace source lines (does not capture filename)"));
-  cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
+  cl::opt<TraceType> TraceT("trace",
+                            cl::desc("Choose the type of trace (default=marked basic blocks"),
+                            cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+                                       clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+                                       clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+                                       clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+                                       clEnumValEnd),
+                            cl::init(TraceType::invalid));
 
 
 #if 0 == 1
@@ -325,13 +325,13 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
       root["maxLoopIteration"] = state.maxLoopIteration;
       root["maxLoopForks"] = state.maxLoopForks;
       root["maxLazyDepth"] = state.maxLazyDepth;
-      root["timeStarted"] = to_string(started_at);
+      root["timeStarted"] = klee::to_string(started_at);
       root["timeStopped"] = currentISO8601TimeUTC();
 
       const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
       if (flags != nullptr) {
         root["unconstraintFlags"] = flags->to_string();
-        root["unconstraintDescription"] = flags_to_string(*flags);
+        root["unconstraintDescription"] = klee::to_string(*flags);
       }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = (unsigned) state.status;
@@ -372,7 +372,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
         obj["name"] = mo->name;
         obj["kind"] = (unsigned) mo->kind;
         obj["count"] = mo->count;
-        obj["type"] = to_string(mo->type);
+        obj["type"] = klee::to_string(mo->type);
 
         // scale to 32 or 64 bits
         unsigned ptr_width = (Context::get().getPointerWidth() / 8);
@@ -712,6 +712,46 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   return result;
 }
 
+Module *LoadModule(const string &filename) {
+
+  // Load the bytecode...
+  string ErrorMsg;
+  auto *ctx = new LLVMContext();
+  Module *result = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+
+  result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (result != nullptr) {
+    if (result->MaterializeAllPermanently(&ErrorMsg)) {
+      delete result;
+      result = nullptr;
+    }
+  }
+  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  BufferPtr.take();
+  return result;
+}
+
+KModule *PrepareModule(const string &filename) {
+
+  if (Module *module = LoadModule(filename)) {
+    if (!isPrepared(module)) {
+      errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+    } else {
+
+      if (KModule *kmodule = new KModule(module)) {
+        kmodule->prepare();
+        return kmodule;
+      }
+    }
+  }
+  return nullptr;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -813,6 +853,10 @@ int main(int argc, char **argv, char **envp) {
     pid_watchdog = getppid();
   }
 
+#ifdef _DEBUG
+  EnableMemDebuggingChecks();
+#endif // _DEBUG
+
   // write out command line info, for reference
   if (!outs().is_displayed()) {
     for (int i = 0; i < argc; i++) {
@@ -821,52 +865,9 @@ int main(int argc, char **argv, char **envp) {
     outs() << "PID: " << getpid() << "\n";
   }
 
-  // Load the bytecode...
-  string ErrorMsg;
-  LLVMContext ctx;
-  Module *mainModule = nullptr;
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  OwningPtr<MemoryBuffer> BufferPtr;
-  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
-  }
-
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
-
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
-    }
-  }
-  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
-#else
-  auto Buffer = MemoryBuffer::getFileOrSTDIN(InputFile.c_str());
-  if (!Buffer)
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               Buffer.getError().message().c_str());
-
-  auto mainModuleOrError = getLazyBitcodeModule(Buffer->get(), ctx);
-
-  if (!mainModuleOrError) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               mainModuleOrError.getError().message().c_str());
-  }
-  else {
-    // The module has taken ownership of the MemoryBuffer so release it
-    // from the unique_ptr
-    Buffer->release();
-  }
-
-  mainModule = *mainModuleOrError;
-  if (auto ec = mainModule->materializeAllPermanently()) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(),
-               ec.message().c_str());
-  }
-#endif
+  // Load the bytecode and verify that its been prepped
+  KModule *kmod = PrepareModule(InputFile);
+  LLVMContext *ctx = kmod->getContextPtr();
 
   if (WithPOSIXRuntime) {
 //    SmallString<128> Path(LibraryDir);
@@ -888,14 +889,14 @@ int main(int argc, char **argv, char **envp) {
 
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
-  Function *mainFn = mainModule->getFunction(UserMain);
+  Function *mainFn = kmod->getFunction(UserMain);
 
   vector<string> args;
   args.reserve(InputArgv.size() + 1);
   args.push_back(InputFile);
   args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  InputGenKleeHandler *handler = new InputGenKleeHandler(args, mainModule->getModuleIdentifier());
+  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier());
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
@@ -909,23 +910,13 @@ int main(int argc, char **argv, char **envp) {
   IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
   IOpts.verbose = Verbose;
   IOpts.verify_constraints = VerifyConstraints;
-
-  if (TraceNone) {
-    IOpts.trace = TraceType::none;
-  } else if (TraceBBlocks) {
-    IOpts.trace = TraceType::bblocks;
-  } else if (TraceAssembly) {
-    IOpts.trace = TraceType::assembly;
-  } else if (TraceStatements) {
-    IOpts.trace = TraceType::statements;
+  if (TraceT != TraceType::invalid) {
+    IOpts.trace = TraceT;
   }
 
-  theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
+  theInterpreter = Interpreter::createLocal(*ctx, IOpts, handler);
   handler->setInterpreter(theInterpreter);
-
-  Interpreter::ModuleOptions MOpts;
-
-  theInterpreter->bindModule(mainModule);
+  theInterpreter->bindModule(kmod);
 
   auto start_time = sys_clock::now();
   outs() << "Started: " << to_string(start_time) << '\n';
@@ -934,13 +925,9 @@ int main(int argc, char **argv, char **envp) {
   // select program entry point
   Function *entryFn = mainFn;
   if (!EntryPoint.empty()) {
-    if (EntryPoint == "void") {
-      entryFn = nullptr;
-    } else {
-      entryFn = mainModule->getFunction(EntryPoint);
-      if (entryFn == nullptr) {
-        klee_error("Unable to find function: %s", EntryPoint.c_str());
-      }
+    entryFn = kmod->getFunction(EntryPoint);
+    if (entryFn == nullptr) {
+      klee_error("Unable to find function: %s", EntryPoint.c_str());
     }
   }
   if (entryFn != nullptr) {
@@ -952,47 +939,41 @@ int main(int argc, char **argv, char **envp) {
   auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
   outs() << "Elapsed: " << elapsed.count() << '\n';
 
-  delete theInterpreter;
-  theInterpreter = nullptr;
-
-  // only display stats if output was appended (i.e. actual se was performed)
-  if (EntryPoint != "void") {
-
-    vector<string> termination_messages;
-    handler->getTerminationMessages(termination_messages);
-    for (const auto &message : termination_messages) {
-      outs() << "brt-igen: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
-    }
-
-    uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
-    uint64_t queriesValid = *theStatisticManager->getStatisticByName("QueriesValid");
-    uint64_t queriesInvalid = *theStatisticManager->getStatisticByName("QueriesInvalid");
-    uint64_t queryCounterexamples = *theStatisticManager->getStatisticByName("QueriesCEX");
-    uint64_t queryConstructs = *theStatisticManager->getStatisticByName("QueriesConstructs");
-    uint64_t instructions = *theStatisticManager->getStatisticByName("Instructions");
-    uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
-
-    outs() << "brt-igen: done: explored paths = " << 1 + forks << "\n";
-
-    // Write some extra information in the info file which users won't
-    // necessarily care about or understand.
-    if (queries) {
-      outs() << "brt-igen: done: avg. constructs per query = " << queryConstructs / queries << "\n";
-    }
-    outs()
-      << "brt-igen: done: total queries = " << queries << "\n"
-      << "brt-igen: done: valid queries = " << queriesValid << "\n"
-      << "brt-igen: done: invalid queries = " << queriesInvalid << "\n"
-      << "brt-igen: done: query cex = " << queryCounterexamples << "\n";
-
-    outs() << "brt-igen: done: total instructions = " << instructions << "\n";
-    outs() << "brt-igen: done: completed paths = " << handler->getNumPathsExplored() << "\n";
-    outs() << "brt-igen: done: generated tests = " << handler->getNumTestCases() << "\n";
+  vector<string> termination_messages;
+  handler->getTerminationMessages(termination_messages);
+  for (const auto &message : termination_messages) {
+    outs() << "brt-igen: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
   }
 
+  uint64_t queries = *theStatisticManager->getStatisticByName("Queries");
+  uint64_t queriesValid = *theStatisticManager->getStatisticByName("QueriesValid");
+  uint64_t queriesInvalid = *theStatisticManager->getStatisticByName("QueriesInvalid");
+  uint64_t queryCounterexamples = *theStatisticManager->getStatisticByName("QueriesCEX");
+  uint64_t queryConstructs = *theStatisticManager->getStatisticByName("QueriesConstructs");
+  uint64_t instructions = *theStatisticManager->getStatisticByName("Instructions");
+  uint64_t forks = *theStatisticManager->getStatisticByName("Forks");
+
+  outs() << "brt-igen: done: explored paths = " << 1 + forks << "\n";
+
+  // Write some extra information in the info file which users won't
+  // necessarily care about or understand.
+  if (queries) {
+    outs() << "brt-igen: done: avg. constructs per query = " << queryConstructs / queries << "\n";
+  }
+  outs()
+    << "brt-igen: done: total queries = " << queries << "\n"
+    << "brt-igen: done: valid queries = " << queriesValid << "\n"
+    << "brt-igen: done: invalid queries = " << queriesInvalid << "\n"
+    << "brt-igen: done: query cex = " << queryCounterexamples << "\n";
+
+  outs() << "brt-igen: done: total instructions = " << instructions << "\n";
+  outs() << "brt-igen: done: completed paths = " << handler->getNumPathsExplored() << "\n";
+  outs() << "brt-igen: done: generated tests = " << handler->getNumTestCases() << "\n";
+
   delete theInterpreter;
-  BufferPtr.take();
   delete handler;
+  delete kmod;
+  delete ctx;
 
   return exit_code;
 }

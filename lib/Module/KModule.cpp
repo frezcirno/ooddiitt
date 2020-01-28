@@ -39,7 +39,6 @@
 
 #include "ModuleTypes.h"
 
-
 using namespace llvm;
 using namespace klee;
 using std::vector;
@@ -162,39 +161,6 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
     }
   }
 }
-
-bool KModule::addInternalFunction(string name) {
-
-  Function *fn = module->getFunction(name);
-  if (fn != nullptr) {
-    addInternalFunction(fn);
-    return true;
-  }
-  return false;
-}
-
-// RLR TODO: this is an executor issue, not module
-//static set<string> never_stub = {
-//    "__ctype_b_loc",
-//    "memset",
-//    "memchr",
-//    "memcmp",
-//    "memcpy",
-//    "strchr",
-//    "strcmp",
-//    "strcpy",
-//    "strcspn",
-//    "strdup",
-//    "strlen",
-//    "strncmp",
-//    "strncpy",
-//    "strnlen",
-//    "strnlen",
-//    "strpbrk",
-//    "strrchr",
-//    "strspn",
-//    "strstr"
-//};
 
 void KModule::transform(const Interpreter::ModuleOptions &opts,
                         const set<Function*> &module_fns,
@@ -325,6 +291,10 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
     pm.run(*module);
   }
 
+  /* Build shadow structures */
+  infos = new InstructionInfoTable();
+  infos->BuildTable(module);
+
   if (!module_fns.empty()) {
     vector<Value*> values;
     values.reserve(module_fns.size());
@@ -362,17 +332,6 @@ void KModule::prepare() {
 
   LLVMContext &ctx = module->getContext();
 
-  // gather a list of original module functions
-  // RLR TODO: not sure I really need this anymore
-  set<const Function*> orig_functions;
-  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-    Function *fn = itr;
-
-    if (!fn->isDeclaration()) {
-      orig_functions.insert(fn);
-    }
-  }
-
   // module has already been prepared, need to retrieve prepared values
 
   // since markers are already assigned, need to retrieve them from the module
@@ -399,65 +358,60 @@ void KModule::prepare() {
 
   // read out the user defined functions from metadata
   auto node = module->getNamedMetadata("brt-klee.usr-fns");
-  if (node != nullptr) {
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-        Value *v = md->getOperand(idx);
-        if (Function *fn = dyn_cast<Function>(v)) {
-          user_fns.insert(fn);
-        }
+  if (node != nullptr && node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+      Value *v = md->getOperand(idx);
+      if (Function *fn = dyn_cast<Function>(v)) {
+        user_fns.insert(fn);
       }
     }
   }
 
   // and now the globals
   node = module->getNamedMetadata("brt-klee.usr-gbs");
-  if (node != nullptr) {
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-        Value *v = md->getOperand(idx);
-        if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
-          user_gbs.insert(gb);
-        }
+  if (node != nullptr && node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+      Value *v = md->getOperand(idx);
+      if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
+        user_gbs.insert(gb);
       }
     }
   }
 
   // check to see if a default trace type is set in the module
   node = module->getNamedMetadata("brt-klee.trace-type");
-  if (node != nullptr) {
-    if (node->getNumOperands() > 0) {
-      auto md = node->getOperand(0);
-      Value *v = md->getOperand(0);
-      if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
-        module_trace = (TraceType) i->getZExtValue();
-      }
+  if (node != nullptr && node->getNumOperands() > 0) {
+    auto md = node->getOperand(0);
+    Value *v = md->getOperand(0);
+    if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
+      module_trace = (TraceType) i->getZExtValue();
     }
   }
 
   kleeMergeFn = module->getFunction("klee_merge");
 
   /* Build shadow structures */
-  infos = new InstructionInfoTable(module);
+  infos = new InstructionInfoTable();
+  infos->LoadTable(module);
 
   /* Build shadow structures */
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
 
     Function *fn = static_cast<Function *>(it);
 
+    // RLR TODO: remove debug
+    string fn_name = fn->getName();
+
     // insert type for later lookup
     mapFnTypes[fn->getFunctionType()].insert(fn);
 
-    if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) addInternalFunction(fn);
-    if (fn->isDeclaration()) continue;
-
-
-    // if we just added this function, then its either klee runtime or an intrinsic
-    if (orig_functions.count(fn) == 0) {
+    if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) {
       addInternalFunction(fn);
     }
+
+    if (fn->isDeclaration()) continue;
 
     KFunction *kf = new KFunction(fn, this);
 
@@ -466,10 +420,21 @@ void KModule::prepare() {
       ki->info = &infos->getInfo(ki->inst);
     }
 
-    // generate loop information for this fn
-    kf->domTree.runOnFunction(*fn);
-    auto &base = kf->loopInfo.getBase();
-    base.Analyze(kf->domTree.getBase());
+//    DominatorTree domTree;
+//    domTree.runOnFunction(*fn);
+//    LoopInfo li;
+//    auto &base = li.getBase();
+//    base.Analyze(domTree.getBase());
+//    li.print(outs());
+//    auto itr3 = base.rbegin();
+//    auto itr4 = base.rend();
+//    while (itr3 != itr4) {
+//      const Loop *l = *itr3;
+//      ++itr3;
+//    }
+//      for (auto itr = li.begin(), end = li.end(); itr != end; ++itr) {
+//      Loop *l = *itr;
+//    }
 
     functions.push_back(kf);
     functionMap.insert(make_pair(fn, kf));
@@ -626,6 +591,7 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
     is_user(false) {
 
   is_user = km->isUserFunction(function);
+
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
     basicBlockEntry[bb] = numInstructions;
@@ -684,6 +650,15 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
       instructions[i++] = ki;
     }
   }
+
+  // generate loop information for this fn
+//  LoopInfoBase<BasicBlock, Loop>&  base = loopInfo.getBase();
+//  domTree.runOnFunction(*function);
+//  base.Analyze(domTree.getBase());
+//  loopInfo.print(outs());
+//  for (auto itr = loopInfo.begin(), end = loopInfo.end(); itr != end; ++itr) {
+//    const Loop *l =*itr;
+//  }
 }
 
 KFunction::~KFunction() {

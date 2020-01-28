@@ -93,8 +93,6 @@ namespace klee {
                 std::vector< ref<Expr> > &arguments);
 
     bool isSpecial(llvm::Function *f) const;
-    void getSpecialFns(std::set<std::string> &names) const;
-    void getSpecialFns(std::set<const llvm::Function*> &fns) const;
     static void filterHandledFunctions(std::set<const llvm::Value*> &fns);
     static void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 
@@ -125,7 +123,7 @@ namespace klee {
     HANDLER(handleIsSymbolic);
     HANDLER(handleMakeSymbolic);
     HANDLER(handleMalloc);
-    HANDLER(handleMemset);
+//    HANDLER(handleMemset);
     HANDLER(handleMarkGlobal);
     HANDLER(handleMerge);
     HANDLER(handleNew);

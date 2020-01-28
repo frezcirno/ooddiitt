@@ -127,16 +127,10 @@ namespace klee {
 
     Cell *constantTable;
 
-    // Mark function with functionName as part of the KLEE runtime
-    bool addInternalFunction(std::string name);
+    // Mark function as part of the KLEE runtime
     void addInternalFunction(const llvm::Function *fn) { internalFunctions.insert(fn); }
-    void addIntenalFunctions(const std::set<const llvm::Function*> &fns) {
-      internalFunctions.insert(fns.begin(), fns.end());
-    }
     bool isInternalFunction(const llvm::Function *fn) const
       { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
-    bool isModuleFunction(const llvm::Function *fn) const
-      { return functionMap.find(const_cast<llvm::Function*>(fn)) != functionMap.end();}
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
@@ -153,6 +147,10 @@ namespace klee {
     bool isPrepared() const { return module != nullptr && klee::isPrepared(module); }
     std::string getModuleIdentifier() const
       { std::string result; if (module) result = module->getModuleIdentifier(); return result; }
+    llvm::LLVMContext *getContextPtr() const
+      { llvm::LLVMContext *result = nullptr; if (module) result = &module->getContext(); return result; }
+    llvm::Function *getFunction(const std::string &fn) const
+      { llvm::Function *result = nullptr; if (module) result = module->getFunction(fn); return result; }
 
     /// Initialize local data structures.
     //

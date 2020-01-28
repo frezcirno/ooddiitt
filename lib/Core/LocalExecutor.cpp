@@ -148,22 +148,13 @@ LocalExecutor::~LocalExecutor() {
   }
 
   if (baseState != nullptr) {
+    // RLR TODO: evaluate solver teardown
     // this last state is leaked.  something in solver
     // tear-down does not like its deletion
-//    delete baseState;
+    delete baseState;
     baseState = nullptr;
-
   }
 }
-
-#if 0 == 1
-void LocalExecutor::GetModeledExternals(std::set<std::string> &names) const {
-  Executor::GetModeledExternals(names);
-  if (sysModel != nullptr) {
-    sysModel->GetModeledExternals(names);
-  }
-}
-#endif
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
 
@@ -331,9 +322,6 @@ bool LocalExecutor::isReadExpr(ref<Expr> e) const {
 
 void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
 
-
-  // RLR TODO: replace old proginfo
-  // RLR TODO: disable bitcode constants
   Module *m = kmodule->module;
   for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
@@ -885,9 +873,10 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
-void LocalExecutor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
+void LocalExecutor::bindModule(KModule *kmodule) {
 
-  Executor::bindModule(kmodule, MOpts);
+  Executor::bindModule(kmodule);
+
   specialFunctionHandler->setLocalExecutor(this);
   sysModel = new SystemModel(this, optsModel);
 
@@ -904,17 +893,18 @@ void LocalExecutor::bindModule(KModule *kmodule, const ModuleOptions *MOpts) {
 
 void LocalExecutor::bindModuleConstants() {
 
-  assert(kmodule->constantTable == nullptr);
-  kmodule->constantTable = new Cell[kmodule->constants.size()];
-  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-    Cell &c = kmodule->constantTable[i];
-    c.value = evalConstant(kmodule->constants[i]);
-  }
+  if (kmodule->constantTable == nullptr) {
+    kmodule->constantTable = new Cell[kmodule->constants.size()];
+    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+      Cell &c = kmodule->constantTable[i];
+      c.value = evalConstant(kmodule->constants[i]);
+    }
 
-  for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
-    KFunction *kf = *it;
-    for (unsigned i = 0; i < kf->numInstructions; ++i) {
-      bindInstructionConstants(kf->instructions[i]);
+    for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
+      KFunction *kf = *it;
+      for (unsigned i = 0; i < kf->numInstructions; ++i) {
+        bindInstructionConstants(kf->instructions[i]);
+      }
     }
   }
 }
@@ -1100,7 +1090,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       init_states.push_back(state);
     }
 
-    outs() << fn->getName().str() << ": " << interpreterHandler->to_string(unconstraintFlags) << '\n';
+    outs() << fn->getName().str() << ": " << to_string(unconstraintFlags) << '\n';
     outs().flush();
 
     runFn(kf, init_states);
@@ -1371,10 +1361,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
-
   const BasicBlock *fn_entry = &kf->function->getEntryBlock();
   unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
-  std::vector<const llvm::Loop*> loops;
 
   // initialize the starting set of initial states
   assert(states.empty());
@@ -1396,10 +1384,10 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       state->ptreeNode = result.second;
     }
 
-    StackFrame &sf = state->stack.back();
-    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-      sf.loopFrames.emplace_back(LoopFrame(*itr));
-    }
+//    StackFrame &sf = state->stack.back();
+//    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+//      sf.loopFrames.emplace_back(LoopFrame(*itr));
+//    }
     state->pc = &kf->instructions[entry];
     addedStates.push_back(state);
   }
@@ -1523,6 +1511,12 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   delete processTree;
   processTree = nullptr;
 
+  // clean up our initial states
+  for (auto state : init_states) {
+    delete state;
+  }
+  init_states.clear();
+
   // RLR TODO: now consider our stashed faulting states?
   faulting_state_stash.clear();
 
@@ -1640,47 +1634,57 @@ void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
   Executor::checkMemoryUsage();
 
   // expensive, so do not do this very often
-  if ((maxStatesInLoop > 0) && (stats::instructions & 0xFFF) == 0) {
-    if (kf != nullptr) {
-
-      // get a vector of all loops in fn
-      std::deque<const Loop*> worklist;
-      for (const Loop *root : kf->loopInfo) {
-        worklist.push_back(root);
-      }
-
-      // loops may be nested, so do a dfs
-      std::vector<const Loop*> all_loops;
-      while (!worklist.empty()) {
-        const Loop *curr = worklist.front();
-        worklist.pop_front();
-        all_loops.push_back(curr);
-        for (const Loop *child : *curr) {
-          worklist.push_back(child);
-        }
-      }
-
-      for (const Loop *loop : all_loops) {
-        unsigned num = numStatesInLoop(loop);
-        if (num > maxStatesInLoop) {
-          unsigned killed = decimateStatesInLoop(loop, 99);
-
-          // get loop id
-          std::string loop_id;
-          raw_string_ostream ss(loop_id);
-          loop->getLoopID()->print(ss);
-          ss.flush();
-          outs() << "terminated " << killed << " states in loop: " << loop_id << "\n";
-        }
-      }
-    }
-  }
+//  if ((maxStatesInLoop > 0) && (stats::instructions & 0xFFF) == 0) {
+//    if (kf != nullptr) {
+//
+//      // get a vector of all loops in fn
+//      std::deque<const Loop*> worklist;
+//      string fn_name = kf->function->getName();
+//
+//      unsigned counter = 0;
+//      for (auto itr = kf->loopInfo.begin(), end = kf->loopInfo.end(); itr != end; ++itr) {
+//        const Loop* loop = *itr;
+//        counter += 1;
+//      }
+//
+//      for (const Loop *root : kf->loopInfo) {
+//        worklist.push_back(root);
+//      }
+//
+//      // loops may be nested, so do a dfs
+//      std::vector<const Loop*> all_loops;
+//      while (!worklist.empty()) {
+//        const Loop *curr = worklist.front();
+//        worklist.pop_front();
+//        all_loops.push_back(curr);
+//        for (const Loop *child : *curr) {
+//          worklist.push_back(child);
+//        }
+//      }
+//
+//      for (const Loop *loop : all_loops) {
+//        unsigned num = numStatesInLoop(loop);
+//        if (num > maxStatesInLoop) {
+//          unsigned killed = decimateStatesInLoop(loop, 99);
+//
+//          // get loop id
+//          std::string loop_id;
+//          raw_string_ostream ss(loop_id);
+//          loop->getLoopID()->print(ss);
+//          ss.flush();
+//          outs() << "terminated " << killed << " states in loop: " << loop_id << "\n";
+//        }
+//      }
+//    }
+//  }
 }
 
 unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_counter) {
 
-  unsigned counter = 0;
+
   unsigned killed = 0;
+#if 0 == 1
+  unsigned counter = 0;
   skip_counter++;
   for (ExecutionState *state : states) {
     if (!state->stack.empty()) {
@@ -1695,21 +1699,22 @@ unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_cou
       }
     }
   }
+#endif
   return killed;
 }
 
 unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
 
   unsigned counter = 0;
-  for (const ExecutionState *state : states) {
-    if (!state->stack.empty()) {
-      const StackFrame &sf = state->stack.back();
-      if (!sf.loopFrames.empty()) {
-        const LoopFrame &lf = sf.loopFrames.back();
-        if (lf.loop == loop) ++counter;
-      }
-    }
-  }
+//  for (const ExecutionState *state : states) {
+//    if (!state->stack.empty()) {
+//      const StackFrame &sf = state->stack.back();
+//      if (!sf.loopFrames.empty()) {
+//        const LoopFrame &lf = sf.loopFrames.back();
+//        if (lf.loop == loop) ++counter;
+//      }
+//    }
+//  }
   return counter;
 }
 
@@ -1794,17 +1799,19 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             if (bothSatisfyable) {
               states[index]->unconBranchCounter++;
               StackFrame &sf = states[index]->stack.back();
-              if (!sf.loopFrames.empty()) {
-                LoopFrame &lf = sf.loopFrames.back();
-                ++loopForkCounter[lf.loop];
-                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
-                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
-
-                    // finally consider terminating the state.
-                    terminateState(*states[index], "loop throttled");
-                  }
-                }
-              }
+              (void) sf;
+//              if (!sf.loopFrames.empty()) {
+//
+//                LoopFrame &lf = sf.loopFrames.back();
+//                ++loopForkCounter[lf.loop];
+//                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
+//                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
+//
+//                    // finally consider terminating the state.
+//                    terminateState(*states[index], "loop throttled");
+//                  }
+//                }
+//              }
             }
           }
         }
@@ -1972,7 +1979,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           const Value *v = cs.getArgument(index);
           Type *argType = v->getType();
 
-          // RLR TODO: replace proginfo with equivalent
           if ((countLoadIndirection(argType) > 0) /* && !progInfo->isConstParam(fnName, index) */) {
 
             ref<Expr> exp_addr = eval(ki, index + 1, state).value;
@@ -2387,16 +2393,6 @@ bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector
 }
 
 bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSolution> &result) {
-
-    // RLR TODO: cleanup
-  // get the names of the user defined globals
-//  set<string> gb_names;
-//  for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
-//    GlobalVariable *v = itr;
-//    if (kmodule->isUserGlobal(v) && v->hasName()) {
-//      gb_names.insert(v->getName());
-//    }
-//  }
 
   // copy out all named variables
   for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {

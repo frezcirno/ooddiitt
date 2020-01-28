@@ -365,6 +365,53 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
+Module *LoadModule(const string &filename) {
+
+  // Load the bytecode...
+  string ErrorMsg;
+  auto *ctx = new LLVMContext();
+  Module *result = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+
+  result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (result != nullptr) {
+    if (result->MaterializeAllPermanently(&ErrorMsg)) {
+      delete result;
+      result = nullptr;
+    }
+  }
+  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  BufferPtr.take();
+  return result;
+}
+
+map<string,KModule*> module_cache;
+
+KModule *PrepareModule(const string &filename) {
+
+  auto itr = module_cache.find(filename);
+  if (itr != module_cache.end()) {
+    return itr->second;
+  } else {
+    if (Module *module = LoadModule(filename)) {
+      if (!isPrepared(module)) {
+        errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+      } else {
+        if (KModule *kmodule = new KModule(module)) {
+          kmodule->prepare();
+          module_cache.insert(make_pair(filename, kmodule));
+          return kmodule;
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -374,13 +421,6 @@ int main(int argc, char **argv, char **envp) {
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
-
-  // write out command line info, for reference
-//  if (!outs().is_displayed()) {
-//    for (int i = 0; i < argc; i++) {
-//      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-//    }
-//  }
 
   // Load the test case
   TestCase test;
@@ -408,11 +448,9 @@ int main(int argc, char **argv, char **envp) {
   IOpts.trace = test.trace_type;
   IOpts.test_objs = &test.objects;
 
-  string ErrorMsg;
-  llvm::error_code ec;
   vector<ExecutionState*> ex_states;
 
-  outs() << ReplayTest << "::" << test.entry_fn << "| ";
+  outs() << ReplayTest << "::" << test.entry_fn << " -> ";
   if (!EntryPoint.empty() && EntryPoint != test.entry_fn) {
     outs() << "skipped\n";
     return 0;
@@ -422,118 +460,81 @@ int main(int argc, char **argv, char **envp) {
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
+  KModule *kmod1 = PrepareModule(InputFile1);
+  KModule *kmod2 = PrepareModule(InputFile2);
+  LLVMContext *ctx1 = nullptr;
+  LLVMContext *ctx2 = nullptr;
+  if (kmod1 && kmod2) {
+    ctx1 = kmod1->getContextPtr();
+    ctx2 = kmod2->getContextPtr();
 
-  // load the first module
-  Module *mainModule1 = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr1;
+    ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, kmod1->getModuleIdentifier());
+    Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
+    handler1->setInterpreter(interpreter1);
+    interpreter1->bindModule(kmod1);
 
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile1.c_str(), BufferPtr1);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile1.c_str(), ec.message().c_str());
-  }
-
-  LLVMContext ctx1;
-  mainModule1 = getLazyBitcodeModule(BufferPtr1.get(), ctx1, &ErrorMsg);
-
-  if (mainModule1) {
-    if (mainModule1->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule1;
-      mainModule1 = nullptr;
-    }
-  }
-
-  if (!mainModule1) klee_error("error loading program '%s': %s", InputFile1.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule1)) klee_error("program is not prepared '%s'", InputFile1.c_str());
-
-  ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, mainModule1->getModuleIdentifier());
-
-  Interpreter *interpreter1 = Interpreter::createLocal(ctx1, IOpts, handler1);
-  handler1->setInterpreter(interpreter1);
-  interpreter1->bindModule(mainModule1);
-
-  theInterpreter = interpreter1;
-  interpreter1->runFunctionTestCase(test);
-  theInterpreter = nullptr;
-
-  version1.kmodule = interpreter1->getKModule();
-  if (ex_states.empty()) {
-    if (test.status == StateStatus::Incomplete) {
-      outs() << "N/A";
-    } else {
-      outs() << "Failed to replay";
-    }
-  } else if (ex_states.size() > 1) {
-    klee_error("replay forked to multple states");
-  } else {
-
-    version1.state = ex_states.front();
-    ex_states.clear();
-
-    // now, lets do it all again with the second module
-    CompareState version2;
-
-    Module *mainModule2 = nullptr;
-    OwningPtr<MemoryBuffer> BufferPtr2;
-    ec = MemoryBuffer::getFileOrSTDIN(InputFile2.c_str(), BufferPtr2);
-    if (ec) {
-      klee_error("error loading program '%s': %s", InputFile2.c_str(), ec.message().c_str());
-    }
-
-    LLVMContext ctx2;
-    mainModule2 = getLazyBitcodeModule(BufferPtr2.get(), ctx2, &ErrorMsg);
-    if (mainModule2) {
-      if (mainModule2->MaterializeAllPermanently(&ErrorMsg)) {
-        delete mainModule2;
-        mainModule2 = nullptr;
-      }
-    }
-
-    if (!mainModule2) klee_error("error loading program '%s': %s", InputFile2.c_str(), ErrorMsg.c_str());
-    if (!isPrepared(mainModule2)) klee_error("program is not prepared '%s':", InputFile2.c_str());
-
-    ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, mainModule2->getModuleIdentifier());
-
-    Interpreter *interpreter2 = Interpreter::createLocal(ctx2, IOpts, handler2);
-    handler2->setInterpreter(interpreter2);
-    interpreter2->bindModule(mainModule2);
-
-    theInterpreter = interpreter2;
-    interpreter2->runFunctionTestCase(test);
+    theInterpreter = interpreter1;
+    theInterpreter->runFunctionTestCase(test);
     theInterpreter = nullptr;
 
-    version2.kmodule = interpreter2->getKModule();
-    assert(ex_states.size() == 1);
-    version2.state = ex_states.front();
-    ex_states.clear();
-
-    deque<string> diffs;
-    bool is_same = false;
-
-    if (test.is_main()) {
-      is_same = CompareExternalExecutions(version1, version2, diffs);
-    } else {
-      is_same = CompareInternalExecutions(version1, version2, diffs);
-    }
-
-    if (is_same) {
-      outs() << "ok\n";
-    } else {
-      outs() << "differs\n";
-      for (const auto &diff : diffs) {
-        outs() << "  * " << diff << '\n';
+    version1.kmodule = kmod1;
+    if (ex_states.empty()) {
+      if (test.status == StateStatus::Incomplete) {
+        outs() << "N/A";
+      } else {
+        outs() << "Failed to replay";
       }
-      exit_code = 1;
+    } else if (ex_states.size() > 1) {
+      klee_error("replay forked to multple states");
+    } else {
+
+      version1.state = ex_states.front();
+      ex_states.clear();
+
+      // now, lets do it all again with the second module
+      CompareState version2;
+
+      ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, kmod2->getModuleIdentifier());
+      Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
+      handler2->setInterpreter(interpreter2);
+      interpreter2->bindModule(kmod2);
+
+      theInterpreter = interpreter2;
+      theInterpreter->runFunctionTestCase(test);
+      theInterpreter = nullptr;
+
+      version2.kmodule = interpreter2->getKModule();
+      assert(ex_states.size() == 1);
+      version2.state = ex_states.front();
+      ex_states.clear();
+
+      deque<string> diffs;
+      bool is_same = false;
+
+      if (test.is_main()) {
+        is_same = CompareExternalExecutions(version1, version2, diffs);
+      } else {
+        is_same = CompareInternalExecutions(version1, version2, diffs);
+      }
+
+      if (is_same) {
+        outs() << "ok\n";
+      } else {
+        outs() << "differs\n";
+        for (const auto &diff : diffs) {
+          outs() << "  * " << diff << '\n';
+        }
+        exit_code = 1;
+      }
+      delete interpreter2;
+      delete handler2;
     }
-
-    delete interpreter2;
-    BufferPtr2.take();
-    delete handler2;
+    delete interpreter1;
+    delete handler1;
   }
-
-  delete interpreter1;
-  BufferPtr1.take();
-  delete handler1;
-
-
+  delete kmod1;
+  delete kmod2;
+  delete ctx1;
+  delete ctx2;
   return exit_code;
 }

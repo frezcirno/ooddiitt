@@ -269,7 +269,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
       if (flags != nullptr) {
         root["unconstraintFlags"] = flags->to_string();
-        root["unconstraintDescription"] = flags_to_string(*flags);
+        root["unconstraintDescription"] = klee::to_string(*flags);
       }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
       root["status"] = (unsigned) state.status;
@@ -358,7 +358,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       builder["indentation"] = indentation;
       unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
-      writer.get()->write(root, kout);
+      writer->write(root, kout);
       *kout << endl;
 
       kout->flush();
@@ -463,6 +463,45 @@ static void interrupt_handle() {
   }
 }
 
+Module *LoadModule(const string &filename) {
+
+  // Load the bytecode...
+  string ErrorMsg;
+  auto *ctx = new LLVMContext();
+  Module *result = nullptr;
+  OwningPtr<MemoryBuffer> BufferPtr;
+  llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
+  if (ec) {
+    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+  }
+
+  result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
+  if (result != nullptr) {
+    if (result->MaterializeAllPermanently(&ErrorMsg)) {
+      delete result;
+      result = nullptr;
+    }
+  }
+  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  BufferPtr.take();
+  return result;
+}
+
+KModule *PrepareModule(const string &filename) {
+
+  if (Module *module = LoadModule(filename)) {
+    if (!isPrepared(module)) {
+      errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+    } else {
+      if (KModule *kmodule = new KModule(module)) {
+        kmodule->prepare();
+        return kmodule;
+      }
+    }
+  }
+  return nullptr;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -473,87 +512,54 @@ int main(int argc, char **argv, char **envp) {
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
 
-  // write out command line info, for reference
-  if (!outs().is_displayed()) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-    }
-    outs() << "PID: " << getpid() << "\n";
-  }
-
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
+  KModule *kmod = PrepareModule(InputFile);
+  LLVMContext *ctx = nullptr;
+  if (kmod != nullptr) {
+    ctx = kmod->getContextPtr();
+    if (Function *mainFn = kmod->getFunction(UserMain)) {
+      if (Function *targetFn = kmod->getFunction(TargetFn)) {
 
-  string ErrorMsg;
-  LLVMContext ctx;
-  llvm::error_code ec;
+        vector<string> args;
+        args.reserve(InputArgv.size() + 1);
+        args.push_back(InputFile);
+        args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  // load the first module
-  outs() << "Loading: " << InputFile << '\n';
-  Module *mainModule = nullptr;
-  OwningPtr<MemoryBuffer> BufferPtr;
+        RecordKleeHandler *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier());
 
-  ec = MemoryBuffer::getFileOrSTDIN(InputFile.c_str(), BufferPtr);
-  if (ec) {
-    klee_error("error loading program '%s': %s", InputFile.c_str(), ec.message().c_str());
-  }
+        Interpreter::InterpreterOptions IOpts;
+        IOpts.mode = ExecModeID::irec;
+        IOpts.user_mem_base = (void *) 0x80000000000;
+        IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
+        IOpts.verbose = Verbose;
+        IOpts.userSnapshot = targetFn;
 
-  mainModule = getLazyBitcodeModule(BufferPtr.get(), ctx, &ErrorMsg);
+        if (TraceNone) {
+          IOpts.trace = TraceType::none;
+        } else if (TraceBBlocks) {
+          IOpts.trace = TraceType::bblocks;
+        } else if (TraceAssembly) {
+          IOpts.trace = TraceType::assembly;
+        } else if (TraceStatements) {
+          IOpts.trace = TraceType::statements;
+        }
 
-  if (mainModule) {
-    if (mainModule->MaterializeAllPermanently(&ErrorMsg)) {
-      delete mainModule;
-      mainModule = nullptr;
-    }
-  }
+        theInterpreter = Interpreter::createLocal(*ctx, IOpts, handler);
+        handler->setInterpreter(theInterpreter);
+        theInterpreter->bindModule(kmod);
+        theInterpreter->runMainConcrete(mainFn, args, targetFn);
 
-  if (!mainModule) klee_error("error loading program '%s': %s", InputFile.c_str(), ErrorMsg.c_str());
-  if (!isPrepared(mainModule)) klee_error("program is not prepared '%s':", InputFile.c_str());
-
-  if (Function *mainFn = mainModule->getFunction(UserMain)) {
-    if (Function *targetFn = mainModule->getFunction(TargetFn)) {
-
-      vector<string> args;
-      args.reserve(InputArgv.size() + 1);
-      args.push_back(InputFile);
-      args.insert(args.end(), InputArgv.begin(), InputArgv.end());
-
-      RecordKleeHandler *handler = new RecordKleeHandler(args, mainModule->getModuleIdentifier());
-
-      Interpreter::InterpreterOptions IOpts;
-      IOpts.mode = ExecModeID::irec;
-      IOpts.user_mem_base = (void*) 0x80000000000;
-      IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
-      IOpts.verbose = Verbose;
-      IOpts.userSnapshot = targetFn;
-
-      if (TraceNone) {
-        IOpts.trace = TraceType::none;
-      } else if (TraceBBlocks) {
-        IOpts.trace = TraceType::bblocks;
-      } else if (TraceAssembly) {
-        IOpts.trace = TraceType::assembly;
-      } else if (TraceStatements) {
-        IOpts.trace = TraceType::statements;
+        delete theInterpreter;
+        delete handler;
+      } else {
+        errs() << "Module function not found: " << TargetFn << '\n';
       }
-
-      theInterpreter = Interpreter::createLocal(ctx, IOpts, handler);
-      handler->setInterpreter(theInterpreter);
-      theInterpreter->bindModule(mainModule);
-
-      theInterpreter->runMainConcrete(mainFn, args, targetFn);
-
-      delete theInterpreter;
-      delete handler;
-
     } else {
-      errs() << "Module function not found: " << TargetFn << '\n';
+      errs() << "Module function not found: " << UserMain << '\n';
     }
-  } else {
-    errs() << "Module function not found: " << UserMain << '\n';
+    delete kmod;
+    delete ctx;
   }
-
-  BufferPtr.take();
-
   return exit_code;
 }
