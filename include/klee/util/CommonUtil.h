@@ -65,7 +65,8 @@ enum class TraceType {
   none,
   bblocks,
   assembly,
-  statements
+  statements,
+  calls
 };
 
 std::string to_string(TraceType t);

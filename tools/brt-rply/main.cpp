@@ -73,6 +73,7 @@ namespace {
                                        clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
                                        clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
                                        clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+                                       clEnumValN(TraceType::calls, "calls", "trace execution by function call/return"),
                                        clEnumValEnd),
                             cl::init(TraceType::invalid));
 
@@ -625,6 +626,40 @@ int main(int argc, char **argv, char **envp) {
 
     }
     outs() << '\n';
+
+    if (TraceT == TraceType::calls) {
+      ExecutionState *state = ex_states.front();
+      outs() << "Call Trace:\n";
+      outs() << test.entry_fn << '\n';
+
+      // build a reverse loop up map of function ids
+      map<unsigned,string> fnMap;
+      for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
+        Function *fn = itr->first;
+        unsigned fnID = kmod->getFunctionID(fn);
+        if (fnID != 0) {
+          fnMap.insert(make_pair(fnID, fn->getName()));
+        }
+      }
+
+      int call_depth = 0;
+      for (auto entry : state->trace) {
+        bool is_call = (entry % 1000) == 1;
+        bool is_retn = (entry % 1000) == 2;
+        if (is_call) {
+          call_depth += 1;
+          unsigned fnID = entry / 1000;
+          auto itr = fnMap.find(fnID);
+          if (itr != fnMap.end()) {
+            assert(call_depth >= 0);
+            outs().indent(call_depth * 2);
+            outs() << itr->second << '\n';
+          }
+        } else if (is_retn) {
+          call_depth -= 1;
+        }
+      }
+    }
 
     if (Verbose) {
       // display captured output

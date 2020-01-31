@@ -71,7 +71,7 @@ std::string to_string(MemKind k) {
 }
 
 std::string to_string(TraceType t) {
-  static const char *strings[] = {"invalid", "none", "bblocks", "assembly", "statements"};
+  static const char *strings[] = {"invalid", "none", "bblocks", "assembly", "statements", "calls"};
   if ((unsigned) t >= countof(strings))
     return "";
   return strings[(unsigned) t];

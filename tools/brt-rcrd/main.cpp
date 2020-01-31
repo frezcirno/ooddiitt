@@ -50,6 +50,7 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace {
 
@@ -79,7 +80,7 @@ private:
   unsigned nextTestCaseID;
   string indentation;
   const vector<string> &args;
-  boost::filesystem::path outputDirectory;
+  fs::path outputDirectory;
   string md_name;
   string file_name;
   sys_clock::time_point started_at;
@@ -120,9 +121,9 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
   started_at = sys_clock::now();
 
   boost::system::error_code ec;
-  if (boost::filesystem::exists(outputDirectory)) {
+  if (fs::exists(outputDirectory)) {
   } else {
-    boost::filesystem::create_directories(outputDirectory, ec);
+    fs::create_directories(outputDirectory, ec);
     created = true;
   }
 
@@ -134,9 +135,9 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
     while (!done) {
 
       // find the next missing test case id.
-      string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
-      boost::filesystem::path testfile(testname);
-      if (boost::filesystem::exists(testfile)) {
+      string testname = getOutputFilename(getTestFilename("fail", "json", nextTestCaseID));
+      fs::path testfile(testname);
+      if (fs::exists(testfile)) {
         ++nextTestCaseID;
       } else {
         done = true;
@@ -145,7 +146,7 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
   }
 
   file_name = _md_name;
-  md_name = boost::filesystem::path(_md_name).stem().string();
+  md_name = fs::path(_md_name).stem().string();
   if (IndentJson) indentation = "  ";
 }
 
@@ -243,7 +244,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    string prefix = "test";
+    string prefix = "fail";
     ostream *kout = openTestCaseFile(prefix, testID);
     if (kout != nullptr) {
 
@@ -530,6 +531,7 @@ int main(int argc, char **argv, char **envp) {
           stdin_buffer.reserve(StdInData.size());
           for (char ch : StdInText) {
             stdin_buffer.push_back(ch);
+            stdin_buffer.push_back('\n');
           }
         }
 

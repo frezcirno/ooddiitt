@@ -99,7 +99,8 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   enable_state_switching(true),
   sysModel(nullptr),
   trace_type(TraceType::invalid),
-  moStdInBuff(nullptr) {
+  moStdInBuff(nullptr),
+  tracer(nullptr) {
 
   switch (opts.mode) {
     case ExecModeID::prep:
@@ -1342,7 +1343,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   // if trace type is not defined here, then use the default from the module
-  ProgramTracer *tracer = nullptr;
   trace_type = interpreterOpts.trace;
 
   if (trace_type == TraceType::invalid) {
@@ -1355,6 +1355,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     tracer = new AssemblyTracer;
   } else if (trace_type == TraceType::statements) {
     tracer = new StatementTracer;
+  } else if (trace_type == TraceType::calls) {
+    tracer = new CallTracer(kmodule);
   }
 
   if (timeout > 0) timer.set(tid_timeout, timeout);
@@ -1741,11 +1743,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (libc_initializing &&
           ((state.stack.size() == 0 || !state.stack.back().caller))) {
         libc_initializing = false;
-      } else if (state.stack.size() > 0 && state.stack.back().kf->function->hasFnAttribute(Attribute::NoReturn)) {
-        // this state completed
-        terminateStateOnExit(state);
       } else {
-        Executor::executeInstruction(state, ki);
+        if (tracer != nullptr) {
+          tracer->append_return(state.trace, state.stack.back().kf->function);
+        }
+        if (state.stack.size() > 0 && state.stack.back().kf->function->hasFnAttribute(Attribute::NoReturn)) {
+          // this state completed
+          terminateStateOnExit(state);
+        } else {
+          Executor::executeInstruction(state, ki);
+        }
       }
       break;
     }
@@ -1801,6 +1808,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);
+        if (tracer != nullptr) {
+          tracer->append_call(state.trace, fn);
+        }
 
         if (!unconstraintFlags.isStubCallees()) {
           // we're performing the function call, if possible
@@ -1820,6 +1830,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
       } else {
+
         // this is an indirect call (i.e. a through a function pointer)
         // try to convert function pointer to a constant value
         ref<Expr> callee = eval(ki, 0, state).value;
@@ -1858,6 +1869,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           terminateStateOnError(state, TerminateReason::Ptr, "legal indirect callee not found");
           klee_warning("legal indirect callee not found");
         } else if (num_targets == 1) {
+          if (tracer != nullptr) {
+            tracer->append_call(state.trace, targets.front());
+          }
           executeCall(state, ki, targets.front(), arguments);
         } else {
           // RLR TODO: general case, need to fork on multiple potential targets

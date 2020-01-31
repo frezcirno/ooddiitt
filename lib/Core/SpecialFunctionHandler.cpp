@@ -182,7 +182,17 @@ void SpecialFunctionHandler::filterHandledFunctions(std::set<const llvm::Value*>
 
 // static
 void SpecialFunctionHandler::filterHandledGlobals(std::set<const llvm::Value*> &gbs) {
-  // none
+
+  // remove __dso_handle, if present
+  auto itr = gbs.begin(), end = gbs.end();
+  while (itr != end) {
+    const Value *v = *itr;
+    if (v->getName().str() == "__dso_handle") {
+      itr = gbs.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
 }
 
 

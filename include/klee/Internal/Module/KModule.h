@@ -61,8 +61,8 @@ namespace klee {
     bool trackCoverage;
 
     // loop analysis
-    llvm::DominatorTree domTree;
-    llvm::LoopInfo loopInfo;
+//    llvm::DominatorTree domTree;
+//    llvm::LoopInfo loopInfo;
 
     bool is_user;
 
@@ -74,8 +74,8 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-    bool isLoopHeader(const llvm::BasicBlock *bb) const
-      { const auto *L = loopInfo.getLoopFor(bb); return (L && L->getHeader() == bb); }
+//    bool isLoopHeader(const llvm::BasicBlock *bb) const
+//      { const auto *L = loopInfo.getLoopFor(bb); return (L && L->getHeader() == bb); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;

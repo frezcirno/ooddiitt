@@ -188,6 +188,7 @@ protected:
   SystemModel *sysModel;
   TraceType trace_type;
   MemoryObject *moStdInBuff;
+  ProgramTracer *tracer;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

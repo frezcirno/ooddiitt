@@ -251,7 +251,7 @@ void externalsAndGlobalsCheck(const Module *m) {
 
   // report anything found
   if (!undefined_fns.empty()) emitGlobalValueWarning(undefined_fns, "Undefined function");
-  if (!undefined_gbs.empty()) emitGlobalValueWarning(undefined_fns, "Undefined global");
+  if (!undefined_gbs.empty()) emitGlobalValueWarning(undefined_gbs, "Undefined global");
   if (!inline_assm_fns.empty()) emitGlobalValueWarning(undefined_fns, "Inline assembly in function");
 }
 
@@ -544,27 +544,27 @@ uint64_t calcFnHash(Function *fn) {
           if (auto c = dyn_cast<Constant>(v)) {
 
             if (auto ba = dyn_cast<BlockAddress>(c)) {
-
+              (void) ba;
             } else if (auto ci = dyn_cast<ConstantInt>(c)) {
               hash.add(ci->getValue().getZExtValue());
             } else if (auto fp = dyn_cast<ConstantFP>(c)) {
               hash.add(fp->getValueAPF().convertToDouble());
             } else if (auto az = dyn_cast<ConstantAggregateZero>(c)) {
-
+              (void) az;
             } else if (auto ca = dyn_cast<ConstantArray>(c)) {
-
+              (void) ca;
             } else if (auto cs = dyn_cast<ConstantStruct>(c)) {
-
+              (void) cs;
             } else if (auto cv = dyn_cast<ConstantVector>(c)) {
-
+              (void) cv;
             } else if (auto pn = dyn_cast<ConstantPointerNull>(c)) {
-
+              (void) pn;
             } else if (auto ds = dyn_cast<ConstantDataSequential>(c)) {
-
+              (void) ds;
             } else if (auto cx = dyn_cast<llvm::ConstantExpr>(c)) {
-
+              (void) cx;
             } else if (auto uv = dyn_cast<UndefValue>(c)) {
-
+              (void) uv;
             } else if (auto gv = dyn_cast<GlobalValue>(c)) {
               hash.add(gv->getName());
             }
@@ -741,7 +741,7 @@ int main(int argc, char **argv, char **envp) {
       } else {
         // now get the modified module
         if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT, MarkS)) {
-          const LLVMContext *ctx2 = kmod1->getContextPtr();
+          const LLVMContext *ctx2 = kmod2->getContextPtr();
           SaveModule(kmod2, Output);
           // two for two
           emitDiff(kmod1, kmod2, Output);
