@@ -229,7 +229,10 @@ public:
 
   virtual void runFunctionUnconstrained(llvm::Function *fn) { };
   virtual void runFunctionTestCase(const TestCase &test) {};
-  virtual void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) {}
+  virtual void runMainConcrete(llvm::Function *fn,
+                               const std::vector<std::string> &args,
+                               const std::vector<unsigned char> &stdin_buffer,
+                               llvm::Function *at) {}
 
   /*** Runtime options ***/
 

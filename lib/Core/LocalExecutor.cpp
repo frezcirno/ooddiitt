@@ -1130,8 +1130,8 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 
   // reverse the stdin data.  then we can pop data from end
   size_t stdin_size = test.stdin_buffer.size();
-  if (stdin_size > 2) {
-    baseState->stdin_buffer.reserve(stdin_size);
+  if (stdin_size > 1) {
+    baseState->stdin_buffer.resize(stdin_size);
     reverse_copy(test.stdin_buffer.begin(), test.stdin_buffer.end(), baseState->stdin_buffer.begin());
   } else {
     baseState->stdin_buffer = test.stdin_buffer;
@@ -1188,111 +1188,10 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   runFn(kf, init_states);
 }
 
-#if 0 == 1
-
-  std::map<std::string,const TestObject*> to_obj;
-  for (const auto &obj : test.objects) {
-    to_obj[obj.name] = &obj;
-  }
-
-  if (test.entry_fn == "toarith") {
-
-    unsigned index = 0;
-    for (Function::const_arg_iterator ai = fn->arg_begin(), ae = fn->arg_end(); ai != ae; ++ai, ++index) {
-
-      const Argument &arg = *ai;
-      std::string argName = arg.getName();
-      Type *argType = arg.getType();
-      size_t argAlign = arg.getParamAlignment();
-      vector<unsigned char> data;
-
-      if (argType->isPointerTy()) {
-        const TestObject *v = to_obj["v"];
-        const TestObject *ptr_v = to_obj["*v"];
-        const TestObject *ptr_ptr_v = to_obj["**v"];
-        assert(v && ptr_v);
-
-        MemoryObject *mo_ptr_ptr_v = nullptr;
-        ObjectState *wo_ptr_ptr_v = nullptr;
-        if (ptr_ptr_v != nullptr) {
-          Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
-          unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
-          mo_ptr_ptr_v = allocMemory(*state, char_type, &arg, MemKind::param, "**v", alignment, ptr_ptr_v->count);
-          wo_ptr_ptr_v = bindObjectInState(*state, mo_ptr_ptr_v);
-          // write out the string
-          fromDataString(data, ptr_ptr_v->data);
-          for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
-            wo_ptr_ptr_v->write8(idx, data[idx]);
-          }
-        }
-        Type *ptd_type = argType->getPointerElementType();
-        unsigned alignment = kmodule->targetData->getPrefTypeAlignment(ptd_type);
-        MemoryObject *mo_ptr_v = allocMemory(*state, ptd_type, &arg, MemKind::param, "*v", alignment, ptr_v->count);
-        ObjectState *wo_ptr_v = bindObjectInState(*state, mo_ptr_v);
-        fromDataString(data, ptr_v->data);
-
-        // if ptr-ptr is not null, then need to insert the pointer
-        unsigned copy_end = data.size();
-        if (mo_ptr_ptr_v != nullptr) {
-          copy_end = 8;
-          ref<ConstantExpr> e_ptr_ptr_v = ConstantExpr::createPointer(mo_ptr_ptr_v->address);
-          wo_ptr_v->write(8, e_ptr_ptr_v);
-        }
-
-        for (unsigned idx = 0; idx < copy_end; ++idx) {
-          wo_ptr_v->write8(idx, data[idx]);
-        }
-
-        MemoryObject *mo_v = allocMemory(*state, argType, &arg, MemKind::param, "v", alignment, v->count);
-        ObjectState *wo_v = bindObjectInState(*state, mo_v);
-        ref<ConstantExpr> e_ptr_v = ConstantExpr::createPointer(mo_ptr_v->address);
-        wo_v->write(0, e_ptr_v);
-
-        ref<Expr> e = wo_v->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
-        bindArgument(kf, index, *state, e);
-      }
-    }
-  } else if (test.entry_fn == "set_fields") {
-
-    const Argument &arg = fn->getArgumentList().front();
-    std::string argName = arg.getName();
-    Type *argType = arg.getType();
-    size_t argAlign = arg.getParamAlignment();
-
-    const TestObject *ptr_str = to_obj["*fieldstr"];
-    assert(ptr_str);
-
-    vector<unsigned char> data;
-
-    MemoryObject *mo_ptr_str = nullptr;
-    ObjectState *wo_ptr_str = nullptr;
-    Type *char_type = Type::getInt8Ty(kmodule->module->getContext());
-    unsigned alignment = kmodule->targetData->getPrefTypeAlignment(char_type);
-    mo_ptr_str = allocMemory(*state, char_type, &arg, MemKind::param, "*fieldstr", alignment, ptr_str->count);
-    wo_ptr_str = bindObjectInState(*state, mo_ptr_str);
-    // write out the string
-    fromDataString(data, ptr_str->data);
-    for (unsigned idx = 0, end = data.size(); idx < end; ++idx) {
-      wo_ptr_str->write8(idx, data[idx]);
-    }
-
-    MemoryObject *mo_str = allocMemory(*state, argType, &arg, MemKind::param, "fieldstr", alignment, 1);
-    ObjectState *wo_str = bindObjectInState(*state, mo_str);
-    ref<ConstantExpr> e_ptr_str = ConstantExpr::createPointer(mo_ptr_str->address);
-    wo_str->write(0, e_ptr_str);
-
-    ref<Expr> e = wo_str->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
-    bindArgument(kf, 0, *state, e);
-
-    ObjectPair op = state->addressSpace.findMemoryObjectByName("output_delimiter_specified");
-    if (op.first != nullptr) {
-      ObjectState *wos = state->addressSpace.getWriteable(op.first, op.second);
-      wos->write8(0, 1);
-    }
-  }
-#endif
-
-void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Function *at) {
+void LocalExecutor::runMainConcrete(Function *fn,
+                                    const vector<string> &args,
+                                    const vector<unsigned char> &stdin_buffer,
+                                    Function *at) {
 
   assert(interpreterOpts.mode == ExecModeID::irec);
 
@@ -1326,7 +1225,8 @@ void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Fu
     unsigned ptr_width =  Context::get().getPointerWidth();
     assert(ptr_width == 64 && "64-bit only");
 
-    bindArgument(kf, 0, *state, ConstantExpr::create(args.size(), Expr::Int32));
+    ref<Expr> eArgC = ConstantExpr::create(args.size(), Expr::Int32);
+    bindArgument(kf, 0, *state, eArgC);
 
     Type *str_type = Type::getInt8PtrTy(kmodule->module->getContext());
     size_t align = kmodule->targetData->getPrefTypeAlignment(str_type);
@@ -1347,10 +1247,28 @@ void LocalExecutor::runMainConcrete(Function *fn, const vector<string> &args, Fu
     align = kmodule->targetData->getPrefTypeAlignment(v_type);
     MemoryObject *moArgv = addExternalObject(*state, moArgStrs.data(), moArgStrs.size() * sizeof(uint64_t), v_type, fn, align);
     moArgv->name = "*argV";
-    bindArgument(kf, 1, *state, ConstantExpr::createPointer(moArgv->address));
+    ref<Expr> eArgV = ConstantExpr::createPointer(moArgv->address);
+    bindArgument(kf, 1, *state, eArgV);
 
-    std::vector<ExecutionState *> init_states = {state};
-    runFn(kf, init_states);
+    // now load stdin, if specified
+    size_t stdin_size = stdin_buffer.size();
+    if (stdin_size > 1) {
+      state->stdin_buffer.resize(stdin_size);
+      reverse_copy(stdin_buffer.begin(), stdin_buffer.end(), state->stdin_buffer.begin());
+    } else {
+      state->stdin_buffer = stdin_buffer;
+    }
+
+    if (fn == at) {
+      state->status = StateStatus::Snapshot;
+      state->arguments.clear();
+      state->arguments.push_back(eArgC);
+      state->arguments.push_back(eArgV);
+      interpreterHandler->processTestCase(*state);
+    } else {
+      std::vector<ExecutionState *> init_states = {state};
+      runFn(kf, init_states);
+    }
   }
 }
 

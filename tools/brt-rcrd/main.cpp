@@ -1,5 +1,3 @@
-/* -*- mode: c++; c-basic-offset: 2; -*- */
-
 //===-- main.cpp ------------------------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
@@ -19,7 +17,6 @@
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
@@ -40,11 +37,6 @@
 #include "llvm/Support/system_error.h"
 #endif
 
-#include <signal.h>
-#include <unistd.h>
-#include <sys/wait.h>
-
-#include <cerrno>
 #include <string>
 #include <iomanip>
 #include <iterator>
@@ -68,7 +60,7 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("."));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
   cl::opt<bool> TraceNone("trace-none", cl::init(false), cl::desc("disable tracing"));
   cl::opt<bool> TraceAssembly("trace-assm", cl::init(false), cl::desc("trace assembly lines"));
@@ -76,6 +68,8 @@ namespace {
   cl::opt<bool> TraceBBlocks("trace-bblk", cl::init(false), cl::desc("trace basic block markers"));
   cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
   cl::opt<string> TargetFn("target-fn", cl::desc("save snapshot at entry to function"), cl::Required);
+  cl::opt<string> StdInText("stdin-text", cl::desc("text to inject into test as stdin"));
+  cl::opt<string> StdInData("stdin-data", cl::desc("data block to inject into test as stdin"));
 }
 
 /***/
@@ -152,7 +146,6 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
 
   file_name = _md_name;
   md_name = boost::filesystem::path(_md_name).stem().string();
-  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
 }
 
@@ -211,8 +204,10 @@ llvm::raw_fd_ostream *RecordKleeHandler::openTestFile(const string &prefix, cons
 ostream *RecordKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
 
   ofstream *result = nullptr;
-  string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
-  result = new ofstream(filename);
+  string filename = getTestFilename(prefix, "json", testID);
+  outs() << "writing " << filename << '\n';
+  string pathname = getOutputFilename(filename);
+  result = new ofstream(pathname);
   if (result != nullptr) {
     if (!result->is_open()) {
       delete result;
@@ -289,6 +284,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
         ss << '\'' << args[index] << '\'';
       }
       root["argV"] = ss.str();
+      root["stdin"] = toDataString(state.stdin_buffer);
 
       vector<ConcreteSolution> out;
       if (!i->getConcreteSolution(state, out)) {
@@ -333,7 +329,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
           } else {
             uint64_t value = ce->getZExtValue();
             unsigned width = ce->getWidth() / 8;
-            unsigned char *byte = ((unsigned char *) &value) + (sizeof(uint64_t) - width);
+            auto *byte = (unsigned char *) (&value);
             vector<unsigned char> v;
             for (unsigned idx = 0; idx < width; ++idx) {
               v.push_back(*byte++);
@@ -425,7 +421,6 @@ static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
-
 
 static Interpreter *theInterpreter = nullptr;
 
@@ -521,12 +516,24 @@ int main(int argc, char **argv, char **envp) {
     if (Function *mainFn = kmod->getFunction(UserMain)) {
       if (Function *targetFn = kmod->getFunction(TargetFn)) {
 
+        // setup arguments as from command line
         vector<string> args;
         args.reserve(InputArgv.size() + 1);
         args.push_back(InputFile);
         args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-        RecordKleeHandler *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier());
+        // now preload the stdin buffer
+        vector<unsigned char> stdin_buffer;
+        if (!StdInData.empty()) {
+          TestObject::fromDataString(stdin_buffer, StdInData);
+        } else if (!StdInText.empty()) {
+          stdin_buffer.reserve(StdInData.size());
+          for (char ch : StdInText) {
+            stdin_buffer.push_back(ch);
+          }
+        }
+
+        auto *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier());
 
         Interpreter::InterpreterOptions IOpts;
         IOpts.mode = ExecModeID::irec;
@@ -548,7 +555,7 @@ int main(int argc, char **argv, char **envp) {
         theInterpreter = Interpreter::createLocal(*ctx, IOpts, handler);
         handler->setInterpreter(theInterpreter);
         theInterpreter->bindModule(kmod);
-        theInterpreter->runMainConcrete(mainFn, args, targetFn);
+        theInterpreter->runMainConcrete(mainFn, args, stdin_buffer, targetFn);
 
         delete theInterpreter;
         delete handler;

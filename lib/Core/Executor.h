@@ -198,8 +198,8 @@ protected:
 
   llvm::Function* getTargetFunction(llvm::Value *calledVal, ExecutionState &state);
 
-  void printFileLine(ExecutionState &state, KInstruction *ki,
-                     llvm::raw_ostream &file);
+//  void printFileLine(ExecutionState &state, KInstruction *ki,
+//                     llvm::raw_ostream &file);
 
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
 

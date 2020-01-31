@@ -51,7 +51,10 @@ public:
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
   void runFunctionUnconstrained(llvm::Function *fn) override;
   void runFunctionTestCase(const TestCase &test) override;
-  void runMainConcrete(llvm::Function *fn, const std::vector<std::string> &args, llvm::Function *at) override;
+  void runMainConcrete(llvm::Function *fn,
+                       const std::vector<std::string> &args,
+                       const std::vector<unsigned char> &stdin_buffer,
+                       llvm::Function *at) override;
 
   ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
 

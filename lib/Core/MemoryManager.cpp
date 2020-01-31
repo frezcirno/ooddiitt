@@ -54,11 +54,16 @@ MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t us
 }
 
 MemoryManager::~MemoryManager() {
-  for (auto mo : objects) {
-    if (!DeterministicAllocation) free((void*) mo->address);
+
+  // deleting an mo automagically removes it from the memory manager
+  // therefore, cannot iterate over the objects.  just delete them until objects is empty
+  while (!objects.empty()) {
+    const MemoryObject *mo = *objects.begin();
+    if (!DeterministicAllocation) {
+      free((void*) mo->address);
+    }
     delete mo;
   }
-  objects.clear();
 }
 
 MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
