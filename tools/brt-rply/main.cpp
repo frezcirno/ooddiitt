@@ -67,6 +67,7 @@ namespace {
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"), cl::init(false));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
+  cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -547,7 +548,10 @@ int main(int argc, char **argv, char **envp) {
     if (!test.is_ready()) {
       klee_error("failed to load test case '%s'", test_file.c_str());
     }
-    KModule *kmod = PrepareModule(test.file_name);
+
+    string module_name = ModuleName;
+    if (module_name.empty()) module_name = test.file_name;
+    KModule *kmod = PrepareModule(module_name);
     LLVMContext *ctx = kmod->getContextPtr();
 
     // Common setup
