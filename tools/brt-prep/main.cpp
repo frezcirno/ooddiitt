@@ -36,6 +36,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Analysis/CallGraph.h"
 
 #include <openssl/sha.h>
 
@@ -589,8 +590,9 @@ void diffFns(KModule *kmod1,
              KModule *kmod2,
              Json::Value &added,
              Json::Value &removed,
-             Json::Value &sig,
-             Json::Value &body) {
+             set<string> &sig,
+             set<string> &body,
+             set<string> &common) {
 
   set<string> fn_names1;
   set<string> fn_names2;
@@ -626,10 +628,13 @@ void diffFns(KModule *kmod1,
     assert(pr.first && pr.second);
     Function *fn1 = pr.first;
     Function *fn2 = pr.second;
+    string fn_name = fn1->getName();
     if (to_string(fn1->getType()) != to_string(fn2->getType())) {
-      sig.append(fn1->getName().str());
+      sig.insert(fn_name);
     } else if (calcFnHash(fn1) != calcFnHash(fn2)){
-      body.append(fn1->getName().str());
+      body.insert(fn_name);
+    } else {
+      common.insert(fn_name);
     }
   }
 }
@@ -678,6 +683,102 @@ void diffGbs(KModule *kmod1,
 }
 
 
+void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
+
+  for (auto fn_itr = mod->begin(), fn_end = mod->end(); fn_itr != fn_end; ++fn_itr) {
+    Function *fn = &*fn_itr;
+    if (!fn->isDeclaration() && !fn->isIntrinsic()) {
+      for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
+        for (auto in_itr = bb_itr->begin(), in_end = bb_itr->end(); in_itr != in_end; ++in_itr) {
+          CallSite CS(cast<Value>(in_itr));
+          if (CS) {
+            Function *callee = CS.getCalledFunction();
+            if (callee != nullptr && !callee->isIntrinsic()) {
+              graph[callee].insert(fn);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function*> &targets, map<Function*,unsigned> &distance_map) {
+
+  map<Function*,set<Function*> > caller_graph;
+  constructCallerGraph(mod, caller_graph);
+  set<Function*> cmn;
+  for (const auto &str : commons) {
+    if (Function *fn = mod->getFunction(str)) cmn.insert(fn);
+  }
+
+  for (Function *fn : targets) {
+    distance_map.insert(make_pair(fn, 0));
+  }
+
+  set<Function*> scope(targets.begin(), targets.end());
+  unsigned size = 0;
+  unsigned depth = 0;
+
+  while (size != scope.size()) {
+    size = scope.size();
+    depth += 1;
+    for (Function *fn : scope) {
+      scope.insert(caller_graph[fn].begin(), caller_graph[fn].end());
+    }
+    for (Function *fn : cmn) {
+      string name = fn->getName();
+      if ((distance_map.find(fn) == distance_map.end()) && (scope.find(fn) != scope.end())) {
+        distance_map.insert(make_pair(fn, depth));
+      }
+    }
+  }
+}
+
+void reachesFns(KModule *kmod, const set<string> &commons, const set<string> &changed, unsigned depth, set<string> &reaches) {
+
+  // construct a target set of changed functions
+  set<Function*> targets;
+  for (const auto &fn_name : changed) {
+    if (Function *fn = kmod->getFunction(fn_name)) {
+      targets.insert(fn);
+    }
+  }
+
+  set<Function*> reaching_fns;
+  map<Function*,unsigned> distance_map;
+  calcDistanceMap(kmod->module, commons, targets, distance_map);
+
+  for (auto itr = distance_map.begin(), end = distance_map.end(); itr != end; ++itr) {
+    if (itr->second != 0 && itr->second <= depth) {
+      reaches.insert(itr->first->getName());
+    }
+  }
+}
+
+void entryFns(KModule *kmod1,
+              KModule *kmod2,
+              const set<string> &commons,
+              const set<string> &sigs,
+              const set<string> &bodies,
+              unsigned depth,
+              set<string> &entries) {
+
+  set<string> changes;
+  changes.insert(bodies.begin(), bodies.end());
+  changes.insert(sigs.begin(), sigs.end());
+
+  set<string> reaches1;
+  reachesFns(kmod1, commons, changes, depth, reaches1);
+
+  set<string> reaches2;
+  reachesFns(kmod2, commons, changes, depth, reaches2);
+
+  // potential entries are those that reach any changed function and functions whose bodies (only) have changed.
+  set_intersection(reaches1.begin(), reaches1.end(), reaches2.begin(), reaches2.end(), inserter(entries, entries.begin()));
+  entries.insert(bodies.begin(), bodies.end());
+}
+
 void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
 
   fs::path path(outDir);
@@ -692,13 +793,25 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
     Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
     Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
     Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
-    diffFns(kmod1, kmod2, fns_added, fns_removed, fns_changed_sig, fns_changed_body);
+
+    set<string> added, removed, sigs, bodies, commons;
+    diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
+    for (const auto &fn : sigs) fns_changed_sig.append(fn);
+    for (const auto &fn : bodies) fns_changed_body.append(fn);
 
     Json::Value &globals = root["globals"] = Json::objectValue;
     Json::Value &gbs_added = globals["added"] = Json::arrayValue;
     Json::Value &gbs_removed = globals["removed"] = Json::arrayValue;
     Json::Value &gbs_changed_type = globals["type"] = Json::arrayValue;
     diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed_type);
+
+    root["pre-module"] = kmod1->getModuleIdentifier();
+    root["post-module"] = kmod2->getModuleIdentifier();
+
+    Json::Value &fns_entries = functions["entries"] = Json::arrayValue;
+    set<string> entries;
+    entryFns(kmod1, kmod2, commons, sigs, bodies, 2, entries);
+    for (const auto &fn : entries) fns_entries.append(fn);
 
     string indent;
     if (IndentJson) indent = "  ";
