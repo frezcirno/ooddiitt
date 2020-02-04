@@ -154,7 +154,7 @@ protected:
   void terminateStateOnDecimated(ExecutionState &state);
   void terminateStateOnDiscard(ExecutionState &state);
 
-  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result) override;
+  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   void checkMemoryFnUsage(KFunction *kf = nullptr);

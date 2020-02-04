@@ -999,28 +999,6 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
     getSymbolicSolution(state, s);
   }
 
-#if 0 == 1
-  // Check to see if this constraint violates seeds.
-  std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
-    seedMap.find(&state);
-  if (it != seedMap.end()) {
-    bool warn = false;
-    for (std::vector<SeedInfo>::iterator siit = it->second.begin(),
-           siie = it->second.end(); siit != siie; ++siit) {
-      bool res;
-      bool success =
-        solver->mustBeFalse(state, siit->assignment.evaluate(condition), res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (res) {
-        siit->patchSeed(state, condition, solver);
-        warn = true;
-      }
-    }
-    if (warn)
-      klee_warning("seeds patched for violating constraint");
-  }
-#endif
   state.addConstraint(condition);
   if (ivcEnabled) {
     doImpliedValueConcretization(state, condition, ConstantExpr::alloc(1, Expr::Bool));
@@ -1110,17 +1088,16 @@ const Cell& Executor::eval(KInstruction *ki, unsigned index,
   }
 }
 
-void Executor::bindLocal(KInstruction *target, ExecutionState &state,
-                         ref<Expr> value) {
+void Executor::bindLocal(KInstruction *target, ExecutionState &state, ref<Expr> value) {
   getDestCell(state, target).value = value;
 }
 
-void Executor::bindArgument(KFunction *kf, unsigned index,
-                            ExecutionState &state, ref<Expr> value) {
+void Executor::bindArgument(KFunction *kf, unsigned index, ExecutionState &state, ref<Expr> value) {
   getArgumentCell(state, kf, index).value = value;
 }
 
 ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
+
   ref<Expr> result = state.constraints.simplifyExpr(e);
   if (!isa<ConstantExpr>(e)) {
     ref<ConstantExpr> value;
@@ -1135,36 +1112,31 @@ ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
   return result;
 }
 
-
 /* Concretize the given expression, and return a possible constant value.
    'reason' is just a documentation string stating the reason for concretization. */
-ref<klee::ConstantExpr>
-Executor::toConstant(ExecutionState &state,
-                     ref<Expr> e,
-                     const char *reason) {
+ref<klee::ConstantExpr>Executor::toConstant(ExecutionState &state, ref<Expr> e, const char *reason) {
+
+  ref<ConstantExpr> result;
   e = state.constraints.simplifyExpr(e);
-  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e))
-    return CE;
+  if (isa<ConstantExpr>(e)) {
+    result = dyn_cast<ConstantExpr>(e);
+  } else {
+    if (solver->getValue(state, e, result)) {
+      ref<Expr> eq = EqExpr::create(e, result);
+      bool answer;
+      if (solver->mustBeTrue(state, eq, answer) && !answer) {
+        addConstraint(state, eq);
 
-  ref<ConstantExpr> value;
-  bool success = solver->getValue(state, e, value);
-  assert(success && "FIXME: Unhandled solver failure");
-  (void) success;
-
-  std::string str;
-  llvm::raw_string_ostream os(str);
-  os << "silently concretizing (reason: " << reason << ") expression " << e
-     << " to value " << value << " (" << (*(state.pc)).info->file << ":"
-     << (*(state.pc)).info->line << ")";
-
-  if (AllExternalWarnings)
-    klee_warning(reason, os.str().c_str());
-  else
-    klee_warning_once(reason, "%s", os.str().c_str());
-
-  addConstraint(state, EqExpr::create(e, value));
-
-  return value;
+        std::string str;
+        raw_string_ostream os(str);
+        os << "silently concretizing (reason: " << reason << ") expression " << e
+           << " to value " << result << " (" << (*(state.pc)).info->file << ":"
+           << (*(state.pc)).info->line << ")";
+        state.messages.push_back(os.str());
+      }
+    }
+  }
+  return result;
 }
 
 void Executor::executeGetValue(ExecutionState &state,
@@ -1343,15 +1315,12 @@ void Executor::executeCall(ExecutionState &state,
 
     unsigned callingArgs = arguments.size();
     unsigned funcArgs = f->arg_size();
-    if (!f->isVarArg()) {
-      if (callingArgs > funcArgs) {
-        klee_warning_once(f, "calling %s with extra arguments.",
-                          f->getName().data());
-      } else if (callingArgs < funcArgs) {
-        terminateStateOnError(state, TerminateReason::User, "calling function with too few arguments");
-        return;
-      }
-    } else {
+    if (callingArgs < funcArgs) {
+      terminateStateOnError(state, TerminateReason::User, "calling function with too few arguments");
+      return;
+    }
+
+    if (f->isVarArg()) {
       Expr::Width WordSize = Context::get().getPointerWidth();
 
       if (callingArgs < funcArgs) {
@@ -1382,20 +1351,14 @@ void Executor::executeCall(ExecutionState &state,
         }
       }
 
-      MemoryObject *mo = sf.varargs =
-          memory->allocate(size, nullptr, MemKind::output, state.prevPC->inst,
-                           (requires16ByteAlignment ? 16 : 8));
-      if (!mo && size) {
-        terminateStateOnExecError(state, "out of memory (varargs)");
-        return;
-      }
-
-      if (mo) {
-        if ((WordSize == Expr::Int64) && (mo->address & 15) &&
-            requires16ByteAlignment) {
-          // Both 64bit Linux/Glibc and 64bit MacOSX should align to 16 bytes.
-          klee_warning_once(
-              0, "While allocating varargs: malloc did not align to 16 bytes.");
+      if (size == 0) {
+        sf.varargs = nullptr;
+      } else {
+        MemoryObject *mo = sf.varargs = memory->allocate(size, nullptr, MemKind::va_arg, state.prevPC->inst,
+                                                        (requires16ByteAlignment ? 16 : 8));
+        if (mo == nullptr) {
+          terminateStateOnExecError(state, "out of memory (varargs)");
+          return;
         }
 
         ObjectState *os = bindObjectInState(state, mo);
@@ -1420,9 +1383,8 @@ void Executor::executeCall(ExecutionState &state,
       }
     }
 
-    unsigned numFormals = f->arg_size();
-    for (unsigned i=0; i<numFormals; ++i)
-      bindArgument(kf, i, state, arguments[i]);
+    for (unsigned idx = 0, end = f->arg_size(); idx < end; ++idx)
+      bindArgument(kf, idx, state, arguments[idx]);
   }
 }
 

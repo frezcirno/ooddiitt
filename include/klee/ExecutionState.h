@@ -283,7 +283,7 @@ public:
   unsigned maxLoopForks;
   unsigned maxLazyDepth;
   StateStatus status;
-  std::string terminationMessage;
+  std::deque<std::string> messages;
   const KInstruction *instFaulting;
   std::deque<unsigned> trace;
   std::vector<ref<Expr> > arguments;

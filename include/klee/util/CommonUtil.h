@@ -55,7 +55,8 @@ enum class MemKind {
   alloca_l,
   heap,
   output,
-  lazy
+  lazy,
+  va_arg
 };
 
 std::string to_string(MemKind k);

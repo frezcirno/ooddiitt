@@ -565,6 +565,8 @@ int main(int argc, char **argv, char **envp) {
     if (TraceT != TraceType::invalid) {
       IOpts.trace = TraceT;
     }
+    UnconstraintFlagsT flags;
+    IOpts.progression.emplace_back(300, flags);
 
     vector<ExecutionState *> ex_states;
     ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());
@@ -583,15 +585,16 @@ int main(int argc, char **argv, char **envp) {
     map<unsigned, unsigned> counters;
 
     outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> ";
+    ExecutionState *state = nullptr;
 
     if (ex_states.empty()) {
-      errs() << "Failed to replay";
+      outs() << "Failed to replay";
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else if (ex_states.size() > 1) {
-      errs() << "Replay forked into multiple paths";
+      outs() << "Replay forked into multiple paths";
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else {
-      ExecutionState *state = ex_states.front();
+      state = ex_states.front();
 
       if (Verbose) {
         state->stdout_capture.get_data(stdout_capture);
@@ -617,7 +620,7 @@ int main(int argc, char **argv, char **envp) {
         }
       }
 
-      if (test.status != state->status) {
+      if (test.status != StateStatus::Snapshot && test.status != state->status) {
         outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
         exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
       } else {
@@ -625,42 +628,45 @@ int main(int argc, char **argv, char **envp) {
       }
 
       if (state->status != StateStatus::Completed) {
-        outs() << " (" << state->terminationMessage << ')';
+        if (!state->messages.empty()) {
+          outs() << " (" << state->messages.back() << ')';
+        }
       }
 
     }
     outs() << '\n';
 
-    if (TraceT == TraceType::calls) {
-      ExecutionState *state = ex_states.front();
-      outs() << "Call Trace:\n";
-      outs() << test.entry_fn << '\n';
+    if (state != nullptr) {
+      if (TraceT == TraceType::calls) {
+        outs() << "Call Trace:\n";
+        outs() << test.entry_fn << '\n';
 
-      // build a reverse loop up map of function ids
-      map<unsigned,string> fnMap;
-      for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
-        Function *fn = itr->first;
-        unsigned fnID = kmod->getFunctionID(fn);
-        if (fnID != 0) {
-          fnMap.insert(make_pair(fnID, fn->getName()));
-        }
-      }
-
-      int call_depth = 0;
-      for (auto entry : state->trace) {
-        bool is_call = (entry % 1000) == 1;
-        bool is_retn = (entry % 1000) == 2;
-        if (is_call) {
-          call_depth += 1;
-          unsigned fnID = entry / 1000;
-          auto itr = fnMap.find(fnID);
-          if (itr != fnMap.end()) {
-            assert(call_depth >= 0);
-            outs().indent(call_depth * 2);
-            outs() << itr->second << '\n';
+        // build a reverse loop up map of function ids
+        map<unsigned, string> fnMap;
+        for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
+          Function *fn = itr->first;
+          unsigned fnID = kmod->getFunctionID(fn);
+          if (fnID != 0) {
+            fnMap.insert(make_pair(fnID, fn->getName()));
           }
-        } else if (is_retn) {
-          call_depth -= 1;
+        }
+
+        int call_depth = 0;
+        for (auto entry : state->trace) {
+          bool is_call = (entry % 1000) == 1;
+          bool is_retn = (entry % 1000) == 2;
+          if (is_call) {
+            call_depth += 1;
+            unsigned fnID = entry / 1000;
+            auto itr = fnMap.find(fnID);
+            if (itr != fnMap.end()) {
+              assert(call_depth >= 0);
+              outs().indent(call_depth * 2);
+              outs() << itr->second << '\n';
+            }
+          } else if (is_retn) {
+            call_depth -= 1;
+          }
         }
       }
     }
@@ -699,8 +705,9 @@ int main(int argc, char **argv, char **envp) {
       //    }
     }
 
-    for (auto state : ex_states) {
-      delete state;
+    state = nullptr;
+    for (auto s : ex_states) {
+      delete s;
     }
     ex_states.clear();
 

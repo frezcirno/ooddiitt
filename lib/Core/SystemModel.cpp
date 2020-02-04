@@ -30,6 +30,10 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"openat", &SystemModel::ExecuteReturnMinus1_32},
     {"close", &SystemModel::ExecuteReturn0_32},
     {"fcntl", &SystemModel::ExecuteReturnMinus1_32},
+    {"floor", &SystemModel::ExecuteFloor},
+    {"rint", &SystemModel::ExecuteRint},
+    {"fabs", &SystemModel::ExecuteFabs},
+    {"modf", &SystemModel::ExecuteModf},
     {"__check_one_fd", &SystemModel::ExecuteNoop}
 };
 
@@ -151,8 +155,9 @@ bool SystemModel::ExecuteWrite(ExecutionState &state, std::vector<ref<Expr> >&ar
 
           size_t offset = addr - mo->address;
           CharacterOutput *bo = fd == 1 ? &state.stdout_capture : &state.stderr_capture;
-          bo->emplace_back();
-          os->readConcrete(bo->back(), offset, count);
+          vector<unsigned char> write;
+          os->readConcrete(write, offset, count);
+          bo->emplace_back(write);
         }
       }
     }
@@ -326,6 +331,89 @@ bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&a
   retExpr = ConstantExpr::createPointer(0);
   return true;
 }
+
+static inline const fltSemantics * fpWidthToSemantics(unsigned width) {
+  switch(width) {
+  case Expr::Int32:
+    return &APFloat::IEEEsingle;
+  case Expr::Int64:
+    return &APFloat::IEEEdouble;
+  case Expr::Fl80:
+    return &APFloat::x87DoubleExtended;
+  default:
+    return 0;
+  }
+}
+
+bool SystemModel::ExecuteFloor(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 1) {
+    ref<ConstantExpr> val = executor->toConstant(state, args[0], "floor()");
+    APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
+    result.roundToIntegral(APFloat::rmTowardNegative);
+    retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
+    return true;
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteRint(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 1) {
+    ref<ConstantExpr> val = executor->toConstant(state, args[0], "rint()");
+    APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
+    result.roundToIntegral(APFloat::rmNearestTiesToAway);
+    retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
+    return true;
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteFabs(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 1) {
+    ref<ConstantExpr> val = executor->toConstant(state, args[0], "fabs()");
+    APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
+    result.clearSign();
+    retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
+    return true;
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 2) {
+    ref<ConstantExpr> val = executor->toConstant(state, args[0], "modf()");
+    ref<ConstantExpr> ptr = executor->toConstant(state, args[1], "modf()");
+    APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
+    APFloat integer = result;
+    APFloat fraction = result;
+    double i_test1 = integer.convertToDouble();
+    double f_test1 = fraction.convertToDouble();
+    integer.roundToIntegral(APFloat::rmTowardZero);
+    fraction.subtract(integer, APFloat::rmTowardPositive);
+    ref<ConstantExpr> outparam = ConstantExpr::alloc(integer.bitcastToAPInt());
+
+    double i_test2 = integer.convertToDouble();
+    double f_test2 = fraction.convertToDouble();
+
+    ObjectPair op;
+    LocalExecutor::ResolveResult res = executor->resolveMO(state, ptr, op);
+    if (res == LocalExecutor::ResolveResult::OK) {
+      const MemoryObject *mo = op.first;
+      const ObjectState *os = op.second;
+      ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+      ref<Expr> offset = mo->getOffsetExpr(ptr);
+      wos->write(offset, outparam);
+    }
+    retExpr = ConstantExpr::alloc(fraction.bitcastToAPInt());
+    return true;
+  }
+  return false;
+}
+
+
 
 // RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,
 

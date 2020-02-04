@@ -64,7 +64,7 @@ std::string to_string(StateStatus s) {
 }
 
 std::string to_string(MemKind k) {
-  static const char *strings[] = {"invalid", "external", "global", "param", "alloca", "heap", "output", "lazy"};
+  static const char *strings[] = {"invalid", "external", "global", "param", "alloca", "heap", "output", "lazy", "va_arg"};
   if ((unsigned) k >= countof(strings))
     return "";
   return strings[(unsigned) k];

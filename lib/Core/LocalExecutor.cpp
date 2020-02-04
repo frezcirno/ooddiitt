@@ -361,6 +361,22 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
+
+#if 1 == 1
+    // RLR TODO: here be debug statements
+    map<uint64_t,const MemoryObject*> addresses;
+    for (auto obj : state.addressSpace.objects) {
+      uint64_t addr = obj.first->address;
+      addresses.insert(make_pair(obj.first->address, obj.first));
+    }
+    size_t size = addresses.size();
+    for (auto pr : addresses) {
+      uint64_t addr = pr.first;
+      const MemoryObject *mo = pr.second;
+      errs() << addr << ':' << mo << '\n';
+    }
+#endif
+
     terminateStateOnMemFault(state, target, "read resolveMO");
     return false;
   }
@@ -563,6 +579,22 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
+
+#if 0 == 1
+    // RLR TODO: here be debug statements
+    map<uint64_t,const MemoryObject*> addresses;
+    for (auto obj : state.addressSpace.objects) {
+      uint64_t addr = obj.first->address;
+      addresses.insert(make_pair(obj.first->address, obj.first));
+    }
+    size_t size = addresses.size();
+    for (auto pr : addresses) {
+      uint64_t addr = pr.first;
+      const MemoryObject *mo = pr.second;
+      errs() << addr << ':' << mo << '\n';
+    }
+#endif
+
     terminateStateOnMemFault(state, target, "write resolveMO");
     return false;
   }
@@ -987,7 +1019,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       init_states.resize(SymArgs + 1);
 
       // push the module name into the state
-      std::string md_name = kmodule->module->getModuleIdentifier();
+      std::string md_name = kmodule->getModuleIdentifier();
 
       WObjectPair wopProgName;
       if (!allocSymbolic(*state, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, md_name.size() + 1)) {
@@ -1506,7 +1538,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 
 void LocalExecutor::terminateState(ExecutionState &state, const string &message) {
 
-  state.terminationMessage = message;
+  if (!message.empty()) state.messages.push_back(message);
   if (state.status == StateStatus::Completed    ||
      (state.status == StateStatus::Error) ||
      (interpreterOpts.mode != ExecModeID::igen && state.status == StateStatus::MemFaulted) ||
@@ -2024,16 +2056,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     // Memory instructions...
 
     case Instruction::Alloca: {
+
       AllocaInst *ai = cast<AllocaInst>(i);
 
       unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
+      unsigned count = 1;
       if (ai->isArrayAllocation()) {
-        assert("resolve array allocation");
+        ref<Expr> cnt = eval(ki, 0, state).value;
+        if (isa<ConstantExpr>(cnt)) {
+          count = cast<ConstantExpr>(cnt)->getZExtValue();
+        } else {
+          assert(false && "non-const lallocation size");
+        }
       }
-
       bool to_symbolic = false /*!libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty() */;
-      executeSymbolicAlloc(state, size, 1, ai->getAllocatedType(), MemKind::alloca_l, ki, to_symbolic);
-
+      executeSymbolicAlloc(state, size * count, count, ai->getAllocatedType(), MemKind::alloca_l, ki, to_symbolic);
       break;
     }
 
@@ -2083,10 +2120,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             return;
           }
         }
-      } else if (result == ResolveResult::NullAccess) {
-        // well, ..., that can't be good.
-        terminateState(state, "GEP from NULL base");
-        return;
+        // RLR TODO: where was this needed?  at least one of the benchmarks geps a null ptr in correct code
+//      } else if (result == ResolveResult::NullAccess) {
+//        // well, ..., that can't be good.
+//        terminateState(state, "GEP from NULL base");
+//        return;
       }
 
       for (auto itr = kgepi->indices.begin(), end = kgepi->indices.end(); itr != end; ++itr) {
@@ -2204,12 +2242,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       break;
     }
 
-    case Instruction::FCmp:
-      Executor::executeInstruction(state, ki);
-      // RLR TODO: only whine if an argument is symbolic
-      klee_warning("Floating point comparison");
-      break;
-
     case Instruction::UDiv:  // all fall through
     case Instruction::SDiv:
     case Instruction::URem:
@@ -2324,14 +2356,31 @@ bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector
   return false;
 }
 
-bool LocalExecutor::getConcreteSolution(ExecutionState &state, vector<ConcreteSolution> &result) {
+bool LocalExecutor::getConcreteSolution(ExecutionState &state,
+                                        std::vector<SymbolicSolution> &result,
+                                        const std::set<MemKind> &kinds) {
 
-  // copy out all named variables
+#if 0 == 1
+  // RLR TODO: here be debug statements
+  map<uint64_t,const MemoryObject*> addresses;
+  for (auto obj : state.addressSpace.objects) {
+    uint64_t addr = obj.first->address;
+    addresses.insert(make_pair(obj.first->address, obj.first));
+  }
+  size_t size = addresses.size();
+  for (auto pr : addresses) {
+    uint64_t addr = pr.first;
+    const MemoryObject *mo = pr.second;
+    errs() << addr << ':' << mo << '\n';
+  }
+#endif
+
+  // copy out all memory objects
   for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
     const MemoryObject *mo = itr->first;
-    const ObjectState *os = itr->second;
-    string name = mo->name;
-    if (!name.empty() && name[0] != '.') {
+    if (kinds.find(mo->kind) != kinds.end()) {
+
+      const ObjectState *os = itr->second;
       result.emplace_back(make_pair(mo, vector<unsigned char>{}));
       vector<unsigned char> &value = result.back().second;
       os->readConcrete(value);

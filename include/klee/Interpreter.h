@@ -254,7 +254,8 @@ public:
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
     return getSymbolicSolution(state, res);
   }
-  virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result) { return false; }
+  virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result, const std::set<MemKind> &kinds)
+    { return false; }
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }

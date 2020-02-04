@@ -338,7 +338,11 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
       if (state.instFaulting != nullptr) {
         root["instFaulting"] = state.instFaulting->info->assemblyLine;
       }
-      root["message"] = state.terminationMessage;
+
+      Json::Value &msgs = root["messages"] = Json::arrayValue;
+      for (auto msg : state.messages) {
+        msgs.append(msg);
+      }
 
       // store the path condition
       string constraints;

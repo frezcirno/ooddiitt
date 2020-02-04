@@ -84,9 +84,10 @@ private:
   string md_name;
   string file_name;
   sys_clock::time_point started_at;
+  bool is_main;
 
 public:
-  RecordKleeHandler(const vector<string> &args, const string &_md_name);
+  RecordKleeHandler(const vector<string> &args, const string &_md_name, bool as_main = false);
   ~RecordKleeHandler();
 
   void setInterpreter(Interpreter *i) override;
@@ -109,11 +110,12 @@ public:
 
 };
 
-RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &_md_name)
+RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &_md_name, bool as_main)
     : nextTestCaseID(0),
       indentation(""),
       args(_args),
-      outputDirectory(Output) {
+      outputDirectory(Output),
+      is_main(as_main) {
 
 
   // create output directory (if required)
@@ -272,7 +274,10 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       if (state.instFaulting != nullptr) {
         root["instFaulting"] = state.instFaulting->info->assemblyLine;
       }
-      root["message"] = state.terminationMessage;
+      Json::Value &msgs = root["messages"] = Json::arrayValue;
+      for (auto msg : state.messages) {
+        msgs.append(msg);
+      }
 
       // store the path condition
       string constraints;
@@ -288,7 +293,18 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       root["stdin"] = toDataString(state.stdin_buffer);
 
       vector<ConcreteSolution> out;
-      if (!i->getConcreteSolution(state, out)) {
+      set<MemKind> memKinds;
+      memKinds.insert(MemKind::external);
+      if (!is_main) {
+        memKinds.insert(MemKind::param);
+        memKinds.insert(MemKind::global);
+        memKinds.insert(MemKind::heap);
+        memKinds.insert(MemKind::output);
+        memKinds.insert(MemKind::lazy);
+        memKinds.insert(MemKind::alloca_l);
+      }
+
+      if (!i->getConcreteSolution(state, out, memKinds)) {
         klee_warning("unable to get symbolic solution, losing test case");
       }
 
@@ -535,7 +551,7 @@ int main(int argc, char **argv, char **envp) {
           }
         }
 
-        auto *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier());
+        auto *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier(), mainFn == targetFn);
 
         Interpreter::InterpreterOptions IOpts;
         IOpts.mode = ExecModeID::irec;
@@ -543,6 +559,8 @@ int main(int argc, char **argv, char **envp) {
         IOpts.user_mem_size = (0x90000000000 - 0x80000000000);
         IOpts.verbose = Verbose;
         IOpts.userSnapshot = targetFn;
+        UnconstraintFlagsT flags;
+        IOpts.progression.emplace_back(300, flags);
 
         if (TraceNone) {
           IOpts.trace = TraceType::none;

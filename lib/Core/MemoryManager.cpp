@@ -124,25 +124,6 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   return res;
 }
 
-#if 0 == 1
-MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
-                                           const llvm::Value *allocSite) {
-#ifndef NDEBUG
-  for (objects_ty::iterator it = objects.begin(), ie = objects.end(); it != ie;
-       ++it) {
-    MemoryObject *mo = *it;
-    if (address + size > mo->address && address < mo->address + mo->size)
-      klee_error("Trying to allocate an overlapping object");
-  }
-#endif
-
-  ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, 1, nullptr, MemKind::fixed, allocSite, this);
-  objects.insert(res);
-  return res;
-}
-#endif
-
 MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment) {
 
   MemoryObject *result = nullptr;
