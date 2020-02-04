@@ -362,7 +362,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
 
-#if 1 == 1
+#if 0 == 1
     // RLR TODO: here be debug statements
     map<uint64_t,const MemoryObject*> addresses;
     for (auto obj : state.addressSpace.objects) {

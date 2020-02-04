@@ -675,9 +675,15 @@ int main(int argc, char **argv, char **envp) {
       // display captured output
       if (!stdout_capture.empty()) {
         outs() << "stdout: " << to_string(stdout_capture, 64) << '\n';
+        for (auto itr = stdout_capture.begin(), end = stdout_capture.end(); itr != end; ++itr) {
+          outs() << *itr;
+        }
       }
       if (!stderr_capture.empty()) {
         outs() << "stdout: " << to_string(stderr_capture, 64) << '\n';
+        for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
+          outs() << *itr;
+        }
       }
 
       // build an inverse map of fnIDs

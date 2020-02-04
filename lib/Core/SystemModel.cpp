@@ -389,14 +389,9 @@ bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&arg
     APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
     APFloat integer = result;
     APFloat fraction = result;
-    double i_test1 = integer.convertToDouble();
-    double f_test1 = fraction.convertToDouble();
     integer.roundToIntegral(APFloat::rmTowardZero);
     fraction.subtract(integer, APFloat::rmTowardPositive);
     ref<ConstantExpr> outparam = ConstantExpr::alloc(integer.bitcastToAPInt());
-
-    double i_test2 = integer.convertToDouble();
-    double f_test2 = fraction.convertToDouble();
 
     ObjectPair op;
     LocalExecutor::ResolveResult res = executor->resolveMO(state, ptr, op);
