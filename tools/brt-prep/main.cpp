@@ -703,7 +703,7 @@ void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
   }
 }
 
-void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function*> &targets, map<Function*,unsigned> &distance_map) {
+void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function*> &targets, map<string,unsigned> &distance_map) {
 
   map<Function*,set<Function*> > caller_graph;
   constructCallerGraph(mod, caller_graph);
@@ -713,7 +713,7 @@ void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function
   }
 
   for (Function *fn : targets) {
-    distance_map.insert(make_pair(fn, 0));
+    distance_map.insert(make_pair(fn->getName(), 0));
   }
 
   set<Function*> scope(targets.begin(), targets.end());
@@ -728,14 +728,14 @@ void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function
     }
     for (Function *fn : cmn) {
       string name = fn->getName();
-      if ((distance_map.find(fn) == distance_map.end()) && (scope.find(fn) != scope.end())) {
-        distance_map.insert(make_pair(fn, depth));
+      if ((distance_map.find(name) == distance_map.end()) && (scope.find(fn) != scope.end())) {
+        distance_map.insert(make_pair(name, depth));
       }
     }
   }
 }
 
-void reachesFns(KModule *kmod, const set<string> &commons, const set<string> &changed, unsigned depth, set<string> &reaches) {
+void reachesFns(KModule *kmod, const set<string> &commons, const set<string> &changed, map<string,unsigned> &map) {
 
   // construct a target set of changed functions
   set<Function*> targets;
@@ -744,16 +744,7 @@ void reachesFns(KModule *kmod, const set<string> &commons, const set<string> &ch
       targets.insert(fn);
     }
   }
-
-  set<Function*> reaching_fns;
-  map<Function*,unsigned> distance_map;
-  calcDistanceMap(kmod->module, commons, targets, distance_map);
-
-  for (auto itr = distance_map.begin(), end = distance_map.end(); itr != end; ++itr) {
-    if (itr->second != 0 && itr->second <= depth) {
-      reaches.insert(itr->first->getName());
-    }
-  }
+  calcDistanceMap(kmod->module, commons, targets, map);
 }
 
 void entryFns(KModule *kmod1,
@@ -761,22 +752,25 @@ void entryFns(KModule *kmod1,
               const set<string> &commons,
               const set<string> &sigs,
               const set<string> &bodies,
-              unsigned depth,
-              set<string> &entries) {
+              map<string,unsigned> &distances) {
 
   set<string> changes;
   changes.insert(bodies.begin(), bodies.end());
   changes.insert(sigs.begin(), sigs.end());
 
-  set<string> reaches1;
-  reachesFns(kmod1, commons, changes, depth, reaches1);
+  map<string,unsigned> map1;
+  reachesFns(kmod1, commons, changes, map1);
 
-  set<string> reaches2;
-  reachesFns(kmod2, commons, changes, depth, reaches2);
+  map<string,unsigned> map2;
+  reachesFns(kmod2, commons, changes, map2);
 
   // potential entries are those that reach any changed function and functions whose bodies (only) have changed.
-  set_intersection(reaches1.begin(), reaches1.end(), reaches2.begin(), reaches2.end(), inserter(entries, entries.begin()));
-  entries.insert(bodies.begin(), bodies.end());
+  for (const auto &pr : map1) {
+    auto itr = map2.find(pr.first);
+    if ((itr != map2.end()) && (sigs.find(pr.first) == sigs.end())) {
+      distances.insert(make_pair(pr.first, std::min(pr.second, itr->second)));
+    }
+  }
 }
 
 void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
@@ -808,10 +802,10 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
     root["pre-module"] = kmod1->getModuleIdentifier();
     root["post-module"] = kmod2->getModuleIdentifier();
 
-    Json::Value &fns_entries = functions["entries"] = Json::arrayValue;
-    set<string> entries;
-    entryFns(kmod1, kmod2, commons, sigs, bodies, 2, entries);
-    for (const auto &fn : entries) fns_entries.append(fn);
+    Json::Value &fns_entries = functions["entry_points"] = Json::objectValue;
+    map<string,unsigned> entry_points;
+    entryFns(kmod1, kmod2, commons, sigs, bodies, entry_points);
+    for (const auto &pr : entry_points) fns_entries[pr.first] = pr.second;
 
     string indent;
     if (IndentJson) indent = "  ";

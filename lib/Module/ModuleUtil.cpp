@@ -510,29 +510,22 @@ void klee::enumModuleVisibleDefines(Module *m, set<Function*> &fns, set<GlobalVa
 }
 
 // RLR TODO: this is a hack that might need rework
-static map<string,string> rewrite_fn_pointers = { {"i64 (i8*, i64)*", "hash_int"}, {"i1 (i8*, i8*)*", "hash_compare_ints"},  {"void (i8*)*", "null"} };
-
+static map<string,pair<string,string> > rewrite_fn_pointers = {
+    {"i64 (i8*, i64)*", {"hash_int", ""}},
+    {"i1 (i8*, i8*)*", {"hash_compare_ints", ""}},
+    {"void (i8*)*", {"", ""}},
+    {"double (i8*, i8**)*", {"c_strtod", "xstrod"}},
+    {"x86_fp80 (i8*, i8**)*", {"c_strtold", "xstrold"}}
+};
 
 Module *klee::rewriteFunctionPointers(Module *m, set<Function*> &fns) {
 
-  map<string,Function*> rewrite;
+  map<string,pair<Function*,Function*> > rewrite;
   for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
-    if (itr->second == "null") rewrite.insert(make_pair(itr->first, nullptr));
-    else if (Function *fn = m->getFunction(itr->second)) rewrite.insert(make_pair(itr->first, fn));
-  }
-
-  map<string, set<const Function*> > mapFiletoFns;
-
-  DebugInfoFinder finder;
-  finder.processModule(*m);
-  for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
-    const MDNode *md = *itr;
-    DISubprogram SP(md);
-    for (const auto &fn : fns) {
-      if (SP.describes(fn)) {
-        mapFiletoFns[SP.getFilename()].insert(fn);
-      }
-    }
+    const string &sig = itr->first;
+    Function *target = itr->second.first.empty() ? nullptr : m->getFunction(itr->second.first);
+    Function *scope = itr->second.second.empty() ? nullptr : m->getFunction(itr->second.second);
+    rewrite.insert(make_pair(sig, make_pair(target, scope)));
   }
 
   map<Type*,vector<const Function*> > fns_by_type;
@@ -561,18 +554,24 @@ Module *klee::rewriteFunctionPointers(Module *m, set<Function*> &fns) {
                 string type_name = to_string(type);
                 auto itr = rewrite.find(type_name);
                 if (itr != rewrite.end()) {
-                  outs() << "Rewriting " << fn->getName() << '\n';
-                  if (itr->second == nullptr) {
-                    drops.push_back(old_inst);
-                  } else {
-                    SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
-                    CallInst *new_inst = CallInst::Create(itr->second, args);
-                    new_inst->setCallingConv(cs.getCallingConv());
-                    replacements.push_back(make_pair(old_inst, new_inst));
+                  Function *target = itr->second.first;
+                  Function *scope = itr->second.second;
+                  if ((scope == nullptr) || (scope == fn)) {
+                    if (target == nullptr) {
+                      outs() << "Dropping indirect call in " << fn->getName() << '\n';
+                      drops.push_back(old_inst);
+                      continue;
+                    } else {
+                      outs() << "Rewriting indirect call in " << fn->getName() << '\n';
+                      SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
+                      CallInst *new_inst = CallInst::Create(target, args);
+                      new_inst->setCallingConv(cs.getCallingConv());
+                      replacements.emplace_back(make_pair(old_inst, new_inst));
+                      continue;
+                    }
                   }
-                } else {
-                  outs() << "Warning: unpatched function pointer in " << fn->getName() << '\n';
                 }
+                outs() << "Warning: unpatched function pointer (" <<  type_name <<  ") in " << fn->getName() << '\n';
               }
             }
           }
