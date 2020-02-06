@@ -22,6 +22,15 @@ namespace llvm {
 
 namespace klee {
 
+  struct IndirectCallRewriteRec {
+    IndirectCallRewriteRec(const std::string &t, const std::string &s) : target(t), sig(s) {}
+    std::string target;
+    std::string sig;
+    std::set<std::string> scope;
+  };
+  typedef std::vector<IndirectCallRewriteRec> IndirectCallRewriteRecs;
+
+
   /// Link a module with a specified bitcode archive.
   llvm::Module *linkWithLibrary(llvm::Module *module, const std::string &libraryName);
 
@@ -43,7 +52,7 @@ namespace klee {
   void enumModuleFunctions(llvm::Module *m, std::set<llvm::Function*> &fns);
   void enumModuleGlobals(llvm::Module *m, std::set<llvm::GlobalVariable*> &gbs);
   void enumModuleVisibleDefines(llvm::Module *m, std::set<llvm::Function*> &fns, std::set<llvm::GlobalVariable*> &gbs);
-  llvm::Module *rewriteFunctionPointers(llvm::Module *m, std::set<llvm::Function*> &fns);
+  llvm::Module *rewriteFunctionPointers(llvm::Module *m, const IndirectCallRewriteRecs &recs);
   bool isPrepared(llvm::Module *m);
   void modify_clib(llvm::Module *m);
 }

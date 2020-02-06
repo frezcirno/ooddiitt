@@ -66,6 +66,7 @@ namespace {
   cl::opt<string> InputFile1(cl::desc("<original input bytecode>"), cl::Positional, cl::Required);
   cl::opt<string> InputFile2(cl::desc("<modified input bytecode>"), cl::Positional);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
+  cl::opt<string> FnPtrPatches("fp-patch", cl::desc("json specification for function pointer patching"), cl::init("fp-patch.json"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
   cl::opt<TraceType> TraceT("trace",
     cl::desc("Choose the type of trace (default=marked basic blocks"),
@@ -468,7 +469,36 @@ Module *LinkModule(Module *module, const string &libDir) {
   return module;
 }
 
-KModule *PrepareModule(const string &filename, const string& libDir, TraceType ttype, MarkScope mscope) {
+void LoadIndirectPatches(const string &filename, IndirectCallRewriteRecs &recs) {
+
+  assert(!filename.empty());
+  assert(recs.empty());
+
+  ifstream infile(filename);
+  if (infile.is_open()) {
+    Json::Value root;
+    infile >> root;
+    infile.close();
+
+    if (root.isArray()) {
+      recs.reserve(root.size());
+      for (Json::Value &rec : root) {
+        Json::Value &scope = rec["scope"];
+        string sig = rec["sig"].asString();
+        string target = rec["target"].asString();
+        recs.emplace_back(target, sig);
+
+        // now set the scope of the patches
+        set<string> &s = recs.back().scope;
+        for (Json::Value &e : scope) {
+          s.insert(e.asString());
+        }
+      }
+    }
+  }
+}
+
+KModule *PrepareModule(const string &filename, const IndirectCallRewriteRecs &rewrites, const string& libDir, TraceType ttype, MarkScope mscope) {
 
   if (Module *module = LoadModule(filename)) {
 
@@ -479,8 +509,7 @@ KModule *PrepareModule(const string &filename, const string& libDir, TraceType t
       set<Function*> module_fns;
       set<GlobalVariable*> module_globals;
       enumModuleVisibleDefines(module, module_fns, module_globals);
-
-      module = rewriteFunctionPointers(module, module_fns);
+      module = rewriteFunctionPointers(module, rewrites);
       module = LinkModule(module, libDir);
 
       if (KModule *kmodule = new KModule(module)) {
@@ -838,8 +867,13 @@ int main(int argc, char **argv, char **envp) {
     fs::create_directories(outPath);
   }
 
+  IndirectCallRewriteRecs indirect_rewrites;
+  if (!FnPtrPatches.empty()) {
+    LoadIndirectPatches(FnPtrPatches, indirect_rewrites);
+  }
+
   int exit_code = 1;
-  if (KModule *kmod1 = PrepareModule(InputFile1, libDir, TraceT, MarkS)) {
+  if (KModule *kmod1 = PrepareModule(InputFile1, indirect_rewrites, libDir, TraceT, MarkS)) {
     const LLVMContext *ctx1 = kmod1->getContextPtr();
     if (SaveModule(kmod1, Output)) {
       if (InputFile2.empty()) {
@@ -847,7 +881,7 @@ int main(int argc, char **argv, char **envp) {
         exit_code = 0;
       } else {
         // now get the modified module
-        if (KModule *kmod2 = PrepareModule(InputFile2, libDir, TraceT, MarkS)) {
+        if (KModule *kmod2 = PrepareModule(InputFile2, indirect_rewrites, libDir, TraceT, MarkS)) {
           const LLVMContext *ctx2 = kmod2->getContextPtr();
           SaveModule(kmod2, Output);
           // two for two

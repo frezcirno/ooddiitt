@@ -509,31 +509,36 @@ void klee::enumModuleVisibleDefines(Module *m, set<Function*> &fns, set<GlobalVa
   enumModuleGlobals(m, gbs);
 }
 
-// RLR TODO: this is a hack that might need rework
-static map<string,pair<string,string> > rewrite_fn_pointers = {
-    {"i64 (i8*, i64)*", {"hash_int", ""}},
-    {"i1 (i8*, i8*)*", {"hash_compare_ints", ""}},
-    {"void (i8*)*", {"", ""}},
-    {"double (i8*, i8**)*", {"c_strtod", "xstrod"}},
-    {"x86_fp80 (i8*, i8**)*", {"c_strtold", "xstrold"}}
-};
+Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &recs) {
 
-Module *klee::rewriteFunctionPointers(Module *m, set<Function*> &fns) {
-
-  map<string,pair<Function*,Function*> > rewrite;
-  for (auto itr = rewrite_fn_pointers.begin(), end = rewrite_fn_pointers.end(); itr != end; ++itr) {
-    const string &sig = itr->first;
-    Function *target = itr->second.first.empty() ? nullptr : m->getFunction(itr->second.first);
-    Function *scope = itr->second.second.empty() ? nullptr : m->getFunction(itr->second.second);
-    rewrite.insert(make_pair(sig, make_pair(target, scope)));
+  // construct a map by function of the indirect calls to rewrite
+  map<Function*,map<string,Function*> > rewrite_map;
+  map<string,Function*> &rewrite_global = rewrite_map[nullptr];
+  for (const auto &rec : recs) {
+    Function *target = nullptr;
+    if (!rec.target.empty()) {
+      target = m->getFunction(rec.target);
+      // if target is not in this module, then skip to the next record
+      if (target == nullptr) continue;
+    }
+    // if target is null, then the empty target was specified
+    if (rec.scope.empty()) {
+      // empty scope implies this rewrite is of global scope
+      rewrite_global.insert(make_pair(rec.sig, target));
+    } else {
+      for (const auto &name : rec.scope) {
+        if (Function *fn = m->getFunction(name)) {
+          auto &rewrite_entry = rewrite_map[fn];
+          rewrite_entry.insert(make_pair(rec.sig, target));
+        }
+      }
+    }
   }
 
-  map<Type*,vector<const Function*> > fns_by_type;
-  for (const auto &fn : fns) {
-    fns_by_type[fn->getType()].push_back(fn);
-  }
-
-  for (const auto &fn : fns) {
+  // we loop through all functions, blocks, and instructions so that we are able
+  // to emit warnings about unpatched indirect function calls
+  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
+    Function *fn = itr;
     for (auto &bb : *fn) {
 
 #ifdef _DEBUG
@@ -550,28 +555,47 @@ Module *klee::rewriteFunctionPointers(Module *m, set<Function*> &fns) {
             if (Value *val = cs.getCalledValue()) {
               val = val->stripPointerCasts();
               if (!isa<Function>(val)) {
-                Type *type = val->getType();
-                string type_name = to_string(type);
-                auto itr = rewrite.find(type_name);
-                if (itr != rewrite.end()) {
-                  Function *target = itr->second.first;
-                  Function *scope = itr->second.second;
-                  if ((scope == nullptr) || (scope == fn)) {
-                    if (target == nullptr) {
-                      outs() << "Dropping indirect call in " << fn->getName() << '\n';
-                      drops.push_back(old_inst);
-                      continue;
-                    } else {
-                      outs() << "Rewriting indirect call in " << fn->getName() << '\n';
-                      SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
-                      CallInst *new_inst = CallInst::Create(target, args);
-                      new_inst->setCallingConv(cs.getCallingConv());
-                      replacements.emplace_back(make_pair(old_inst, new_inst));
-                      continue;
-                    }
+
+                // we found an indirect call.  try to find an in-scope sig for rewriting
+                string sig = to_string(val->getType());
+
+                bool rewrite = false;
+                Function *target;
+
+                // check for a function scoped rule first
+                auto fn_itr = rewrite_map.find(fn);
+                if (fn_itr != rewrite_map.end()) {
+                  auto sg_itr = fn_itr->second.find(sig);
+                  if (sg_itr != fn_itr->second.end()) {
+
+                    // found a function scope rule
+                    rewrite = true;
+                    target = sg_itr->second;
                   }
                 }
-                outs() << "Warning: unpatched function pointer (" <<  type_name <<  ") in " << fn->getName() << '\n';
+                if (!rewrite) {
+                  // no matching rule in function scope, check for global rule
+                  auto sg_itr = rewrite_global.find(sig);
+                  if (sg_itr != rewrite_global.end()) {
+                    // found a global run
+                    rewrite = true;
+                    target = sg_itr->second;
+                  }
+                }
+                if (rewrite) {
+                  if (target == nullptr) {
+                    outs() << "Dropping indirect call in " << fn->getName() << '\n';
+                    drops.push_back(old_inst);
+                  } else {
+                    outs() << "Rewriting indirect call in " << fn->getName() << " as direct call to " << target->getName() << '\n';
+                    SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
+                    CallInst *new_inst = CallInst::Create(target, args);
+                    new_inst->setCallingConv(cs.getCallingConv());
+                    replacements.emplace_back(make_pair(old_inst, new_inst));
+                  }
+                } else {
+                  outs() << "Warning: unpatched function pointer (" <<  sig <<  ") in " << fn->getName() << '\n';
+                }
               }
             }
           }
