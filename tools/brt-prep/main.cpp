@@ -85,6 +85,8 @@ namespace {
     clEnumValEnd),
     cl::init(MarkScope::module));
 
+  cl::opt<string> AssumeEq("assume-eq", cl::desc("assume the following functions are equivalent (useful for some library routines"));
+
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
 #endif
@@ -549,6 +551,93 @@ bool SaveModule(KModule *kmod, const string &outDir) {
   return result;
 }
 
+bool compareTypes(const Type *type1, const Type *type2, set<pair<const Type*,const Type*> > &visited) {
+
+  // get the easy cases first
+  if (type1 == type2) return true;
+
+  Type::TypeID tid = type1->getTypeID();
+  if (tid != type2->getTypeID()) return false;
+
+  // if this is a circular type reference, default to true
+  if (visited.find(make_pair(type1, type2)) != visited.end()) return true;
+  visited.insert(make_pair(type1, type2));
+
+  // how we have to check by type id
+  switch (tid) {
+
+    case Type::VoidTyID:
+    case Type::FloatTyID:
+    case Type::DoubleTyID:
+    case Type::X86_FP80TyID:
+    case Type::FP128TyID:
+    case Type::PPC_FP128TyID:
+    case Type::LabelTyID:
+    case Type::MetadataTyID:
+      return true;
+
+    case Type::IntegerTyID: {
+      const auto *int1 = cast<IntegerType>(type1);
+      const auto *int2 = cast<IntegerType>(type2);
+      return int1->getBitWidth() == int2->getBitWidth();
+    }
+
+    case Type::PointerTyID: {
+      const auto *ptr1 = cast<PointerType>(type1);
+      const auto *ptr2 = cast<PointerType>(type2);
+      return compareTypes(ptr1->getPointerElementType(), ptr2->getPointerElementType(), visited);
+    }
+
+    case Type::ArrayTyID: {
+      const auto *array1 = cast<ArrayType>(type1);
+      const auto *array2 = cast<ArrayType>(type2);
+      if (array1->getNumElements() != array2->getNumElements()) return false;
+      return compareTypes(array1->getElementType(), array2->getElementType(), visited);
+    }
+
+    case Type::VectorTyID: {
+      const auto *vec1 = cast<VectorType>(type1);
+      const auto *vec2 = cast<VectorType>(type2);
+      if (vec1->getNumElements() != vec2->getNumElements()) return false;
+      return compareTypes(vec1->getElementType(), vec2->getElementType(), visited);
+    }
+
+    case Type::StructTyID: {
+      const auto *struct1 = cast<StructType>(type1);
+      const auto *struct2 = cast<StructType>(type2);
+
+      if (struct1->isPacked() != struct2->isPacked()) return false;
+      if (struct1->getNumElements() != struct2->getNumElements()) return false;
+
+      for (unsigned idx = 0, end = struct1->getNumElements(); idx != end; ++idx) {
+        if (!compareTypes(struct1->getElementType(idx), struct2->getElementType(idx), visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    case Type::FunctionTyID: {
+      const auto *fn1 = cast<FunctionType>(type1);
+      const auto *fn2 = cast<FunctionType>(type2);
+      if (fn1->isVarArg() != fn2->isVarArg()) return false;
+      if (fn1->getNumParams() != fn2->getNumParams()) return false;
+      if (!compareTypes(fn1->getReturnType(), fn2->getReturnType(), visited)) return false;
+
+      for (unsigned idx = 0, end = fn1->getNumParams(); idx != end; ++idx) {
+        if (!compareTypes(fn1->getParamType(idx), fn2->getParamType(idx), visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    default:
+      klee_error("unknown type in comparison");
+  }
+  // should not arrive here...
+  return false;
+}
 
 uint64_t calcFnHash(Function *fn) {
 
@@ -617,6 +706,7 @@ uint64_t calcFnHash(Function *fn) {
 
 void diffFns(KModule *kmod1,
              KModule *kmod2,
+             const set<string> &assume_eq,
              Json::Value &added,
              Json::Value &removed,
              set<string> &sig,
@@ -655,12 +745,15 @@ void diffFns(KModule *kmod1,
   // check function signatures
   for (const auto &pr : fn_pairs) {
     assert(pr.first && pr.second);
+
     Function *fn1 = pr.first;
     Function *fn2 = pr.second;
     string fn_name = fn1->getName();
-    if (to_string(fn1->getType()) != to_string(fn2->getType())) {
+    set<pair<const Type*,const Type*> > visited;
+
+    if (!compareTypes(fn1->getFunctionType(), fn2->getFunctionType(), visited)) {
       sig.insert(fn_name);
-    } else if (calcFnHash(fn1) != calcFnHash(fn2)){
+    } else if ((assume_eq.find(fn_name) == assume_eq.end()) && (calcFnHash(fn1) != calcFnHash(fn2))) {
       body.insert(fn_name);
     } else {
       common.insert(fn_name);
@@ -705,7 +798,8 @@ void diffGbs(KModule *kmod1,
 
   for (const auto &pr : gb_pairs) {
     assert(pr.first && pr.second);
-    if (to_string(pr.first->getType()) != to_string(pr.second->getType())) {
+    set<pair<const Type*,const Type*> > visited;
+    if (!compareTypes(pr.first->getType(), pr.second->getType(), visited)) {
       type.append(pr.first->getName().str());
     }
   }
@@ -802,7 +896,7 @@ void entryFns(KModule *kmod1,
   }
 }
 
-void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
+void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, const string &outDir) {
 
   fs::path path(outDir);
   string pathname = (path /= "diff.json").string();
@@ -818,7 +912,7 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const string &outDir) {
     Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
 
     set<string> added, removed, sigs, bodies, commons;
-    diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
+    diffFns(kmod1, kmod2, assume_eq, fns_added, fns_removed, sigs, bodies, commons);
     for (const auto &fn : sigs) fns_changed_sig.append(fn);
     for (const auto &fn : bodies) fns_changed_body.append(fn);
 
@@ -885,7 +979,13 @@ int main(int argc, char **argv, char **envp) {
           const LLVMContext *ctx2 = kmod2->getContextPtr();
           SaveModule(kmod2, Output);
           // two for two
-          emitDiff(kmod1, kmod2, Output);
+
+          set<string> assume_eq;
+          if (!AssumeEq.empty()) {
+            boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
+          }
+
+          emitDiff(kmod1, kmod2, assume_eq, Output);
           exit_code = 0;
           delete kmod2;
           delete ctx2;

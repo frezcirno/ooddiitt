@@ -18,6 +18,15 @@ void changed_sig_fn(int i) {
 
 }
 
+typedef struct {
+  unsigned m1;
+  unsigned m2;
+} bob_t;
+
+void changed_arg_ptr(bob_t *bob) {
+  printf("%u\n", bob->m1);
+}
+
 int main(int argc, char *argv[]) {
 
   int exit_code = 1;
