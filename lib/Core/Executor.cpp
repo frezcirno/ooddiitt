@@ -578,7 +578,9 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
       if (ty->isSized()) {
 	    size = kmodule->targetData->getTypeStoreSize(ty);
       } else {
-        klee_warning("Type for \'%s\' is not sized", i->getName().data());
+        std::ostringstream ss;
+        ss << "Type for \'" << i->getName().str() << "\'' is not sized";
+        log_warning(ss);
       }
 
       // XXX - DWD - hardcode some things until we decide how to fix.
@@ -610,7 +612,9 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
             os->write8(offset, ((unsigned char *) addr)[offset]);
           }
         } else {
-          klee_warning("unable to load symbol \'%s\' while initializing globals.", i->getName().data());
+          std::ostringstream ss;
+          ss << "unable to load symbol \'" << i->getName().str() << "\' while initializing globals";
+          log_warning(ss);
           failed_global = true;
         }
       }
@@ -834,13 +838,13 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
           (MaxForks!=~0u && stats::forks >= MaxForks)) {
 
 	if (MaxMemoryInhibit && atMemoryLimit)
-	  klee_warning_once(0, "skipping fork (memory cap exceeded)");
+	  log_warning("skipping fork (memory cap exceeded)");
 	else if (current.forkDisabled)
-	  klee_warning_once(0, "skipping fork (fork disabled on current path)");
+	  log_warning("skipping fork (fork disabled on current path)");
 	else if (inhibitForking)
-	  klee_warning_once(0, "skipping fork (fork disabled globally)");
+	  log_warning("skipping fork (fork disabled globally)");
 	else
-	  klee_warning_once(0, "skipping fork (max-forks reached)");
+	  log_warning("skipping fork (max-forks reached)");
 
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
@@ -1797,11 +1801,11 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
             f = (Function*) addr;
 
             // Don't give warning on unique resolution
-            if (res.second || !first)
-              klee_warning_once((void*) (unsigned long) addr,
-                                "resolved symbolic function pointer to: %s",
-                                f->getName().data());
-
+            if (res.second || !first) {
+              std::ostringstream ss;
+              ss << "resolved symbolic function pointer to " << f->getName().str();
+              log_warning(ss, state, ki);
+            }
             executeCall(*res.first, ki, f, arguments);
           } else {
             if (!hasInvalid) {
@@ -3594,7 +3598,7 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
 
   bool success = solver->getInitialValues(state, objects, values);
   if (!success) {
-    klee_warning("unable to compute initial values (invalid constraints?)!");
+    log_warning("unable to compute initial values (invalid constraints?)!");
     ExprPPrinter::printQuery(llvm::errs(), state.constraints, ConstantExpr::alloc(0, Expr::Bool));
     return false;
   }
@@ -3727,9 +3731,11 @@ void Executor::prepareForEarlyExit() {
     statsTracker->done();
   }
 }
+
 ///
 
 Interpreter *Interpreter::create(LLVMContext &ctx, const InterpreterOptions &opts,
                                  InterpreterHandler *ih) {
   return new Executor(ctx, opts, ih);
 }
+

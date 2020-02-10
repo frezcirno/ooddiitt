@@ -31,6 +31,7 @@
 #include <string>
 #include <map>
 #include <set>
+#include <klee/Internal/Support/ErrorHandling.h>
 
 struct KTest;
 
@@ -488,6 +489,15 @@ public:
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 
   KModule *getKModule() const { return kmodule; }
+
+  void log_warning(const std::string &msg) override { klee_warning("%s", msg.c_str()); }
+  void log_warning(const std::string &msg, ExecutionState &state) override { state.messages.push_back(msg); log_warning(msg); };
+  void log_warning(const std::string &msg, ExecutionState &state, KInstruction *ki) override
+    { std::ostringstream ss; ss << msg << " (location:" << ki->info->assemblyLine << ')'; log_warning(ss.str(), state); };
+
+  void log_warning(const std::ostringstream &ss) { log_warning(ss.str()); }
+  void log_warning(const std::ostringstream &ss, ExecutionState &state) { log_warning(ss.str(), state); }
+  void log_warning(const std::ostringstream &ss, ExecutionState &state, KInstruction *ki) { log_warning(ss.str(), state, ki); }
 };
 
 } // End klee namespace

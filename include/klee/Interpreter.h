@@ -36,6 +36,7 @@ class Interpreter;
 class TreeStreamWriter;
 class MemoryObject;
 class KModule;
+class KInstruction;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
@@ -251,9 +252,8 @@ public:
   virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = LogType::STP) = 0;
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
-  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
-    return getSymbolicSolution(state, res);
-  }
+  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs)
+    { return getSymbolicSolution(state, res); }
   virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result, const std::set<MemKind> &kinds)
     { return false; }
 
@@ -261,6 +261,9 @@ public:
   virtual KModule *getKModule() const { return nullptr; }
   virtual TraceType getTraceType() const { return TraceType::invalid; }
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }
+  virtual void log_warning(const std::string &msg) = 0;
+  virtual void log_warning(const std::string &msg, ExecutionState &state) = 0;
+  virtual void log_warning(const std::string &msg, ExecutionState &state, KInstruction *ki) = 0;
 };
 
 } // End klee namespace

@@ -565,7 +565,9 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
     addConstraintOrTerminate(state, eqNull);
     // do not touch state again, in case of termination
   } else {
-    klee_warning("lazy initialization of unknown type: %s", to_string(base_type).c_str());
+    ostringstream ss;
+    ss << "lazy initialization of unknown type: " << to_string(base_type);
+    log_warning(ss, state, target);
   }
 }
 
@@ -659,7 +661,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     if (solver->getValue(*currState, offsetExpr, cex)) {
       ref<Expr> eq = EqExpr::create(offsetExpr, cex);
       if (!solver->mustBeTrue(*currState, eq)) {
-        klee_warning("Concretized offset on write");
+        log_warning("Concretized offset on write", state, target);
         if (!addConstraintOrTerminate(*currState, eq)) {
           return false;
         }
@@ -689,7 +691,9 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   }
 
   if (mo->created_size > 4096) {
-    klee_warning("large symbolic: %s, size=%d", mo->name.c_str(), mo->created_size);
+    ostringstream ss;
+    ss << "large symbolic: " << mo->name << " (size=" << mo->created_size << ")";
+    log_warning(ss, state);
   }
 
   // wos with either equal os or point to a copied value
@@ -1368,7 +1372,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
         } else if (const Function *fn = kmodule->module->getFunction(line)) {
           break_fns.insert(fn);
         } else {
-          klee_warning("break at element %s not found", line.c_str());
+          ostringstream ss;
+          ss << "break at element " << line << " not found";
+          log_warning(ss);
         }
       }
     }
@@ -1516,10 +1522,10 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
 
   // libc initializer should not have forked any additional states
   if (states.size() > 1) {
-    klee_warning("libc initialization spawned multiple states");
+    klee_error("libc initialization spawned multiple states");
   }
   if (states.empty()) {
-    klee_warning("libc initialization failed to yield a valid state");
+    klee_error("libc initialization failed to yield a valid state");
   } else {
     result = *states.begin();
     states.clear();
@@ -1853,7 +1859,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             stringstream ss;
             ss << "undefined callee: " << fn_name;
             terminateStateOnError(state, TerminateReason::External, ss.str());
-            klee_warning("undefined callee: %s", fn_name.c_str());
           }
 
         } else {
@@ -1899,7 +1904,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         unsigned num_targets = targets.size();
         if (num_targets == 0) {
           terminateStateOnError(state, TerminateReason::Ptr, "legal indirect callee not found");
-          klee_warning("legal indirect callee not found");
         } else if (num_targets == 1) {
           if (tracer != nullptr) {
             tracer->append_call(state.trace, targets.front());
@@ -1930,7 +1934,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       }
 
       // we will be substituting an unconstraining stub subfunction.
-      klee_warning("stubbing function %s", fnName.c_str());
+      ostringstream ss;
+      ss << "stubbing function " << fnName;
+      log_warning(ss, state, ki);
 
       // hence, this is a function in this module
       unsigned counter = state.callTargetCounter[fnName]++;
@@ -2166,14 +2172,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 
     case Instruction::IntToPtr: {
-      // RLR TODO: need to do something about the type-cast
-//      klee_warning("Integer cast to pointer");
+//      log_warning("Integer cast to pointer", state, ki);
       Executor::executeInstruction(state, ki);
       break;
     }
     case Instruction::PtrToInt: {
-      // RLR TODO: need to do something about the type-cast
-//      klee_warning("Pointer cast to integer");
+//      log_warning("Pointer cast to integer", state, ki);
       Executor::executeInstruction(state, ki);
       break;
     }
@@ -2209,7 +2213,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               if (mo->isLazy()) {
                 if (destSize > mo->size) {
                   // not even one will fit
-                  klee_warning("lazy init size too small for bitcast");
+                  log_warning("lazy init size too small for bitcast", state, ki);
                 }
 
                 // type aware allocation size
