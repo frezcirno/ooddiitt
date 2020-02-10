@@ -13,12 +13,15 @@
 #include "klee/util/CommonUtil.h"
 #include "klee/util/Ref.h"
 #include "klee/Expr.h"
+#include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <vector>
 #include <string>
 #include <map>
 #include <set>
 #include <bitset>
+#include <klee/Internal/Support/ErrorHandling.h>
 
 struct KTest;
 
@@ -36,7 +39,7 @@ class Interpreter;
 class TreeStreamWriter;
 class MemoryObject;
 class KModule;
-class KInstruction;
+struct KInstruction;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
@@ -92,17 +95,23 @@ inline std::string to_string(UnconstraintFlagsT flags) {
 
 class InterpreterHandler {
 public:
-  InterpreterHandler() : interpreter(nullptr)  {}
-  virtual ~InterpreterHandler() {}
+  InterpreterHandler(const std::string &od, const std::string &_md_name, const std::string &_prefix);
+  InterpreterHandler(const std::string &od, const std::string &_md_name);
+  virtual ~InterpreterHandler() = default;
 
   virtual void setInterpreter(Interpreter *i)  { interpreter = i; }
   virtual Interpreter *getInterpreter() { return interpreter; }
 
-  virtual std::string getOutputFilename(const std::string &filename) = 0;
-  virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool exclusive=false) = 0;
-  virtual llvm::raw_fd_ostream *openOutputAssembly() { return nullptr; }
-  virtual llvm::raw_fd_ostream *openOutputBitCode() { return nullptr; }
-  virtual std::string getModuleName() const { return ""; }
+  bool wasOutputCreated() const { return output_created; }
+  std::string getTestFilename(const std::string &ext, unsigned id);
+  std::string getOutputFilename(const std::string &filename);
+  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool overwrite);
+  std::string getModuleName() const { return module_name; }
+  std::string getFileName() const { return file_name; }
+  bool openTestCaseFile(std::ofstream &fout, unsigned test_id, std::string &name);
+
+  llvm::raw_fd_ostream *openOutputAssembly() { return openOutputFile(getModuleName() + ".ll", false); }
+  llvm::raw_fd_ostream *openOutputBitCode()  { return openOutputFile(getModuleName() + ".bc", false); }
   virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() {}
@@ -112,8 +121,15 @@ public:
   virtual void processTestCase(ExecutionState &state) {};
   virtual bool resetWatchDogTimer() const { return false; }
 
+  static std::string getRunTimeLibraryPath(const char *argv0);
+
 private:
   Interpreter *interpreter;
+  boost::filesystem::path outputDirectory;
+  bool output_created;
+  std::string file_name;
+  std::string module_name;
+  std::string prefix;
 };
 
 class Interpreter {

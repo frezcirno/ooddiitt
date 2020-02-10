@@ -71,6 +71,7 @@ namespace {
   cl::opt<string> TargetFn("target-fn", cl::desc("save snapshot at entry to function"), cl::Required);
   cl::opt<string> StdInText("stdin-text", cl::desc("text to inject into test as stdin"));
   cl::opt<string> StdInData("stdin-data", cl::desc("data block to inject into test as stdin"));
+  cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
 }
 
 /***/
@@ -78,182 +79,72 @@ namespace {
 class RecordKleeHandler : public InterpreterHandler {
 private:
   unsigned nextTestCaseID;
+  unsigned casesGenerated;
   string indentation;
   const vector<string> &args;
-  fs::path outputDirectory;
-  string md_name;
-  string file_name;
   sys_clock::time_point started_at;
   bool is_main;
 
 public:
-  RecordKleeHandler(const vector<string> &args, const string &_md_name, bool as_main = false);
-  ~RecordKleeHandler();
+  RecordKleeHandler(const vector<string> &args, const string &_md_name, const string &_prefix, bool as_main = false);
+  ~RecordKleeHandler() override = default;
 
-  void setInterpreter(Interpreter *i) override;
-
+  unsigned getNumCasesGenerated() const { return casesGenerated; }
   void processTestCase(ExecutionState  &state) override;
-
-  string toDataString(const vector<unsigned char> &data) const;
-
-  string getOutputFilename(const string &filename) override;
-  string getTestFilename(const string &prefix, const string &ext, unsigned id);
-  string getModuleName() const override { return md_name; }
-
-  ostream *openTestCaseFile(const string &prefix, unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
-  llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
-  llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
-
-  static string getRunTimeLibraryPath(const char *argv0);
-
 };
 
-RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &_md_name, bool as_main)
-    : nextTestCaseID(0),
+RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix, bool as_main)
+    : InterpreterHandler(Output, _md_name, _prefix),
+      nextTestCaseID(0),
+      casesGenerated(0),
       indentation(""),
       args(_args),
-      outputDirectory(Output),
       is_main(as_main) {
 
-
-  // create output directory (if required)
-  bool created = false;
   started_at = sys_clock::now();
 
-  boost::system::error_code ec;
-  if (fs::exists(outputDirectory)) {
-  } else {
-    fs::create_directories(outputDirectory, ec);
-    created = true;
-  }
-
   // if the directory was not newly created, then we need to find the next available case id
-  if (!created) {
+  if (!wasOutputCreated()) {
 
     // find the next available test id
     bool done = false;
     while (!done) {
 
       // find the next missing test case id.
-      string testname = getOutputFilename(getTestFilename("fail", "json", nextTestCaseID));
-      fs::path testfile(testname);
-      if (fs::exists(testfile)) {
+
+      fs::path filename(getOutputFilename(getTestFilename("json", nextTestCaseID)));
+      if (fs::exists(filename)) {
         ++nextTestCaseID;
       } else {
         done = true;
       }
     }
   }
-
-  file_name = _md_name;
-  md_name = fs::path(_md_name).stem().string();
   if (IndentJson) indentation = "  ";
-}
-
-RecordKleeHandler::~RecordKleeHandler() {
-
-}
-
-void RecordKleeHandler::setInterpreter(Interpreter *i) {
-
-  InterpreterHandler::setInterpreter(i);
-}
-
-string RecordKleeHandler::getOutputFilename(const string &filename) {
-
-  boost::filesystem::path file = outputDirectory;
-  file /= filename;
-  return file.string();
-}
-
-llvm::raw_fd_ostream *RecordKleeHandler::openOutputFile(const string &filename, bool overwrite) {
-  llvm::raw_fd_ostream *f;
-  string Error;
-  string path = getOutputFilename(filename);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
-#else
-  llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (overwrite) {
-    fs_options |= llvm::sys::fs::F_Excl;
-  }
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
-#endif
-  if (!Error.empty()) {
-    if (!boost::algorithm::ends_with(Error, "File exists")) {
-      klee_warning("error opening file \"%s\".  KLEE may have run out of file "
-                   "descriptors: try to increase the maximum number of open file "
-                   "descriptors by using ulimit (%s).",
-                   filename.c_str(), Error.c_str());
-    }
-    delete f;
-    f = nullptr;
-  }
-  return f;
-}
-
-string RecordKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
-  stringstream filename;
-  filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
-  return filename.str();
-}
-
-llvm::raw_fd_ostream *RecordKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
-  return openOutputFile(getTestFilename(prefix, ext, id));
-}
-
-ostream *RecordKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
-
-  ofstream *result = nullptr;
-  string filename = getTestFilename(prefix, "json", testID);
-  outs() << "writing " << filename << '\n';
-  string pathname = getOutputFilename(filename);
-  result = new ofstream(pathname);
-  if (result != nullptr) {
-    if (!result->is_open()) {
-      delete result;
-      result = nullptr;
-    }
-  }
-  return result;
-}
-
-string RecordKleeHandler::toDataString(const vector<unsigned char> &data) const {
-
-  stringstream bytes;
-  for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
-
-    unsigned char hi = (unsigned char) (*itrData >> 4);
-    unsigned char low = (unsigned char) (*itrData & 0x0F);
-    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-    bytes << hi << low;
-  }
-  return bytes.str();
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
 void RecordKleeHandler::processTestCase(ExecutionState &state) {
 
   Interpreter *i = getInterpreter();
-  const Interpreter::InterpreterOptions &opts = i->getOptions();
-
   assert(!state.isProcessed);
 
   if (i != nullptr && !NoOutput && (state.status == StateStatus::Snapshot)) {
 
+    const Interpreter::InterpreterOptions &opts = i->getOptions();
+
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    string prefix = "fail";
-    ostream *kout = openTestCaseFile(prefix, testID);
-    if (kout != nullptr) {
+    ofstream fout;
+    string filename;
+    if (openTestCaseFile(fout, testID, filename)) {
+
+      outs() << "writing " << filename << '\n';
 
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
-      root["module"] = md_name;
-      root["file"] = file_name;
+      root["module"] = getModuleName();
+      root["file"] = getFileName();
       root["entryFn"] = opts.userSnapshot->getName().str();
       root["testID"] = testID;
       root["argC"] = args.size();
@@ -371,63 +262,14 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
       builder["indentation"] = indentation;
       unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
-      writer->write(root, kout);
-      *kout << endl;
-
-      kout->flush();
-      delete kout;
+      writer->write(root, &fout);
+      fout << endl;
       state.isProcessed = true;
+      casesGenerated++;
     } else {
       klee_warning("unable to write output test case, losing it");
     }
   }
-}
-
-string RecordKleeHandler::getRunTimeLibraryPath(const char *argv0) {
-  // allow specifying the path to the runtime library
-  const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env) {
-    return string(env);
-  }
-
-  if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return string(KLEE_INSTALL_RUNTIME_DIR);
-  }
-
-  // Take any function from the execution binary but not main (as not allowed by
-  // C++ standard)
-  void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(
-      llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-  );
-
-  // Strip off executable so we have a directory path
-  llvm::sys::path::remove_filename(toolRoot);
-
-  SmallString<128> libDir;
-
-  if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
-      strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR ))
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                                                      "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0,
-                                   toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
-    llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  }
-  else
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                                                      "Using build directory KLEE library runtime :");
-    libDir = KLEE_DIR;
-    llvm::sys::path::append(libDir,RUNTIME_CONFIGURATION);
-    llvm::sys::path::append(libDir,"lib");
-  }
-
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                                                    libDir.c_str() << "\n");
-  return libDir.str();
 }
 
 //===----------------------------------------------------------------------===//
@@ -542,7 +384,7 @@ int main(int argc, char **argv, char **envp) {
         // now preload the stdin buffer
         vector<unsigned char> stdin_buffer;
         if (!StdInData.empty()) {
-          TestObject::fromDataString(stdin_buffer, StdInData);
+          fromDataString(stdin_buffer, StdInData);
         } else if (!StdInText.empty()) {
           stdin_buffer.reserve(StdInData.size());
           for (char ch : StdInText) {
@@ -551,7 +393,7 @@ int main(int argc, char **argv, char **envp) {
           }
         }
 
-        auto *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier(), mainFn == targetFn);
+        auto *handler = new RecordKleeHandler(args, kmod->getModuleIdentifier(), Prefix, mainFn == targetFn);
 
         Interpreter::InterpreterOptions IOpts;
         IOpts.mode = ExecModeID::irec;
@@ -576,6 +418,11 @@ int main(int argc, char **argv, char **envp) {
         handler->setInterpreter(theInterpreter);
         theInterpreter->bindModule(kmod);
         theInterpreter->runMainConcrete(mainFn, args, stdin_buffer, targetFn);
+
+        if (handler->getNumCasesGenerated() == 0) {
+          errs() << "target function \'" << TargetFn << "\' not reached\n";
+          exit_code = 1;
+        }
 
         delete theInterpreter;
         delete handler;

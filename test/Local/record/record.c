@@ -3,6 +3,10 @@ void foo(int bar) {
 
 }
 
+void never(int bar) {
+
+}
+
 int global_int = 0;
 
 int main(int argc, char *argv[]) {
@@ -12,4 +16,3 @@ int main(int argc, char *argv[]) {
   }
   return 0;
 }
-

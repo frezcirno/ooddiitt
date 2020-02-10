@@ -114,6 +114,7 @@ namespace {
 				                "Used for testing."),
                        cl::init(0));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0));
+  cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
 }
 
 /***/
@@ -128,175 +129,52 @@ private:
 
   // used for writing .ktest files
   const vector<string> &args;
-  boost::filesystem::path outputDirectory;
   map<string,unsigned> terminationCounters;
-  string md_name;
-  string file_name;
   sys_clock::time_point started_at;
 
 public:
-  InputGenKleeHandler(const vector<string> &args, const string &_md_name);
-  ~InputGenKleeHandler();
+  InputGenKleeHandler(const vector<string> &args, const string &_md_name, const string &_prefix);
+  ~InputGenKleeHandler() override = default;
 
   unsigned getNumTestCases() const override { return casesGenerated; }
-
   unsigned getNumPathsExplored() { return m_pathsExplored; }
   void incPathsExplored() override { m_pathsExplored++; }
 
-  void setInterpreter(Interpreter *i) override;
-
   void processTestCase(ExecutionState  &state) override;
-
-  string toDataString(const vector<unsigned char> &data, unsigned max = UINT32_MAX) const;
-
-  string getOutputFilename(const string &filename) override;
-  string getTestFilename(const string &prefix, const string &ext, unsigned id);
-  string getModuleName() const override { return md_name; }
-
-  ostream *openTestCaseFile(const string &prefix, unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
-  llvm::raw_fd_ostream *openOutputAssembly() override { return openOutputFile(md_name + ".ll", false); }
-  llvm::raw_fd_ostream *openOutputBitCode() override { return openOutputFile(md_name + ".bc", false); }
-
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
-
-  // load a .path file
-  static void loadPathFile(string name, vector<bool> &buffer);
-  static void getKTestFilesInDir(string directoryPath,
-                                 vector<string> &results);
-
-  static string getRunTimeLibraryPath(const char *argv0);
 
   void incTermination(const string &message) override;
   void getTerminationMessages(vector<string> &messages) override;
   unsigned getTerminationCount(const string &message) override;
 };
 
-InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name)
-  : casesGenerated(0),
+InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix)
+  : InterpreterHandler(Output, _md_name, _prefix),
+    casesGenerated(0),
     nextTestCaseID(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
-    args(_args),
-    outputDirectory(Output) {
-
-
-  // create output directory (if required)
-  bool created = false;
-  started_at = sys_clock::now();
-
-  boost::system::error_code ec;
-  if (!boost::filesystem::exists(outputDirectory)) {
-    boost::filesystem::create_directories(outputDirectory, ec);
-    created = true;
-  }
+    args(_args) {
 
   // if the directory was not newly created, then we need to find the next available case id
-  if (!created) {
+  if (!wasOutputCreated()) {
 
     // find the next available test id
     bool done = false;
     while (!done) {
 
       // find the next missing test case id.
-      string testname = getOutputFilename(getTestFilename("test", "json", nextTestCaseID));
-      boost::filesystem::path testfile(testname);
-      if (boost::filesystem::exists(testfile)) {
+      boost::filesystem::path filename(getOutputFilename(getTestFilename("json", nextTestCaseID)));
+      if (boost::filesystem::exists(filename)) {
         ++nextTestCaseID;
       } else {
         done = true;
       }
     }
   }
-
-  file_name = _md_name;
-  md_name = boost::filesystem::path(_md_name).stem().string();
-  outs() << "output directory: " << outputDirectory.string() << '\n';
   if (IndentJson) indentation = "  ";
-}
-
-InputGenKleeHandler::~InputGenKleeHandler() {
-
-}
-
-void InputGenKleeHandler::setInterpreter(Interpreter *i) {
-
-  InterpreterHandler::setInterpreter(i);
-}
-
-string InputGenKleeHandler::getOutputFilename(const string &filename) {
-
-  boost::filesystem::path file = outputDirectory;
-  file /= filename;
-  return file.string();
-}
-
-llvm::raw_fd_ostream *InputGenKleeHandler::openOutputFile(const string &filename, bool overwrite) {
-  llvm::raw_fd_ostream *f;
-  string Error;
-  string path = getOutputFilename(filename);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
-#else
-  llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (overwrite) {
-    fs_options |= llvm::sys::fs::F_Excl;
-  }
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
-#endif
-  if (!Error.empty()) {
-    if (!boost::algorithm::ends_with(Error, "File exists")) {
-      klee_warning("error opening file \"%s\".  KLEE may have run out of file "
-                   "descriptors: try to increase the maximum number of open file "
-                   "descriptors by using ulimit (%s).",
-                   filename.c_str(), Error.c_str());
-    }
-    delete f;
-    f = nullptr;
-  }
-  return f;
-}
-
-string InputGenKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
-  stringstream filename;
-  filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
-  return filename.str();
-}
-
-llvm::raw_fd_ostream *InputGenKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
-  return openOutputFile(getTestFilename(prefix, ext, id));
-}
-
-ostream *InputGenKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
-
-  ofstream *result = nullptr;
-  string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
-  result = new ofstream(filename);
-  if (result != nullptr) {
-    if (!result->is_open()) {
-      delete result;
-      result = nullptr;
-    }
-  }
-  return result;
-}
-
-string InputGenKleeHandler::toDataString(const vector<unsigned char> &data, unsigned max) const {
-
-  unsigned counter = 0;
-  ostringstream bytes;
-  for (auto itrData = data.begin(), endData = data.end(); (itrData != endData) && (counter++ < max); ++itrData) {
-
-    unsigned char hi = (unsigned char) (*itrData >> 4);
-    unsigned char low = (unsigned char) (*itrData & 0x0F);
-    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-    bytes << hi << low;
-  }
-  return bytes.str();
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
@@ -309,14 +187,14 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
-    string prefix = "test";
-    ostream *kout = openTestCaseFile(prefix, testID);
-    if (kout != nullptr) {
+    ofstream fout;
+    string filename;
+    if (openTestCaseFile(fout, testID, filename)) {
 
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
-      root["module"] = md_name;
-      root["file"] = file_name;
+      root["module"] = getModuleName();
+      root["file"] = getFileName();
       root["entryFn"] = state.name;
       root["testID"] = testID;
       root["argC"] = args.size();
@@ -428,98 +306,14 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
       builder["indentation"] = indentation;
       unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
-      writer.get()->write(root, kout);
-      *kout << endl;
-
-      kout->flush();
-      delete kout;
+      writer.get()->write(root, &fout);
+      fout << endl;
       state.isProcessed = true;
       ++casesGenerated;
     } else {
       klee_warning("unable to write output test case, losing it");
     }
   }
-}
-
-  // load a .path file
-void InputGenKleeHandler::loadPathFile(string name, vector<bool> &buffer) {
-
-  ifstream f(name.c_str(), ios::in | ios::binary);
-
-  if (!f.good())
-    assert(0 && "unable to open path file");
-
-  while (f.good()) {
-    unsigned value;
-    f >> value;
-    buffer.push_back(!!value);
-    f.get();
-  }
-}
-
-void InputGenKleeHandler::getKTestFilesInDir(string directoryPath, vector<string> &results) {
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-  llvm::error_code ec;
-#else
-  error_code ec;
-#endif
-  for (llvm::sys::fs::directory_iterator i(directoryPath, ec), e; i != e && !ec;
-       i.increment(ec)) {
-    string f = (*i).path();
-    if (f.substr(f.size()-6,f.size()) == ".ktest") {
-          results.push_back(f);
-    }
-  }
-  if (ec) {
-    klee_error("ERROR: unable to read output directory: %s, error=%s", directoryPath.c_str(), ec.message().c_str());
-  }
-}
-
-string InputGenKleeHandler::getRunTimeLibraryPath(const char *argv0) {
-  // allow specifying the path to the runtime library
-  const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env) {
-    return string(env);
-  }
-
-  if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return string(KLEE_INSTALL_RUNTIME_DIR);
-  }
-
-  // Take any function from the execution binary but not main (as not allowed by
-  // C++ standard)
-  void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(
-      llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-      );
-
-  // Strip off executable so we have a directory path
-  llvm::sys::path::remove_filename(toolRoot);
-
-  SmallString<128> libDir;
-
-  if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
-      strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR ))
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0,
-               toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
-    llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  }
-  else
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using build directory KLEE library runtime :");
-    libDir = KLEE_DIR;
-    llvm::sys::path::append(libDir,RUNTIME_CONFIGURATION);
-    llvm::sys::path::append(libDir,"lib");
-  }
-
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                       libDir.c_str() << "\n");
-  return libDir.str();
 }
 
 bool InputGenKleeHandler::resetWatchDogTimer() const {
@@ -900,7 +694,7 @@ int main(int argc, char **argv, char **envp) {
   args.push_back(InputFile);
   args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier());
+  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier(), Prefix);
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;

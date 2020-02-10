@@ -47,6 +47,43 @@ void filterHandledGlobals(set<const llvm::Value*> &gbs) {
   SystemModel::filterHandledGlobals(gbs);
 }
 
+void fromDataString(vector<unsigned char> &data, const string &str) {
+
+  assert(str.size() % 2 == 0);
+  data.clear();
+  data.reserve(str.size() / 2);
+
+  unsigned char val = 0;
+  unsigned counter = 0;
+  for (const auto &ch : str) {
+    unsigned char nibble = 0;
+    if (isdigit(ch)) nibble = ch - '0';
+    else if (ch >= 'A' && ch <= 'F') nibble = ch - 'A' + 10;
+    if (counter++ % 2 == 0) {
+      val = nibble;
+    } else {
+      val = (val << 4) | nibble;
+      data.push_back(val);
+    }
+  }
+}
+
+string toDataString(const vector<unsigned char> &data, unsigned max) {
+
+  unsigned counter = 0;
+  ostringstream bytes;
+  for (auto itrData = data.begin(), endData = data.end(); (itrData != endData) && (counter++ < max); ++itrData) {
+
+    unsigned char hi = (unsigned char) (*itrData >> 4);
+    unsigned char low = (unsigned char) (*itrData & 0x0F);
+    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+    bytes << hi << low;
+  }
+  return bytes.str();
+}
+
+
 std::string to_string(TerminateReason s) {
   static const char *strings[] = {"abort", "assert", "exec", "external", "free", "model", "overflow",
                                   "ptr", "readonly", "report_error", "user", "unhandled"};

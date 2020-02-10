@@ -82,6 +82,9 @@ enum class MarkScope {
 std::string to_string(MarkScope m);
 std::string to_string(const llvm::Type *type);
 
+void fromDataString(std::vector<unsigned char> &data, const std::string &str);
+std::string toDataString(const std::vector<unsigned char> &data, unsigned max = UINT32_MAX);
+
 void filterHandledFunctions(std::set<const llvm::Value*> &fns);
 void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 

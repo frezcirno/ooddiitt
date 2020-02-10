@@ -41,28 +41,6 @@ public:
   MemKind kind;
   std::string name;
   std::string type;
-
-  static void fromDataString(std::vector<unsigned char> &data, const std::string &str) {
-
-    assert(str.size() % 2 == 0);
-    data.clear();
-    data.reserve(str.size() / 2);
-
-    unsigned char val = 0;
-    unsigned counter = 0;
-    for (const auto &ch : str) {
-      unsigned char nibble = 0;
-      if (isdigit(ch)) nibble = ch - '0';
-      else if (ch >= 'A' && ch <= 'F') nibble = ch - 'A' + 10;
-      if (counter++ % 2 == 0) {
-        val = nibble;
-      } else {
-        val = (val << 4) | nibble;
-        data.push_back(val);
-      }
-    }
-  }
-
 };
 
 class TestCase {

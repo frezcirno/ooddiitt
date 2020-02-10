@@ -77,170 +77,25 @@ namespace {
 class ReplayKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  boost::filesystem::path outputDirectory;
-  string md_name;
   vector<ExecutionState*> &results;
 
 public:
   ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
-  ~ReplayKleeHandler();
-
-  void setInterpreter(Interpreter *i) override;
-
+  ~ReplayKleeHandler() override = default;
   void processTestCase(ExecutionState  &state) override;
-
-  string toDataString(const vector<unsigned char> &data) const;
-
-  string getOutputFilename(const string &filename) override;
-  string getTestFilename(const string &prefix, const string &ext, unsigned id);
-  string getModuleName() const override { return md_name; }
-
-  ostream *openTestCaseFile(const string &prefix, unsigned testID);
-  llvm::raw_fd_ostream *openTestFile(const string &prefix, const string &ext, unsigned id);
-  llvm::raw_fd_ostream *openOutputFile(const string &filename, bool overwrite=false) override;
-
-  static string getRunTimeLibraryPath(const char *argv0);
-
 };
 
 ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
-  : indentation(""),
-    outputDirectory(Output),
+  : InterpreterHandler(Output, _md_name),
+    indentation(""),
     results(_results) {
 
   assert(results.empty());
-
   if (IndentJson) indentation = "  ";
 }
 
-ReplayKleeHandler::~ReplayKleeHandler() {
-}
-
-void ReplayKleeHandler::setInterpreter(Interpreter *i) {
-  InterpreterHandler::setInterpreter(i);
-}
-
-string ReplayKleeHandler::getOutputFilename(const string &filename) {
-
-  boost::filesystem::path file = outputDirectory;
-  file /= filename;
-  return file.string();
-}
-
-llvm::raw_fd_ostream *ReplayKleeHandler::openOutputFile(const string &filename, bool overwrite) {
-  llvm::raw_fd_ostream *f;
-  string Error;
-  string path = getOutputFilename(filename);
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3,5)
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, llvm::sys::fs::F_None);
-#else
-  llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (overwrite) {
-    fs_options |= llvm::sys::fs::F_Excl;
-  }
-  f = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
-#endif
-  if (!Error.empty()) {
-    if (!boost::algorithm::ends_with(Error, "File exists")) {
-      klee_warning("error opening file \"%s\".  KLEE may have run out of file "
-                   "descriptors: try to increase the maximum number of open file "
-                   "descriptors by using ulimit (%s).",
-                   filename.c_str(), Error.c_str());
-    }
-    delete f;
-    f = nullptr;
-  }
-  return f;
-}
-
-string ReplayKleeHandler::getTestFilename(const string &prefix, const string &ext, unsigned id) {
-  stringstream filename;
-  filename << prefix << setfill('0') << setw(10) << id << '.' << ext;
-  return filename.str();
-}
-
-llvm::raw_fd_ostream *ReplayKleeHandler::openTestFile(const string &prefix, const string &ext, unsigned id) {
-  return openOutputFile(getTestFilename(prefix, ext, id));
-}
-
-ostream *ReplayKleeHandler::openTestCaseFile(const string &prefix, unsigned testID) {
-
-  ofstream *result = nullptr;
-  string filename = getOutputFilename(getTestFilename(prefix, "json", testID));
-  result = new ofstream(filename);
-  if (result != nullptr) {
-    if (!result->is_open()) {
-      delete result;
-      result = nullptr;
-    }
-  }
-  return result;
-}
-
-string ReplayKleeHandler::toDataString(const vector<unsigned char> &data) const {
-
-  stringstream bytes;
-  for (auto itrData = data.begin(), endData = data.end(); itrData != endData; ++itrData) {
-
-    unsigned char hi = (unsigned char) (*itrData >> 4);
-    unsigned char low = (unsigned char) (*itrData & 0x0F);
-    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-    bytes << hi << low;
-  }
-  return bytes.str();
-}
-
 void ReplayKleeHandler::processTestCase(ExecutionState &state) {
-
   results.push_back(new ExecutionState(state));
-}
-
-string ReplayKleeHandler::getRunTimeLibraryPath(const char *argv0) {
-  // allow specifying the path to the runtime library
-  const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env) {
-    return string(env);
-  }
-
-  if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return string(KLEE_INSTALL_RUNTIME_DIR);
-  }
-
-  // Take any function from the execution binary but not main (as not allowed by
-  // C++ standard)
-  void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(
-      llvm::sys::fs::getMainExecutable(argv0, MainExecAddr)
-      );
-
-  // Strip off executable so we have a directory path
-  llvm::sys::path::remove_filename(toolRoot);
-
-  SmallString<128> libDir;
-
-  if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
-      strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR ))
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0,
-               toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
-    llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  }
-  else
-  {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using build directory KLEE library runtime :");
-    libDir = KLEE_DIR;
-    llvm::sys::path::append(libDir,RUNTIME_CONFIGURATION);
-    llvm::sys::path::append(libDir,"lib");
-  }
-
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                       libDir.c_str() << "\n");
-  return libDir.str();
 }
 
 //===----------------------------------------------------------------------===//
@@ -254,7 +109,6 @@ static void parseArguments(int argc, char **argv) {
 
 
 static Interpreter *theInterpreter = nullptr;
-
 static bool interrupted = false;
 
 // Pulled out so it can be easily called from a debugger.
@@ -316,7 +170,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
     for (unsigned idx = 0, end = args.size(); idx < end; ++idx) {
       string value = args[idx].asString();
       vector<unsigned char> bytes;
-      TestObject::fromDataString(bytes, value);
+      fromDataString(bytes, value);
       uint64_t v = 0;
       switch (bytes.size()) {
       case 1:

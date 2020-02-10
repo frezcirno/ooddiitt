@@ -1505,6 +1505,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, l
     state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
+
     try {
       executeInstruction(*state, ki);
     } catch (bad_expression &e) {

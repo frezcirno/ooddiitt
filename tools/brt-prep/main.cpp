@@ -123,47 +123,6 @@ namespace {
 // main Driver function
 //
 
-
-string getRunTimeLibraryPath(const char *argv0) {
-  // allow specifying the path to the runtime library
-  const char *env = getenv("KLEE_RUNTIME_LIBRARY_PATH");
-  if (env) {
-    return string(env);
-  }
-
-  if (strlen(KLEE_INSTALL_RUNTIME_DIR) > 0) {
-    return string(KLEE_INSTALL_RUNTIME_DIR);
-  }
-
-  // Take any function from the execution binary but not main (as not allowed by
-  // C++ standard)
-  void *MainExecAddr = (void *)(intptr_t)getRunTimeLibraryPath;
-  SmallString<128> toolRoot(llvm::sys::fs::getMainExecutable(argv0, MainExecAddr));
-
-  // Strip off executable so we have a directory path
-  llvm::sys::path::remove_filename(toolRoot);
-
-  SmallString<128> libDir;
-
-  if (strlen( KLEE_INSTALL_BIN_DIR ) != 0 &&
-      strlen( KLEE_INSTALL_RUNTIME_DIR ) != 0 &&
-      toolRoot.str().endswith( KLEE_INSTALL_BIN_DIR )) {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() <<
-                         "Using installed KLEE library runtime: ");
-    libDir = toolRoot.str().substr(0,
-               toolRoot.str().size() - strlen( KLEE_INSTALL_BIN_DIR ));
-    llvm::sys::path::append(libDir, KLEE_INSTALL_RUNTIME_DIR);
-  } else {
-    KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() << "Using build directory KLEE library runtime :");
-    libDir = KLEE_DIR;
-    llvm::sys::path::append(libDir,RUNTIME_CONFIGURATION);
-    llvm::sys::path::append(libDir,"lib");
-  }
-
-  KLEE_DEBUG_WITH_TYPE("klee_runtime", llvm::dbgs() << libDir.c_str() << "\n");
-  return libDir.str();
-}
-
 static void parseArguments(int argc, char **argv) {
   cl::SetVersionPrinter(klee::printVersion);
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
@@ -955,7 +914,7 @@ int main(int argc, char **argv, char **envp) {
   EnableMemDebuggingChecks();
 #endif // _DEBUG
 
-  string libDir = getRunTimeLibraryPath(argv[0]);
+  string libDir = InterpreterHandler::getRunTimeLibraryPath(argv[0]);
   fs::path outPath(Output);
   if (!fs::exists(outPath)) {
     fs::create_directories(outPath);
