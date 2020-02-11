@@ -9,12 +9,10 @@
 
 #include "klee/ExecutionState.h"
 #include "klee/Interpreter.h"
-#include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Config/CompileTimeInfo.h"
 #include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/ADT/TreeStream.h"
-#include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/Timer.h"
@@ -40,7 +38,6 @@
 #include <string>
 #include <iomanip>
 #include <iterator>
-#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <klee/Internal/Support/ModuleUtil.h>
 #include "json/json.h"
@@ -237,6 +234,8 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
           } else {
             uint64_t value = ce->getZExtValue();
             unsigned width = ce->getWidth() / 8;
+            // have to adject for bools.  they are only 1-bit wide
+            if (width == 0) width = 1;
             auto *byte = (unsigned char *) (&value);
             vector<unsigned char> v;
             for (unsigned idx = 0; idx < width; ++idx) {

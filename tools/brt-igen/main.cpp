@@ -282,6 +282,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
         } else {
           uint64_t value = ce->getZExtValue();
           unsigned width = ce->getWidth() / 8;
+          if (width == 0) width = 1;
           unsigned char *byte = ((unsigned char *) &value);
           vector<unsigned char> v;
           for (unsigned idx = 0; idx < width; ++idx) {

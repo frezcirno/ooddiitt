@@ -9,10 +9,8 @@
 
 #include "klee/ExecutionState.h"
 #include "klee/Interpreter.h"
-#include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/Timer.h"
@@ -62,12 +60,13 @@ namespace {
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"), cl::init(false));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
+  cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -276,20 +275,6 @@ bool compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_tr
   return false;
 }
 
-string to_string(const vector<unsigned char> &buffer, unsigned max = 256) {
-  unsigned counter = 0;
-  ostringstream bytes;
-  for (auto itr = buffer.begin(), end = buffer.end(); (itr != end) && (counter++ < max); ++itr) {
-
-    unsigned char hi = (unsigned char) (*itr >> 4);
-    unsigned char low = (unsigned char) (*itr & 0x0F);
-    hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
-    low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
-    bytes << hi << low;
-  }
-  return bytes.str();
-}
-
 Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
@@ -344,7 +329,7 @@ KModule *PrepareModule(const string &filename) {
 #define EXIT_STATUS_CONFLICT  2
 #define EXIT_TRACE_CONFLICT   3
 
-void expand_test_files(deque<string> &files) {
+void expand_test_files(const string &prefix, deque<string> &files) {
 
   for (const auto &str : ReplayTests) {
     fs::path entry(str);
@@ -358,7 +343,7 @@ void expand_test_files(deque<string> &files) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) &&
            (pfile.extension().string() == ".json") &&
-           (boost::starts_with(pfile.filename().string(), "test"))) {
+           (boost::starts_with(pfile.filename().string(), prefix))) {
 
           files.push_back(pfile.string());
         }
@@ -389,7 +374,7 @@ int main(int argc, char **argv, char **envp) {
 #endif
 
   deque<string> test_files;
-  expand_test_files(test_files);
+  expand_test_files(Prefix, test_files);
 
   for (const string &test_file : test_files) {
 
@@ -476,11 +461,16 @@ int main(int argc, char **argv, char **envp) {
         }
       }
 
-      if (test.status != StateStatus::Snapshot && test.status != state->status) {
-        outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
-        exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
+      if (test.status != StateStatus::Snapshot) {
+
+        if (test.status != state->status) {
+          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+          exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
+        } else {
+          outs() << "ok";
+        }
       } else {
-        outs() << "ok";
+        outs() << to_string(state->status);
       }
 
       if (state->status != StateStatus::Completed) {
@@ -530,13 +520,13 @@ int main(int argc, char **argv, char **envp) {
     if (Verbose) {
       // display captured output
       if (!stdout_capture.empty()) {
-        outs() << "stdout: " << to_string(stdout_capture, 64) << '\n';
+        outs() << "stdout: " << toDataString(stdout_capture, 64) << '\n';
         for (auto itr = stdout_capture.begin(), end = stdout_capture.end(); itr != end; ++itr) {
           outs() << *itr;
         }
       }
       if (!stderr_capture.empty()) {
-        outs() << "stdout: " << to_string(stderr_capture, 64) << '\n';
+        outs() << "stdout: " << toDataString(stderr_capture, 64) << '\n';
         for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
           outs() << *itr;
         }

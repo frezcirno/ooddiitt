@@ -24,11 +24,13 @@ InterpreterHandler::InterpreterHandler(const std::string &od, const std::string 
   file_name = _md_name;
   module_name = boost::filesystem::path(_md_name).stem().string();
 
-  boost::system::error_code ec;
-  // create the output directory if not already exists
-  if (!boost::filesystem::exists(outputDirectory)) {
-    boost::filesystem::create_directories(outputDirectory, ec);
-    output_created = true;
+  if (!outputDirectory.empty()) {
+    boost::system::error_code ec;
+    // create the output directory if not already exists
+    if (!boost::filesystem::exists(outputDirectory)) {
+      boost::filesystem::create_directories(outputDirectory, ec);
+      output_created = true;
+    }
   }
 }
 
