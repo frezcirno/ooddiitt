@@ -121,6 +121,9 @@ public:
   virtual void processTestCase(ExecutionState &state) {};
   virtual bool resetWatchDogTimer() const { return false; }
 
+  void incCallCounter(const llvm::Function *fn) { call_counters[fn] += 1; }
+  void getCallCounters(std::vector<std::pair<unsigned,const llvm::Function*> > &counters) const;
+
   static std::string getRunTimeLibraryPath(const char *argv0);
 
 private:
@@ -130,6 +133,7 @@ private:
   std::string file_name;
   std::string module_name;
   std::string prefix;
+  std::map<const llvm::Function*,unsigned> call_counters;
 };
 
 class Interpreter {
@@ -265,7 +269,8 @@ public:
 
   virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
 
-  virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat = LogType::STP) = 0;
+  virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) = 0;
+  void getConstraintLog(const ExecutionState &state, std::string &res) { getConstraintLog(state, res, LogType::STP); }
 
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
   virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs)

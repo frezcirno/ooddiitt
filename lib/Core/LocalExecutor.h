@@ -44,7 +44,7 @@ public:
                 const InterpreterOptions &opts,
                 InterpreterHandler *ie);
 
-  virtual ~LocalExecutor();
+  ~LocalExecutor() override;
 
   void bindModule(KModule *kmodule) override;
   void bindModuleConstants() override;

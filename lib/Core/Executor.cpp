@@ -549,7 +549,9 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
   std::map<std::string,const TestObject*> injected_objs;
   if (test_objs != nullptr) {
     for (const auto &obj : *test_objs) {
-      injected_objs[obj.name] = &obj;
+      if (!obj.name.empty()) {
+        injected_objs[obj.name] = &obj;
+      }
     }
   }
 
@@ -565,7 +567,6 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
     const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
     size_t align = getAllocationAlignment(v);
     std::string name = v->getName();
-
     if (v->isDeclaration()) {
 
       // FIXME: We have no general way of handling unknown external

@@ -401,9 +401,6 @@ void KModule::prepare() {
 
     Function *fn = static_cast<Function *>(it);
 
-    // RLR TODO: remove debug
-    string fn_name = fn->getName();
-
     // insert type for later lookup
     mapFnTypes[fn->getFunctionType()].insert(fn);
 

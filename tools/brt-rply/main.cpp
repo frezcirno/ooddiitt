@@ -63,8 +63,10 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
-  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"), cl::init(false));
-  cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::init(false));
+  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
+  cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
+  cl::opt<unsigned> ShowFnFreq("show-fn-freq", cl::desc("display function's basic block frequency"));
+  cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
   cl::opt<TraceType> TraceT("trace",
@@ -390,6 +392,8 @@ int main(int argc, char **argv, char **envp) {
       klee_error("failed to load test case '%s'", test_file.c_str());
     }
 
+    outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> " << oflush;
+
     string module_name = ModuleName;
     if (module_name.empty()) module_name = test.file_name;
     KModule *kmod = PrepareModule(module_name);
@@ -423,28 +427,20 @@ int main(int argc, char **argv, char **envp) {
     // only used for verbose output
     vector<unsigned char> stdout_capture;
     vector<unsigned char> stderr_capture;
-    map<unsigned, unsigned> counters;
 
-    outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> ";
     ExecutionState *state = nullptr;
 
     if (ex_states.empty()) {
-      outs() << "Failed to replay";
+      outs() << "Failed to replay" << oflush;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else if (ex_states.size() > 1) {
-      outs() << "Replay forked into multiple paths";
+      outs() << "Replay forked into multiple paths" << oflush;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else {
       state = ex_states.front();
 
-      if (Verbose) {
-        state->stdout_capture.get_data(stdout_capture);
-        state->stderr_capture.get_data(stderr_capture);
-        // count fn markers in the trace
-        for (unsigned mark : state->trace) {
-          counters[mark / 1000] += 1;
-        }
-      }
+      state->stdout_capture.get_data(stdout_capture);
+      state->stderr_capture.get_data(stderr_capture);
 
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {
@@ -464,23 +460,23 @@ int main(int argc, char **argv, char **envp) {
       if (test.status != StateStatus::Snapshot) {
 
         if (test.status != state->status) {
-          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status) << oflush;
           exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
         } else {
-          outs() << "ok";
+          outs() << "ok" << oflush;
         }
       } else {
-        outs() << to_string(state->status);
+        outs() << to_string(state->status) << oflush;
       }
 
       if (state->status != StateStatus::Completed) {
         if (!state->messages.empty()) {
-          outs() << " (" << state->messages.back() << ')';
+          outs() << " (" << state->messages.back() << ')' << oflush;
         }
       }
 
     }
-    outs() << '\n';
+    outs() << oendf;
 
     if (state != nullptr) {
       if (TraceT == TraceType::calls) {
@@ -517,7 +513,7 @@ int main(int argc, char **argv, char **envp) {
       }
     }
 
-    if (Verbose) {
+    if (ShowOutput) {
       // display captured output
       if (!stdout_capture.empty()) {
         outs() << "stdout: " << toDataString(stdout_capture, 64) << '\n';
@@ -531,30 +527,20 @@ int main(int argc, char **argv, char **envp) {
           outs() << *itr;
         }
       }
+    }
 
-      // build an inverse map of fnIDs
-      //    KModule *kmodule = interpreter->getKModule();
-      //    Module *module = kmodule->module;
-      //    map<unsigned,string> fnIDtoName;
-      //    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-      //      Function *fn = itr;
-      //      unsigned fnID = kmodule->getFunctionID(fn);
-      //      if (fnID != 0) {
-      //        fnIDtoName[fnID] = fn->getName().str();
-      //      }
-      //    }
-      //
-      //    // display a sorted list of trace statements from each block.
-      //    // this can be used to determine when a libc function should be modeled for performance.
-      //    vector<pair<unsigned,unsigned> >fn_counter;
-      //    fn_counter.reserve(counters.size());
-      //    for (auto &itr : counters) {
-      //      fn_counter.emplace_back(make_pair(itr.second, itr.first));
-      //    }
-      //    sort(fn_counter.begin(), fn_counter.end(), greater<pair<unsigned,unsigned> >());
-      //    for (const auto &pr : fn_counter) {
-      //      outs() << fnIDtoName[pr.second] << ": " << pr.first << '\n';
-      //    }
+    if (ShowFnFreq > 0) {
+
+      // display a sorted list of function call invocations by target fn
+      // this can be used to determine when a libc function should be modeled for performance.
+      vector<pair<unsigned,const Function*> >fn_counters;
+      handler->getCallCounters(fn_counters);
+      sort(fn_counters.begin(), fn_counters.end(), greater<pair<unsigned,const Function*> >());
+      unsigned idx = 0;
+      for (const auto &pr : fn_counters) {
+        outs() << pr.second->getName() << ": " << pr.first << oendl;
+        if (++idx == ShowFnFreq) break;
+      }
     }
 
     state = nullptr;

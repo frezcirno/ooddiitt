@@ -926,22 +926,38 @@ void LocalExecutor::bindModule(KModule *kmodule) {
 
   initializeGlobals(*baseState, interpreterOpts.test_objs);
   bindModuleConstants();
+
+  // look for a libc initializer, execute if found to initialize the base state
+  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
+  if (libc_init != nullptr) {
+    KFunction *kf_init = kmodule->functionMap[libc_init];
+    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
+    if (statsTracker) statsTracker->framePushed(*state, nullptr);
+    ExecutionState *initState = runLibCInitializer(*state, libc_init);
+    if (initState != nullptr) {
+      initState->addressSpace.clearWritten();
+      delete baseState;
+      baseState = initState;
+    }
+  }
 }
 
 void LocalExecutor::bindModuleConstants() {
 
   if (kmodule->constantTable == nullptr) {
     kmodule->constantTable = new Cell[kmodule->constants.size()];
-    for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
-      Cell &c = kmodule->constantTable[i];
-      c.value = evalConstant(kmodule->constants[i]);
-    }
+  }
 
-    for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
-      KFunction *kf = *it;
-      for (unsigned i = 0; i < kf->numInstructions; ++i) {
-        bindInstructionConstants(kf->instructions[i]);
-      }
+  for (unsigned i = 0; i < kmodule->constants.size(); ++i) {
+    Cell &c = kmodule->constantTable[i];
+    c.value = evalConstant(kmodule->constants[i]);
+  }
+
+  for (auto it = kmodule->functions.begin(), ie = kmodule->functions.end(); it != ie; ++it) {
+    KFunction *kf = *it;
+
+    for (unsigned i = 0; i < kf->numInstructions; ++i) {
+      bindInstructionConstants(kf->instructions[i]);
     }
   }
 }
@@ -958,22 +974,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   }
 
   std::string name = fn->getName();
-
   faulting_state_stash.clear();
-
-  // look for a libc initializer, execute if found to initialize the base state
-  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
-  if (libc_init != nullptr) {
-    KFunction *kf_init = kmodule->functionMap[libc_init];
-    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
-    if (statsTracker) statsTracker->framePushed(*state, nullptr);
-    ExecutionState *initState = runLibCInitializer(*state, libc_init);
-    if (initState != nullptr) {
-      delete baseState;
-      baseState = initState;
-    }
-  }
-
   std::vector<ExecutionState*> init_states;
 
   // useful values for later
@@ -1151,20 +1152,6 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
 
   faulting_state_stash.clear();
 
- // look for a libc initializer, execute if found to initialize the base state
-  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
-  if (libc_init != nullptr) {
-    KFunction *kf_init = kmodule->functionMap[libc_init];
-    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
-    if (statsTracker) statsTracker->framePushed(*state, nullptr);
-    ExecutionState *initState = runLibCInitializer(*state, libc_init);
-    if (initState != nullptr) {
-      initState->addressSpace.clearWritten();
-      delete baseState;
-      baseState = initState;
-    }
-  }
-
   // reverse the stdin data.  then we can pop data from end
   size_t stdin_size = test.stdin_buffer.size();
   if (stdin_size > 1) {
@@ -1239,20 +1226,6 @@ void LocalExecutor::runMainConcrete(Function *fn,
   }
 
   faulting_state_stash.clear();
-
-  // look for a libc initializer, execute if found to initialize the base state
-  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
-  if (libc_init != nullptr) {
-    KFunction *kf_init = kmodule->functionMap[libc_init];
-    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
-    if (statsTracker) statsTracker->framePushed(*state, nullptr);
-    ExecutionState *initState = runLibCInitializer(*state, libc_init);
-    if (initState != nullptr) {
-      initState->addressSpace.clearWritten();
-      delete baseState;
-      baseState = initState;
-    }
-  }
 
   ExecutionState *state = new ExecutionState(*baseState, kf, fn->getName());
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
@@ -1481,28 +1454,27 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   // RLR TODO: save pending states as well...
 }
 
-ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &state, llvm::Function *initializer) {
+ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_state, llvm::Function *initializer) {
 
   ExecutionState *result = nullptr;
 
   KFunction *kf = kmodule->functionMap[initializer];
   unsigned entry = kf->basicBlockEntry[&initializer->getEntryBlock()];
-  state.pc = &kf->instructions[entry];
+  init_state.pc = &kf->instructions[entry];
 
-  processTree = new PTree(&state);
-  state.ptreeNode = processTree->root;
+  processTree = new PTree(&init_state);
+  init_state.ptreeNode = processTree->root;
 
-  states.insert(&state);
+  states.insert(&init_state);
 
   searcher = new DFSSearcher();
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
   searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
   libc_initializing = true;
 
-  while (libc_initializing) {
+  while (libc_initializing && !states.empty()) {
 
-    ExecutionState *state;
-    state = &searcher->selectState();
+    ExecutionState *state = &searcher->selectState();
     KInstruction *ki = state->pc;
     stepInstruction(*state);
 
@@ -1803,6 +1775,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       Function *fn = getTargetFunction(cs.getCalledValue(), state);
       if (fn != nullptr) {
         string fn_name = fn->getName();
+        interpreterHandler->incCallCounter(fn);
 
         if (break_fns.find(fn) != break_fns.end()) {
           outs() << "break at " << fn->getName() << '\n';

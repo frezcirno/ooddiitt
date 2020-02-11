@@ -5,6 +5,7 @@
 #include <chrono>
 #include <llvm/IR/Type.h>
 #include <llvm/ADT/Hashing.h>
+#include <llvm/Support/raw_ostream.h>
 
 typedef std::chrono::system_clock sys_clock;
 
@@ -12,7 +13,20 @@ typedef std::chrono::system_clock sys_clock;
 
 namespace llvm {
   class Value;
-}
+
+enum class RawOStreamOperator {
+  base_flush,
+  base_endl,
+  base_endf
+};
+
+extern RawOStreamOperator oflush;
+extern RawOStreamOperator oendl;
+extern RawOStreamOperator oendf;
+
+llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &op);
+
+} // end namespace llvm
 
 namespace klee {
 

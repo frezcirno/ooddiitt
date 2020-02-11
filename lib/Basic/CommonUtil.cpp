@@ -10,6 +10,35 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalVariable.h>
 
+
+namespace llvm {
+RawOStreamOperator oflush = RawOStreamOperator::base_flush;
+RawOStreamOperator oendl = RawOStreamOperator::base_endl;
+RawOStreamOperator oendf = RawOStreamOperator::base_endf;
+
+llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &op) {
+  switch(op) {
+    case RawOStreamOperator::base_endl:
+      os << '\n';
+      break;
+
+    case RawOStreamOperator::base_flush:
+      os.flush();
+      break;
+
+    case RawOStreamOperator::base_endf:
+      os << '\n';
+      os.flush();
+      break;
+
+    default:
+      assert("invalid rawstream operator");
+  }
+  return os;
+}
+
+};
+
 using namespace std;
 
 namespace klee {

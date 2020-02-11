@@ -79,6 +79,15 @@ bool InterpreterHandler::openTestCaseFile(std::ofstream &fout, unsigned test_id,
   return fout.is_open();
 }
 
+void InterpreterHandler::getCallCounters(std::vector<std::pair<unsigned,const llvm::Function*> > &counters) const {
+
+  counters.clear();
+  counters.reserve(call_counters.size());
+  for (auto &itr : call_counters) {
+    counters.emplace_back(make_pair(itr.second, itr.first));
+  }
+}
+
 string InterpreterHandler::getRunTimeLibraryPath(const char *argv0) {
 
   // allow specifying the path to the runtime library
