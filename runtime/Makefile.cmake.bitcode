@@ -9,10 +9,8 @@
 LEVEL := ./
 include $(LEVEL)/Makefile.cmake.bitcode.config
 
-DIRS += Intrinsic-32
 DIRS += Intrinsic-64
 ifneq ($(ENABLE_POSIX_RUNTIME),0)
-	DIRS += POSIX-32
 	DIRS += POSIX-64
 endif
 

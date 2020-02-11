@@ -55,9 +55,9 @@ configure_file("Makefile.cmake.bitcode.rules" "Makefile.cmake.bitcode.rules" COP
 
 # Makefile for root runtime directory
 # Copy over makefiles for libraries
-set(BITCODE_LIBRARIES "Intrinsic-32" "Intrinsic-64")
+set(BITCODE_LIBRARIES "Intrinsic-64")
 if (ENABLE_POSIX_RUNTIME)
-  list(APPEND BITCODE_LIBRARIES "POSIX-32" "POSIX-64")
+  list(APPEND BITCODE_LIBRARIES "POSIX-64")
 endif()
 foreach (bl ${BITCODE_LIBRARIES})
   configure_file("${bl}/Makefile.cmake.bitcode"
@@ -132,12 +132,10 @@ set(RUNTIME_FILES_TO_INSTALL)
 # build system. Hopefully it won't change very often though.
 
 list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic-32.bc"
     "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic-64.bc")
 
 if (ENABLE_POSIX_RUNTIME)
   list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX-32.bca"
     "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX-64.bca")
 endif()
 
