@@ -10,7 +10,6 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 ```
 pse-tools
 ├── klee
-├── pg-klee
 ├── brt-klee
 ├── klee-uclibc (linux only)
 ├── llvm-3.4
@@ -39,7 +38,7 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 
 ~~~
 Packages to install:
-bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build graphviz doxygen libncurses5-dev gcc-multilib
+bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build libncurses5-dev stow
 
 ~~~
 
@@ -50,7 +49,7 @@ bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-bui
 | llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
 
-edit include/llvm/Support/CommandLine.h:1654 to correct erroneous indention
+copy patched include files from llvm-3.4-patches
 Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.0.0
 
 export KLEE_BASE='/usr/local/stow'
@@ -70,6 +69,12 @@ cmake -G "Ninja" \
 ninja
 ninja install
 cd ..\..
+```
+llvm3.4 cannot find recent versions of required gcc header files.  To correct:
+
+```
+cd /usr/lib/gcc/x86_64-linux-gnu/
+sudo ln -s 9 9.0.0
 ```
 
 ### Step 3: Minisat
@@ -193,7 +198,7 @@ cmake -G "Ninja" \
  -DENABLE_TCMALLOC=ON \
  -DENABLE_SOLVER_STP=ON \
  -DENABLE_SOLVER_Z3=ON \
- -DENABLE_POSIX_RUNTIME=ON \
+ -DENABLE_POSIX_RUNTIME=OFF \
  -DENABLE_KLEE_UCLIBC=ON \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DENABLE_UNIT_TESTS=OFF \
@@ -201,6 +206,9 @@ cmake -G "Ninja" \
  -DUSE_CXX11=ON \
  -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
  ..
+
+ninja
+ninja install
 
 sudo stow --dir=/usr/local/stow pse-tools
 ```
