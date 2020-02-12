@@ -13,7 +13,6 @@
 #include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
@@ -115,6 +114,7 @@ namespace {
                        cl::init(0));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
+  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
 }
 
 /***/
@@ -657,7 +657,7 @@ int main(int argc, char **argv, char **envp) {
 #endif // _DEBUG
 
   // write out command line info, for reference
-  if (!outs().is_displayed()) {
+  if (ShowArgs) {
     for (int i = 0; i < argc; i++) {
       outs() << argv[i] << (i + 1 < argc ? " " : "\n");
     }

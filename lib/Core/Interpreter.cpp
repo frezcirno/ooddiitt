@@ -74,7 +74,9 @@ bool InterpreterHandler::openTestCaseFile(std::ofstream &fout, unsigned test_id,
   assert(!prefix.empty());
   name = getTestFilename("json", test_id);
   string pathname = getOutputFilename(name);
-  fout.open(pathname);
+
+  // note that this will open and add to the end.  file should be empty.
+  fout.open(pathname, ios_base::ate);
   return fout.is_open();
 }
 
