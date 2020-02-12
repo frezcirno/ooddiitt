@@ -121,7 +121,7 @@ void Executor::processTimers(ExecutionState *current,
     if (dumpPTree) {
       char name[32];
       sprintf(name, "ptree%08d.dot", (int) stats::instructions);
-      llvm::raw_ostream *os = interpreterHandler->openOutputFile(name, true);
+      llvm::raw_ostream *os = interpreterHandler->openOutputFile(name);
       if (os) {
         processTree->dump(*os);
         delete os;
@@ -131,7 +131,7 @@ void Executor::processTimers(ExecutionState *current,
     }
 
     if (dumpStates) {
-      llvm::raw_ostream *os = interpreterHandler->openOutputFile("states.txt", true);
+      llvm::raw_ostream *os = interpreterHandler->openOutputFile("states.txt");
 
       if (os) {
         for (std::set<ExecutionState*>::const_iterator it = states.begin(),

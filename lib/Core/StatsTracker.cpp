@@ -246,7 +246,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
   }
 
   if (OutputStats) {
-    statsFile = executor.interpreterHandler->openOutputFile("run.stats", true);
+    statsFile = executor.interpreterHandler->openOutputFile("run.stats");
     assert(statsFile && "unable to open statistics trace file");
     writeStatsHeader();
     writeStatsLine();
@@ -262,7 +262,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
   }
 
   if (OutputIStats) {
-    istatsFile = executor.interpreterHandler->openOutputFile("run.istats", true);
+    istatsFile = executor.interpreterHandler->openOutputFile("run.istats");
     assert(istatsFile && "unable to open istats file");
 
     if (IStatsWriteInterval > 0)

@@ -49,12 +49,11 @@ std::string InterpreterHandler::getOutputFilename(const std::string &filename) {
   return file.string();
 }
 
-llvm::raw_fd_ostream *InterpreterHandler::openOutputFile(const std::string &filename, bool overwrite) {
+llvm::raw_fd_ostream *InterpreterHandler::openOutputFile(const std::string &filename) {
 
   std::string Error;
   std::string path = getOutputFilename(filename);
   llvm::sys::fs::OpenFlags fs_options = llvm::sys::fs::F_Binary;
-  if (overwrite) { fs_options |= llvm::sys::fs::F_Excl; }
   auto *result = new llvm::raw_fd_ostream(path.c_str(), Error, fs_options);
   if (!Error.empty()) {
     if (!boost::algorithm::ends_with(Error, "File exists")) {

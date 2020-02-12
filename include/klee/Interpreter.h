@@ -105,13 +105,13 @@ public:
   bool wasOutputCreated() const { return output_created; }
   std::string getTestFilename(const std::string &ext, unsigned id);
   std::string getOutputFilename(const std::string &filename);
-  llvm::raw_fd_ostream *openOutputFile(const std::string &filename, bool overwrite);
+  llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
   std::string getModuleName() const { return module_name; }
   std::string getFileName() const { return file_name; }
   bool openTestCaseFile(std::ofstream &fout, unsigned test_id, std::string &name);
 
-  llvm::raw_fd_ostream *openOutputAssembly() { return openOutputFile(getModuleName() + ".ll", false); }
-  llvm::raw_fd_ostream *openOutputBitCode()  { return openOutputFile(getModuleName() + ".bc", false); }
+  llvm::raw_fd_ostream *openOutputAssembly() { return openOutputFile(getModuleName() + ".ll"); }
+  llvm::raw_fd_ostream *openOutputBitCode()  { return openOutputFile(getModuleName() + ".bc"); }
   virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() {}
