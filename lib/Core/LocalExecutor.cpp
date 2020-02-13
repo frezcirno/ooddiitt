@@ -1194,8 +1194,8 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   ExecutionState *state = new ExecutionState(*baseState, kf, test.entry_fn);
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
 
-  if (fn->arg_size() != test.arguments.size()) {
-    errs() << "Invalid number of arguments in test case\n";
+  if (fn->arg_size() > test.arguments.size()) {
+    errs() << "Insufficient number of arguments in test case\n";
     return;
   }
 

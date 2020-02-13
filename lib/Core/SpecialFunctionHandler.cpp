@@ -362,7 +362,6 @@ void SpecialFunctionHandler::handleExit(ExecutionState &state,
   if (pr.first != nullptr) {
     // if this memory object exists, then this executed from main.
     // we need to return a exit code
-    assert(!state.arguments.empty());
     state.arguments.push_back(arguments[0]);
   }
   executor.terminateStateOnExit(state);
