@@ -261,20 +261,18 @@ bool update_test_case(const string &fname, Json::Value &root, const deque<unsign
   return true;
 }
 
-bool compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
+enum class TraceCompareResult { ok, truncated, differs };
 
-  if (t_trace.size() == s_trace.size()) {
-    auto t_itr = t_trace.begin();
-    auto t_end = t_trace.end();
-    auto s_itr = s_trace.begin();
-    auto s_end = s_trace.end();
-    while (t_itr != t_end) {
-      assert(s_itr != s_end);
-      if (*t_itr++ != *s_itr++) return false;
+TraceCompareResult compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
+
+  if (boost::starts_with(t_trace, s_trace)) {
+    if (t_trace.size() == s_trace.size()) {
+      return TraceCompareResult::ok;
+    } else {
+      return TraceCompareResult::truncated;
     }
-    return true;
   }
-  return false;
+  return TraceCompareResult::differs;
 }
 
 Module *LoadModule(const string &filename) {
@@ -444,8 +442,9 @@ int main(int argc, char **argv, char **envp) {
 
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {
-          if (!compare_traces(test.trace, state->trace)) {
-            outs() << "trace differs, ";
+          TraceCompareResult res = compare_traces(test.trace, state->trace);
+          if ((res == TraceCompareResult::truncated)  || (res == TraceCompareResult::differs)) {
+            outs() << "trace " << (res == TraceCompareResult::differs ? "differs, " : "truncated, ");
             exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
             if (UpdateTrace) {
               update_test_case(test_file, root, state->trace);

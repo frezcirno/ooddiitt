@@ -625,7 +625,7 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
       uint64_t size = kmodule->targetData->getTypeStoreSize(type);
       MemoryObject *mo = nullptr;
       auto itr = injected_objs.find(name);
-      if (itr == injected_objs.end()) {
+      if (!kmodule->isUserGlobal(v) || itr == injected_objs.end()) {
         mo = memory->allocate(size, type, MemKind::global, v, align);
         mo->name = name;
         mo->type = type;

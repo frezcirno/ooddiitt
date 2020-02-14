@@ -188,11 +188,11 @@ namespace klee {
       mapTypeDescs[to_string(type)] = type;
     }
 
-    bool isUserFunction(llvm::Function* fn) const {
+    bool isUserFunction(const llvm::Function* fn) const {
       return user_fns.find(fn) != user_fns.end();
     }
 
-    void getUserFunctions(std::set<llvm::Function*> &fns) const {
+    void getUserFunctions(std::set<const llvm::Function*> &fns) const {
       fns.clear();
       for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert(*itr);
     }
@@ -202,11 +202,11 @@ namespace klee {
       for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert((*itr)->getName());
     }
 
-    bool isUserGlobal(llvm::GlobalVariable* gb) const {
+    bool isUserGlobal(const llvm::GlobalVariable* gb) const {
       return user_gbs.find(gb) != user_gbs.end();
     }
 
-    void getUserGlobals(std::set<llvm::GlobalVariable*> &gbs) const {
+    void getUserGlobals(std::set<const llvm::GlobalVariable*> &gbs) const {
       gbs.clear();
       for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) gbs.insert(*itr);
     }
@@ -229,8 +229,8 @@ namespace klee {
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
     std::map<const llvm::FunctionType*,std::set<const llvm::Function*> >mapFnTypes;
     std::map<std::string,llvm::Type*> mapTypeDescs;
-    std::set<llvm::Function*> user_fns;
-    std::set<llvm::GlobalVariable*> user_gbs;
+    std::set<const llvm::Function*> user_fns;
+    std::set<const llvm::GlobalVariable*> user_gbs;
     TraceType module_trace;
 };
 

@@ -2184,7 +2184,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             if (mo->isLazy() || mo->isHeap()) {
 
               // if lazy, make sure the new type fits...
-              if (mo->isLazy()) {
+              if (doAssumeInBounds && mo->isLazy()) {
                 if (destSize > mo->size) {
                   // not even one will fit
                   log_warning("lazy init size too small for bitcast", state, ki);
