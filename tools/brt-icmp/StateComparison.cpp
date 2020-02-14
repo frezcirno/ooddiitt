@@ -11,9 +11,8 @@
 
 #include "llvm/Support/raw_ostream.h"
 
-
-using namespace llvm;
 using namespace klee;
+using namespace llvm;
 using namespace std;
 
 string to_string(const vector<unsigned char> &buffer) {
@@ -74,8 +73,8 @@ bool CompareExternalExecutions(CompareState &version1, CompareState &version2, d
     diffs.push_back(ss.str());
   }
   if (!state1->arguments.empty() && !state2->arguments.empty()) {
-    unsigned exit_code1 = cast<ConstantExpr>(state1->arguments[0])->getZExtValue(Expr::Int32);
-    unsigned exit_code2 = cast<ConstantExpr>(state2->arguments[0])->getZExtValue(Expr::Int32);
+    unsigned exit_code1 = cast<klee::ConstantExpr>(state1->arguments[0])->getZExtValue(Expr::Int32);
+    unsigned exit_code2 = cast<klee::ConstantExpr>(state2->arguments[0])->getZExtValue(Expr::Int32);
     if (exit_code1 != exit_code2) {
       ostringstream ss;
       ss << "exit_code: " << modID1 << '=' << exit_code1 << ' ' << modID2 << '=' << exit_code2;
@@ -116,14 +115,9 @@ bool CompareExternalExecutions(CompareState &version1, CompareState &version2, d
   return diffs.empty();
 }
 
-const Function *get_function(const KModule *kmodule, const string&fn_name) {
-  Module *module = kmodule->module;
-  return module->getFunction(fn_name);
-}
-
 const Type *get_return_type(const KModule *kmodule, const string &fn_name) {
 
-  if (const Function *fn = get_function(kmodule, fn_name)) {
+  if (const Function *fn = kmodule->getFunction(fn_name)) {
     return fn->getReturnType();
   }
   return nullptr;
@@ -176,8 +170,8 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
     if (type1->isPointerTy()) {
 
       // RLR TODO: what about pointers?
-      klee::ref<ConstantExpr> ptr1 = cast<ConstantExpr>(state1->arguments[0]);
-      klee::ref<ConstantExpr> ptr2 = cast<ConstantExpr>(state2->arguments[0]);
+      klee::ref<klee::ConstantExpr> ptr1 = cast<klee::ConstantExpr>(state1->arguments[0]);
+      klee::ref<klee::ConstantExpr> ptr2 = cast<klee::ConstantExpr>(state2->arguments[0]);
       ObjectPair op1;
       bool b1 = state1->addressSpace.resolveOne(ptr1, op1);
       ObjectPair op2;
@@ -213,8 +207,8 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
       }
 
     } else if (type1->isSingleValueType()) {
-      uint64_t val1 = cast<ConstantExpr>(state1->arguments[0])->getZExtValue();
-      uint64_t val2 = cast<ConstantExpr>(state2->arguments[0])->getZExtValue();
+      uint64_t val1 = cast<klee::ConstantExpr>(state1->arguments[0])->getZExtValue();
+      uint64_t val2 = cast<klee::ConstantExpr>(state2->arguments[0])->getZExtValue();
       if (val1 != val2) {
         ostringstream ss;
         ss << "return value: " << modID1 << '=' << val1 << ' ' << modID2 << '=' << val2;

@@ -1,0 +1,17 @@
+{
+  "cmake.configureSettings": {
+    "CMAKE_INSTALL_PREFIX" : "/usr/local/stow/pse-tools",
+    "CMAKE_EXPORT_COMPILE_COMMANDS" : true,
+    "CMAKE_CXX_FLAGS" : "-fno-rtti",
+    "ENABLE_TCMALLOC" : true,
+    "ENABLE_SOLVER_STP" : true,
+    "ENABLE_SOLVER_Z3" : true,
+    "ENABLE_POSIX_RUNTIME" : false,
+    "ENABLE_KLEE_UCLIBC" : true,
+    "KLEE_UCLIBC_PATH" : "../../klee-uclibc",
+    "ENABLE_UNIT_TESTS" : false,
+    "ENABLE_SYSTEM_TESTS" : false,
+    "USE_CXX11" : true,
+    "LLVM_CONFIG_BINARY" : "/usr/local/stow/llvm-3.4/bin/llvm-config"
+  }
+}
