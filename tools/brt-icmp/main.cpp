@@ -58,45 +58,53 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace {
-  cl::opt<string> InputFile1(cl::desc("<bytecode1>"), cl::Positional, cl::Required);
-  cl::opt<string> InputFile2(cl::desc("<bytecode2>"), cl::Positional, cl::Required);
-  cl::opt<string> ReplayTest("test", cl::desc("test case to replay"), cl::Required);
-  cl::opt<string> EntryPoint("entry-point", cl::desc("Only run tests starting from this entrypoint"));
+  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
+  cl::opt<string> PreModule("pre", cl::desc("<pre-bytecode>"));
+  cl::opt<string> PostModule("post", cl::desc("<post-bytecode2>"));
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
+  cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
+  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
 }
 
 /***/
 
-class ReplayKleeHandler : public InterpreterHandler {
+class ICmpKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  vector<ExecutionState*> &results;
+  CompareState &cmp_state;
 
 public:
-  ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
-  ~ReplayKleeHandler() override = default;
-  void processTestCase(ExecutionState  &state) override;
+  explicit ICmpKleeHandler(CompareState &cmp) : InterpreterHandler(Output, cmp.kmodule->getModuleIdentifier()), cmp_state(cmp) {
+    if (IndentJson) indentation = "  ";
+  }
+  ~ICmpKleeHandler() override = default;
+
+  void onStateInitialize(ExecutionState &state) override {
+    cmp_state.initialState = new ExecutionState(state);
+  }
+
+  void onStateFinalize(ExecutionState &state) override {
+    if (cmp_state.finalState == nullptr) {
+      cmp_state.finalState = new ExecutionState(state);
+    } else {
+      cmp_state.forked = true;
+    }
+  }
+
+  void onStateUserFunctionReturn(ExecutionState &state) override {
+    if (!state.stack.empty()) {
+      cmp_state.fn_returns.push_back(state.stack.back().kf->function->getName());
+    }
+  }
 };
-
-ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
-  : InterpreterHandler(Output, _md_name),
-    indentation(""),
-    results(_results) {
-
-  assert(results.empty());
-  if (IndentJson) indentation = "  ";
-}
-
-void ReplayKleeHandler::processTestCase(ExecutionState &state) {
-  results.push_back(new ExecutionState(state));
-}
 
 //===----------------------------------------------------------------------===//
 // main Driver function
@@ -266,6 +274,121 @@ KModule *PrepareModule(const string &filename) {
   return nullptr;
 }
 
+#define EXIT_OK               0
+#define EXIT_REPLAY_ERROR     1
+#define EXIT_STATUS_CONFLICT  2
+#define EXIT_TRACE_CONFLICT   3
+
+void expand_test_files(const string &prefix, deque<string> &files) {
+
+  // if tests are not specified, then default to all tests in the output directory
+  if (ReplayTests.empty()) {
+    ReplayTests.push_back(Output);
+  }
+
+  for (const auto &str : ReplayTests) {
+    fs::path entry(str);
+    boost::system::error_code ec;
+    fs::file_status s = fs::status(entry, ec);
+    if (fs::is_regular_file(s)) {
+      files.push_back(str);
+    } else if (fs::is_directory(s)) {
+      for (fs::directory_iterator itr{entry}, end{}; itr != end; ++itr) {
+        // add regular files of the form test*.json
+        fs::path pfile(itr->path());
+        if (fs::is_regular_file(pfile) &&
+            (pfile.extension().string() == ".json") &&
+            (boost::starts_with(pfile.filename().string(), prefix))) {
+
+          files.push_back(pfile.string());
+        }
+      }
+    } else {
+      errs() << "Entry not found: " << str << '\n';
+    }
+  }
+  sort(files.begin(), files.end());
+}
+
+void getModuleNames(const string &dir, string &name1, string &name2) {
+
+  name1 = PreModule;
+  name2 = PostModule;
+
+  if (name1.empty() || name2.empty()) {
+    if (fs::is_directory(dir)) {
+      for (fs::directory_iterator itr{dir}, end{}; itr != end; ++itr) {
+        fs::path pfile(itr->path());
+        if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".bc")) {
+
+          string filename = pfile.filename().string();
+          if (name1.empty() && boost::starts_with(filename, "pre")) {
+            name1 = (fs::path(dir) / filename).string();
+          } else if (name2.empty() && boost::starts_with(filename, "post")) {
+            name2 = (fs::path(dir) / filename).string();
+          }
+        }
+        if (!(name1.empty() || name2.empty())) break;
+      }
+    }
+  }
+}
+
+void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_post) {
+
+  string filename = diff_file;
+  if (filename.empty()) {
+    filename = (fs::path(Output)/"diff.json").string();
+  }
+  ifstream infile(filename);
+  if (infile.is_open()) {
+    Json::Value root;
+    infile >> root;
+
+    Json::Value &fns = root["functions"];
+    Json::Value &fns_added = fns["added"];
+    for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
+      kmod_post->addDiffFnAdded(fns_added[idx].asString());
+    }
+    Json::Value &fns_removed = fns["removed"];
+    for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
+      kmod_pre->addDiffFnRemoved(fns_removed[idx].asString());
+    }
+    Json::Value &fns_body = fns["body"];
+    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
+      string str = fns_body[idx].asString();
+      kmod_pre->addDiffFnChangedBody(str);
+      kmod_post->addDiffFnChangedBody(str);
+    }
+    Json::Value &fns_sig = fns["signature"];
+    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
+      string str = fns_sig[idx].asString();
+      kmod_pre->addDiffFnChangedSig(str);
+      kmod_post->addDiffFnChangedSig(str);
+    }
+
+    Json::Value &gbs = root["globals"];
+    Json::Value &gbs_added = gbs["added"];
+    for (unsigned idx = 0, end = gbs_added.size(); idx < end; ++idx) {
+      kmod_post->addDiffGlobalAdded(gbs_added[idx].asString());
+    }
+    Json::Value &gbs_removed = gbs["removed"];
+    for (unsigned idx = 0, end = gbs_removed.size(); idx < end; ++idx) {
+      kmod_pre->addDiffGlobalRemoved(gbs_removed[idx].asString());
+    }
+
+    Json::Value &gbs_type = gbs["type"];
+    for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
+      string str = gbs_type[idx].asString();
+      kmod_pre->addDiffGlobalChanged(str);
+      kmod_post->addDiffGlobalChanged(str);
+    }
+
+    kmod_pre->pre_module = kmod_post->pre_module = root["pre-module"].asString();
+    kmod_pre->post_module = kmod_post->post_module = root["post-module"].asString();
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -276,119 +399,126 @@ int main(int argc, char **argv, char **envp) {
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
 
-  // Load the test case
-  TestCase test;
-  if (!ReplayTest.empty()) {
-
-    ifstream info;
-    info.open(ReplayTest);
-    if (info.is_open()) {
-
-      Json::Value root;
-      info >> root;
-      load_test_case(root, test);
-    }
-  }
-
-  if (!test.is_ready()) {
-    klee_error("failed to load test case '%s'", ReplayTest.c_str());
-  }
-
-  // Common setup
-  Interpreter::InterpreterOptions IOpts;
-  IOpts.mode = ExecModeID::rply;
-  IOpts.user_mem_base = (void*) 0x90000000000;
-  IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-  IOpts.trace = test.trace_type;
-  IOpts.test_objs = &test.objects;
-
-  vector<ExecutionState*> ex_states;
-
-  outs() << ReplayTest << "::" << test.entry_fn << " -> ";
-  if (!EntryPoint.empty() && EntryPoint != test.entry_fn) {
-    outs() << "skipped\n";
-    return 0;
-  }
-
-  CompareState version1;
+  // if pre and post module are empty (default) then try to automatically find
+  // pre and post modules in the output directory
+  string mod_name1;
+  string mod_name2;
+  getModuleNames(Output, mod_name1, mod_name2);
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
-  KModule *kmod1 = PrepareModule(InputFile1);
-  KModule *kmod2 = PrepareModule(InputFile2);
+  KModule *kmod1 = PrepareModule(mod_name1);
+  KModule *kmod2 = PrepareModule(mod_name2);
+  load_diff_info(DiffInfo, kmod1, kmod2);
+
   LLVMContext *ctx1 = nullptr;
   LLVMContext *ctx2 = nullptr;
   if (kmod1 && kmod2) {
     ctx1 = kmod1->getContextPtr();
     ctx2 = kmod2->getContextPtr();
 
-    ReplayKleeHandler *handler1 = new ReplayKleeHandler(ex_states, kmod1->getModuleIdentifier());
-    Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
-    handler1->setInterpreter(interpreter1);
-    interpreter1->bindModule(kmod1);
+    deque<string> test_files;
+    expand_test_files(Prefix, test_files);
+    for (const string &test_file : test_files) {
 
-    theInterpreter = interpreter1;
-    theInterpreter->runFunctionTestCase(test);
-    theInterpreter = nullptr;
-
-    version1.kmodule = kmod1;
-    if (ex_states.empty()) {
-      if (test.status == StateStatus::Incomplete) {
-        outs() << "N/A";
-      } else {
-        outs() << "Failed to replay";
+      TestCase test;
+      ifstream info;
+      info.open(test_file);
+      if (info.is_open()) {
+        Json::Value root;  // needed here if we intend to update later
+        info >> root;
+        load_test_case(root, test);
       }
-    } else if (ex_states.size() > 1) {
-      klee_error("replay forked to multple states");
-    } else {
+      if (!test.is_ready()) {
+        klee_error("failed to load test case '%s'", test_file.c_str());
+      }
 
-      version1.state = ex_states.front();
-      ex_states.clear();
+      // Common setup
+      Interpreter::InterpreterOptions IOpts;
+      IOpts.mode = ExecModeID::rply;
+      IOpts.user_mem_base = (void *) 0x90000000000;
+      IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+      IOpts.trace = test.trace_type;
+      IOpts.test_objs = &test.objects;
 
-      // now, lets do it all again with the second module
-      CompareState version2;
+      CompareState version1(kmod1);
 
-      ReplayKleeHandler *handler2 = new ReplayKleeHandler(ex_states, kmod2->getModuleIdentifier());
-      Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
-      handler2->setInterpreter(interpreter2);
-      interpreter2->bindModule(kmod2);
+      auto *handler1 = new ICmpKleeHandler(version1);
+      Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
+      handler1->setInterpreter(interpreter1);
+      interpreter1->bindModule(kmod1);
 
-      theInterpreter = interpreter2;
-      theInterpreter->runFunctionTestCase(test);
+      theInterpreter = interpreter1;
+      interpreter1->runFunctionTestCase(test);
       theInterpreter = nullptr;
 
-      version2.kmodule = interpreter2->getKModule();
-      assert(ex_states.size() == 1);
-      version2.state = ex_states.front();
-      ex_states.clear();
+      version1.kmodule = kmod1;
+      if (version1.finalState != nullptr) {
 
-      deque<string> diffs;
-      bool is_same = false;
+        if (version1.finalState->status != StateStatus::Completed) continue;
 
-      if (test.is_main()) {
-        is_same = CompareExternalExecutions(version1, version2, diffs);
-      } else {
-        is_same = CompareInternalExecutions(version1, version2, diffs);
-      }
+        // now, lets do it all again with the second module
+        CompareState version2(kmod2);
 
-      if (is_same) {
-        outs() << "ok\n";
-      } else {
-        outs() << "differs\n";
-        for (const auto &diff : diffs) {
-          outs() << "  * " << diff << '\n';
+        auto *handler2 = new ICmpKleeHandler(version2);
+        Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
+        handler2->setInterpreter(interpreter2);
+        interpreter2->bindModule(kmod2);
+
+        theInterpreter = interpreter2;
+        interpreter2->runFunctionTestCase(test);
+        theInterpreter = nullptr;
+
+        version2.kmodule = interpreter2->getKModule();
+        if (version2.finalState == nullptr) {
+
+        } else {
+
+          outs() << "Test: " << test_file << '\n';
+          outs() << "seq1:\n";
+          for (const auto &str : version1.fn_returns) {
+            outs() << str << '\n';
+          }
+          outs() << "seq2:\n";
+          for (const auto &str : version2.fn_returns) {
+            outs() << str << '\n';
+          }
+          outs() << "End: " << test_file << '\n';
+
+#if 0 == 1
+          deque<string> diffs;
+          bool is_same = false;
+
+          if (test.is_main()) {
+            is_same = CompareExternalExecutions(version1, version2, diffs);
+          } else {
+            is_same = CompareInternalExecutions(version1, version2, diffs);
+          }
+
+          if (is_same) {
+            outs() << "ok\n";
+          } else {
+            outs() << "differs\n";
+            for (const auto &diff : diffs) {
+              outs() << "  * " << diff << '\n';
+            }
+            exit_code = 1;
+          }
+#endif
         }
-        exit_code = 1;
+        delete interpreter2;
+        delete handler2;
       }
-      delete interpreter2;
-      delete handler2;
+      delete interpreter1;
+      delete handler1;
     }
-    delete interpreter1;
-    delete handler1;
   }
-  delete kmod1;
-  delete kmod2;
-  delete ctx1;
-  delete ctx2;
+
+  // clean up the cached modules
+  for (auto &pr : module_cache) {
+    LLVMContext *ctx = pr.second->getContextPtr();
+    delete pr.second;
+    delete ctx;
+  }
   return exit_code;
 }

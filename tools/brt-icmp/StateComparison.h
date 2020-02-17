@@ -15,7 +15,13 @@ class ExecutionState;
 
 struct CompareState {
   KModule *kmodule;
-  ExecutionState *state;
+  ExecutionState *initialState;
+  ExecutionState *finalState;
+  bool forked;
+  std::deque<std::string> fn_returns;
+
+  explicit CompareState(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false) {}
+  ~CompareState();
 };
 
 }

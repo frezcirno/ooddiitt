@@ -65,6 +65,11 @@ namespace klee {
 //    llvm::LoopInfo loopInfo;
 
     bool is_user;
+    unsigned fnID;
+    bool diff_added;
+    bool diff_removed;
+    bool diff_body;
+    bool diff_sig;
 
   private:
     KFunction(const KFunction&);
@@ -80,6 +85,11 @@ namespace klee {
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
     bool isUser() const {return is_user; }
+    bool isDiffAdded() const        {return diff_added; }
+    bool isDiffRemoved() const      {return diff_removed; }
+    bool isDiffChanged() const      {return diff_body || diff_sig; }
+    bool isDiffChangedBody() const  {return diff_body; }
+    bool isDiffChangedSig() const   {return diff_sig; }
   };
 
 
@@ -114,6 +124,12 @@ namespace klee {
     // Our shadow versions of LLVM structures.
     std::vector<KFunction*> functions;
     std::map<llvm::Function*, KFunction*> functionMap;
+
+    KFunction *getKFunction(llvm::Function *fn)
+      { auto itr = functionMap.find(fn); if (itr != functionMap.end()) return itr->second; return nullptr; }
+
+    KFunction *getKFunction(const std::string &name)
+      { if (auto *fn = module->getFunction(name)) if (auto *kf = getKFunction(fn)) return kf; return nullptr; }
 
     // Functions which escape (may be called indirectly)
     // XXX change to KFunction
@@ -222,7 +238,25 @@ namespace klee {
       else return 0;
     }
 
+    llvm::GlobalVariable *getGlobalVariable(const std::string &name) const
+      { auto itr = mapGlobalVars.find(name); if (itr != mapGlobalVars.end()) return itr->second; return nullptr; }
+
     TraceType getModuleTraceType() const { return module_trace; }
+
+    bool addDiffFnAdded(const std::string &name)
+      { if (auto *kf = getKFunction(name)) { kf->diff_added = true; return true; } return false; }
+    bool addDiffFnRemoved(const std::string &name)
+      { if (auto *kf = getKFunction(name)) { kf->diff_removed = true; return true; } return false; }
+    bool addDiffFnChangedBody(const std::string &name)
+      { if (auto *kf = getKFunction(name)) { kf->diff_body = true; return true; } return false; }
+    bool addDiffFnChangedSig(const std::string &name)
+      { if (auto *kf = getKFunction(name)) { kf->diff_sig = true; return true; } return false; }
+    bool addDiffGlobalAdded(const std::string &name)
+      { if (auto *gv = getGlobalVariable(name)) { diff_gbs_added.insert(gv); return true; } return false; }
+    bool addDiffGlobalRemoved(const std::string &name)
+      { if (auto *gv = getGlobalVariable(name)) { diff_gbs_removed.insert(gv); return true; } return false; }
+    bool addDiffGlobalChanged(const std::string &name)
+      { if (auto *gv = getGlobalVariable(name)) { diff_gbs_changed.insert(gv); return true; } return false; }
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
@@ -231,7 +265,16 @@ namespace klee {
     std::map<std::string,llvm::Type*> mapTypeDescs;
     std::set<const llvm::Function*> user_fns;
     std::set<const llvm::GlobalVariable*> user_gbs;
+    std::map<std::string,llvm::GlobalVariable*> mapGlobalVars;
     TraceType module_trace;
+
+    std::set<llvm::GlobalVariable*> diff_gbs_added;
+    std::set<llvm::GlobalVariable*> diff_gbs_removed;
+    std::set<llvm::GlobalVariable*> diff_gbs_changed;
+
+  public:
+    std::string pre_module;
+    std::string post_module;
 };
 
 } // End klee namespace

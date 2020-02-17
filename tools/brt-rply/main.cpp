@@ -55,7 +55,7 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace {
-  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::OneOrMore);
+  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
@@ -68,7 +68,7 @@ namespace {
   cl::opt<unsigned> ShowFnFreq("show-fn-freq", cl::desc("display function's basic block frequency"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
-  cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
+  cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -330,6 +330,10 @@ KModule *PrepareModule(const string &filename) {
 #define EXIT_TRACE_CONFLICT   3
 
 void expand_test_files(const string &prefix, deque<string> &files) {
+
+  if (ReplayTests.empty()) {
+    ReplayTests.push_back(Output);
+  }
 
   for (const auto &str : ReplayTests) {
     fs::path entry(str);

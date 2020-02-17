@@ -118,6 +118,11 @@ public:
   virtual void incTermination(const std::string &message) {}
   virtual void getTerminationMessages(std::vector<std::string> &messages) {};
   virtual unsigned getTerminationCount(const std::string &message) { return 0; }
+
+  virtual void onStateInitialize(ExecutionState &state) {};
+  virtual void onStateFinalize(ExecutionState &state) {};
+  virtual void onStateUserFunctionReturn(ExecutionState &state) {};
+
   virtual void processTestCase(ExecutionState &state) {};
   virtual bool resetWatchDogTimer() const { return false; }
 

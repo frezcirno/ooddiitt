@@ -50,8 +50,8 @@ public:
   void append(std::deque<unsigned> &trace, unsigned entry, bool force=false) {
       if ((entry != 0) && (force || trace.empty() || (trace.back() != entry)) ) trace.push_back(entry); }
   virtual void append_instr(std::deque<unsigned> &trace, KInstruction *ki) {}
-  virtual void append_call(std::deque<unsigned> &trace, llvm::Function *fn) {}
-  virtual void append_return(std::deque<unsigned> &trace, llvm::Function *fn) {}
+  virtual void append_call(std::deque<unsigned> &trace, const KFunction *kf) {}
+  virtual void append_return(std::deque<unsigned> &trace, const KFunction *kf) {}
 };
 
 class AssemblyTracer : public ProgramTracer {
@@ -108,13 +108,13 @@ private:
 class CallTracer : public ProgramTracer {
 public:
   explicit CallTracer(KModule *k) : kmodule(k)  {}
-  void append_call(std::deque<unsigned> &trace, llvm::Function *fn) override {
-    unsigned fnID = kmodule->getFunctionID(fn);
+  void append_call(std::deque<unsigned> &trace, const KFunction *kf) override {
+    unsigned fnID = kf->fnID;
     if (fnID != 0) append(trace, fnID * 1000 + 1, true);
   }
 
-  void append_return(std::deque<unsigned> &trace, llvm::Function *fn) override {
-    unsigned fnID = kmodule->getFunctionID(fn);
+  void append_return(std::deque<unsigned> &trace, const KFunction *kf) override {
+    unsigned fnID = kf->fnID;
     if (fnID != 0) append(trace, fnID * 1000 + 2, true);
   }
 

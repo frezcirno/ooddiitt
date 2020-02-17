@@ -437,6 +437,17 @@ void KModule::prepare() {
     functionMap.insert(make_pair(fn, kf));
   }
 
+
+  for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
+    GlobalVariable *v = itr;
+    if (v->hasName()) {
+      string name = v->getName();
+      if (!name.empty()) {
+        mapGlobalVars.insert(make_pair(name, v));
+      }
+    }
+  }
+
   /* Compute various interesting properties */
 
   for (auto it = functions.begin(), ie = functions.end(); it != ie; ++it) {
@@ -585,9 +596,15 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
     trackCoverage(true),
-    is_user(false) {
+    is_user(false),
+    fnID(0),
+    diff_added(false),
+    diff_removed(false),
+    diff_body(false),
+    diff_sig(false) {
 
   is_user = km->isUserFunction(function);
+  fnID = km->getFunctionID(function);
 
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);

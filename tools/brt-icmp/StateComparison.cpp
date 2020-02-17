@@ -45,9 +45,9 @@ bool CompareExternalExecutions(CompareState &version1, CompareState &version2, d
   diffs.clear();
 
   // unpack the versions for easier access
-  ExecutionState *state1 = version1.state;
+  ExecutionState *state1 = version1.finalState;
   KModule *kmodule1 = version1.kmodule;
-  ExecutionState *state2 = version2.state;
+  ExecutionState *state2 = version2.finalState;
   KModule *kmodule2 = version2.kmodule;
 
   string modID1 = get_module_name(kmodule1);
@@ -128,9 +128,9 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
   diffs.clear();
 
   // unpack the versions for easier access
-  ExecutionState *state1 = version1.state;
+  ExecutionState *state1 = version1.finalState;
   KModule *kmodule1 = version1.kmodule;
-  ExecutionState *state2 = version2.state;
+  ExecutionState *state2 = version2.finalState;
   KModule *kmodule2 = version2.kmodule;
 
   string modID1 = get_module_name(kmodule1);
@@ -297,6 +297,14 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
   }
 
   return diffs.empty();
+}
+
+CompareState::~CompareState() {
+  // module is deleted with module_cache
+
+//  delete initialState;
+//  delete finalState;
+// baaaaad idea... deleted with address space
 }
 
 #if 0 == 1

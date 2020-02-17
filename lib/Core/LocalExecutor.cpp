@@ -940,6 +940,7 @@ void LocalExecutor::bindModule(KModule *kmodule) {
       baseState = initState;
     }
   }
+  interpreterHandler->onStateInitialize(*baseState);
 }
 
 void LocalExecutor::bindModuleConstants() {
@@ -1526,6 +1527,7 @@ void LocalExecutor::terminateState(ExecutionState &state, const string &message)
   } else {
     // ??
   }
+  interpreterHandler->onStateFinalize(state);
   Executor::terminateState(state, message);
 }
 
@@ -1755,10 +1757,14 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           ((state.stack.size() == 0 || !state.stack.back().caller))) {
         libc_initializing = false;
       } else {
+        KFunction *ret_from = state.stack.back().kf;
         if (tracer != nullptr) {
-          tracer->append_return(state.trace, state.stack.back().kf->function);
+          tracer->append_return(state.trace, ret_from);
         }
-        if (state.stack.size() > 0 && state.stack.back().kf->function->hasFnAttribute(Attribute::NoReturn)) {
+        if (kmodule->isUserFunction(ret_from->function)) {
+          interpreterHandler->onStateUserFunctionReturn(state);
+        }
+        if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
           // this state completed
           terminateStateOnExit(state);
         } else {
@@ -1821,7 +1827,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);
         if (tracer != nullptr) {
-          tracer->append_call(state.trace, fn);
+          tracer->append_call(state.trace, kmodule->getKFunction(fn));
         }
 
         if (!unconstraintFlags.isStubCallees()) {
@@ -1880,7 +1886,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           terminateStateOnError(state, TerminateReason::Ptr, "legal indirect callee not found");
         } else if (num_targets == 1) {
           if (tracer != nullptr) {
-            tracer->append_call(state.trace, targets.front());
+            tracer->append_call(state.trace, kmodule->getKFunction(targets.front()));
           }
           executeCall(state, ki, targets.front(), arguments);
         } else {
