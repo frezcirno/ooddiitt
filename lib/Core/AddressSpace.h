@@ -55,7 +55,7 @@ namespace klee {
   public:
     AddressSpace() : cowKey(1) {}
     AddressSpace(const AddressSpace &b) : cowKey(++b.cowKey), objects(b.objects) { }
-    ~AddressSpace() {}
+    ~AddressSpace() { for (auto &itr : objects) { unbindObject(itr.first); } }
 
     /// Resolve address to an ObjectPair in result.
     /// \return true iff an object was found.

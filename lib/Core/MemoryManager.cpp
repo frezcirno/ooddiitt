@@ -57,13 +57,13 @@ MemoryManager::~MemoryManager() {
 
   // deleting an mo automagically removes it from the memory manager
   // therefore, cannot iterate over the objects.  just delete them until objects is empty
-  while (!objects.empty()) {
-    const MemoryObject *mo = *objects.begin();
-    if (!DeterministicAllocation) {
-      free((void*) mo->address);
-    }
-    delete mo;
-  }
+//  while (!objects.empty()) {
+//    const MemoryObject *mo = *objects.begin();
+//    if (!DeterministicAllocation) {
+//      free((void*) mo->address);
+//    }
+//    delete mo;
+//  }
 }
 
 MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
@@ -120,7 +120,7 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   ++stats::allocations;
   MemoryObject *res = new MemoryObject(address, size, alignment, type, kind, allocSite, this);
   res->count = 1;
-  objects.insert(res);
+//  objects.insert(res);
   return res;
 }
 
@@ -131,17 +131,17 @@ MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type 
 
     // RLR TODO: should we insure this does not overlap an existing injection or allocation?
     result = new MemoryObject((uint64_t) addr, size, alignment, type, kind, nullptr, this);
-    objects.insert(result);
+//    objects.insert(result);
   }
   return result;
 }
 
 void MemoryManager::markFreed(MemoryObject *mo) {
-  if (objects.find(mo) != objects.end()) {
+//  if (objects.find(mo) != objects.end()) {
     if (!DeterministicAllocation)
       free((void *) (mo->address));
-    objects.erase(mo);
-  }
+//    objects.erase(mo);
+//  }
 }
 
 size_t MemoryManager::getUsedDeterministicSize() {
@@ -151,10 +151,10 @@ size_t MemoryManager::getUsedDeterministicSize() {
 
 void MemoryManager::dump() const {
 
-  llvm::outs() << objects.size() << "\n";
-
-  for (auto itr = objects.begin(), end = objects.end(); itr != end; ++itr ) {
-    auto obj = *itr;
-    llvm::outs() << obj->name << " " << (unsigned) obj->kind << "\n";
-  }
+//  llvm::outs() << objects.size() << "\n";
+//
+//  for (auto itr = objects.begin(), end = objects.end(); itr != end; ++itr ) {
+//    auto obj = *itr;
+//    llvm::outs() << obj->name << " " << (unsigned) obj->kind << "\n";
+//  }
 }

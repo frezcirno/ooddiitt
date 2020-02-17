@@ -1422,7 +1422,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
     }
-    checkMemoryFnUsage(kf);
+    if (!doConcreteInterpretation) checkMemoryFnUsage(kf);
   }
 
   loopForkCounter.clear();

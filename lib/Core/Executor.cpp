@@ -2599,12 +2599,8 @@ void Executor::bindModuleConstants() {
 void Executor::checkMemoryUsage() {
   if (!MaxMemory)
     return;
-  if ((stats::instructions & 0xFFFF) == 0) {
-    // We need to avoid calling GetTotalMallocUsage() often because it
-    // is O(elts on freelist). This is really bad since we start
-    // to pummel the freelist once we hit the memory cap.
-    unsigned mbs = (util::GetTotalMallocUsage() >> 20) +
-                   (memory->getUsedDeterministicSize() >> 20);
+  if ((stats::instructions & 0xFFF) == 0) {
+    unsigned mbs = memory->getUsedDeterministicSize() >> 20;
 
     if (mbs > MaxMemory) {
       if (mbs > MaxMemory + 100) {

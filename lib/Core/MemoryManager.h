@@ -25,8 +25,9 @@ class ArrayCache;
 
 class MemoryManager {
 private:
-  typedef std::set<const MemoryObject *> objects_ty;
-  objects_ty objects;
+  // RLR TODO: evaluate continuing need
+//  typedef std::set<const MemoryObject *> objects_ty;
+//  objects_ty objects;
   ArrayCache *const arrayCache;
 
   char *deterministicSpace;
@@ -45,8 +46,8 @@ public:
 //  MemoryObject *allocateFixed(uint64_t address, uint64_t size, const llvm::Value *allocSite);
   MemoryObject *inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment);
   void markFreed(MemoryObject *mo);
-  bool isAllocated(const MemoryObject *mo) const { return objects.find(mo) != objects.end(); }
-  bool isFreed(const MemoryObject *mo) const { return !isAllocated(mo); }
+//  bool isAllocated(const MemoryObject *mo) const { return objects.find(mo) != objects.end(); }
+//  bool isFreed(const MemoryObject *mo) const { return !isAllocated(mo); }
   ArrayCache *getArrayCache() const { return arrayCache; }
   void dump() const;
 

@@ -43,11 +43,14 @@
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
 
-#ifdef _DEBUG
+
+//#define DO_HEAP_PROFILE 1
+
+#ifdef DO_HEAP_PROFILE
 #include <gperftools/tcmalloc.h>
 #include <gperftools/heap-profiler.h>
 #include <gperftools/heap-checker.h>
-#endif
+#endif // DO_HEAP_PROFILE
 
 using namespace llvm;
 using namespace klee;
@@ -321,8 +324,6 @@ KModule *PrepareModule(const string &filename) {
   }
   return nullptr;
 }
-
-//#define DO_HEAP_PROFILE 1
 
 #define EXIT_OK               0
 #define EXIT_REPLAY_ERROR     1

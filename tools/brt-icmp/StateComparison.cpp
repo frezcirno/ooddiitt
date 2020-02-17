@@ -299,14 +299,6 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
   return diffs.empty();
 }
 
-CompareState::~CompareState() {
-  // module is deleted with module_cache
-
-//  delete initialState;
-//  delete finalState;
-// baaaaad idea... deleted with address space
-}
-
 #if 0 == 1
 
 

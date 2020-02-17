@@ -21,7 +21,7 @@ struct CompareState {
   std::deque<std::string> fn_returns;
 
   explicit CompareState(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false) {}
-  ~CompareState();
+  ~CompareState() { delete initialState; delete finalState; }
 };
 
 }

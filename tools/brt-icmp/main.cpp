@@ -1,5 +1,3 @@
-/* -*- mode: c++; c-basic-offset: 2; -*- */
-
 //===-- main.cpp ------------------------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
@@ -13,7 +11,6 @@
 #include "klee/Interpreter.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/Timer.h"
@@ -36,7 +33,6 @@
 #include "llvm/Support/system_error.h"
 #endif
 
-#include <unistd.h>
 #include <string>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
@@ -45,6 +41,14 @@
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
 #include "StateComparison.h"
+
+//#define DO_HEAP_PROFILE 1
+
+#ifdef DO_HEAP_PROFILE
+#include <gperftools/tcmalloc.h>
+#include <gperftools/heap-profiler.h>
+#include <gperftools/heap-checker.h>
+#endif // DO_HEAP_PROFILE
 
 using namespace llvm;
 using namespace klee;
@@ -413,6 +417,12 @@ int main(int argc, char **argv, char **envp) {
 
     deque<string> test_files;
     expand_test_files(Prefix, test_files);
+
+#ifdef DO_HEAP_PROFILE
+    HeapProfilerStart("brt-icmp");
+    HeapProfilerDump("pre-loop");
+#endif
+
     for (const string &test_file : test_files) {
 
       TestCase test;
@@ -436,6 +446,7 @@ int main(int argc, char **argv, char **envp) {
       IOpts.test_objs = &test.objects;
 
       CompareState version1(kmod1);
+      CompareState version2(kmod2);
 
       auto *handler1 = new ICmpKleeHandler(version1);
       Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
@@ -452,7 +463,6 @@ int main(int argc, char **argv, char **envp) {
         if (version1.finalState->status != StateStatus::Completed) continue;
 
         // now, lets do it all again with the second module
-        CompareState version2(kmod2);
 
         auto *handler2 = new ICmpKleeHandler(version2);
         Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
@@ -465,6 +475,8 @@ int main(int argc, char **argv, char **envp) {
 
         version2.kmodule = interpreter2->getKModule();
         if (version2.finalState == nullptr) {
+
+        } else if (version2.finalState->status != StateStatus::Completed) {
 
         } else {
 
@@ -505,8 +517,16 @@ int main(int argc, char **argv, char **envp) {
       }
       delete interpreter1;
       delete handler1;
+
+#ifdef DO_HEAP_PROFILE
+//      HeapProfilerDump("end-loop");
+#endif
     }
   }
+
+#ifdef DO_HEAP_PROFILE
+//  HeapProfilerDump("post-loop");
+#endif
 
   // clean up the cached modules
   for (auto &pr : module_cache) {
@@ -514,5 +534,11 @@ int main(int argc, char **argv, char **envp) {
     delete pr.second;
     delete ctx;
   }
+
+#ifdef DO_HEAP_PROFILE
+  HeapProfilerDump("going home");
+  HeapProfilerStop();
+#endif
+
   return exit_code;
 }
