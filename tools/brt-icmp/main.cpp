@@ -11,14 +11,11 @@
 
 #include "klee/ExecutionState.h"
 #include "klee/Interpreter.h"
-#include "klee/Statistics.h"
 #include "klee/Config/Version.h"
 #include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/ADT/TreeStream.h"
-#include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Support/Timer.h"
 
 #include "llvm/IR/Constants.h"
@@ -39,14 +36,8 @@
 #include "llvm/Support/system_error.h"
 #endif
 
-#include <signal.h>
 #include <unistd.h>
-#include <sys/wait.h>
-
-#include <cerrno>
 #include <string>
-#include <iomanip>
-#include <iterator>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <klee/Internal/Support/ModuleUtil.h>
@@ -101,7 +92,10 @@ public:
 
   void onStateUserFunctionReturn(ExecutionState &state) override {
     if (!state.stack.empty()) {
-      cmp_state.fn_returns.push_back(state.stack.back().kf->function->getName());
+      KFunction *returning = state.stack.back().kf;
+      if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
+        cmp_state.fn_returns.push_back(returning->function->getName());
+      }
     }
   }
 };
