@@ -397,8 +397,7 @@ int main(int argc, char **argv, char **envp) {
 
     outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> " << oflush;
 
-    string module_name = ModuleName;
-    if (module_name.empty()) module_name = test.file_name;
+    string module_name = ModuleName.empty() ? test.file_name : ModuleName;
     KModule *kmod = PrepareModule(module_name);
     LLVMContext *ctx = kmod->getContextPtr();
 
