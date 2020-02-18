@@ -346,9 +346,7 @@ void SpecialFunctionHandler::handleAbort(ExecutionState &state,
   if (pr.first != nullptr) {
     // if this memory object exists, then this executed from main.
     // we need to return a exit code
-    assert(state.arguments.empty());
-    ref<ConstantExpr> result = ConstantExpr::create(129, Expr::Int32);
-    state.arguments.emplace_back(result);
+    state.last_ret_value = ConstantExpr::create(129, Expr::Int32);
   }
   executor.terminateStateOnError(state, TerminateReason::Abort, "aborted");
 }
@@ -358,12 +356,7 @@ void SpecialFunctionHandler::handleExit(ExecutionState &state,
                            std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==1 && "invalid number of arguments to exit");
 
-  ObjectPair pr = state.addressSpace.findMemoryObjectByName("#program_name");
-  if (pr.first != nullptr) {
-    // if this memory object exists, then this executed from main.
-    // we need to return a exit code
-    state.arguments.push_back(arguments[0]);
-  }
+  state.last_ret_value = arguments[0];
   executor.terminateStateOnExit(state);
 }
 
@@ -371,6 +364,7 @@ void SpecialFunctionHandler::handleSilentExit(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==1 && "invalid number of arguments to exit");
+  state.last_ret_value = arguments[0];
   executor.terminateState(state, "silent exit");
 }
 

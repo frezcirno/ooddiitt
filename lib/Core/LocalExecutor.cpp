@@ -1766,6 +1766,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
         if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
           // this state completed
+          state.last_ret_value = nullptr;
           terminateStateOnExit(state);
         } else {
           Executor::executeInstruction(state, ki);

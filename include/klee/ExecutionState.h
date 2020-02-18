@@ -298,6 +298,8 @@ public:
   std::vector<unsigned char> stdin_buffer;
   unsigned eof_counter;
 
+  ref<Expr> last_ret_value;
+
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);

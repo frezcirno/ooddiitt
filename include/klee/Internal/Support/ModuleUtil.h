@@ -55,6 +55,7 @@ namespace klee {
   llvm::Module *rewriteFunctionPointers(llvm::Module *m, const IndirectCallRewriteRecs &recs);
   bool isPrepared(llvm::Module *m);
   void modify_clib(llvm::Module *m);
+  bool isEquivalentType(const llvm::Type *type1, const llvm::Type *type2);
 }
 
 #endif

@@ -474,8 +474,6 @@ public:
   unsigned getSymbolicPathStreamID(const ExecutionState &state) override;
 
   void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) override;
-  void getConstraintLog(const ExecutionState &state, std::string &res) { getConstraintLog(state, res, LogType::STP); }
-
   bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) override;
 
   void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) override;
@@ -484,6 +482,8 @@ public:
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 
   KModule *getKModule() const override { return kmodule; }
+  void getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryObject*> &objects) override;
+
 
   void log_warning(const std::string &msg) override { klee_warning("%s", msg.c_str()); }
   void log_warning(const std::string &msg, ExecutionState &state) override { state.messages.push_back(msg); log_warning(msg); };

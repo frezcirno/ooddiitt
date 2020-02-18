@@ -321,8 +321,7 @@ namespace {
 
 
 namespace klee {
-  RNG theRNG;
-}
+RNG theRNG;
 
 Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
     InterpreterHandler *ih)
@@ -1487,11 +1486,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
-      if (interpreterOpts.mode == ExecModeID::rply)  {
-        assert(state.arguments.empty());
-        if (!isVoidReturn)
-          state.arguments.push_back(result);
-      }
+
+      // RLR TODO: check return values here from entry function
       terminateStateOnExit(state);
     } else {
       state.popFrame();
@@ -1533,6 +1529,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
           }
 
           bindLocal(kcaller, state, result);
+          state.last_ret_value = result;
         }
       } else {
         // We check that the return value has no users instead of
@@ -3727,6 +3724,17 @@ void Executor::prepareForEarlyExit() {
     // Make sure stats get flushed out
     statsTracker->done();
   }
+}
+
+void Executor::getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryObject*> &objects) {
+
+  for (auto &itr : globalObjects) {
+    if (const llvm::GlobalVariable *gv = dyn_cast<GlobalVariable>(itr.first)) {
+      objects.insert(std::make_pair(gv, itr.second));
+    }
+  }
+}
+
 }
 
 ///

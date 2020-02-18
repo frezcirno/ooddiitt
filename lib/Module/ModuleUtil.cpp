@@ -45,8 +45,9 @@
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
 using namespace llvm;
-using namespace klee;
 using namespace std;
+
+namespace klee {
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 /// Based on GetAllUndefinedSymbols() from LLVM3.2
@@ -64,7 +65,7 @@ using namespace std;
 ///                     undefined symbols.
 ///
 static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
-  static const string llvmIntrinsicPrefix="llvm.";
+  static const string llvmIntrinsicPrefix = "llvm.";
   set<string> DefinedSymbols;
   UndefinedSymbols.clear();
   KLEE_DEBUG_WITH_TYPE("klee_linker",
@@ -76,9 +77,9 @@ static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
         UndefinedSymbols.insert(I->getName());
       else if (!I->hasLocalLinkage()) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-            assert(!I->hasDLLImportLinkage() && "Found dllimported non-external symbol!");
+        assert(!I->hasDLLImportLinkage() && "Found dllimported non-external symbol!");
 #else
-            assert(!I->hasDLLImportStorageClass() && "Found dllimported non-external symbol!");
+        assert(!I->hasDLLImportStorageClass() && "Found dllimported non-external symbol!");
 #endif
         DefinedSymbols.insert(I->getName());
       }
@@ -91,9 +92,9 @@ static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
         UndefinedSymbols.insert(I->getName());
       else if (!I->hasLocalLinkage()) {
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-            assert(!I->hasDLLImportLinkage() && "Found dllimported non-external symbol!");
+        assert(!I->hasDLLImportLinkage() && "Found dllimported non-external symbol!");
 #else
-            assert(!I->hasDLLImportStorageClass() && "Found dllimported non-external symbol!");
+        assert(!I->hasDLLImportStorageClass() && "Found dllimported non-external symbol!");
 #endif
         DefinedSymbols.insert(I->getName());
       }
@@ -109,20 +110,17 @@ static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
   // and other symbols we don't want to treat as an undefined symbol
   vector<string> SymbolsToRemove;
   for (set<string>::iterator I = UndefinedSymbols.begin();
-       I != UndefinedSymbols.end(); ++I )
-  {
-    if (DefinedSymbols.count(*I))
-    {
+       I != UndefinedSymbols.end(); ++I) {
+    if (DefinedSymbols.count(*I)) {
       SymbolsToRemove.push_back(*I);
       continue;
     }
 
     // Strip out llvm intrinsics
-    if ( (I->size() >= llvmIntrinsicPrefix.size() ) &&
-       (I->compare(0, llvmIntrinsicPrefix.size(), llvmIntrinsicPrefix) == 0) )
-    {
+    if ((I->size() >= llvmIntrinsicPrefix.size()) &&
+        (I->compare(0, llvmIntrinsicPrefix.size(), llvmIntrinsicPrefix) == 0)) {
       KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "LLVM intrinsic " << *I <<
-                      " has will be removed from undefined symbols"<< "\n");
+                                                 " has will be removed from undefined symbols" << "\n");
       SymbolsToRemove.push_back(*I);
       continue;
     }
@@ -134,34 +132,30 @@ static void GetAllUndefinedSymbols(Module *M, set<string> &UndefinedSymbols) {
 
   // Remove KLEE intrinsics from set of undefined symbols
   for (SpecialFunctionHandler::const_iterator sf = SpecialFunctionHandler::begin(),
-       se = SpecialFunctionHandler::end(); sf != se; ++sf)
-  {
+           se = SpecialFunctionHandler::end(); sf != se; ++sf) {
     if (UndefinedSymbols.find(sf->name) == UndefinedSymbols.end())
       continue;
 
     SymbolsToRemove.push_back(sf->name);
     KLEE_DEBUG_WITH_TYPE("klee_linker",
                          dbgs() << "KLEE intrinsic " << sf->name <<
-                         " has will be removed from undefined symbols"<< "\n");
+                                " has will be removed from undefined symbols" << "\n");
   }
 
   // Now remove the symbols from undefined set.
-  for (size_t i = 0, j = SymbolsToRemove.size(); i < j; ++i )
+  for (size_t i = 0, j = SymbolsToRemove.size(); i < j; ++i)
     UndefinedSymbols.erase(SymbolsToRemove[i]);
 
   KLEE_DEBUG_WITH_TYPE("klee_linker",
                        dbgs() << "*** Finished computing undefined symbols ***\n");
 }
 
-
 /*!  A helper function for linkBCA() which cleans up
  *   memory allocated by that function.
  */
-static void CleanUpLinkBCA(vector<Module*> &archiveModules)
-{
-  for (vector<Module*>::iterator I = archiveModules.begin(), E = archiveModules.end();
-      I != E; ++I)
-  {
+static void CleanUpLinkBCA(vector<Module *> &archiveModules) {
+  for (vector<Module *>::iterator I = archiveModules.begin(), E = archiveModules.end();
+       I != E; ++I) {
     delete (*I);
   }
 }
@@ -175,17 +169,15 @@ static void CleanUpLinkBCA(vector<Module*> &archiveModules)
  *
  *  \return True if linking succeeds otherwise false
  */
-static bool linkBCA(object::Archive* archive, Module* composite, string& errorMessage)
-{
+static bool linkBCA(object::Archive *archive, Module *composite, string &errorMessage) {
   llvm::raw_string_ostream SS(errorMessage);
-  vector<Module*> archiveModules;
+  vector<Module *> archiveModules;
 
   // Is this efficient? Could we use StringRef instead?
   set<string> undefinedSymbols;
   GetAllUndefinedSymbols(composite, undefinedSymbols);
 
-  if (undefinedSymbols.size() == 0)
-  {
+  if (undefinedSymbols.size() == 0) {
     // Nothing to do
     KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "No undefined symbols. Not linking anything in!\n");
     return true;
@@ -194,68 +186,54 @@ static bool linkBCA(object::Archive* archive, Module* composite, string& errorMe
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Loading modules\n");
   // Load all bitcode files in to memory so we can examine their symbols
   for (object::Archive::child_iterator AI = archive->begin_children(),
-       AE = archive->end_children(); AI != AE; ++AI)
-  {
+           AE = archive->end_children(); AI != AE; ++AI) {
 
     StringRef memberName;
     llvm::error_code ec = AI->getName(memberName);
 
-    if ( ec == llvm::errc::success )
-    {
+    if (ec == llvm::errc::success) {
       KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Loading archive member " << memberName << "\n");
-    }
-    else
-    {
-      errorMessage="Archive member does not have a name!\n";
+    } else {
+      errorMessage = "Archive member does not have a name!\n";
       return false;
     }
 
     OwningPtr<object::Binary> child;
     ec = AI->getAsBinary(child);
-    if (ec != object::object_error::success)
-    {
+    if (ec != object::object_error::success) {
       // If we can't open as a binary object file its hopefully a bitcode file
 
       OwningPtr<MemoryBuffer> buff; // Once this is destroyed will Module still be valid??
       Module *Result = 0;
 
-      if (llvm::error_code ec = AI->getMemoryBuffer(buff))
-      {
-        SS << "Failed to get MemoryBuffer: " <<ec.message();
+      if (llvm::error_code ec = AI->getMemoryBuffer(buff)) {
+        SS << "Failed to get MemoryBuffer: " << ec.message();
         SS.flush();
         return false;
       }
 
-      if (buff)
-      {
+      if (buff) {
         // FIXME: Maybe load bitcode file lazily? Then if we need to link, materialise the module
         Result = ParseBitcodeFile(buff.get(), composite->getContext(), &errorMessage);
 
-        if(!Result)
-        {
+        if (!Result) {
           SS << "Loading module failed : " << errorMessage << "\n";
           SS.flush();
           return false;
         }
         archiveModules.push_back(Result);
-      }
-      else
-      {
-        errorMessage="Buffer was NULL!";
+      } else {
+        errorMessage = "Buffer was NULL!";
         return false;
       }
 
-    }
-    else if (child.get()->isObject())
-    {
+    } else if (child.get()->isObject()) {
       SS << "Object file " << child.get()->getFileName().data() <<
-            " in archive is not supported";
+         " in archive is not supported";
       SS.flush();
       return false;
-    }
-    else
-    {
-      SS << "Loading archive child with error "<< ec.message();
+    } else {
+      SS << "Loading archive child with error " << ec.message();
       SS.flush();
       return false;
     }
@@ -264,50 +242,42 @@ static bool linkBCA(object::Archive* archive, Module* composite, string& errorMe
 
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Loaded " << archiveModules.size() << " modules\n");
 
-
   set<string> previouslyUndefinedSymbols;
 
   // Walk through the modules looking for definitions of undefined symbols
   // if we find a match we should link that module in.
-  unsigned int passCounter=0;
-  do
-  {
-    unsigned int modulesLoadedOnPass=0;
+  unsigned int passCounter = 0;
+  do {
+    unsigned int modulesLoadedOnPass = 0;
     previouslyUndefinedSymbols = undefinedSymbols;
 
-    for (size_t i = 0, j = archiveModules.size(); i < j; ++i)
-    {
+    for (size_t i = 0, j = archiveModules.size(); i < j; ++i) {
       // skip empty archives
       if (archiveModules[i] == 0)
         continue;
-      Module * M = archiveModules[i];
+      Module *M = archiveModules[i];
       // Look for the undefined symbols in the composite module
       for (set<string>::iterator S = undefinedSymbols.begin(), SE = undefinedSymbols.end();
-         S != SE; ++S)
-      {
+           S != SE; ++S) {
 
         // FIXME: We aren't handling weak symbols here!
         // However the algorithm used in LLVM3.2 didn't seem to either
         // so maybe it doesn't matter?
 
-        if ( GlobalValue* GV = dyn_cast_or_null<GlobalValue>(M->getValueSymbolTable().lookup(*S)))
-        {
-          if (GV->isDeclaration()) continue; // Not a definition
+        if (GlobalValue *GV = dyn_cast_or_null<GlobalValue>(M->getValueSymbolTable().lookup(*S))) {
+          if (GV->isDeclaration())
+            continue; // Not a definition
 
           KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Found " << GV->getName() <<
-              " in " << M->getModuleIdentifier() << "\n");
+                                                     " in " << M->getModuleIdentifier() << "\n");
 
-
-          if (Linker::LinkModules(composite, M, Linker::DestroySource, &errorMessage))
-          {
+          if (Linker::LinkModules(composite, M, Linker::DestroySource, &errorMessage)) {
             // Linking failed
             SS << "Linking archive module with composite failed:" << errorMessage;
             SS.flush();
             CleanUpLinkBCA(archiveModules);
             return false;
-          }
-          else
-          {
+          } else {
             // Link succeed, now clean up
             modulesLoadedOnPass++;
             KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Linking succeeded.\n");
@@ -328,8 +298,8 @@ static bool linkBCA(object::Archive* archive, Module* composite, string& errorMe
 
     passCounter++;
     KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Completed " << passCounter <<
-                " linker passes.\n" << modulesLoadedOnPass <<
-                " modules loaded on the last pass\n");
+                                               " linker passes.\n" << modulesLoadedOnPass <<
+                                               " modules loaded on the last pass\n");
   } while (undefinedSymbols != previouslyUndefinedSymbols); // Iterate until we reach a fixed point
 
 
@@ -341,19 +311,18 @@ static bool linkBCA(object::Archive* archive, Module* composite, string& errorMe
 }
 #endif
 
-
-Module *klee::linkWithLibrary(Module *module, const string &libraryName) {
+Module *linkWithLibrary(Module *module, const string &libraryName) {
   KLEE_DEBUG_WITH_TYPE("klee_linker", dbgs() << "Linking file " << libraryName << "\n");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
   if (!sys::fs::exists(libraryName)) {
     klee_error("Link with library %s failed. No such file.",
-        libraryName.c_str());
+               libraryName.c_str());
   }
 
   OwningPtr<MemoryBuffer> Buffer;
-  if (llvm::error_code ec = MemoryBuffer::getFile(libraryName,Buffer)) {
+  if (llvm::error_code ec = MemoryBuffer::getFile(libraryName, Buffer)) {
     klee_error("Link with library %s failed: %s", libraryName.c_str(),
-        ec.message().c_str());
+               ec.message().c_str());
   }
 
   sys::fs::file_magic magic = sys::fs::identify_magic(Buffer->getBuffer());
@@ -365,11 +334,10 @@ Module *klee::linkWithLibrary(Module *module, const string &libraryName) {
     Module *Result = 0;
     Result = ParseBitcodeFile(Buffer.get(), Context, &ErrorMessage);
 
-
     if (!Result || Linker::LinkModules(module, Result, Linker::DestroySource,
-        &ErrorMessage))
+                                       &ErrorMessage))
       klee_error("Link with library %s failed: %s", libraryName.c_str(),
-          ErrorMessage.c_str());
+                 ErrorMessage.c_str());
 
     delete Result;
 
@@ -377,28 +345,27 @@ Module *klee::linkWithLibrary(Module *module, const string &libraryName) {
     OwningPtr<object::Binary> arch;
     if (llvm::error_code ec = object::createBinary(Buffer.take(), arch))
       klee_error("Link with library %s failed: %s", libraryName.c_str(),
-          ec.message().c_str());
+                 ec.message().c_str());
 
     if (object::Archive *a = dyn_cast<object::Archive>(arch.get())) {
       // Handle in helper
       if (!linkBCA(a, module, ErrorMessage))
         klee_error("Link with library %s failed: %s", libraryName.c_str(),
-            ErrorMessage.c_str());
-    }
-    else {
-    	klee_error("Link with library %s failed: Cast to archive failed", libraryName.c_str());
+                   ErrorMessage.c_str());
+    } else {
+      klee_error("Link with library %s failed: Cast to archive failed", libraryName.c_str());
     }
 
   } else if (magic.is_object()) {
     OwningPtr<object::Binary> obj;
     if (obj.get()->isObject()) {
       klee_warning("Link with library: Object file %s in archive %s found. "
-          "Currently not supported.",
-          obj.get()->getFileName().data(), libraryName.c_str());
+                   "Currently not supported.",
+                   obj.get()->getFileName().data(), libraryName.c_str());
     }
   } else {
     klee_error("Link with library %s failed: Unrecognized file type.",
-        libraryName.c_str());
+               libraryName.c_str());
   }
 
   return module;
@@ -416,7 +383,7 @@ Module *klee::linkWithLibrary(Module *module, const string &libraryName) {
 #endif
 }
 
-Function *klee::getDirectCallTarget(CallSite cs, bool moduleIsFullyLinked) {
+Function *getDirectCallTarget(CallSite cs, bool moduleIsFullyLinked) {
   Value *v = cs.getCalledValue();
   bool viaConstantExpr = false;
   // Walk through aliases and bitcasts to try to find
@@ -441,7 +408,7 @@ Function *klee::getDirectCallTarget(CallSite cs, bool moduleIsFullyLinked) {
   // NOTE: This assert may fire, it isn't necessarily a problem and
   // can be disabled, I just wanted to know when and if it happened.
   assert((!viaConstantExpr) &&
-         "FIXME: Unresolved direct target for a constant expression");
+      "FIXME: Unresolved direct target for a constant expression");
   return NULL;
 }
 
@@ -449,25 +416,27 @@ static bool valueIsOnlyCalled(const Value *v) {
   for (Value::const_use_iterator it = v->use_begin(), ie = v->use_end();
        it != ie; ++it) {
     if (const Instruction *instr = dyn_cast<Instruction>(*it)) {
-      if (instr->getOpcode()==0) continue; // XXX function numbering inst
+      if (instr->getOpcode() == 0)
+        continue; // XXX function numbering inst
 
       // Make sure the instruction is a call or invoke.
       CallSite cs(const_cast<Instruction *>(instr));
-      if (!cs) return false;
+      if (!cs)
+        return false;
 
       // Make sure that the value is only the target of this call and
       // not an argument.
       if (cs.hasArgument(v))
         return false;
     } else if (const llvm::ConstantExpr *ce =
-               dyn_cast<llvm::ConstantExpr>(*it)) {
-      if (ce->getOpcode()==Instruction::BitCast)
+        dyn_cast<llvm::ConstantExpr>(*it)) {
+      if (ce->getOpcode() == Instruction::BitCast)
         if (valueIsOnlyCalled(ce))
           continue;
       return false;
     } else if (const GlobalAlias *ga = dyn_cast<GlobalAlias>(*it)) {
       // XXX what about v is bitcast of aliasee?
-      if (v==ga->getAliasee() && !valueIsOnlyCalled(ga))
+      if (v == ga->getAliasee() && !valueIsOnlyCalled(ga))
         return false;
     } else {
       return false;
@@ -477,11 +446,11 @@ static bool valueIsOnlyCalled(const Value *v) {
   return true;
 }
 
-bool klee::functionEscapes(const Function *f) {
+bool functionEscapes(const Function *f) {
   return !valueIsOnlyCalled(f);
 }
 
-void klee::enumModuleFunctions(Module *m, set<Function*> &fns) {
+void enumModuleFunctions(Module *m, set<Function *> &fns) {
 
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
     Function *fn = itr;
@@ -491,7 +460,7 @@ void klee::enumModuleFunctions(Module *m, set<Function*> &fns) {
   }
 }
 
-void klee::enumModuleGlobals(Module *m, set<GlobalVariable*> &gbs) {
+void enumModuleGlobals(Module *m, set<GlobalVariable *> &gbs) {
 
   for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
@@ -503,23 +472,24 @@ void klee::enumModuleGlobals(Module *m, set<GlobalVariable*> &gbs) {
   }
 }
 
-void klee::enumModuleVisibleDefines(Module *m, set<Function*> &fns, set<GlobalVariable*> &gbs) {
+void enumModuleVisibleDefines(Module *m, set<Function *> &fns, set<GlobalVariable *> &gbs) {
 
   enumModuleFunctions(m, fns);
   enumModuleGlobals(m, gbs);
 }
 
-Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &recs) {
+Module *rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &recs) {
 
   // construct a map by function of the indirect calls to rewrite
-  map<Function*,map<string,Function*> > rewrite_map;
-  map<string,Function*> &rewrite_global = rewrite_map[nullptr];
+  map<Function *, map<string, Function *> > rewrite_map;
+  map<string, Function *> &rewrite_global = rewrite_map[nullptr];
   for (const auto &rec : recs) {
     Function *target = nullptr;
     if (!rec.target.empty()) {
       target = m->getFunction(rec.target);
       // if target is not in this module, then skip to the next record
-      if (target == nullptr) continue;
+      if (target == nullptr)
+        continue;
     }
     // if target is null, then the empty target was specified
     if (rec.scope.empty()) {
@@ -545,8 +515,8 @@ Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &
       string fn_name = fn->getName();
 #endif
       // cannot change instructions while iterating, so just store the changes to be made
-      vector<Instruction*> drops;
-      vector<pair<Instruction*,Instruction*> > replacements;
+      vector<Instruction *> drops;
+      vector<pair<Instruction *, Instruction *> > replacements;
 
       for (auto itr = bb.begin(), end = bb.end(); itr != end; ++itr) {
         if (Instruction *old_inst = &*itr) {
@@ -594,7 +564,7 @@ Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &
                     replacements.emplace_back(make_pair(old_inst, new_inst));
                   }
                 } else {
-                  outs() << "Warning: unpatched function pointer (" <<  sig <<  ") in " << fn->getName() << '\n';
+                  outs() << "Warning: unpatched function pointer (" << sig << ") in " << fn->getName() << '\n';
                 }
               }
             }
@@ -607,7 +577,8 @@ Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &
       }
 
       for (auto &pr : replacements) {
-        if (!pr.first->use_empty()) pr.first->replaceAllUsesWith(pr.second);
+        if (!pr.first->use_empty())
+          pr.first->replaceAllUsesWith(pr.second);
         ReplaceInstWithInst(pr.first, pr.second);
       }
     }
@@ -615,19 +586,18 @@ Module *klee::rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &
   return m;
 }
 
-bool klee::isPrepared(Module *m) {
+bool isPrepared(Module *m) {
   NamedMDNode *NMD = m->getNamedMetadata("brt-klee.usr-fns");
   return NMD != nullptr;
 }
 
-
-void klee::modify_clib(llvm::Module *module) {
+void modify_clib(llvm::Module *module) {
 
   // remove the body of __check_one_fd
 
   // and trivialize functions we will never use
   // RLR TODO: may need to trivialize or capture other functions
-  set<string> drop_fns { "isatty", "tcgetattr", "ioctl", "__check_one_fd" };
+  set<string> drop_fns{"isatty", "tcgetattr", "ioctl", "__check_one_fd"};
   for (const auto &name : drop_fns) {
     if (Function *fn = module->getFunction(name)) {
       fn->dropAllReferences();
@@ -635,7 +605,7 @@ void klee::modify_clib(llvm::Module *module) {
   }
 
   // clean up unused declarations
-  set<Function*> unused_decls;
+  set<Function *> unused_decls;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
     if (fn->isDeclaration() && fn->getNumUses() == 0) {
@@ -648,3 +618,107 @@ void klee::modify_clib(llvm::Module *module) {
   }
 
 }
+
+static bool isEquivalentType(const Type *type1, const Type *type2, set<pair<const Type *, const Type *> > &visited) {
+
+  // get the easy cases first
+  if (type1 == type2)
+    return true;
+
+  Type::TypeID tid = type1->getTypeID();
+  if (tid != type2->getTypeID())
+    return false;
+
+  // if this is a circular type reference, default to true
+  if (visited.find(make_pair(type1, type2)) != visited.end())
+    return true;
+  visited.insert(make_pair(type1, type2));
+
+  // how we have to check by type id
+  switch (tid) {
+
+    case Type::VoidTyID:
+    case Type::FloatTyID:
+    case Type::DoubleTyID:
+    case Type::X86_FP80TyID:
+    case Type::FP128TyID:
+    case Type::PPC_FP128TyID:
+    case Type::LabelTyID:
+    case Type::MetadataTyID:return true;
+
+    case Type::IntegerTyID: {
+      const auto *int1 = cast<IntegerType>(type1);
+      const auto *int2 = cast<IntegerType>(type2);
+      return int1->getBitWidth() == int2->getBitWidth();
+    }
+
+    case Type::PointerTyID: {
+      const auto *ptr1 = cast<PointerType>(type1);
+      const auto *ptr2 = cast<PointerType>(type2);
+      return isEquivalentType(ptr1->getPointerElementType(), ptr2->getPointerElementType(), visited);
+    }
+
+    case Type::ArrayTyID: {
+      const auto *array1 = cast<ArrayType>(type1);
+      const auto *array2 = cast<ArrayType>(type2);
+      if (array1->getNumElements() != array2->getNumElements())
+        return false;
+      return isEquivalentType(array1->getElementType(), array2->getElementType(), visited);
+    }
+
+    case Type::VectorTyID: {
+      const auto *vec1 = cast<VectorType>(type1);
+      const auto *vec2 = cast<VectorType>(type2);
+      if (vec1->getNumElements() != vec2->getNumElements())
+        return false;
+      return isEquivalentType(vec1->getElementType(), vec2->getElementType(), visited);
+    }
+
+    case Type::StructTyID: {
+      const auto *struct1 = cast<StructType>(type1);
+      const auto *struct2 = cast<StructType>(type2);
+
+      if (struct1->isPacked() != struct2->isPacked())
+        return false;
+      if (struct1->getNumElements() != struct2->getNumElements())
+        return false;
+
+      for (unsigned idx = 0, end = struct1->getNumElements(); idx != end; ++idx) {
+        if (!isEquivalentType(struct1->getElementType(idx), struct2->getElementType(idx), visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    case Type::FunctionTyID: {
+      const auto *fn1 = cast<FunctionType>(type1);
+      const auto *fn2 = cast<FunctionType>(type2);
+      if (fn1->isVarArg() != fn2->isVarArg())
+        return false;
+      if (fn1->getNumParams() != fn2->getNumParams())
+        return false;
+      if (!isEquivalentType(fn1->getReturnType(), fn2->getReturnType(), visited))
+        return false;
+
+      for (unsigned idx = 0, end = fn1->getNumParams(); idx != end; ++idx) {
+        if (!isEquivalentType(fn1->getParamType(idx), fn2->getParamType(idx), visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    default:klee_error("unknown type in comparison");
+  }
+  // should not arrive here...
+  return false;
+}
+
+bool isEquivalentType(const Type *type1, const Type *type2) {
+
+  set<pair<const Type *, const Type *> > visited;
+  return isEquivalentType(type1, type2, visited);
+}
+
+} // end namespace klee

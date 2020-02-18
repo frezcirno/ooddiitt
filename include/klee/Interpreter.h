@@ -29,6 +29,7 @@ namespace llvm {
 class Function;
 class LLVMContext;
 class Module;
+class GlobalVariable;
 class raw_ostream;
 class raw_fd_ostream;
 }
@@ -226,6 +227,7 @@ public:
   /// inserted, and modified for interpretation.
   virtual void bindModule(KModule *kmodule) = 0;
 
+  virtual void getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryObject*> &objects) = 0;
 
   // supply a tree stream writer which the interpreter will use
   // to record the concrete path (as a stream of '0' and '1' bytes).

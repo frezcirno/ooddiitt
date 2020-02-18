@@ -84,6 +84,7 @@ public:
 
   void onStateInitialize(ExecutionState &state) override {
     cmp_state.initialState = new ExecutionState(state);
+    getInterpreter()->getGlobalVariableMap(cmp_state.global_map);
   }
 
   void onStateFinalize(ExecutionState &state) override {
@@ -477,21 +478,31 @@ int main(int argc, char **argv, char **envp) {
         if ((version2.finalState == nullptr) || (version2.finalState->status != StateStatus::Completed)) {
 
           // ver1 completed, but ver2 did not
+          // emit record to diff log
 
         } else {
 
-          outs() << "Test: " << test_file << '\n';
-          outs() << "seq1:\n";
-          for (auto &pr : version1.fn_returns) {
-            KFunction *kf = pr.first;
-            outs() << kf->getName() << '\n';
+          deque<CompareDiff> diffs;
+          if (test.is_main()) {
+
+            version1.compareExternalState(test, version2, diffs);
+          } else {
+
+            if (version1.alignFnReturns(version2)) {
+
+              version1.compareInternalState(test, version2, diffs);
+            } else {
+              // failed to align fn call returns, states are not comparable
+
+            }
           }
-          outs() << "seq2:\n";
-          for (auto &pr : version2.fn_returns) {
-            KFunction *kf = pr.first;
-            outs() << kf->getName() << '\n';
+
+          if (!diffs.empty()) {
+            outs() << test_file << ":\n";
+            for (const auto &diff : diffs) {
+              outs().indent(2) << diff.desc << oendl;
+            }
           }
-          outs() << "End: " << test_file << '\n';
 
 #if 0 == 1
           deque<string> diffs;
