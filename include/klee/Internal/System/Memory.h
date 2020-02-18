@@ -228,7 +228,6 @@ public:
   void initializeToRandom();
 
   bool cloneWritten(const ObjectState *src);
-  void resetBytesWritten();
   bool isWritten() const { return writtenMask != nullptr; }
   void clearWritten();
   unsigned getPhysicalSize() const { return object->size; }

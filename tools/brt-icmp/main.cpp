@@ -98,7 +98,7 @@ public:
     if (!state.stack.empty()) {
       KFunction *returning = state.stack.back().kf;
       if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
-        cmp_state.fn_returns.push_back(returning->function->getName());
+        cmp_state.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
       }
     }
   }
@@ -474,20 +474,22 @@ int main(int argc, char **argv, char **envp) {
         theInterpreter = nullptr;
 
         version2.kmodule = interpreter2->getKModule();
-        if (version2.finalState == nullptr) {
+        if ((version2.finalState == nullptr) || (version2.finalState->status != StateStatus::Completed)) {
 
-        } else if (version2.finalState->status != StateStatus::Completed) {
+          // ver1 completed, but ver2 did not
 
         } else {
 
           outs() << "Test: " << test_file << '\n';
           outs() << "seq1:\n";
-          for (const auto &str : version1.fn_returns) {
-            outs() << str << '\n';
+          for (auto &pr : version1.fn_returns) {
+            KFunction *kf = pr.first;
+            outs() << kf->getName() << '\n';
           }
           outs() << "seq2:\n";
-          for (const auto &str : version2.fn_returns) {
-            outs() << str << '\n';
+          for (auto &pr : version2.fn_returns) {
+            KFunction *kf = pr.first;
+            outs() << kf->getName() << '\n';
           }
           outs() << "End: " << test_file << '\n';
 

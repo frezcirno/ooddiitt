@@ -419,7 +419,7 @@ protected:
 
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ie);
-  virtual ~Executor();
+  ~Executor() override;
 
   const InterpreterHandler& getHandler() {
     return *interpreterHandler;
@@ -428,20 +428,20 @@ public:
   // XXX should just be moved out to utility module
   ref<klee::ConstantExpr> evalConstant(const llvm::Constant *c);
 
-  virtual void setPathWriter(TreeStreamWriter *tsw) {
+  void setPathWriter(TreeStreamWriter *tsw) override {
     pathWriter = tsw;
   }
-  virtual void setSymbolicPathWriter(TreeStreamWriter *tsw) {
+  void setSymbolicPathWriter(TreeStreamWriter *tsw) override {
     symPathWriter = tsw;
   }
 
-  virtual void setReplayKTest(const struct KTest *out) {
+  void setReplayKTest(const struct KTest *out) override {
     assert(!replayPath && "cannot replay both buffer and path");
     replayKTest = out;
     replayPosition = 0;
   }
 
-  virtual void setReplayPath(const std::vector<bool> *path) {
+  void setReplayPath(const std::vector<bool> *path) override {
     assert(!replayKTest && "cannot replay both buffer and path");
     replayPath = path;
     replayPosition = 0;
@@ -449,46 +449,41 @@ public:
 
   void bindModule(KModule *kmodule) override;
 
-  virtual void useSeeds(const std::vector<struct KTest *> *seeds) {
+  void useSeeds(const std::vector<struct KTest *> *seeds) override {
     usingSeeds = seeds;
   }
 
-  virtual void runFunctionAsMain(llvm::Function *f,
-                                 int argc,
-                                 char **argv,
-                                 char **envp);
+  void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
 
   /*** Runtime options ***/
 
-  virtual void setHaltExecution(bool value) {
+  void setHaltExecution(bool value) override {
     haltExecution = value;
   }
 
-  virtual void setInhibitForking(bool value) {
+  void setInhibitForking(bool value) override {
     inhibitForking = value;
   }
 
-  void prepareForEarlyExit();
+  void prepareForEarlyExit() override;
 
   /*** State accessor methods ***/
 
-  virtual unsigned getPathStreamID(const ExecutionState &state);
+  unsigned getPathStreamID(const ExecutionState &state) override;
 
-  virtual unsigned getSymbolicPathStreamID(const ExecutionState &state);
+  unsigned getSymbolicPathStreamID(const ExecutionState &state) override;
 
-  virtual void getConstraintLog(const ExecutionState &state,
-                                std::string &res,
-                                LogType logFormat = LogType::STP);
+  void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) override;
+  void getConstraintLog(const ExecutionState &state, std::string &res) { getConstraintLog(state, res, LogType::STP); }
 
   bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) override;
 
-  virtual void getCoveredLines(const ExecutionState &state,
-                               std::map<const std::string*, std::set<unsigned> > &res);
+  void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) override;
 
   Expr::Width getWidthForLLVMType(LLVM_TYPE_Q llvm::Type *type) const;
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;
 
-  KModule *getKModule() const { return kmodule; }
+  KModule *getKModule() const override { return kmodule; }
 
   void log_warning(const std::string &msg) override { klee_warning("%s", msg.c_str()); }
   void log_warning(const std::string &msg, ExecutionState &state) override { state.messages.push_back(msg); log_warning(msg); };

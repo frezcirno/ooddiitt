@@ -299,6 +299,16 @@ bool CompareInternalExecutions(CompareState &version1, CompareState &version2, d
   return diffs.empty();
 }
 
+CompareState::~CompareState() {
+
+  // modules are deleted explicitly
+  delete initialState;
+  delete finalState;
+  for (auto &pr : fn_returns) {
+    delete pr.second;
+  }
+}
+
 #if 0 == 1
 
 

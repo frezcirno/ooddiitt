@@ -11,7 +11,6 @@
 
 #include "Context.h"
 #include "klee/Expr.h"
-#include "klee/Solver.h"
 #include "klee/util/BitArray.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/util/ArrayCache.h"
@@ -372,12 +371,6 @@ bool ObjectState::isByteWritten(unsigned offset) const {
   return writtenMask && writtenMask->get(offset);
 }
 
-void ObjectState::resetBytesWritten() {
-
-  delete writtenMask;
-  writtenMask = nullptr;
-}
-
 void ObjectState::markByteConcrete(unsigned offset) {
   if (concreteMask)
     concreteMask->set(offset);
@@ -421,10 +414,6 @@ void ObjectState::setKnownSymbolic(unsigned offset,
   }
 }
 
-
-// !!! Warning: this does not do what I thought it did.  the assignement
-// does not create a constraint and will not be reflected in the generated solution
-
 bool ObjectState::cloneWritten(const ObjectState *src) {
 
   // copy attributes over from src
@@ -447,7 +436,8 @@ bool ObjectState::cloneWritten(const ObjectState *src) {
 
 void ObjectState::clearWritten() {
   if (writtenMask != nullptr) {
-    delete writtenMask; writtenMask = nullptr;
+    delete writtenMask;
+    writtenMask = nullptr;
   }
 }
 

@@ -12,16 +12,17 @@ namespace klee {
 
 class KModule;
 class ExecutionState;
+class KFunction;
 
 struct CompareState {
   KModule *kmodule;
   ExecutionState *initialState;
   ExecutionState *finalState;
   bool forked;
-  std::deque<std::string> fn_returns;
+  std::deque<std::pair<KFunction*,ExecutionState*> > fn_returns;
 
   explicit CompareState(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false) {}
-  ~CompareState() { delete initialState; delete finalState; }
+  virtual ~CompareState();
 };
 
 }

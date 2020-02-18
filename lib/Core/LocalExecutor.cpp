@@ -786,7 +786,7 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
     for (size_t idx = 0, end = data.size(); idx < end; ++idx) {
       os->write8(idx, data[idx]);
     }
-    os->resetBytesWritten();
+    os->clearWritten();
   }
   return mo;
 }

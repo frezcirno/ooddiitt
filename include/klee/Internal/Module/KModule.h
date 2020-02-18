@@ -90,6 +90,7 @@ namespace klee {
     bool isDiffChanged() const      {return diff_body || diff_sig; }
     bool isDiffChangedBody() const  {return diff_body; }
     bool isDiffChangedSig() const   {return diff_sig; }
+    std::string getName() const { std::string result; if (function != nullptr) result = function->getName().str(); return result; }
   };
 
 

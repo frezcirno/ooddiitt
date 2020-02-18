@@ -463,7 +463,7 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os,
     }
     os->write(offset, C);
   }
-  os->resetBytesWritten();
+  os->clearWritten();
 }
 
 MemoryObject * Executor::addExternalObject(ExecutionState &state,
@@ -1487,7 +1487,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
-      if (interpreterOpts.mode == ExecModeID::rply) {
+      if (interpreterOpts.mode == ExecModeID::rply)  {
         assert(state.arguments.empty());
         if (!isVoidReturn)
           state.arguments.push_back(result);
