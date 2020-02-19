@@ -4,6 +4,17 @@
 
 int gbar;
 
+typedef struct {
+  int bob;
+  int jane;
+} my_struct;
+
+unsigned *pbar;
+my_struct sbar;
+char abar[10];
+void (*fpbar)(unsigned);
+
+
 int foo01(unsigned bar) {
   gbar = bar + 1;
   return gbar;

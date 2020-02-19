@@ -1123,7 +1123,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         if (!allocSymbolic(*state, argType, &arg, MemKind::param, argName, wop, argAlign)) {
           klee_error("failed to allocate symbolic function parameter");
         }
-        ref<Expr> eArg = wop.second->read(0, kmodule->targetData->getTypeAllocSizeInBits(argType));
+        ref<Expr> eArg = wop.second->read(0, kmodule->targetData->getTypeStoreSizeInBits(argType));
         bindArgument(kf, index, *state, eArg);
         state->arguments.push_back(eArg);
       }
@@ -1769,7 +1769,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           Executor::executeInstruction(state, ki);
         }
-        if (kmodule->isUserFunction(ret_from->function)) {
+        if ((state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
           interpreterHandler->onStateUserFunctionReturn(state);
         }
       }
@@ -1952,7 +1952,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
                 // reconsider LazyAllocationCount for fallback size here...
                 if (eleType->isSized()) {
-                  eleSize = (unsigned) kmodule->targetData->getTypeAllocSize(eleType);
+                  eleSize = (unsigned) kmodule->targetData->getTypeStoreSize(eleType);
                 } else {
                   eleSize = lazyAllocationCount;
                 }

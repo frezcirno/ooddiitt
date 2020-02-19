@@ -74,24 +74,24 @@ namespace {
 class ICmpKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  CompareState &cmp_state;
+  StateVersion &ver;
 
 public:
-  explicit ICmpKleeHandler(CompareState &cmp) : InterpreterHandler(Output, cmp.kmodule->getModuleIdentifier()), cmp_state(cmp) {
+  explicit ICmpKleeHandler(StateVersion &_ver) : InterpreterHandler(Output, _ver.kmodule->getModuleIdentifier()), ver(_ver) {
     if (IndentJson) indentation = "  ";
   }
   ~ICmpKleeHandler() override = default;
 
   void onStateInitialize(ExecutionState &state) override {
-    cmp_state.initialState = new ExecutionState(state);
-    getInterpreter()->getGlobalVariableMap(cmp_state.global_map);
+    ver.initialState = new ExecutionState(state);
+    getInterpreter()->getGlobalVariableMap(ver.global_map);
   }
 
   void onStateFinalize(ExecutionState &state) override {
-    if (cmp_state.finalState == nullptr) {
-      cmp_state.finalState = new ExecutionState(state);
+    if (ver.finalState == nullptr) {
+      ver.finalState = new ExecutionState(state);
     } else {
-      cmp_state.forked = true;
+      ver.forked = true;
     }
   }
 
@@ -99,7 +99,7 @@ public:
     if (!state.stack.empty()) {
       KFunction *returning = state.stack.back().kf;
       if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
-        cmp_state.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
+        ver.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
       }
     }
   }
@@ -446,8 +446,8 @@ int main(int argc, char **argv, char **envp) {
       IOpts.trace = test.trace_type;
       IOpts.test_objs = &test.objects;
 
-      CompareState version1(kmod1);
-      CompareState version2(kmod2);
+      StateVersion version1(kmod1);
+      StateVersion version2(kmod2);
 
       auto *handler1 = new ICmpKleeHandler(version1);
       Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
@@ -482,46 +482,17 @@ int main(int argc, char **argv, char **envp) {
 
         } else {
 
-          deque<CompareDiff> diffs;
-          if (test.is_main()) {
-
-            version1.compareExternalState(test, version2, diffs);
-          } else {
-
-            if (version1.alignFnReturns(version2)) {
-
-              version1.compareInternalState(test, version2, diffs);
-            } else {
-              // failed to align fn call returns, states are not comparable
-
-            }
+          StateComparator cmp(test, version1, version2);
+          if (cmp.alignFnReturns()) {
+            cmp.doCompare();
           }
 
+#if 0 == 1
           if (!diffs.empty()) {
             outs() << test_file << ":\n";
             for (const auto &diff : diffs) {
               outs().indent(2) << diff.desc << oendl;
             }
-          }
-
-#if 0 == 1
-          deque<string> diffs;
-          bool is_same = false;
-
-          if (test.is_main()) {
-            is_same = CompareExternalExecutions(version1, version2, diffs);
-          } else {
-            is_same = CompareInternalExecutions(version1, version2, diffs);
-          }
-
-          if (is_same) {
-            outs() << "ok\n";
-          } else {
-            outs() << "differs\n";
-            for (const auto &diff : diffs) {
-              outs() << "  * " << diff << '\n';
-            }
-            exit_code = 1;
           }
 #endif
         }

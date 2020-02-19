@@ -18,58 +18,80 @@ class Type;
 
 namespace klee {
 
+struct StateVersion {
+  KModule *kmodule;
+  std::map<const llvm::GlobalVariable *, MemoryObject *> global_map;
+  ExecutionState *initialState;
+  ExecutionState *finalState;
+  bool forked;
+  std::deque<std::pair<KFunction *, ExecutionState *> > fn_returns;
+
+  explicit StateVersion(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false)  {}
+  virtual ~StateVersion();
+};
+
 struct CompareDiff {
   std::string desc;
 
   explicit CompareDiff(const std::string &d) : desc(d) { }
 };
 
-struct CompareState {
-  KModule *kmodule;
-  std::map<const llvm::GlobalVariable*,MemoryObject*> global_map;
-  ExecutionState *initialState;
-  ExecutionState *finalState;
-  bool forked;
-  std::deque<std::pair<KFunction*,ExecutionState*> > fn_returns;
+class StateComparator {
 
-  explicit CompareState(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false) {}
-  virtual ~CompareState();
-
-  bool alignFnReturns(CompareState &that);
-  bool compareExternalState(const TestCase &test, const CompareState &that, std::deque<CompareDiff> &diffs) const;
-  bool compareInternalState(const TestCase &test, const CompareState &that, std::deque<CompareDiff> &diffs) const;
-
-private:
+  const TestCase &test;
+  StateVersion &ver1;
+  StateVersion &ver2;
+  std::deque<CompareDiff> diffs;
+  std::set<std::pair<uint64_t,uint64_t> > visited_ptrs;
 
   struct CompareGlobalEntry {
     const MemoryObject *mo1;
     const MemoryObject *mo2;
-    const llvm::Type *type;
-    CompareGlobalEntry(const MemoryObject *m1, const MemoryObject *m2, const llvm::Type *t)
-      : mo1(m1), mo2(m2), type(t) {}
+    llvm::Type *type;
+    CompareGlobalEntry(const MemoryObject *m1, const MemoryObject *m2, llvm::Type *t)
+        : mo1(m1), mo2(m2), type(t) {}
   };
+  std::vector<CompareGlobalEntry> globals;
+  const llvm::DataLayout *datalayout;
+  Expr::Width ptr_width;
 
-  static void compareInternalState(KFunction *kf1, ExecutionState *state1,
-                                   KFunction *kf2, ExecutionState *state2,
-                                   const std::vector<CompareGlobalEntry> &globals,
-                                   std::deque<CompareDiff> &diffs);
+public:
+  StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2);
 
-  static void compareMemoryObjects(const MemoryObject *mo1, ExecutionState *state1,
-                                   const MemoryObject *mo2, ExecutionState *state2,
-                                   const llvm::Type *type,
-                                   std::deque<CompareDiff> &diffs);
+  bool alignFnReturns();
+  void doCompare();
 
-  static void compareExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
-                           const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
-                           const llvm::Type *type,
-                           std::deque<CompareDiff> &diffs);
+private:
+
+  void compareExternalState();
+  void compareInternalState();
+  void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
+  void compareObjectStates(const ObjectState *os1, uint64_t offset1, ExecutionState *state1,
+                           const ObjectState *os2, uint64_t offset2, ExecutionState *state2,
+                           llvm::Type *type);
+
+
+  void compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, ExecutionState *state1,
+                            const MemoryObject *mo2, uint64_t offset2, ExecutionState *state2,
+                            llvm::Type *type);
+
+  void compareMemoryObjects(const MemoryObject *mo1, ExecutionState *state1,
+                            const MemoryObject *mo2, ExecutionState *state2,
+                            llvm::Type *type)
+    { compareMemoryObjects(mo1, 0, state1, mo2, 0, state2, type); }
+
+
+  void compareExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
+                    const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
+                    llvm::Type *type);
+
+  void comparePtrs(const ref<klee::ConstantExpr> &addr1, ExecutionState *state1,
+                   const ref<klee::ConstantExpr> &addr2, ExecutionState *state2,
+                   llvm::PointerType *type);
+
 
 };
 
 }
-
-//bool CompareExternalExecutions(klee::CompareState &version1, klee::CompareState &version2, std::deque<std::string> &diffs);
-//bool CompareInternalExecutions(klee::CompareState &version1, klee::CompareState &version2, std::deque<std::string> &diffs);
-
 
 #endif //BRT_KLEE_STATECOMPARISON_H
