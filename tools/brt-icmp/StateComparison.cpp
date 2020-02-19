@@ -4,9 +4,7 @@
 
 #include "StateComparison.h"
 #include <vector>
-#include <boost/filesystem.hpp>
 
-#include "klee/ExecutionState.h"
 #include "klee/Internal/System/Memory.h"
 
 #include "llvm/Support/raw_ostream.h"
@@ -66,20 +64,16 @@ bool CompareState::compareExternalState(const TestCase &test, const CompareState
 
   unsigned num_original_diffs = diffs.size();
 
-  // each  must have zero or one final argument, it must be an int, and they must be equal
-  unsigned num_return_vals1 = finalState->arguments.size();
-  unsigned num_return_vals2 = that.finalState->arguments.size();
+  // each  must have a return value, it must be an int, and they must be equal
+  ref<ConstantExpr> exit_expr1 = dyn_cast<ConstantExpr>(finalState->last_ret_value);
+  ref<ConstantExpr> exit_expr2 = dyn_cast<ConstantExpr>(that.finalState->last_ret_value);
 
-  if (num_return_vals1 > 1 || num_return_vals2 > 1) {
-    // ensure both final states have a correct number of return values
-    diffs.emplace_back("too many return values");
-  } else if (num_return_vals1 != num_return_vals2) {
-    // ensure both final states have the same number of return values
-    diffs.emplace_back("mismatched return values");
-  } else if (num_return_vals1 == 1) {
+  if (exit_expr1.isNull() || exit_expr2.isNull()) {
+    diffs.emplace_back("missing exit code");
+  } else {
     // if they have one value, make sure its the same (could be no value in the case of an abort)
-    unsigned exit_code1 = cast<klee::ConstantExpr>(finalState->arguments[0])->getZExtValue(Expr::Int32);
-    unsigned exit_code2 = cast<klee::ConstantExpr>(that.finalState->arguments[0])->getZExtValue(Expr::Int32);
+    unsigned exit_code1 = exit_expr1->getZExtValue(Expr::Int32);
+    unsigned exit_code2 = exit_expr2->getZExtValue(Expr::Int32);
     if (exit_code1 != exit_code2) {
       diffs.emplace_back("different return value");
     }
@@ -160,16 +154,16 @@ void CompareState::compareInternalState(KFunction *kf1, ExecutionState *state1,
                                         std::deque<CompareDiff> &diffs) {
 
   Function *fn1 = kf1->function;
-//  Module *mod1 = fn1->getParent();
   Function *fn2 = kf2->function;
-//  Module *mod2 = fn2->getParent();
 
   // check the return value
-  if (isEquivalentType(fn1->getReturnType(), fn2->getReturnType())) {
-    Type *type = fn1->getReturnType();
-    if (!type->isVoidTy()) {
-      // RLR TODO: need a better way of getting the return values from intermediate functions
+  Type *type = fn1->getReturnType();
+  if (!type->isVoidTy() && isEquivalentType(type, fn2->getReturnType())) {
 
+    ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
+    ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
+    if (!(ret1.isNull() || ret2.isNull())) {
+      compareExprs(ret1, state1, ret2, state2, type, diffs);
     }
   }
 
@@ -199,6 +193,15 @@ void CompareState::compareMemoryObjects(const MemoryObject *mo1, ExecutionState 
 
 
 }
+
+void CompareState::compareExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
+                                const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
+                                const llvm::Type *type,
+                                std::deque<CompareDiff> &diffs) {
+
+
+}
+
 
 
 

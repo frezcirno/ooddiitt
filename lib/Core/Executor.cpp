@@ -1487,7 +1487,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
 
-      // RLR TODO: check return values here from entry function
+      state.last_ret_value = result;
       terminateStateOnExit(state);
     } else {
       state.popFrame();
@@ -1513,14 +1513,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
             CallSite cs = (isa<InvokeInst>(caller) ? CallSite(cast<InvokeInst>(caller)) :
                            CallSite(cast<CallInst>(caller)));
 
-            // XXX need to check other param attrs ?
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
-      bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
-#elif LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-	    bool isSExt = cs.paramHasAttr(0, llvm::Attributes::SExt);
-#else
-	    bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
-#endif
+            bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
             if (isSExt) {
               result = SExtExpr::create(result, to);
             } else {
@@ -1528,8 +1521,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
             }
           }
 
-          bindLocal(kcaller, state, result);
           state.last_ret_value = result;
+          bindLocal(kcaller, state, result);
         }
       } else {
         // We check that the return value has no users instead of
@@ -1542,29 +1535,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     }
     break;
   }
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 1)
-  case Instruction::Unwind: {
-    for (;;) {
-      KInstruction *kcaller = state.stack.back().caller;
-      state.popFrame();
 
-      if (statsTracker)
-        statsTracker->framePopped(state);
-
-      if (state.stack.empty()) {
-        terminateStateOnExecError(state, "unwind from initial stack frame");
-        break;
-      } else {
-        Instruction *caller = kcaller->inst;
-        if (InvokeInst *ii = dyn_cast<InvokeInst>(caller)) {
-          transferToBasicBlock(ii->getUnwindDest(), caller->getParent(), state);
-          break;
-        }
-      }
-    }
-    break;
-  }
-#endif
   case Instruction::Br: {
     BranchInst *bi = cast<BranchInst>(i);
     if (bi->isUnconditional()) {
@@ -3730,7 +3701,9 @@ void Executor::getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryO
 
   for (auto &itr : globalObjects) {
     if (const llvm::GlobalVariable *gv = dyn_cast<GlobalVariable>(itr.first)) {
-      objects.insert(std::make_pair(gv, itr.second));
+      if (kmodule->isUserGlobal(gv)) {
+        objects.insert(std::make_pair(gv, itr.second));
+      }
     }
   }
 }

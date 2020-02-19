@@ -940,6 +940,7 @@ void LocalExecutor::bindModule(KModule *kmodule) {
       baseState = initState;
     }
   }
+  baseState->last_ret_value = nullptr;
   interpreterHandler->onStateInitialize(*baseState);
 }
 
@@ -1761,15 +1762,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (tracer != nullptr) {
           tracer->append_return(state.trace, ret_from);
         }
-        if (kmodule->isUserFunction(ret_from->function)) {
-          interpreterHandler->onStateUserFunctionReturn(state);
-        }
         if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
           // this state completed
           state.last_ret_value = nullptr;
           terminateStateOnExit(state);
         } else {
           Executor::executeInstruction(state, ki);
+        }
+        if (kmodule->isUserFunction(ret_from->function)) {
+          interpreterHandler->onStateUserFunctionReturn(state);
         }
       }
       break;

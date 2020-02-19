@@ -9,6 +9,7 @@
 #include <deque>
 #include <vector>
 #include <map>
+#include "klee/ExecutionState.h"
 
 namespace llvm {
 class GlobalVariable;
@@ -16,12 +17,6 @@ class Type;
 }
 
 namespace klee {
-
-class KModule;
-class ExecutionState;
-class KFunction;
-class TestCase;
-class MemoryObject;
 
 struct CompareDiff {
   std::string desc;
@@ -63,6 +58,11 @@ private:
                                    const MemoryObject *mo2, ExecutionState *state2,
                                    const llvm::Type *type,
                                    std::deque<CompareDiff> &diffs);
+
+  static void compareExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
+                           const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
+                           const llvm::Type *type,
+                           std::deque<CompareDiff> &diffs);
 
 };
 
