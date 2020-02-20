@@ -397,10 +397,6 @@ protected:
   /// constant values.
   void bindInstructionConstants(KInstruction *KI);
 
-  void handlePointsToObj(ExecutionState &state,
-                         KInstruction *target,
-                         const std::vector<ref<Expr> > &arguments);
-
   void doImpliedValueConcretization(ExecutionState &state,
                                     ref<Expr> e,
                                     ref<ConstantExpr> value);
@@ -413,7 +409,7 @@ protected:
 
   void initTimers();
   void processTimers(ExecutionState *current, double maxInstTime);
-  void checkMemoryUsage();
+  virtual void checkMemoryUsage();
   void printDebugInstructions(ExecutionState &state);
   void doDumpStates();
 

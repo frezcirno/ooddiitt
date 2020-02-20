@@ -72,6 +72,7 @@ protected:
   }
 
   void executeInstruction(ExecutionState &state, KInstruction *ki) override;
+  void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) override;
 
   ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
@@ -157,7 +158,6 @@ protected:
   bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  void checkMemoryFnUsage(KFunction *kf = nullptr);
   unsigned numStatesInLoop(const llvm::Loop *loop) const;
   unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
@@ -166,6 +166,8 @@ protected:
   bool isLegalFunction(const llvm::Function *fn) const {
     return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
   }
+  void checkMemoryUsage() override;
+
 
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
@@ -174,6 +176,7 @@ protected:
   unsigned maxLazyDepth;
   std::set<ExecutionState*> faulting_state_stash;
   std::map<const llvm::Loop*, unsigned> loopForkCounter;
+  std::map<const llvm::Loop*, unsigned> loopStateCounter;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;
   uint64_t timeout;

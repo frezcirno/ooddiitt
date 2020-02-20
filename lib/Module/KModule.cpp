@@ -36,6 +36,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Metadata.h"
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Analysis/LoopPass.h>
 
 #include "ModuleTypes.h"
 
@@ -417,22 +418,6 @@ void KModule::prepare() {
       ki->info = &infos->getInfo(ki->inst);
     }
 
-//    DominatorTree domTree;
-//    domTree.runOnFunction(*fn);
-//    LoopInfo li;
-//    auto &base = li.getBase();
-//    base.Analyze(domTree.getBase());
-//    li.print(outs());
-//    auto itr3 = base.rbegin();
-//    auto itr4 = base.rend();
-//    while (itr3 != itr4) {
-//      const Loop *l = *itr3;
-//      ++itr3;
-//    }
-//      for (auto itr = li.begin(), end = li.end(); itr != end; ++itr) {
-//      Loop *l = *itr;
-//    }
-
     functions.push_back(kf);
     functionMap.insert(make_pair(fn, kf));
   }
@@ -666,13 +651,9 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
   }
 
   // generate loop information for this fn
-//  LoopInfoBase<BasicBlock, Loop>&  base = loopInfo.getBase();
-//  domTree.runOnFunction(*function);
-//  base.Analyze(domTree.getBase());
-//  loopInfo.print(outs());
-//  for (auto itr = loopInfo.begin(), end = loopInfo.end(); itr != end; ++itr) {
-//    const Loop *l =*itr;
-//  }
+  domTree.runOnFunction(*function);
+  kloop.releaseMemory();
+  kloop.Analyze(domTree.getBase());
 }
 
 KFunction::~KFunction() {

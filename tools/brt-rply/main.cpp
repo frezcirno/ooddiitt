@@ -395,7 +395,7 @@ int main(int argc, char **argv, char **envp) {
       klee_error("failed to load test case '%s'", test_file.c_str());
     }
 
-    outs() << fs::path(test_file).filename().string() << "::" << test.entry_fn << " -> " << oflush;
+    outs() << fs::path(test_file).filename().string() << "->" << oflush;
 
     string module_name = ModuleName.empty() ? test.file_name : ModuleName;
     KModule *kmod = PrepareModule(module_name);
@@ -462,8 +462,15 @@ int main(int argc, char **argv, char **envp) {
 
       if (test.status != StateStatus::Snapshot) {
 
-        if (test.status != state->status) {
-          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status) << oflush;
+        if (state->status != StateStatus::Completed && test.status != state->status) {
+          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+          const auto *inst = state->instFaulting;
+          if (inst != nullptr) {
+            const auto *iinfo = inst->info;
+            fs::path file(iinfo->file);
+            outs() << ", faulting instr=" << iinfo->assemblyLine << " (" << file.filename().string() << ',' << iinfo->line << ')';
+          }
+          outs() << oflush;
           exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
         } else {
           outs() << "ok" << oflush;

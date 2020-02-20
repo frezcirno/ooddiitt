@@ -485,6 +485,7 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
 extern void *__dso_handle __attribute__ ((__weak__));
 
 void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs) {
+
   Module *m = kmodule->module;
 
   // represent function globals using the address of the actual llvm function
@@ -492,7 +493,7 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
   // ensures that we won't conflict. we don't need to allocate a memory object
   // since reading/writing via a function pointer is unsupported anyway.
   for (Module::iterator i = m->begin(), ie = m->end(); i != ie; ++i) {
-    Function *f = static_cast<Function *>(i);
+    auto *f = static_cast<Function *>(i);
 
     ref<ConstantExpr> addr = ConstantExpr::createPointer(0);
 
@@ -508,41 +509,6 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
 
     globalAddresses.insert(std::make_pair(f, addr));
   }
-
-  // Disabled, we don't want to promote use of live externals.
-#ifdef HAVE_CTYPE_EXTERNALS
-#ifndef WINDOWS
-#ifndef DARWIN
-
-#if 0 == 1
-
-  /* From /usr/include/errno.h: it [errno] is a per-thread variable. */
-  int *errno_addr = __errno_location();
-  addExternalObject(state, (void *)errno_addr, sizeof *errno_addr, false);
-
-  /* from /usr/include/ctype.h:
-       These point into arrays of 384, so they can be indexed by any `unsigned
-       char' value [0,255]; by EOF (-1); or by any `signed char' value
-       [-128,-1).  ISO C requires that the ctype functions work for `unsigned */
-  const uint16_t **addr = __ctype_b_loc();
-  addExternalObject(state, const_cast<uint16_t*>(*addr-128),
-                    384 * sizeof **addr, true);
-  addExternalObject(state, addr, sizeof(*addr), true);
-
-  const int32_t **lower_addr = __ctype_tolower_loc();
-  addExternalObject(state, const_cast<int32_t*>(*lower_addr-128),
-                    384 * sizeof **lower_addr, true);
-  addExternalObject(state, lower_addr, sizeof(*lower_addr), true);
-
-  const int32_t **upper_addr = __ctype_toupper_loc();
-  addExternalObject(state, const_cast<int32_t*>(*upper_addr-128),
-                    384 * sizeof **upper_addr, true);
-  addExternalObject(state, upper_addr, sizeof(*upper_addr), true);
-#endif
-
-#endif
-#endif
-#endif
 
   // construct a map of test objects by name
   std::map<std::string,const TestObject*> injected_objs;
@@ -561,99 +527,42 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
   std::set<const GlobalVariable*> need_init;
 
   // allocate memory objects for all globals
-  bool failed_global = false;
-  for (Module::const_global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(i);
-    size_t align = getAllocationAlignment(v);
-    std::string name = v->getName();
-    if (v->isDeclaration()) {
-
-      // FIXME: We have no general way of handling unknown external
-      // symbols. If we really cared about making external stuff work
-      // better we could support user definition, or use the EXE style
-      // hack where we check the object file information.
-
-      Type *ty = i->getType()->getElementType();
-      uint64_t size = 0;
-      if (ty->isSized()) {
-	    size = kmodule->targetData->getTypeStoreSize(ty);
-      } else {
-        std::ostringstream ss;
-        ss << "Type for \'" << i->getName().str() << "\'' is not sized";
-        log_warning(ss);
-      }
-
-      // XXX - DWD - hardcode some things until we decide how to fix.
-#ifndef WINDOWS
-      if (i->getName() == "_ZTVN10__cxxabiv117__class_type_infoE") {
-        size = 0x2C;
-      } else if (i->getName() == "_ZTVN10__cxxabiv120__si_class_type_infoE") {
-        size = 0x2C;
-      } else if (i->getName() == "_ZTVN10__cxxabiv121__vmi_class_type_infoE") {
-        size = 0x2C;
-      }
-#endif
-
-      MemoryObject *mo = memory->allocate(size, ty, MemKind::global, v, align);
+  for (Module::global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
+    auto *gv = cast<GlobalVariable>(i);
+    size_t align = getAllocationAlignment(gv);
+    std::string name = gv->getName();
+    if (!gv->hasInitializer()) {
+      gv->setInitializer(ConstantPointerNull::get(gv->getType()));
+    }
+    Type *type = gv->getType()->getElementType();
+    uint64_t size = kmodule->targetData->getTypeStoreSize(type);
+    MemoryObject *mo = nullptr;
+    auto itr = injected_objs.find(name);
+    if (!kmodule->isUserGlobal(gv) || itr == injected_objs.end()) {
+      mo = memory->allocate(size, type, MemKind::global, gv, align);
+      mo->name = name;
+      mo->type = type;
       mo->count = 1;
       ObjectState *os = bindObjectInState(state, mo);
-      globalObjects.insert(std::make_pair(v, mo));
-      globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
-
-      // Program already running = object already initialized.  Read
-      // concrete value and write it to our copy.
-      if (size > 0) {
-        void *addr = nullptr;
-        if (i->getName() == "__dso_handle") {
-          addr = &__dso_handle; // wtf ?
-        }
-        if (addr != nullptr) {
-          for (unsigned offset = 0; offset < mo->size; offset++) {
-            os->write8(offset, ((unsigned char *) addr)[offset]);
-          }
-        } else {
-          std::ostringstream ss;
-          ss << "unable to load symbol \'" << i->getName().str() << "\' while initializing globals";
-          log_warning(ss);
-          failed_global = true;
-        }
-      }
-
-    } else {
-      Type *type = v->getType()->getElementType();
-      uint64_t size = kmodule->targetData->getTypeStoreSize(type);
-      MemoryObject *mo = nullptr;
-      auto itr = injected_objs.find(name);
-      if (!kmodule->isUserGlobal(v) || itr == injected_objs.end()) {
-        mo = memory->allocate(size, type, MemKind::global, v, align);
-        mo->name = name;
-        mo->type = type;
-        mo->count = 1;
-        ObjectState *os = bindObjectInState(state, mo);
-        if (v->hasInitializer()) {
-          need_init.insert(v);
-        } else {
-          os->initializeToRandom();
-        }
+      if (gv->hasInitializer()) {
+        need_init.insert(gv);
       } else {
-        const TestObject *obj = itr->second;
-        mo = memory->inject((void*) obj->addr, obj->data.size(), type, obj->kind, obj->align);
-        mo->name = name;
-        mo->count = obj->count;
-        mo->created_size = size;
-        ObjectState *os = bindObjectInState(state, mo);
-        for (size_t idx = 0, end = obj->data.size(); idx < end; ++idx) {
-          os->write8(idx, obj->data[idx]);
-        }
+        os->initializeToRandom();
       }
-      assert(mo != nullptr && "unexpected memory allocation failure");
-      globalObjects.insert(std::make_pair(v, mo));
-      globalAddresses.insert(std::make_pair(v, mo->getBaseExpr()));
+    } else {
+      const TestObject *obj = itr->second;
+      mo = memory->inject((void*) obj->addr, obj->data.size(), type, obj->kind, obj->align);
+      mo->name = name;
+      mo->count = obj->count;
+      mo->created_size = size;
+      ObjectState *os = bindObjectInState(state, mo);
+      for (size_t idx = 0, end = obj->data.size(); idx < end; ++idx) {
+        os->write8(idx, obj->data[idx]);
+      }
     }
-  }
-
-  if (failed_global) {
-    klee_error("unable to load all symbols while initializing globals.");
+    assert(mo != nullptr && "unexpected memory allocation failure");
+    globalObjects.insert(std::make_pair(gv, mo));
+    globalAddresses.insert(std::make_pair(gv, mo->getBaseExpr()));
   }
 
   // link aliases to their definitions (if bound)
@@ -664,11 +573,11 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
   }
 
   // once all objects are allocated, do the actual initialization for those that still need it.
-  for (const GlobalVariable *v : need_init) {
-    MemoryObject *mo = globalObjects.find(v)->second;
+  for (const GlobalVariable *gv : need_init) {
+    MemoryObject *mo = globalObjects.find(gv)->second;
     const ObjectState *os = state.addressSpace.findObject(mo);
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-    initializeGlobalObject(state, wos, v->getInitializer(), 0);
+    initializeGlobalObject(state, wos, gv->getInitializer(), 0);
   }
 }
 
@@ -2567,7 +2476,7 @@ void Executor::bindModuleConstants() {
 void Executor::checkMemoryUsage() {
   if (!MaxMemory)
     return;
-  if ((stats::instructions & 0xFFF) == 0) {
+  if ((stats::instructions % 0xFFF) == 0) {
     unsigned mbs = memory->getUsedDeterministicSize() >> 20;
 
     if (mbs > MaxMemory) {

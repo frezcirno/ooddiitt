@@ -44,6 +44,7 @@ namespace klee {
 
   typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
   typedef std::set<const llvm::BasicBlock*> BasicBlocks;
+  typedef llvm::LoopInfoBase<llvm::BasicBlock, llvm::Loop> KLoop;
 
   struct KFunction {
     llvm::Function *function;
@@ -61,8 +62,8 @@ namespace klee {
     bool trackCoverage;
 
     // loop analysis
-//    llvm::DominatorTree domTree;
-//    llvm::LoopInfo loopInfo;
+    llvm::DominatorTree domTree;
+    KLoop kloop;
 
     bool is_user;
     unsigned fnID;
@@ -79,8 +80,8 @@ namespace klee {
     ~KFunction();
 
     unsigned getArgRegister(unsigned index) { return index; }
-//    bool isLoopHeader(const llvm::BasicBlock *bb) const
-//      { const auto *L = loopInfo.getLoopFor(bb); return (L && L->getHeader() == bb); }
+    bool isLoopHeader(const llvm::BasicBlock *bb) const
+      { const auto *loop = kloop.getLoopFor(bb); return (loop && loop->getHeader() == bb); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
     bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
@@ -167,7 +168,6 @@ namespace klee {
 
     /// Initialize local data structures.
     //
-    // FIXME: ihandler should not be here
     void prepare();
     void transform(const Interpreter::ModuleOptions &opts,
                    const std::set<llvm::Function*> &module_fns,

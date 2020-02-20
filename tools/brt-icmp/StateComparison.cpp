@@ -166,10 +166,11 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
 
     ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
     ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
-    if (!(ret1.isNull() || ret2.isNull())) {
-      visited_ptrs.clear();
-      compareExprs(ret1, state1, ret2, state2, type);
-    }
+    assert(!(ret1.isNull() || ret2.isNull()));
+    visited_ptrs.clear();
+    compareExprs(ret1, state1, ret2, state2, type);
+  } else {
+    diffs.emplace_back("incomparable return types");
   }
 
   // check output devices
@@ -204,6 +205,7 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       // pointer comparison
       ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(os1->read(offset1, ptr_width));
       ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(os2->read(offset2, ptr_width));
+      assert(!(ptr1.isNull() || ptr2.isNull()));
       comparePtrs(ptr1, state1, ptr2, state2, cast<PointerType>(type));
 
     } else {
@@ -331,6 +333,8 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, Executio
       uint64_t offset1 = addr1 - pr1.first->address;
       uint64_t offset2 = addr2 - pr2.first->address;
       compareObjectStates(pr1.second, offset1, state1, pr2.second, offset2, state2, type->getPointerElementType());
+    } else {
+      diffs.emplace_back(("unable to find pointed object"));
     }
   }
 }

@@ -70,7 +70,6 @@ class Tracer {
   virtual unsigned to_entry(KInstruction *ki);
 };
 
-
 cl::opt<unsigned> SymArgs("sym-args", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
@@ -82,6 +81,7 @@ cl::opt<unsigned> LazyAllocationDepth("lazy-allocation-depth", cl::init(4), cl::
 cl::opt<unsigned> LazyAllocationExt("lazy-allocation-ext", cl::init(0), cl::desc("number of lazy allocations to include existing memory objects of same type"));
 cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("Number of loop iterations"));
 cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
+cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(0), cl::desc("Number of states within loop body"));
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
@@ -91,7 +91,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocationDepth),
-  maxStatesInLoop(10000),
+  maxStatesInLoop(MaxLoopStates),
   baseState(nullptr),
   timeout(0),
   progression(opts.progression),
@@ -1423,7 +1423,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
     }
-    if (!doConcreteInterpretation) checkMemoryFnUsage(kf);
+    if (!doConcreteInterpretation) checkMemoryUsage();
   }
 
   loopForkCounter.clear();
@@ -1563,68 +1563,32 @@ void LocalExecutor::terminateStateOnDiscard(ExecutionState &state) {
   terminateState(state, "discarded");
 }
 
-void LocalExecutor::checkMemoryFnUsage(KFunction *kf) {
+void LocalExecutor::checkMemoryUsage() {
 
   Executor::checkMemoryUsage();
 
   // expensive, so do not do this very often
-//  if ((maxStatesInLoop > 0) && (stats::instructions & 0xFFF) == 0) {
-//    if (kf != nullptr) {
-//
-//      // get a vector of all loops in fn
-//      std::deque<const Loop*> worklist;
-//      string fn_name = kf->function->getName();
-//
-//      unsigned counter = 0;
-//      for (auto itr = kf->loopInfo.begin(), end = kf->loopInfo.end(); itr != end; ++itr) {
-//        const Loop* loop = *itr;
-//        counter += 1;
-//      }
-//
-//      for (const Loop *root : kf->loopInfo) {
-//        worklist.push_back(root);
-//      }
-//
-//      // loops may be nested, so do a dfs
-//      std::vector<const Loop*> all_loops;
-//      while (!worklist.empty()) {
-//        const Loop *curr = worklist.front();
-//        worklist.pop_front();
-//        all_loops.push_back(curr);
-//        for (const Loop *child : *curr) {
-//          worklist.push_back(child);
-//        }
-//      }
-//
-//      for (const Loop *loop : all_loops) {
-//        unsigned num = numStatesInLoop(loop);
-//        if (num > maxStatesInLoop) {
-//          unsigned killed = decimateStatesInLoop(loop, 99);
-//
-//          // get loop id
-//          std::string loop_id;
-//          raw_string_ostream ss(loop_id);
-//          loop->getLoopID()->print(ss);
-//          ss.flush();
-//          outs() << "terminated " << killed << " states in loop: " << loop_id << "\n";
-//        }
-//      }
-//    }
-//  }
+  if ((maxStatesInLoop > 0) && (stats::instructions % 0xFFF) == 0) {
+    vector<const Loop*> too_many;
+    for (auto &pr : loopStateCounter) {
+      if (pr.second > maxStatesInLoop) {
+        too_many.push_back(pr.first);
+      }
+    }
+    for (const auto *loop : too_many) {
+      decimateStatesInLoop(loop, 99);
+    }
+  }
 }
 
 unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_counter) {
 
-
   unsigned killed = 0;
-#if 0 == 1
   unsigned counter = 0;
   skip_counter++;
   for (ExecutionState *state : states) {
-    if (!state->stack.empty()) {
-      const StackFrame &sf = state->stack.back();
-      if (!sf.loopFrames.empty()) {
-        const LoopFrame &lf = sf.loopFrames.back();
+    for (const auto &sf : state->stack) {
+      for (const auto lf : sf.loopFrames) {
         if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
           state->status = StateStatus::Decimated;
           terminateStateOnDecimated(*state);
@@ -1633,25 +1597,17 @@ unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_cou
       }
     }
   }
-#endif
   return killed;
 }
 
 unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
 
-  unsigned counter = 0;
-//  for (const ExecutionState *state : states) {
-//    if (!state->stack.empty()) {
-//      const StackFrame &sf = state->stack.back();
-//      if (!sf.loopFrames.empty()) {
-//        const LoopFrame &lf = sf.loopFrames.back();
-//        if (lf.loop == loop) ++counter;
-//      }
-//    }
-//  }
-  return counter;
+  auto itr = loopStateCounter.find(loop);
+  if (itr != loopStateCounter.end()) {
+    return itr->second;
+  }
+  return 0;
 }
-
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
 
@@ -1682,6 +1638,72 @@ bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
     }
   }
   return result;
+}
+
+void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
+
+  if ((!libc_initializing) && (dst->getParent() == src->getParent())) {
+
+    // update the loop frame
+    StackFrame &sf = state.stack.back();
+    KFunction *kf = sf.kf;
+    const llvm::Loop *src_loop = kf->kloop.getLoopFor(src);
+    const llvm::Loop *dst_loop = kf->kloop.getLoopFor(dst);
+
+    if (src_loop == dst_loop) {
+      // either source and destination are not in a loop,
+      // or they are in the same loop
+      if (dst_loop != nullptr) {
+
+        // both in a loop, if the dest is the loop header, then we have completed a cycle
+        if ((dst_loop->getHeader() == dst) && !sf.loopFrames.empty()) {
+          LoopFrame &lf = sf.loopFrames.back();
+          if (lf.loop == dst_loop) lf.counter += 1;
+        }
+      }
+    } else {
+
+      // source and destination loop are different
+      // we either entered a new loop, or exited the previous loop (or both?)
+      if (src_loop == nullptr) {
+
+        // entered the first loop
+        assert(sf.loopFrames.empty());
+        sf.loopFrames.emplace_back(LoopFrame(dst_loop, loopStateCounter));
+      } else if (dst_loop == nullptr) {
+
+        // left the last loop
+        sf.loopFrames.pop_back();
+        assert(sf.loopFrames.empty());
+      } else {
+        // neither empty implies we just transitioned up/down nested loops
+        if (src_loop->contains(dst_loop)) {
+
+          // create frames for each intermediate loop
+          const llvm::Loop *curr = dst_loop;
+          std::vector<const llvm::Loop *> loops;
+          while (curr != src_loop) {
+            loops.push_back(curr);
+            curr = curr->getParentLoop();
+          }
+          for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
+            sf.loopFrames.emplace_back(LoopFrame(*itr, loopStateCounter));
+          }
+
+        } else {
+          assert(dst_loop->contains(src_loop));
+
+          // pop loops from frame until we get to the source
+          const llvm::Loop *prior = nullptr;
+          while (!sf.loopFrames.empty() && (prior != src_loop)) {
+            prior = sf.loopFrames.back().loop;
+            sf.loopFrames.pop_back();
+          }
+        }
+      }
+    }
+  }
+  Executor::transferToBasicBlock(state, src, dst);
 }
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
@@ -1730,22 +1752,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             BasicBlock *dst = bi->getSuccessor(index);
             transferToBasicBlock(*states[index], src, dst);
 
-            if (bothSatisfyable) {
+            if (!doConcreteInterpretation && bothSatisfyable) {
               states[index]->unconBranchCounter++;
               StackFrame &sf = states[index]->stack.back();
-              (void) sf;
-//              if (!sf.loopFrames.empty()) {
-//
-//                LoopFrame &lf = sf.loopFrames.back();
-//                ++loopForkCounter[lf.loop];
-//                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
-//                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
-//
-//                    // finally consider terminating the state.
-//                    terminateState(*states[index], "loop throttled");
-//                  }
-//                }
-//              }
+              if (!sf.loopFrames.empty()) {
+
+                LoopFrame &lf = sf.loopFrames.back();
+                ++loopForkCounter[lf.loop];
+                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
+                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
+
+                    // finally consider terminating the state.
+                    terminateState(*states[index], "loop throttled");
+                  }
+                }
+              }
             }
           }
         }

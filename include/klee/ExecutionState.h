@@ -123,16 +123,17 @@ private:
 };
 
 
-
-#if 0 == 1
 struct LoopFrame {
   const llvm::Loop *loop;
+  std::map<const llvm::Loop*,unsigned> &global_counters;
   unsigned counter;
 
-  LoopFrame(const llvm::Loop *l) : loop(l), counter(0) {}
-  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter) {}
+  LoopFrame(const llvm::Loop *l, std::map<const llvm::Loop*,unsigned> &g) : loop(l), global_counters(g), counter(0)
+    { global_counters[loop] += 1; }
+  LoopFrame(const LoopFrame &s) : loop(s.loop), global_counters(s.global_counters), counter(s.counter)
+    { global_counters[loop] += 1; }
+  ~LoopFrame() { global_counters[loop] -= 1; }
 };
-#endif
 
 struct StackFrame {
   KInstIterator caller;
@@ -147,7 +148,7 @@ struct StackFrame {
   size_t numRegs;
   Cell *locals;
 
-//  std::vector<void*LoopFrame> loopFrames;
+  std::vector<LoopFrame> loopFrames;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
