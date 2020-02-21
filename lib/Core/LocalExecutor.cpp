@@ -1663,25 +1663,34 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
       }
     } else {
 
+      unsigned src_depth = kf->kloop.getLoopDepth(src);
+      unsigned dst_depth = kf->kloop.getLoopDepth(dst);
+
       // source and destination loop are different
       // we either entered a new loop, or exited the previous loop (or both?)
       if (src_loop == nullptr) {
 
         // entered the first loop
         assert(sf.loopFrames.empty());
+        assert(src_depth == 0 && dst_depth == 1);
         sf.loopFrames.emplace_back(LoopFrame(dst_loop, loopStateCounter));
       } else if (dst_loop == nullptr) {
 
         // left the last loop
-        sf.loopFrames.pop_back();
+        assert(src_depth > 0 && dst_depth == 0);
+        for (unsigned idx = 0; idx < src_depth; ++idx) {
+          sf.loopFrames.pop_back();
+        }
         assert(sf.loopFrames.empty());
       } else {
-        // neither empty implies we just transitioned up/down nested loops
-        if (src_loop->contains(dst_loop)) {
 
+        // neither empty implies we just transitioned up/down nested loops
+        if (src_depth < dst_depth) {
+
+          assert(src_loop->contains(dst_loop));
           // create frames for each intermediate loop
           const llvm::Loop *curr = dst_loop;
-          std::vector<const llvm::Loop *> loops;
+          std::vector<const llvm::Loop*> loops;
           while (curr != src_loop) {
             loops.push_back(curr);
             curr = curr->getParentLoop();
@@ -1689,16 +1698,14 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
           for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
             sf.loopFrames.emplace_back(LoopFrame(*itr, loopStateCounter));
           }
-
         } else {
-          assert(dst_loop->contains(src_loop));
 
           // pop loops from frame until we get to the source
-          const llvm::Loop *prior = nullptr;
-          while (!sf.loopFrames.empty() && (prior != src_loop)) {
-            prior = sf.loopFrames.back().loop;
+          assert(dst_loop->contains(src_loop));
+          for (unsigned idx = 0, end = src_depth - dst_depth; idx < end; ++idx) {
             sf.loopFrames.pop_back();
           }
+          assert(sf.loopFrames.back().loop == dst_loop);
         }
       }
     }
