@@ -61,7 +61,7 @@ StackFrame::StackFrame(const StackFrame &s)
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
-//    loopFrames(s.loopFrames),
+    loopFrames(s.loopFrames),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -248,7 +248,7 @@ ExecutionState *ExecutionState::branch() {
 }
 
 void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
-  stack.push_back(StackFrame(caller,kf));
+  stack.emplace_back(StackFrame(caller,kf));
 }
 
 
@@ -262,7 +262,7 @@ void ExecutionState::popFrame() {
 
 void ExecutionState::addSymbolic(const MemoryObject *mo, const Array *array) {
   mo->refCount++;
-  symbolics.push_back(std::make_pair(mo, array));
+  symbolics.emplace_back(std::make_pair(mo, array));
 }
 
 bool ExecutionState::isConcrete(const MemoryObject *mo) {
