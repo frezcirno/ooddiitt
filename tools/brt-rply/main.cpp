@@ -475,8 +475,9 @@ int main(int argc, char **argv, char **envp) {
       if (state->status == StateStatus::Completed) {
         outs() << "ok" << oflush;
       } else {
+        outs() << "incomplete" << oflush;
         if (test.status != state->status) {
-          outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+          outs() << ", status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
           if (const auto *inst = state->instFaulting) {
             const auto *iinfo = inst->info;
             fs::path file(iinfo->file);
