@@ -268,6 +268,18 @@ enum class TraceCompareResult { ok, truncated, differs };
 
 TraceCompareResult compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
 
+#if 0 == 1
+  // RLR TODO: remove debug
+  unsigned t_length = t_trace.size();
+  unsigned s_length = s_trace.size();
+
+  auto itrT = t_trace.begin(), endT = t_trace.end();
+  auto itrS = s_trace.begin(), endS = s_trace.end();
+  while (itrT != endT && itrS != endS) {
+    outs() << *itrT++ << ' ' << *itrS++ << oendl;
+  }
+#endif
+
   if (boost::starts_with(t_trace, s_trace)) {
     if (t_trace.size() == s_trace.size()) {
       return TraceCompareResult::ok;
@@ -460,65 +472,55 @@ int main(int argc, char **argv, char **envp) {
         }
       }
 
-      if (test.status != StateStatus::Snapshot) {
-
-        if (state->status != StateStatus::Completed && test.status != state->status) {
+      if (state->status == StateStatus::Completed) {
+        outs() << "ok" << oflush;
+      } else {
+        if (test.status != state->status) {
           outs() << "status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
-          const auto *inst = state->instFaulting;
-          if (inst != nullptr) {
+          if (const auto *inst = state->instFaulting) {
             const auto *iinfo = inst->info;
             fs::path file(iinfo->file);
             outs() << ", faulting instr=" << iinfo->assemblyLine << " (" << file.filename().string() << ',' << iinfo->line << ')';
           }
           outs() << oflush;
           exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
-        } else {
-          outs() << "ok" << oflush;
         }
-      } else {
-        outs() << to_string(state->status) << oflush;
-      }
-
-      if (state->status != StateStatus::Completed) {
         if (!state->messages.empty()) {
           outs() << " (" << state->messages.back() << ')' << oflush;
         }
       }
-
     }
     outs() << oendf;
 
-    if (state != nullptr) {
-      if (TraceT == TraceType::calls) {
-        outs() << "Call Trace:\n";
-        outs() << test.entry_fn << '\n';
+    if ((state != nullptr) && (TraceT == TraceType::calls)) {
+      outs() << "Call Trace:\n";
+      outs() << test.entry_fn << '\n';
 
-        // build a reverse loop up map of function ids
-        map<unsigned, string> fnMap;
-        for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
-          Function *fn = itr->first;
-          unsigned fnID = kmod->getFunctionID(fn);
-          if (fnID != 0) {
-            fnMap.insert(make_pair(fnID, fn->getName()));
-          }
+      // build a reverse loop up map of function ids
+      map<unsigned, string> fnMap;
+      for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
+        Function *fn = itr->first;
+        unsigned fnID = kmod->getFunctionID(fn);
+        if (fnID != 0) {
+          fnMap.insert(make_pair(fnID, fn->getName()));
         }
+      }
 
-        int call_depth = 0;
-        for (auto entry : state->trace) {
-          bool is_call = (entry % 1000) == 1;
-          bool is_retn = (entry % 1000) == 2;
-          if (is_call) {
-            call_depth += 1;
-            unsigned fnID = entry / 1000;
-            auto itr = fnMap.find(fnID);
-            if (itr != fnMap.end()) {
-              assert(call_depth >= 0);
-              outs().indent(call_depth * 2);
-              outs() << itr->second << '\n';
-            }
-          } else if (is_retn) {
-            call_depth -= 1;
+      int call_depth = 0;
+      for (auto entry : state->trace) {
+        bool is_call = (entry % 1000) == 1;
+        bool is_retn = (entry % 1000) == 2;
+        if (is_call) {
+          call_depth += 1;
+          unsigned fnID = entry / 1000;
+          auto itr = fnMap.find(fnID);
+          if (itr != fnMap.end()) {
+            assert(call_depth >= 0);
+            outs().indent(call_depth * 2);
+            outs() << itr->second << '\n';
           }
+        } else if (is_retn) {
+          call_depth -= 1;
         }
       }
     }
