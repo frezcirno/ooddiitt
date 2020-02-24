@@ -1,4 +1,6 @@
 //
+//
+//
 // Created by rrutledge on 10/23/19.
 //
 
@@ -85,7 +87,7 @@ void StateComparator::compareExternalState() {
     unsigned exit_code1 = exit_expr1->getZExtValue(Expr::Int32);
     unsigned exit_code2 = exit_expr2->getZExtValue(Expr::Int32);
     if (exit_code1 != exit_code2) {
-      diffs.emplace_back("different return value");
+      diffs.emplace_back("different exit code");
     }
   }
 
@@ -119,7 +121,8 @@ void StateComparator::compareInternalState() {
       const auto &itr1 = ver1.global_map.find(gv1);
       if (itr1 != ver1.global_map.end()) {
 
-        const GlobalVariable *gv2 = ver2.kmodule->getGlobalVariable(gv1->getName());
+        string name = gv1->getName();
+        const GlobalVariable *gv2 = ver2.kmodule->getGlobalVariable(name);
         if (gv2 != nullptr) {
 
           Type *type = gv1->getType();
@@ -128,7 +131,7 @@ void StateComparator::compareInternalState() {
           if (isEquivalentType(type, gv2->getType())) {
             const auto &itr2 = ver2.global_map.find(gv2);
             if (itr2 != ver2.global_map.end()) {
-              globals.emplace_back(itr1->second, itr2->second, type->getPointerElementType());
+              globals.emplace_back(name, itr1->second, itr2->second, type->getPointerElementType());
             }
           }
         }
@@ -140,8 +143,12 @@ void StateComparator::compareInternalState() {
     auto itr2 = ver2.fn_returns.begin(), end2 = ver2.fn_returns.end();
     while (itr1 != end1) {
 
-      if (itr1->first->getName() != itr2->first->getName()) {
-        diffs.emplace_back("function name mismatch in return trace");
+      string name1 = itr1->first->getName();
+      string name2 = itr2->first->getName();
+      if (name1 != name2) {
+        ostringstream ss;
+        ss << "function name mismatch in return trace:" << name1 << ',' << name2;
+        diffs.emplace_back(ss.str());
       } else {
         compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
       }
@@ -168,9 +175,11 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
     ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
     assert(!(ret1.isNull() || ret2.isNull()));
     visited_ptrs.clear();
-    compareExprs(ret1, state1, ret2, state2, type);
+    compareRetExprs(ret1, state1, ret2, state2, fn1->getName().str(), type);
   } else {
-    diffs.emplace_back("incomparable return types");
+    ostringstream ss;
+    ss << "incomparable return types:" << fn1->getName().str() << ',' << fn2->getName().str();
+    diffs.emplace_back(ss.str());
   }
 
   // check output devices
@@ -189,13 +198,13 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   // finally, check user global variables
   for (const auto &entry : globals) {
     visited_ptrs.clear();
-    compareMemoryObjects(entry.mo1, state1, entry.mo2, state2, entry.type);
+    compareMemoryObjects(entry.mo1, state1, entry.mo2, state2, entry.name, entry.type);
   }
 }
 
 void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, ExecutionState *state1,
                                           const ObjectState *os2, uint64_t offset2, ExecutionState *state2,
-                                          llvm::Type *type) {
+                                          const string &name, llvm::Type *type) {
 
   assert(!type->isVoidTy());
   if (type->isSingleValueType()) {
@@ -206,17 +215,20 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(os1->read(offset1, ptr_width));
       ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(os2->read(offset2, ptr_width));
       assert(!(ptr1.isNull() || ptr2.isNull()));
-      comparePtrs(ptr1, state1, ptr2, state2, cast<PointerType>(type));
+      string ptr_name = "*" + name;
+      comparePtrs(ptr1, state1, ptr2, state2, ptr_name, cast<PointerType>(type));
 
     } else {
 
-      // primative type. just do a raw comparison
+      // primitive type. just do a raw comparison
       unsigned size = datalayout->getTypeStoreSize(type);
       vector<unsigned char> val1, val2;
       os1->readConcrete(val1, offset1, size);
       os2->readConcrete(val2, offset2, size);
       if (val1 != val2) {
-        diffs.emplace_back("different single mo value");
+        ostringstream ss;
+        ss << "different primitive value: " << name;
+        diffs.emplace_back(ss.str());
       }
     }
   } else if (type->isStructTy()) {
@@ -227,7 +239,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     for (unsigned idx = 0, end = stype->getNumElements(); idx != end; ++idx) {
       Type *etype = stype->getElementType(idx);
       unsigned eoffset = sl->getElementOffset(idx);
-      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, etype);
+      string field_name = name + '{' + std::to_string(idx) + '}';
+      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, field_name, etype);
     }
 
   } else if (type->isVectorTy()) {
@@ -238,7 +251,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     unsigned esize = datalayout->getTypeStoreSize(etype);
     unsigned eoffset = 0;
     for (unsigned idx = 0, end = etype->getVectorNumElements(); idx != end; ++idx) {
-      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, etype);
+      string index_name = name + '[' + std::to_string(idx) + ']';
+      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, index_name, etype);
       eoffset += esize;
     }
 
@@ -250,7 +264,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     unsigned esize = datalayout->getTypeStoreSize(etype);
     unsigned eoffset = 0;
     for (unsigned idx = 0, end = atype->getArrayNumElements(); idx != end; ++idx) {
-      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, etype);
+      string index_name = name + '[' + std::to_string(idx) + ']';
+      compareObjectStates(os1, offset1 + eoffset, state1, os2, offset2 + eoffset, state2, index_name, etype);
       eoffset += esize;
     }
 
@@ -264,41 +279,51 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
 
 void StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, ExecutionState *state1,
                                            const MemoryObject *mo2, uint64_t offset2, ExecutionState *state2,
-                                           llvm::Type *type) {
+                                           const string &name, llvm::Type *type) {
 
   if (!type->isVoidTy()) {
     const ObjectState *os1 = state1->addressSpace.findObject(mo1);
     const ObjectState *os2 = state2->addressSpace.findObject(mo2);
+    if (os1 == nullptr && os2 == nullptr) {
+      return;
+    }
     if (os1 == nullptr || os2 == nullptr) {
-      diffs.emplace_back("different: unable to find object an state");
+      ostringstream ss;
+      ss << "unable to find memory object:" << name;
+      diffs.emplace_back(ss.str());
     } else {
-      compareObjectStates(os1, offset1, state1, os2, offset2, state2, type);
+      compareObjectStates(os1, offset1, state1, os2, offset2, state2, name, type);
     }
   }
 }
 
-void StateComparator::compareExprs(const ref<ConstantExpr> &expr1, ExecutionState *state1,
-                                   const ref<ConstantExpr> &expr2, ExecutionState *state2,
-                                   llvm::Type *type) {
+void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, ExecutionState *state1,
+                                      const ref<ConstantExpr> &expr2, ExecutionState *state2,
+                                      const string &name, llvm::Type *type) {
 
   if (!type->isVoidTy()) {
     if (type->isSingleValueType()) {
       if (type->isPointerTy()) {
 
         // pointer comparison
-        comparePtrs(expr1, state1, expr2, state2, cast<PointerType>(type));
+        string fnret_name = "(" + name + ")";
+        comparePtrs(expr1, state1, expr2, state2, fnret_name, cast<PointerType>(type));
       } else {
 
         // these are supposed to fit in a single register
         // since this is not a pointer value, they can be directly compared
         Expr::Width width = expr1->getWidth();
         if (expr2->getWidth() != width) {
-          diffs.emplace_back("difference in expression width");
+          ostringstream ss;
+          ss << "difference in return expression width: " << name;
+          diffs.emplace_back(ss.str());
         } else {
           // most of these types are no more than 64 bits.
           if (width <= Expr::Int64) {
             if (expr1->getZExtValue() != expr2->getZExtValue()) {
-              diffs.emplace_back("difference in expression value");
+              ostringstream ss;
+              ss << "difference in return expression value: " << name;
+              diffs.emplace_back(ss.str());
             }
           } else {
             // this is a real hack to deal with bit-long expressions
@@ -306,7 +331,9 @@ void StateComparator::compareExprs(const ref<ConstantExpr> &expr1, ExecutionStat
             expr1->toMemory(&val1);
             expr2->toMemory(&val2);
             if (val1 != val2) {
-              diffs.emplace_back("difference in expression value");
+              ostringstream ss;
+              ss << "difference in return expression value: " << name;
+              diffs.emplace_back(ss.str());
             }
           }
         }
@@ -319,7 +346,7 @@ void StateComparator::compareExprs(const ref<ConstantExpr> &expr1, ExecutionStat
 
 void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
                                   const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
-                                  PointerType *type) {
+                                  const std::string &name, PointerType *type) {
 
   // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
   uint64_t addr1 = expr1->getZExtValue();
@@ -329,12 +356,20 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, Executio
 
     // pair was inserted, so we have not been here before...
     ObjectPair pr1, pr2;
-    if (state1->addressSpace.resolveOne(expr1, pr1) && state2->addressSpace.resolveOne(expr2, pr2)) {
+    bool result1 = state1->addressSpace.resolveOne(expr1, pr1);
+    bool result2 = state2->addressSpace.resolveOne(expr2, pr2);
+
+    if (!result1 && !result2) return;
+
+    if (!result1 || !result2) {
+      ostringstream ss;
+      ss << "unable to find pointed object:" << name;
+      diffs.emplace_back(ss.str());
+    } else {
       uint64_t offset1 = addr1 - pr1.first->address;
       uint64_t offset2 = addr2 - pr2.first->address;
-      compareObjectStates(pr1.second, offset1, state1, pr2.second, offset2, state2, type->getPointerElementType());
-    } else {
-      diffs.emplace_back(("unable to find pointed object"));
+      string ptr_name = "*" + name;
+      compareObjectStates(pr1.second, offset1, state1, pr2.second, offset2, state2, ptr_name, type->getPointerElementType());
     }
   }
 }

@@ -487,14 +487,12 @@ int main(int argc, char **argv, char **envp) {
             cmp.doCompare();
           }
 
-#if 0 == 1
-          if (!diffs.empty()) {
+          if (!cmp.empty()) {
             outs() << test_file << ":\n";
-            for (const auto &diff : diffs) {
+            for (const auto &diff : cmp) {
               outs().indent(2) << diff.desc << oendl;
             }
           }
-#endif
         }
         delete interpreter2;
         delete handler2;

@@ -45,11 +45,12 @@ class StateComparator {
   std::set<std::pair<uint64_t,uint64_t> > visited_ptrs;
 
   struct CompareGlobalEntry {
+    std::string name;
     const MemoryObject *mo1;
     const MemoryObject *mo2;
     llvm::Type *type;
-    CompareGlobalEntry(const MemoryObject *m1, const MemoryObject *m2, llvm::Type *t)
-        : mo1(m1), mo2(m2), type(t) {}
+    CompareGlobalEntry(const std::string &n, const MemoryObject *m1, const MemoryObject *m2, llvm::Type *t)
+        : name(n), mo1(m1), mo2(m2), type(t) {}
   };
   std::vector<CompareGlobalEntry> globals;
   const llvm::DataLayout *datalayout;
@@ -61,6 +62,12 @@ public:
   bool alignFnReturns();
   void doCompare();
 
+  bool empty() const { return diffs.empty(); }
+  std::deque<CompareDiff>::iterator begin() { return diffs.begin(); }
+  std::deque<CompareDiff>::iterator end() { return diffs.end(); }
+  std::deque<CompareDiff>::const_iterator begin() const { return diffs.begin(); }
+  std::deque<CompareDiff>::const_iterator end() const { return diffs.end(); }
+
 private:
 
   void compareExternalState();
@@ -68,26 +75,26 @@ private:
   void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
   void compareObjectStates(const ObjectState *os1, uint64_t offset1, ExecutionState *state1,
                            const ObjectState *os2, uint64_t offset2, ExecutionState *state2,
-                           llvm::Type *type);
+                           const std::string &name, llvm::Type *type);
 
 
   void compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, ExecutionState *state1,
                             const MemoryObject *mo2, uint64_t offset2, ExecutionState *state2,
-                            llvm::Type *type);
+                            const std::string &name, llvm::Type *type);
 
   void compareMemoryObjects(const MemoryObject *mo1, ExecutionState *state1,
                             const MemoryObject *mo2, ExecutionState *state2,
-                            llvm::Type *type)
-    { compareMemoryObjects(mo1, 0, state1, mo2, 0, state2, type); }
+                            const std::string &name, llvm::Type *type)
+    { compareMemoryObjects(mo1, 0, state1, mo2, 0, state2, name, type); }
 
 
-  void compareExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
-                    const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
-                    llvm::Type *type);
+  void compareRetExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
+                       const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
+                       const std::string &name, llvm::Type *type);
 
   void comparePtrs(const ref<klee::ConstantExpr> &addr1, ExecutionState *state1,
                    const ref<klee::ConstantExpr> &addr2, ExecutionState *state2,
-                   llvm::PointerType *type);
+                   const std::string &name, llvm::PointerType *type);
 
 
 };
