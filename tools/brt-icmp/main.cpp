@@ -490,7 +490,7 @@ int main(int argc, char **argv, char **envp) {
           if (!cmp.empty()) {
             outs() << test_file << ":\n";
             for (const auto &diff : cmp) {
-              outs().indent(2) << diff.desc << oendl;
+              outs().indent(2) << to_string(diff) << oendl;
             }
           }
         }

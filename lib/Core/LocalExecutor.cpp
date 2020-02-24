@@ -1797,6 +1797,12 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           Executor::executeInstruction(state, ki);
         }
+        if (ret_from->isDiffChanged()) {
+          state.distance = 1;
+        } else if (state.distance != 0) {
+          state.distance += 1;
+        }
+
         if ((state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
           interpreterHandler->onStateUserFunctionReturn(state);
         }

@@ -20,21 +20,40 @@ namespace klee {
 
 struct StateVersion {
   KModule *kmodule;
-  std::map<const llvm::GlobalVariable *, MemoryObject *> global_map;
+  std::map<const llvm::GlobalVariable*, MemoryObject*> global_map;
   ExecutionState *initialState;
   ExecutionState *finalState;
   bool forked;
-  std::deque<std::pair<KFunction *, ExecutionState *> > fn_returns;
+  std::deque<std::pair<KFunction*, ExecutionState*> > fn_returns;
 
   explicit StateVersion(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false)  {}
   virtual ~StateVersion();
 };
 
 struct CompareDiff {
+  bool is_external;
+  std::string fn;
+  std::string element;
+  unsigned distance;
   std::string desc;
 
-  explicit CompareDiff(const std::string &d) : desc(d) { }
+  CompareDiff() : is_external(false), distance(0) {}
 };
+
+
+struct CompareExtDiff : CompareDiff {
+  explicit CompareExtDiff(const std::string &e) : CompareDiff() { is_external = true; element = e; }
+  CompareExtDiff(const std::string &e, const std::string &d) : CompareExtDiff(e) { desc = d; }
+};
+
+struct CompareIntDiff : CompareDiff {
+  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state)
+    { is_external = false; element = e; distance = state->distance; fn = kf->getName(); }
+  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state, const std::string &d)
+    : CompareIntDiff(kf, e, state) { desc = d; }
+};
+
+std::string to_string(const CompareDiff &diff);
 
 class StateComparator {
 
@@ -73,27 +92,27 @@ private:
   void compareExternalState();
   void compareInternalState();
   void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
-  void compareObjectStates(const ObjectState *os1, uint64_t offset1, ExecutionState *state1,
-                           const ObjectState *os2, uint64_t offset2, ExecutionState *state2,
+  void compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+                           const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                            const std::string &name, llvm::Type *type);
 
 
-  void compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, ExecutionState *state1,
-                            const MemoryObject *mo2, uint64_t offset2, ExecutionState *state2,
+  void compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+                            const MemoryObject *mo2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                             const std::string &name, llvm::Type *type);
 
-  void compareMemoryObjects(const MemoryObject *mo1, ExecutionState *state1,
-                            const MemoryObject *mo2, ExecutionState *state2,
+  void compareMemoryObjects(const MemoryObject *mo1, KFunction *kf1, ExecutionState *state1,
+                            const MemoryObject *mo2, KFunction *kf2, ExecutionState *state2,
                             const std::string &name, llvm::Type *type)
-    { compareMemoryObjects(mo1, 0, state1, mo2, 0, state2, name, type); }
+    { compareMemoryObjects(mo1, 0, kf1, state1, mo2, 0, kf2, state2, name, type); }
 
 
-  void compareRetExprs(const ref<klee::ConstantExpr> &expr1, ExecutionState *state1,
-                       const ref<klee::ConstantExpr> &expr2, ExecutionState *state2,
-                       const std::string &name, llvm::Type *type);
+  void compareRetExprs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+                       const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
+                       llvm::Type *type);
 
-  void comparePtrs(const ref<klee::ConstantExpr> &addr1, ExecutionState *state1,
-                   const ref<klee::ConstantExpr> &addr2, ExecutionState *state2,
+  void comparePtrs(const ref<klee::ConstantExpr> &addr1, KFunction *kf1, ExecutionState *state1,
+                   const ref<klee::ConstantExpr> &addr2, KFunction *kf2, ExecutionState *state2,
                    const std::string &name, llvm::PointerType *type);
 
 

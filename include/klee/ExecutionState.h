@@ -300,6 +300,7 @@ public:
   unsigned eof_counter;
 
   ref<Expr> last_ret_value;
+  unsigned distance;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

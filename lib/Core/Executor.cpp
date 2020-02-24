@@ -1204,7 +1204,7 @@ void Executor::executeCall(ExecutionState &state,
       // va_copy should have been lowered.
       //
       // FIXME: It would be nice to check for errors in the usage of this as
-      // well.
+      //  well.
     default:
       klee_error("unknown intrinsic: %s", f->getName().data());
     }
@@ -1213,9 +1213,9 @@ void Executor::executeCall(ExecutionState &state,
       transferToBasicBlock(state, i->getParent(), ii->getNormalDest());
   } else {
     // FIXME: I'm not really happy about this reliance on prevPC but it is ok, I
-    // guess. This just done to avoid having to pass KInstIterator everywhere
-    // instead of the actual instruction, since we can't make a KInstIterator
-    // from just an instruction (unlike LLVM).
+    //  guess. This just done to avoid having to pass KInstIterator everywhere
+    //  instead of the actual instruction, since we can't make a KInstIterator
+    //  from just an instruction (unlike LLVM).
     KFunction *kf = kmodule->functionMap[f];
     state.pushFrame(state.prevPC, kf);
     state.pc = kf->instructions;
