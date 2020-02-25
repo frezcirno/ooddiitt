@@ -473,25 +473,17 @@ int main(int argc, char **argv, char **envp) {
         theInterpreter = interpreter2;
         interpreter2->runFunctionTestCase(test);
         theInterpreter = nullptr;
-
         version2.kmodule = interpreter2->getKModule();
-        if ((version2.finalState == nullptr) || (version2.finalState->status != StateStatus::Completed)) {
 
-          // ver1 completed, but ver2 did not
-          // emit record to diff log
+        StateComparator cmp(test, version1, version2);
+        if (cmp.alignFnReturns()) {
+          cmp.doCompare();
+        }
 
-        } else {
-
-          StateComparator cmp(test, version1, version2);
-          if (cmp.alignFnReturns()) {
-            cmp.doCompare();
-          }
-
-          if (!cmp.empty()) {
-            outs() << test_file << ":\n";
-            for (const auto &diff : cmp) {
-              outs().indent(2) << to_string(diff) << oendl;
-            }
+        if (!cmp.empty()) {
+          outs() << test_file << ":\n";
+          for (const auto &diff : cmp) {
+            outs().indent(2) << to_string(diff) << oendl;
           }
         }
         delete interpreter2;

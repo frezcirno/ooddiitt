@@ -38,7 +38,9 @@ string to_string(const CharacterOutput &out) {
 std::string to_string(const CompareDiff &diff) {
 
   ostringstream ss;
-  ss << diff.fn << ';' << diff.distance << ';' << diff.element << ';' << diff.desc;
+  if (diff.distance == UINT_MAX) ss << "+;";
+  else ss << diff.distance << ';';
+  ss << diff.fn << ';' << diff.element << ';' << diff.desc;
   return ss.str();
 }
 
@@ -60,7 +62,7 @@ StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersi
 
 bool StateComparator::alignFnReturns() {
 
-  if (!test.is_main()) {
+  if (!test.is_main() && (ver2.finalState != nullptr) && (ver2.finalState->status == StateStatus::Completed)) {
     if (ver1.fn_returns.size() != ver2.fn_returns.size()) return false;
     auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
     auto itr2 = ver2.fn_returns.begin(), end2 = ver2.fn_returns.end();
@@ -74,7 +76,23 @@ bool StateComparator::alignFnReturns() {
 
 void StateComparator::doCompare() {
 
-  if (test.is_main()) {
+  if (ver2.finalState == nullptr) {
+    CompareDiff diff;
+    diff.fn = diff.element = "@unknown";
+    diff.desc = "incomplete execution";
+    if (test.is_main()) diff.distance = UINT_MAX;
+    diffs.emplace_back(diff);
+  } else if (ver2.finalState->status != StateStatus::Completed) {
+    ExecutionState *state = ver2.finalState;
+    CompareDiff diff;
+    diff.fn = diff.element = "@unknown";
+    diff.desc = to_string(state->status);
+    if (!state->messages.empty()) diff.desc += '-' + state->messages.back();
+    if (!state->stack.empty()) diff.fn = ver2.finalState->stack.back().kf->getName();
+    if (state->instFaulting != nullptr) diff.element = std::to_string(state->instFaulting->info->assemblyLine);
+    diff.distance = test.is_main() ? UINT_MAX : state->distance;
+    diffs.emplace_back(diff);
+  } else if (test.is_main()) {
     compareExternalState();
   } else {
     compareInternalState();

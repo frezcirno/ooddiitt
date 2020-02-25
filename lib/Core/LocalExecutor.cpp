@@ -1787,9 +1787,18 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         libc_initializing = false;
       } else {
         KFunction *ret_from = state.stack.back().kf;
-        if (tracer != nullptr) {
-          tracer->append_return(state.trace, ret_from);
+
+        if (!libc_initializing) {
+          if (tracer != nullptr) {
+            tracer->append_return(state.trace, ret_from);
+          }
+          if (ret_from->isDiffChanged()) {
+            state.distance = 1;
+          } else if (state.distance != 0) {
+            state.distance += 1;
+          }
         }
+
         if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
           // this state completed
           state.last_ret_value = nullptr;
@@ -1797,13 +1806,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           Executor::executeInstruction(state, ki);
         }
-        if (ret_from->isDiffChanged()) {
-          state.distance = 1;
-        } else if (state.distance != 0) {
-          state.distance += 1;
-        }
-
-        if ((state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
+        if (!libc_initializing && (state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
           interpreterHandler->onStateUserFunctionReturn(state);
         }
       }
