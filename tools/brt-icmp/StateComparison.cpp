@@ -65,7 +65,7 @@ bool StateComparator::alignFnReturns() {
   if (!test.is_main() && (ver2.finalState != nullptr) && (ver2.finalState->status == StateStatus::Completed)) {
     if (ver1.fn_returns.size() != ver2.fn_returns.size()) return false;
     auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
-    auto itr2 = ver2.fn_returns.begin(), end2 = ver2.fn_returns.end();
+    auto itr2 = ver2.fn_returns.begin();
     while (itr1 != end1) {
       if (itr1->first->getName() != itr2->first->getName()) return false;
       ++itr1; ++itr2;
@@ -165,7 +165,7 @@ void StateComparator::compareInternalState() {
 
   // check each of the intermediate states.  rem that we have already verified that they are the same size
   auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
-  auto itr2 = ver2.fn_returns.begin(), end2 = ver2.fn_returns.end();
+  auto itr2 = ver2.fn_returns.begin();
   while (itr1 != end1) {
 
     string name1 = itr1->first->getName();
