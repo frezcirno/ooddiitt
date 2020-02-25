@@ -38,12 +38,7 @@ string to_string(const CharacterOutput &out) {
 std::string to_string(const CompareDiff &diff) {
 
   ostringstream ss;
-  if (diff.is_external) {
-    ss << "@top:";
-  } else {
-    ss << diff.fn << ':' << diff.distance << ':';
-  }
-  ss << diff.element << ':' << diff.desc;
+  ss << diff.fn << ';' << diff.distance << ';' << diff.element << ';' << diff.desc;
   return ss.str();
 }
 
@@ -217,8 +212,7 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(os1->read(offset1, ptr_width));
       ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(os2->read(offset2, ptr_width));
       assert(!(ptr1.isNull() || ptr2.isNull()));
-      string ptr_name = "*" + name;
-      comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, ptr_name, cast<PointerType>(type));
+      comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, cast<PointerType>(type));
 
     } else {
 
@@ -239,7 +233,7 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     for (unsigned idx = 0, end = stype->getNumElements(); idx != end; ++idx) {
       Type *etype = stype->getElementType(idx);
       unsigned eoffset = sl->getElementOffset(idx);
-      string field_name = name + '{' + std::to_string(idx) + '}';
+      string field_name = '{' + name +  ':' + std::to_string(idx) + '}';
       compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, field_name, etype);
     }
 
@@ -303,8 +297,7 @@ void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
       if (type->isPointerTy()) {
 
         // pointer comparison
-        string fnret_name = "*" + name;
-        comparePtrs(expr1, kf1, state1, expr2, kf2, state2, fnret_name, cast<PointerType>(type));
+        comparePtrs(expr1, kf1, state1, expr2, kf2, state2, name, cast<PointerType>(type));
       } else {
 
         // these are supposed to fit in a single register
@@ -352,7 +345,7 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
 
         uint64_t offset1 = addr1 - op1.first->address;
         uint64_t offset2 = addr2 - op2.first->address;
-        string ptr_name = "*" + name;
+        string ptr_name = "*(" + name + ')';
         compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
 
       } else {

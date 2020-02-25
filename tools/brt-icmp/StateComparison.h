@@ -31,24 +31,23 @@ struct StateVersion {
 };
 
 struct CompareDiff {
-  bool is_external;
   std::string fn;
   std::string element;
   unsigned distance;
   std::string desc;
 
-  CompareDiff() : is_external(false), distance(0) {}
+  CompareDiff() : distance(0) {}
 };
 
 
 struct CompareExtDiff : CompareDiff {
-  explicit CompareExtDiff(const std::string &e) : CompareDiff() { is_external = true; element = e; }
+  explicit CompareExtDiff(const std::string &e) : CompareDiff() { fn = "@top"; element = e; distance = UINT_MAX; }
   CompareExtDiff(const std::string &e, const std::string &d) : CompareExtDiff(e) { desc = d; }
 };
 
 struct CompareIntDiff : CompareDiff {
   CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state)
-    { is_external = false; element = e; distance = state->distance; fn = kf->getName(); }
+    { fn = kf->getName(); element = e; distance = state->distance; }
   CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state, const std::string &d)
     : CompareIntDiff(kf, e, state) { desc = d; }
 };
