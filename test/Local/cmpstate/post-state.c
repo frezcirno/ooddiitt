@@ -12,6 +12,10 @@ my_struct sbar;
 char abar[10];
 void (*fpbar)(unsigned);
 
+void noop(int arg) {
+  return;
+}
+
 int foo01(unsigned bar) {
   gbar = bar + 1;
   return gbar;
@@ -23,6 +27,7 @@ int foo02(unsigned bar) {
 }
 
 int foo03(unsigned bar) {
+  noop(bar);
   return bar + 1;
 }
 

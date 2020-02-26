@@ -96,11 +96,10 @@ public:
   }
 
   void onStateUserFunctionReturn(ExecutionState &state) override {
-    if (!state.stack.empty()) {
-      KFunction *returning = state.stack.back().kf;
-      if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
-        ver.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
-      }
+    assert(!state.stack.empty());
+    KFunction *returning = state.stack.back().kf;
+    if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
+      ver.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
     }
   }
 };

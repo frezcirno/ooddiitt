@@ -10,6 +10,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Support/raw_ostream.h"
 #include "klee/Internal/System/Memory.h"
+#include "klee/Internal/Module/Cell.h"
 
 using namespace llvm;
 using namespace std;
@@ -197,6 +198,24 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
     compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
   }
 
+  // scan for pointer parameters - these could be outputs
+  if (!fn2->isVarArg()) {
+    unsigned idx = 0;
+    for (auto itr = fn2->arg_begin(), end = fn2->arg_end(); itr != end; ++itr) {
+      Argument &arg = *itr;
+      if (auto *arg_type = dyn_cast<PointerType>(arg.getType())) {
+        string name;
+        if (arg.hasName()) name = arg.getName();
+        else name = std::to_string(idx);
+
+        ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(state1->stack.back().locals[kf1->getArgRegister(idx)].value);
+        ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(state2->stack.back().locals[kf2->getArgRegister(idx)].value);
+        comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
+      }
+      idx += 1;
+    }
+  }
+
   // check output devices
   string stdout1 = to_string(state1->stdout_capture);
   string stdout2 = to_string(state2->stdout_capture);
@@ -353,13 +372,21 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
   // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
   uint64_t addr1 = expr1->getZExtValue();
   uint64_t addr2 = expr2->getZExtValue();
+  comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
+}
+
+void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
+                                  uint64_t addr2, KFunction *kf2, ExecutionState *state2,
+                                  const std::string &name, PointerType *type) {
+
+  // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
   auto result = visited_ptrs.insert(make_pair(addr1, addr2));
   if (result.second) {
 
     ObjectPair op1;
-    if (state1->addressSpace.resolveOne(expr1, op1)) {
+    if (state1->addressSpace.resolveOne(addr1, op1)) {
       ObjectPair op2;
-      if (state2->addressSpace.resolveOne(expr2, op2)) {
+      if (state2->addressSpace.resolveOne(addr2, op2)) {
 
         uint64_t offset1 = addr1 - op1.first->address;
         uint64_t offset2 = addr2 - op2.first->address;

@@ -52,10 +52,9 @@ ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
 
 ///
 
-bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr, ObjectPair &result) {
-  uint64_t address = addr->getZExtValue();
-  MemoryObject hack(address);
+bool AddressSpace::resolveOne(uint64_t address, ObjectPair &result) {
 
+  MemoryObject hack(address);
   if (const MemoryMap::value_type *res = objects.lookup_previous(&hack)) {
     const MemoryObject *mo = res->first;
     // Check if the provided address is between start and end of the object
@@ -66,7 +65,6 @@ bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr, ObjectPair &result)
       return true;
     }
   }
-
   return false;
 }
 

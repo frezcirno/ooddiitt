@@ -110,8 +110,12 @@ private:
                        const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                        llvm::Type *type);
 
-  void comparePtrs(const ref<klee::ConstantExpr> &addr1, KFunction *kf1, ExecutionState *state1,
-                   const ref<klee::ConstantExpr> &addr2, KFunction *kf2, ExecutionState *state2,
+  void comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+                   const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
+                   const std::string &name, llvm::PointerType *type);
+
+  void comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
+                   uint64_t addr2, KFunction *kf2, ExecutionState *state2,
                    const std::string &name, llvm::PointerType *type);
 
 

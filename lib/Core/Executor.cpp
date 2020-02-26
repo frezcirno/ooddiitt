@@ -1399,6 +1399,13 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       state.last_ret_value = result;
       terminateStateOnExit(state);
     } else {
+
+      // before poping the stack frame, notify the handler
+      KFunction *callee = state.stack.back().kf;
+      if (kmodule->isUserFunction(callee->function)) {
+        interpreterHandler->onStateUserFunctionReturn(state);
+      }
+
       state.popFrame();
 
       if (statsTracker)

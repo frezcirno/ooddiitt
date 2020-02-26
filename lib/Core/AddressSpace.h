@@ -59,7 +59,9 @@ namespace klee {
 
     /// Resolve address to an ObjectPair in result.
     /// \return true iff an object was found.
-    bool resolveOne(const ref<ConstantExpr> &address, ObjectPair &result);
+    bool resolveOne(uint64_t address, ObjectPair &result);
+    bool resolveOne(const ref<ConstantExpr> &address, ObjectPair &result)
+      { return resolveOne(address->getZExtValue(), result); }
 
     /// Resolve address to an ObjectPair in result.
     ///

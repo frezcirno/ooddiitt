@@ -1806,9 +1806,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           Executor::executeInstruction(state, ki);
         }
-        if (!libc_initializing && (state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
-          interpreterHandler->onStateUserFunctionReturn(state);
-        }
+//        if (!libc_initializing && (state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
+//          interpreterHandler->onStateUserFunctionReturn(state);
+//        }
       }
       break;
     }
