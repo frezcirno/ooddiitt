@@ -1387,16 +1387,36 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     KInstIterator kcaller = state.stack.back().caller;
     Instruction *caller = kcaller ? kcaller->inst : 0;
     bool isVoidReturn = (ri->getNumOperands() == 0);
-    ref<Expr> result = ConstantExpr::alloc(0, Expr::Bool);
+    ref<Expr> result = nullptr;
 
     if (!isVoidReturn) {
+
       result = eval(ki, 0, state).value;
+
+      // if caller on stack, then check to see if we need to adjust for a bitcast
+      if (caller != nullptr) {
+        Type *caller_type = caller->getType();
+        if (caller_type != Type::getVoidTy(i->getContext())) {
+          // may need to do coercion due to bitcasts
+          Expr::Width from = result->getWidth();
+          Expr::Width to = getWidthForLLVMType(caller_type);
+          if (from != to) {
+            CallSite cs = (isa<InvokeInst>(caller) ? CallSite(cast<InvokeInst>(caller)) : CallSite(cast<CallInst>(caller)));
+            bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
+            if (isSExt) {
+              result = SExtExpr::create(result, to);
+            } else {
+              result = ZExtExpr::create(result, to);
+            }
+          }
+        }
+      }
     }
+
+    state.last_ret_value = result;
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
-
-      state.last_ret_value = result;
       terminateStateOnExit(state);
     } else {
 
@@ -1418,28 +1438,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         ++state.pc;
       }
 
-      if (!isVoidReturn) {
-        LLVM_TYPE_Q Type *t = caller->getType();
-        if (t != Type::getVoidTy(i->getContext())) {
-          // may need to do coercion due to bitcasts
-          Expr::Width from = result->getWidth();
-          Expr::Width to = getWidthForLLVMType(t);
-
-          if (from != to) {
-            CallSite cs = (isa<InvokeInst>(caller) ? CallSite(cast<InvokeInst>(caller)) :
-                           CallSite(cast<CallInst>(caller)));
-
-            bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
-            if (isSExt) {
-              result = SExtExpr::create(result, to);
-            } else {
-              result = ZExtExpr::create(result, to);
-            }
-          }
-
-          state.last_ret_value = result;
-          bindLocal(kcaller, state, result);
-        }
+      if (!result.isNull()) {
+        bindLocal(kcaller, state, result);
       } else {
         // We check that the return value has no users instead of
         // checking the type, since C defaults to returning int for

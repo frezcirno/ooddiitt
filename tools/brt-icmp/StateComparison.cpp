@@ -191,6 +191,7 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   Type *type = fn1->getReturnType();
   assert(isEquivalentType(type, fn2->getReturnType()));
   if (!type->isVoidTy()) {
+    assert(!state1->last_ret_value.isNull() && !state2->last_ret_value.isNull());
     ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
     ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
     assert(!(ret1.isNull() || ret2.isNull()));
