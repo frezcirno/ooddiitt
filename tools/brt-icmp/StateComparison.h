@@ -30,23 +30,31 @@ struct StateVersion {
   virtual ~StateVersion();
 };
 
+enum class DiffType {
+  invalid,
+  delta,
+  info,
+  warning,
+  fail
+};
+
 struct CompareDiff {
+  DiffType type;
   std::string fn;
   std::string element;
   unsigned distance;
   std::string desc;
 
-  CompareDiff() : distance(0) {}
+  explicit CompareDiff(DiffType t) : type(t), distance(0) {}
 };
 
-
 struct CompareExtDiff : CompareDiff {
-  explicit CompareExtDiff(const std::string &e) : CompareDiff() { fn = "@top"; element = e; distance = UINT_MAX; }
+  explicit CompareExtDiff(const std::string &e) : CompareDiff(DiffType::delta) { fn = "@top"; element = e; distance = UINT_MAX; }
   CompareExtDiff(const std::string &e, const std::string &d) : CompareExtDiff(e) { desc = d; }
 };
 
 struct CompareIntDiff : CompareDiff {
-  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state)
+  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state) : CompareDiff(DiffType::delta)
     { fn = kf->getName(); element = e; distance = state->distance; }
   CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state, const std::string &d)
     : CompareIntDiff(kf, e, state) { desc = d; }
@@ -119,6 +127,7 @@ private:
                    const std::string &name, llvm::PointerType *type);
 
 
+  static void emitRetSequence(std::ostringstream &ss, std::deque<std::pair<KFunction*, ExecutionState*> > &fn_returns);
 };
 
 }

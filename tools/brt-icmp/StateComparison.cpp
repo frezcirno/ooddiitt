@@ -38,7 +38,10 @@ string to_string(const CharacterOutput &out) {
 
 std::string to_string(const CompareDiff &diff) {
 
+  static const char type_designators[] = { 'I', 'D', 'I', 'W', 'F' };
   ostringstream ss;
+
+  ss << type_designators[(unsigned) diff.type] << ';';
   if (diff.distance == UINT_MAX) ss << "+;";
   else ss << diff.distance << ';';
   ss << diff.fn << ';' << diff.element << ';' << diff.desc;
@@ -47,7 +50,7 @@ std::string to_string(const CompareDiff &diff) {
 
 StateVersion::~StateVersion() {
 
-  // modules are deleted explicitly
+  // modules are deleted implicitly
   delete initialState;
   delete finalState;
   for (auto &pr : fn_returns) {
@@ -68,24 +71,47 @@ bool StateComparator::alignFnReturns() {
     auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
     auto itr2 = ver2.fn_returns.begin();
     while (itr1 != end1) {
-      if (itr1->first->getName() != itr2->first->getName()) return false;
+      if (itr1->first->getName() != itr2->first->getName()) {
+        CompareDiff diff(DiffType::warning);
+        diff.fn = "@unaligned";
+        diff.distance = UINT_MAX;
+
+        ostringstream ss;
+        emitRetSequence(ss, ver1.fn_returns);
+        ss << ':';
+        emitRetSequence(ss, ver2.fn_returns);
+        diff.desc = ss.str();
+
+        diffs.emplace_back(diff);
+        return false;
+      }
       ++itr1; ++itr2;
     }
   }
   return true;
 }
 
+void StateComparator::emitRetSequence(std::ostringstream &ss, std::deque<std::pair<KFunction*, ExecutionState*> > &fn_returns) {
+
+  bool first = true;
+  for (auto &pr : fn_returns) {
+    if (first) first = false;
+    else ss << ',';
+    ss << pr.first->getName();
+  }
+}
+
 void StateComparator::doCompare() {
 
   if (ver2.finalState == nullptr) {
-    CompareDiff diff;
+    CompareDiff diff(DiffType::delta);
     diff.fn = diff.element = "@unknown";
     diff.desc = "incomplete execution";
     if (test.is_main()) diff.distance = UINT_MAX;
     diffs.emplace_back(diff);
   } else if (ver2.finalState->status != StateStatus::Completed) {
     ExecutionState *state = ver2.finalState;
-    CompareDiff diff;
+    CompareDiff diff(DiffType::delta);
     diff.fn = diff.element = "@unknown";
     diff.desc = to_string(state->status);
     if (!state->messages.empty()) diff.desc += '-' + state->messages.back();
