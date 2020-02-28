@@ -3,6 +3,7 @@
 #define KLEE_COMMONUTIL_H
 
 #include <chrono>
+#include <bitset>
 #include <llvm/IR/Type.h>
 #include <llvm/ADT/Hashing.h>
 #include <llvm/Support/raw_ostream.h>
@@ -93,6 +94,22 @@ enum class MarkScope {
   all
 };
 
+#define UNCONSTRAIN_GLOBAL_FLAG (0)
+#define UNCONSTRAIN_STUB_FLAG   (2)
+
+class UnconstraintFlagsT : public std::bitset<8> {
+
+public:
+  UnconstraintFlagsT() = default;
+  explicit UnconstraintFlagsT(std::string s) : std::bitset<8>(s) { }
+  bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
+  bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
+
+  void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
+  void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
+};
+
+std::string to_string(UnconstraintFlagsT flags);
 std::string to_string(MarkScope m);
 std::string to_string(const llvm::Type *type);
 

@@ -160,6 +160,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.entry_fn = root["entryFn"].asString();
   test.klee_version = root["kleeRevision"].asString();
   test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
+  test.lazy_string_length = root["lazyStringLength"].asUInt();
   test.max_lazy_depth = root["maxLazyDepth"].asUInt();
   test.max_loop_forks = root["maxLoopForks"].asUInt();
   test.max_loop_iter = root["maxLoopIteration"].asUInt();
@@ -169,6 +170,14 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.test_id = root["testID"].asUInt();
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
+  fromDataString(test.stdin_buffer, root["stdin"].asString());
+
+  // RLR TODO: remove this conditional after all tests have been updated
+  if (root.isMember("unconstraintFlags")) {
+    test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
+  } else {
+    test.unconstraintFlags.setUnconstrainGlobals();
+  }
 
   Json::Value &args = root["arguments"];
   if (args.isArray()) {

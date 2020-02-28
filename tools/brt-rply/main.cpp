@@ -180,6 +180,13 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.stop = to_time_point(root["timeStopped"].asString());
   fromDataString(test.stdin_buffer, root["stdin"].asString());
 
+  // RLR TODO: remove this conditional after all tests have been updated
+  if (root.isMember("unconstraintFlags")) {
+    test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
+  } else {
+    test.unconstraintFlags.setUnconstrainGlobals();
+  }
+
   Json::Value &args = root["arguments"];
   if (args.isArray()) {
     test.arguments.reserve(args.size());

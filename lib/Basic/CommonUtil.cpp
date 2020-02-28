@@ -158,6 +158,21 @@ std::string to_string(const llvm::Type *type) {
   return rss.str();
 }
 
+std::string to_string(UnconstraintFlagsT flags) {
+
+  const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
+      std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals"),
+      std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs")
+  };
+
+  std::ostringstream ss;
+  ss << "inputs";
+  for (auto &p: flag2name) {
+    if (flags.test(p.first)) ss << ',' << p.second;
+  }
+  return ss.str();
+}
+
 void HashAccumulator::add(const std::string &str) {
 
   if (str.empty()) {

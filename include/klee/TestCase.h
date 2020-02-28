@@ -75,6 +75,7 @@ public:
   sys_clock::time_point start;
   sys_clock::time_point stop;
   TraceType trace_type;
+  UnconstraintFlagsT unconstraintFlags;
   std::vector<uint64_t> arguments;
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;

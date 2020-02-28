@@ -66,27 +66,38 @@ StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersi
 
 bool StateComparator::alignFnReturns() {
 
-  if (!test.is_main() && (ver2.finalState != nullptr) && (ver2.finalState->status == StateStatus::Completed)) {
-    if (ver1.fn_returns.size() != ver2.fn_returns.size()) return false;
-    auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
-    auto itr2 = ver2.fn_returns.begin();
-    while (itr1 != end1) {
-      if (itr1->first->getName() != itr2->first->getName()) {
-        CompareDiff diff(DiffType::warning);
-        diff.fn = "@unaligned";
-        diff.distance = UINT_MAX;
+  // main with constrained globals means we will only be compariing external state.
+  // return alignment is not relevant
+  if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
+    return true;
+  }
 
-        ostringstream ss;
-        emitRetSequence(ss, ver1.fn_returns);
-        ss << ':';
-        emitRetSequence(ss, ver2.fn_returns);
-        diff.desc = ss.str();
+  // if ver2 did not complete, we will also not be comparing internal state
+  if (ver2.finalState == nullptr || ver2.finalState->status != StateStatus::Completed) {
+    return true;
+  }
 
-        diffs.emplace_back(diff);
-        return false;
-      }
-      ++itr1; ++itr2;
+  // only continue if the function call returns are comparable, i.e. they are aligned
+  //  RLR TODO: if not aligned, try to align them
+  if (ver1.fn_returns.size() != ver2.fn_returns.size()) return false;
+  auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
+  auto itr2 = ver2.fn_returns.begin();
+  while (itr1 != end1) {
+    if (itr1->first->getName() != itr2->first->getName()) {
+      CompareDiff diff(DiffType::warning);
+      diff.fn = "@unaligned";
+      diff.distance = UINT_MAX;
+
+      ostringstream ss;
+      emitRetSequence(ss, ver1.fn_returns);
+      ss << ':';
+      emitRetSequence(ss, ver2.fn_returns);
+      diff.desc = ss.str();
+
+      diffs.emplace_back(diff);
+      return false;
     }
+    ++itr1; ++itr2;
   }
   return true;
 }
@@ -119,7 +130,7 @@ void StateComparator::doCompare() {
     if (state->instFaulting != nullptr) diff.element = std::to_string(state->instFaulting->info->assemblyLine);
     diff.distance = test.is_main() ? UINT_MAX : state->distance;
     diffs.emplace_back(diff);
-  } else if (test.is_main()) {
+  } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
     compareExternalState();
   } else {
     compareInternalState();
@@ -396,10 +407,13 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
                                   const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
-  // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
-  uint64_t addr1 = expr1->getZExtValue();
-  uint64_t addr2 = expr2->getZExtValue();
-  comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
+  if (expr1->getWidth() != expr2->getWidth()) {
+    diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
+  } else {
+    uint64_t addr1 = expr1->getZExtValue();
+    uint64_t addr2 = expr2->getZExtValue();
+    comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
+  }
 }
 
 void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,

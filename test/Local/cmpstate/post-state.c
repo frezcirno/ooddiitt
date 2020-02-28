@@ -1,4 +1,6 @@
+
 #include <stdio.h>
+#include <stdlib.h>
 
 int gbar;
 
@@ -41,4 +43,10 @@ int main(int argc, char *argv[]) {
     }
   }
   return argc <= 4 ? 0 : 1;
+}
+
+char *foo04(unsigned bar) {
+  if (bar == 2) abort();
+  if (bar == 3) exit(1);
+  return NULL;
 }

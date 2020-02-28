@@ -1010,8 +1010,13 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     // are we treating this fn as main?
     bool is_main = isMainEntry(fn);
 
+    // if not main, then force global unconstraint
+    if (!is_main) {
+      unconstraintFlags.setUnconstrainGlobals();
+    }
+
     // unconstrain global state
-    if (unconstraintFlags.isUnconstrainGlobals() || !is_main) {
+    if (unconstraintFlags.isUnconstrainGlobals()) {
       unconstrainGlobals(*state, fn);
     }
 

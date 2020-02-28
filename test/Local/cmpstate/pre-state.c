@@ -42,3 +42,7 @@ int main(int argc, char *argv[]) {
   exit(0);
 }
 
+char *foo04(unsigned bar) {
+  return NULL;
+}
+

@@ -20,7 +20,6 @@
 #include <string>
 #include <map>
 #include <set>
-#include <bitset>
 #include <klee/Internal/Support/ErrorHandling.h>
 
 struct KTest;
@@ -48,9 +47,6 @@ typedef SymbolicSolution ConcreteSolution;
 
 #define HEARTBEAT_INTERVAL   (10)        // secs
 
-#define UNCONSTRAIN_GLOBAL_FLAG (0)
-#define UNCONSTRAIN_STUB_FLAG   (2)
-
 enum class LogType
 {
   STP, //.CVC (STP's native language)
@@ -67,32 +63,6 @@ enum class ExecModeID {
   irec  // record snapshot at a function entry
 };
 
-class UnconstraintFlagsT : public std::bitset<8> {
-
-public:
-  bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
-  bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
-
-  void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
-  void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
-};
-
-inline std::string to_string(UnconstraintFlagsT flags) {
-
-  const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
-      std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals,"),
-      std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs,")
-  };
-
-  std::string result("inputs,");
-  for (auto p: flag2name) {
-    if (flags.test(p.first)) {
-      result += p.second;
-    }
-  }
-  result.pop_back();
-  return result;
-}
 
 class InterpreterHandler {
 public:

@@ -194,7 +194,6 @@ public:
 /// @brief ExecutionState representing a path under exploration
 class ExecutionState {
 public:
-  // RLR TODO: evaluate if this should really be a vector
   typedef std::vector<StackFrame> stack_ty;
 
 private:

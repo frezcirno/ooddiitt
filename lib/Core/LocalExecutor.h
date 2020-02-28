@@ -65,6 +65,8 @@ public:
     return trace_type;
   }
 
+  const UnconstraintFlagsT *getUnconstraintFlags() override { return &unconstraintFlags; }
+
 protected:
   void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
