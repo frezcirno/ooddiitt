@@ -120,7 +120,8 @@ void StateComparator::doCompare() {
     diff.desc = "incomplete execution";
     if (test.is_main()) diff.distance = UINT_MAX;
     diffs.emplace_back(diff);
-  } else if (ver1.term_reason != ver2.term_reason) {
+  } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
+             (ver1.term_reason != ver2.term_reason)) {
     ExecutionState *state = ver2.finalState;
     CompareDiff diff(DiffType::delta);
     diff.fn = diff.element = "@unknown";
@@ -228,12 +229,19 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   Type *type = fn1->getReturnType();
   assert(isEquivalentType(type, fn2->getReturnType()));
   if (!type->isVoidTy()) {
-    assert(!state1->last_ret_value.isNull() && !state2->last_ret_value.isNull());
-    ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
-    ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
-    assert(!(ret1.isNull() || ret2.isNull()));
-    visited_ptrs.clear();
-    compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
+    // state1 may lack a return value due to an abort
+    if (!state1->last_ret_value.isNull()) {
+      // if state1 has a return value, then state2 must have one as well
+      if (!state2->last_ret_value.isNull()) {
+        ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
+        ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
+        assert(!(ret1.isNull() || ret2.isNull()));
+        visited_ptrs.clear();
+        compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
+      } else {
+        diffs.emplace_back(CompareIntDiff(kf2, "@return", state2, "missing return value"));
+      }
+    }
   }
 
   // scan for pointer parameters - these could be outputs
