@@ -120,11 +120,11 @@ void StateComparator::doCompare() {
     diff.desc = "incomplete execution";
     if (test.is_main()) diff.distance = UINT_MAX;
     diffs.emplace_back(diff);
-  } else if (ver2.finalState->status != StateStatus::Completed) {
+  } else if (ver1.term_reason != ver2.term_reason) {
     ExecutionState *state = ver2.finalState;
     CompareDiff diff(DiffType::delta);
     diff.fn = diff.element = "@unknown";
-    diff.desc = to_string(state->status);
+    diff.desc = to_string(ver2.term_reason);
     if (!state->messages.empty()) diff.desc += '-' + state->messages.back();
     if (!state->stack.empty()) diff.fn = ver2.finalState->stack.back().kf->getName();
     if (state->instFaulting != nullptr) diff.element = std::to_string(state->instFaulting->info->assemblyLine);

@@ -32,32 +32,31 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &o
 namespace klee {
 
 enum class TerminateReason {
+  Return,
+  Exit,
   Abort,
+  Invalid,
   Assert,
-  Exec,
-  External,
-  Free,
-  Model,
+  ExternFn,
+  InvalidFree,
+  MemFault,
+  ROFault,
+  InvalidCall,
+  UnhandledInst,
+  InternalFault,
+  InvalidAssume,
   Overflow,
-  Ptr,
-  ReadOnly,
-  ReportError,
-  User,
-  Unhandled
+  Snapshot
 };
 
 std::string to_string(TerminateReason s);
+inline bool is_valid(TerminateReason s) { return (s < TerminateReason::Invalid); }
 
 enum class StateStatus {
-  Invalid,
-  Pending,
+  Waiting,
   Completed,
-  Error,
-  MemFaulted,
-  Incomplete,
   Decimated,
-  Discarded,
-  Snapshot
+  Discarded
 };
 
 std::string to_string(StateStatus s);

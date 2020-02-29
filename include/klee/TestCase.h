@@ -52,7 +52,7 @@ public:
                max_lazy_depth(0),
                max_loop_forks(0),
                max_loop_iter(0),
-               status(StateStatus::Invalid),
+               term_reason(TerminateReason::Invalid),
                test_id(UINT_MAX),
                trace_type(TraceType::invalid) {}
   bool is_ready() { return test_id != UINT_MAX; }
@@ -70,7 +70,7 @@ public:
   unsigned max_loop_iter;
   std::string message;
   std::string path_condition_vars;
-  StateStatus status;
+  TerminateReason term_reason;
   unsigned test_id;
   sys_clock::time_point start;
   sys_clock::time_point stop;

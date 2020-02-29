@@ -51,13 +51,6 @@ namespace {
                      "Note: option is expensive when creating lots of tests (default=false)"));
 
   cl::opt<bool>
-  SilentKleeAssume("silent-klee-assume",
-                   cl::init(false),
-                   cl::desc("Silently terminate paths with an infeasible "
-                            "condition given to klee_assume() rather than "
-                            "emitting an error (default=false)"));
-
-  cl::opt<bool>
   StubMemAlloc("stub-mem-alloc",
                cl::init(false),
                cl::desc("stub memory allocation functions"));
@@ -280,7 +273,7 @@ bool SpecialFunctionHandler::handle(ExecutionState &state,
     bool hasReturnValue = it->second.second;
      // FIXME: Check this... add test?
     if (!hasReturnValue && !target->inst->use_empty()) {
-      executor.terminateStateOnExecError(state, "expected return value from void special function");
+      executor.terminateStateOnComplete(state, TerminateReason::InvalidCall, "expected return value from void special function");
     } else {
       (this->*h)(state, target, arguments);
     }
@@ -348,7 +341,7 @@ void SpecialFunctionHandler::handleAbort(ExecutionState &state,
     // we need to return a exit code
     state.last_ret_value = ConstantExpr::create(129, Expr::Int32);
   }
-  executor.terminateStateOnError(state, TerminateReason::Abort, "aborted");
+  executor.terminateStateOnComplete(state, TerminateReason::Abort);
 }
 
 void SpecialFunctionHandler::handleExit(ExecutionState &state,
@@ -357,7 +350,7 @@ void SpecialFunctionHandler::handleExit(ExecutionState &state,
   assert(arguments.size()==1 && "invalid number of arguments to exit");
 
   state.last_ret_value = arguments[0];
-  executor.terminateStateOnExit(state);
+  executor.terminateStateOnComplete(state, TerminateReason::Exit);
 }
 
 void SpecialFunctionHandler::handleSilentExit(ExecutionState &state,
@@ -365,7 +358,7 @@ void SpecialFunctionHandler::handleSilentExit(ExecutionState &state,
                                               std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==1 && "invalid number of arguments to exit");
   state.last_ret_value = arguments[0];
-  executor.terminateState(state, "silent exit");
+  executor.terminateStateOnComplete(state, TerminateReason::Exit, "silent exit");
 }
 
 void SpecialFunctionHandler::handleAliasFunction(ExecutionState &state,
@@ -386,14 +379,14 @@ void SpecialFunctionHandler::handleAssert(ExecutionState &state,
                                           KInstruction *target,
                                           std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==3 && "invalid number of arguments to _assert");
-  executor.terminateStateOnError(state, TerminateReason::Assert,  "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
+  executor.terminateStateOnComplete(state, TerminateReason::Assert,  "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
 }
 
 void SpecialFunctionHandler::handleAssertFail(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==4 && "invalid number of arguments to __assert_fail");
-  executor.terminateStateOnError(state, TerminateReason::Assert, "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
+  executor.terminateStateOnComplete(state, TerminateReason::Assert, "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
 }
 
 void SpecialFunctionHandler::handleReportError(ExecutionState &state,
@@ -402,9 +395,9 @@ void SpecialFunctionHandler::handleReportError(ExecutionState &state,
   assert(arguments.size()==4 && "invalid number of arguments to klee_report_error");
 
   // arguments[0], arguments[1] are file, line
-  executor.terminateStateOnError(state,
-                                 TerminateReason::ReportError,
-                                 readStringAtAddress(state, arguments[2]) + ":" + readStringAtAddress(state, arguments[3]));
+//  executor.terminateStateOnError(state,
+//                                 TerminateReason::ReportError,
+//                                 readStringAtAddress(state, arguments[2]) + ":" + readStringAtAddress(state, arguments[3]));
 }
 
 void SpecialFunctionHandler::handleMerge(ExecutionState &state,
@@ -470,11 +463,7 @@ void SpecialFunctionHandler::handleAssume(ExecutionState &state,
   bool success __attribute__ ((unused)) = executor.solver->mustBeFalse(state, e, res);
   assert(success && "FIXME: Unhandled solver failure");
   if (res) {
-    if (SilentKleeAssume) {
-      executor.terminateState(state, "silent invalid klee_assume call (provably false)");
-    } else {
-      executor.terminateStateOnError(state, TerminateReason::User, "invalid klee_assume call (provably false)");
-    }
+    executor.terminateStateOnComplete(state, TerminateReason::InvalidAssume, "invalid klee_assume call (provably false)");
   } else {
     executor.addConstraint(state, e);
   }
@@ -536,7 +525,7 @@ void SpecialFunctionHandler::handleSetForking(ExecutionState &state,
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(value)) {
     state.forkDisabled = CE->isZero();
   } else {
-    executor.terminateStateOnError(state, TerminateReason::User, "klee_set_forking requires a constant arg");
+    executor.terminateStateOnComplete(state, TerminateReason::Invalid, "klee_set_forking requires a constant arg");
   }
 }
 
@@ -658,7 +647,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
     if (result == LocalExecutor::ResolveResult::OK) {
       executor.executeAlloc(*zeroPointer.second, size, MemKind::heap, target, false, op.second);
     } else {
-      lcl_exec->terminateState(*zeroPointer.second, "cannot find object to realloc");
+      executor.terminateStateOnComplete(*zeroPointer.second, TerminateReason::MemFault, "cannot find object to realloc");
     }
   }
 }
@@ -680,16 +669,16 @@ void SpecialFunctionHandler::handleCheckMemoryAccess(ExecutionState &state,
   ref<Expr> address = executor.toUnique(state, arguments[0]);
   ref<Expr> size = executor.toUnique(state, arguments[1]);
   if (!isa<ConstantExpr>(address) || !isa<ConstantExpr>(size)) {
-    executor.terminateStateOnError(state, TerminateReason::User, "check_memory_access requires constant args");
+    executor.terminateStateOnComplete(state, TerminateReason::Invalid, "check_memory_access requires constant args");
   } else {
     ObjectPair op;
 
     if (!state.addressSpace.resolveOne(cast<ConstantExpr>(address), op)) {
-      executor.terminateStateOnError(state, TerminateReason::Ptr, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
+      executor.terminateStateOnComplete(state, TerminateReason::MemFault, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
     } else {
       ref<Expr> chk = op.second->getBoundsCheckPointer(address, cast<ConstantExpr>(size)->getZExtValue());
       if (!chk->isTrue()) {
-        executor.terminateStateOnError(state, TerminateReason::Ptr, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
+        executor.terminateStateOnComplete(state, TerminateReason::MemFault, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
       }
     }
   }
@@ -748,7 +737,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
     ExecutionState *s = it->second;
 
     if (old->readOnly) {
-      executor.terminateStateOnError(*s, TerminateReason::User, "cannot make readonly object symbolic");
+      executor.terminateStateOnComplete(*s, TerminateReason::MemFault, "cannot make readonly object symbolic");
       return;
     }
 
@@ -765,7 +754,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
     if (res) {
       executor.executeMakeSymbolic(*s, mo, name);
     } else {
-      executor.terminateStateOnError(*s, TerminateReason::User, "wrong size given to klee_make_symbolic[_name]");
+      executor.terminateStateOnComplete(*s, TerminateReason::MemFault, "wrong size given to klee_make_symbolic[_name]");
     }
   }
 }
@@ -780,24 +769,24 @@ void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
 void SpecialFunctionHandler::handleAddOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, TerminateReason::Overflow, "overflow on unsigned addition");
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned addition");
 }
 
 void SpecialFunctionHandler::handleSubOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, TerminateReason::Overflow, "overflow on unsigned subtraction");
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned subtraction");
 }
 
 void SpecialFunctionHandler::handleMulOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, TerminateReason::Overflow, "overflow on unsigned multiplication");
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned multiplication");
 }
 
 void SpecialFunctionHandler::handleDivRemOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, TerminateReason::Overflow, "overflow on division or remainder");
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on division or remainder");
 }
 

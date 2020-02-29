@@ -86,15 +86,14 @@ public:
   virtual unsigned getNumTestCases() const { return 0; }
 
   virtual void incPathsExplored() {}
-  virtual void incTermination(const std::string &message) {}
-  virtual void getTerminationMessages(std::vector<std::string> &messages) {};
-  virtual unsigned getTerminationCount(const std::string &message) { return 0; }
+  virtual void getTerminationMessages(std::vector<TerminateReason> &reasons) {};
+  virtual unsigned getTerminationCount(TerminateReason reason) { return 0; }
 
   virtual void onStateInitialize(ExecutionState &state) {};
-  virtual void onStateFinalize(ExecutionState &state) {};
+  virtual void onStateFinalize(ExecutionState &state, TerminateReason reason) {};
   virtual void onStateUserFunctionReturn(ExecutionState &state) {};
 
-  virtual void processTestCase(ExecutionState &state) {};
+  virtual void processTestCase(ExecutionState &state, TerminateReason reason) {};
   virtual bool resetWatchDogTimer() const { return false; }
 
   void incCallCounter(const llvm::Function *fn) { call_counters[fn] += 1; }

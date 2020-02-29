@@ -129,7 +129,7 @@ private:
 
   // used for writing .ktest files
   const vector<string> &args;
-  map<string,unsigned> terminationCounters;
+  map<TerminateReason,unsigned> terminationCounters;
   sys_clock::time_point started_at;
 
 public:
@@ -140,13 +140,12 @@ public:
   unsigned getNumPathsExplored() { return m_pathsExplored; }
   void incPathsExplored() override { m_pathsExplored++; }
 
-  void processTestCase(ExecutionState  &state) override;
+  void processTestCase(ExecutionState  &state, TerminateReason term_reason) override;
   bool resetWatchDogTimer() const override;
   void setWatchDog(pid_t pid)     { pid_watchdog = pid; }
 
-  void incTermination(const string &message) override;
-  void getTerminationMessages(vector<string> &messages) override;
-  unsigned getTerminationCount(const string &message) override;
+  void getTerminationMessages(vector<TerminateReason> &reasons) override;
+  unsigned getTerminationCount(TerminateReason reason) override;
 };
 
 InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix)
@@ -178,10 +177,11 @@ InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const stri
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void InputGenKleeHandler::processTestCase(ExecutionState &state) {
+void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason term_reason) {
 
   Interpreter *i = getInterpreter();
   assert(!state.isProcessed);
+  assert(state.status == StateStatus::Completed);
 
   if (i != nullptr && !NoOutput) {
 
@@ -212,7 +212,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state) {
         root["unconstraintDescription"] = klee::to_string(*flags);
       }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
-      root["status"] = (unsigned) state.status;
+      root["termination"] = (unsigned) term_reason;
       if (state.instFaulting != nullptr) {
         root["instFaulting"] = state.instFaulting->info->assemblyLine;
       }
@@ -328,19 +328,15 @@ bool InputGenKleeHandler::resetWatchDogTimer() const {
   return false;
 }
 
-void InputGenKleeHandler::incTermination(const string &message) {
-  ++terminationCounters[message];
-}
-
-void InputGenKleeHandler::getTerminationMessages(vector<string> &messages) {
+void InputGenKleeHandler::getTerminationMessages(vector<TerminateReason> &reasons) {
 
   for (const auto &pr : terminationCounters) {
-    messages.push_back(pr.first);
+    reasons.push_back(pr.first);
   }
 }
 
-unsigned InputGenKleeHandler::getTerminationCount(const string &message) {
-  return terminationCounters[message];
+unsigned InputGenKleeHandler::getTerminationCount(TerminateReason reason) {
+  return terminationCounters[reason];
 }
 
 //===----------------------------------------------------------------------===//
@@ -738,10 +734,10 @@ int main(int argc, char **argv, char **envp) {
   auto elapsed = chrono::duration_cast<chrono::seconds>(finish_time - start_time);
   outs() << "Elapsed: " << elapsed.count() << '\n';
 
-  vector<string> termination_messages;
-  handler->getTerminationMessages(termination_messages);
-  for (const auto &message : termination_messages) {
-    outs() << "brt-igen: term: " << message << ": " << handler->getTerminationCount(message) << "\n";
+  vector<TerminateReason> termination_reasons;
+  handler->getTerminationMessages(termination_reasons);
+  for (const auto &reason : termination_reasons) {
+    outs() << "brt-igen: term: " << to_string(reason) << ": " << handler->getTerminationCount(reason) << '\n';
   }
 
   uint64_t queries = *theStatisticManager->getStatisticByName("Queries");

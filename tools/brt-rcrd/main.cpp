@@ -87,7 +87,7 @@ public:
   ~RecordKleeHandler() override = default;
 
   unsigned getNumCasesGenerated() const { return casesGenerated; }
-  void processTestCase(ExecutionState  &state) override;
+  void processTestCase(ExecutionState &state, TerminateReason reason) override;
 };
 
 RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix, bool as_main)
@@ -121,12 +121,12 @@ RecordKleeHandler::RecordKleeHandler(const vector<string> &_args, const string &
 }
 
 /* Outputs all files (.ktest, .kquery, .cov etc.) describing a test case */
-void RecordKleeHandler::processTestCase(ExecutionState &state) {
+void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason reason) {
 
   Interpreter *i = getInterpreter();
   assert(!state.isProcessed);
 
-  if (i != nullptr && !NoOutput && (state.status == StateStatus::Snapshot)) {
+  if (i != nullptr && !NoOutput && (reason == TerminateReason::Snapshot)) {
 
     const Interpreter::InterpreterOptions &opts = i->getOptions();
 
@@ -158,7 +158,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state) {
         root["unconstraintDescription"] = klee::to_string(*flags);
       }
       root["kleeRevision"] = KLEE_BUILD_REVISION;
-      root["status"] = (unsigned) state.status;
+      root["termination"] = (unsigned) reason;
       if (state.instFaulting != nullptr) {
         root["instFaulting"] = state.instFaulting->info->assemblyLine;
       }

@@ -352,7 +352,7 @@ entry:
         // hack, because we are terminating the state we need to let
         // the baseSearcher know about it again
         baseSearcher->addState(&es);
-        executor.terminateState(es, "merged");
+        executor.terminateStateOnDiscard(es, "merged");
       } else {
         it->second = &es; // the bump
         ++mergeWith->pc;
@@ -466,7 +466,7 @@ ExecutionState &MergingSearcher::selectState() {
              ie = toErase.end(); it != ie; ++it) {
         std::set<ExecutionState*>::iterator it2 = toMerge.find(*it);
         assert(it2!=toMerge.end());
-        executor.terminateState(**it, "merged");
+        executor.terminateStateOnDiscard(**it, "merged");
         toMerge.erase(it2);
       }
 

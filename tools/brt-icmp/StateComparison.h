@@ -23,6 +23,7 @@ struct StateVersion {
   std::map<const llvm::GlobalVariable*, MemoryObject*> global_map;
   ExecutionState *initialState;
   ExecutionState *finalState;
+  TerminateReason term_reason;
   bool forked;
   std::deque<std::pair<KFunction*, ExecutionState*> > fn_returns;
 

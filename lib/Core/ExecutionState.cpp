@@ -94,7 +94,7 @@ ExecutionState::ExecutionState() :
     maxLoopIteration(0),
     maxLoopForks(0),
     maxLazyDepth(0),
-    status(StateStatus::Pending),
+    status(StateStatus::Waiting),
     instFaulting(nullptr),
     allBranchCounter(0),
     unconBranchCounter(0),

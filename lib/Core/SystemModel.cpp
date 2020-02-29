@@ -319,7 +319,7 @@ bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&a
           }
         } else {
           // copy out-of-bounds
-          executor->terminateState(state, "out-of-bounds memset");
+          executor->terminateStateOnMemFault(state, this->ki, "out-of-bounds memset");
           return true;
         }
       }

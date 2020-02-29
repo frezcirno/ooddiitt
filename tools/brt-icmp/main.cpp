@@ -87,9 +87,10 @@ public:
     getInterpreter()->getGlobalVariableMap(ver.global_map);
   }
 
-  void onStateFinalize(ExecutionState &state) override {
+  void onStateFinalize(ExecutionState &state, TerminateReason reason) override {
     if (ver.finalState == nullptr) {
       ver.finalState = new ExecutionState(state);
+      ver.term_reason = reason;
     } else {
       ver.forked = true;
     }
@@ -166,18 +167,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.max_loop_iter = root["maxLoopIteration"].asUInt();
   test.message = root["message"].asString();
   test.path_condition_vars = root["pathConditionVars"].asString();
-  test.status = (StateStatus) root["status"].asUInt();
+  test.term_reason = (TerminateReason) root["termination"].asUInt();
   test.test_id = root["testID"].asUInt();
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
   fromDataString(test.stdin_buffer, root["stdin"].asString());
-
-  // RLR TODO: remove this conditional after all tests have been updated
-  if (root.isMember("unconstraintFlags")) {
-    test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
-  } else {
-    test.unconstraintFlags.setUnconstrainGlobals();
-  }
+  test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
 
   Json::Value &args = root["arguments"];
   if (args.isArray()) {

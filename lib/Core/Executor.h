@@ -366,26 +366,22 @@ protected:
 
   // Determines the \param lastInstruction of the \param state which is not KLEE
   // internal and returns its InstructionInfo
-  const InstructionInfo & getLastNonKleeInternalInstruction(const ExecutionState &state,
-      llvm::Instruction** lastInstruction);
-
-  bool shouldExitOn(enum TerminateReason termReason);
+  const InstructionInfo & getLastNonKleeInternalInstruction(const ExecutionState &state, llvm::Instruction** lastInstruction);
 
   // remove state from queue and delete
-  virtual void terminateState(ExecutionState &state, const std::string &message);
+  void terminateState(ExecutionState &state);
   // call exit handler and terminate state
-  virtual void terminateStateEarly(ExecutionState &state, const std::string &message);
-  // call exit handler and terminate state
-  virtual void terminateStateOnExit(ExecutionState &state);
-  // call error handler and terminate state
-  virtual void terminateStateOnError(ExecutionState &state, TerminateReason termReason, const std::string &message);
 
-  // call error handler and terminate state, for execution errors
-  // (things that should not be possible, like illegal instruction or
-  // unlowered instrinsic, or are unsupported, like inline assembly)
-  virtual void terminateStateOnExecError(ExecutionState &state, const std::string &message) {
-    terminateStateOnError(state, TerminateReason::Exec, message);
-  }
+  void terminateStateOnComplete(ExecutionState &state, TerminateReason reason);
+
+  void terminateStateOnComplete(ExecutionState &state, TerminateReason reason, const std::string &comment)
+    { state.messages.push_front(comment); terminateStateOnComplete(state, reason); }
+
+  void terminateStateOnDiscard(ExecutionState &state, const std::string &comment)
+    { state.status = StateStatus::Discarded; state.messages.push_front(comment); terminateState(state); }
+
+  void terminateStateOnDecimate(ExecutionState &state)
+    { state.status = StateStatus::Decimated; terminateState(state); }
 
   /// bindModuleConstants - Initialize the module constant table.
   virtual void bindModuleConstants();

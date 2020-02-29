@@ -112,18 +112,17 @@ string toDataString(const vector<unsigned char> &data, unsigned max) {
   return bytes.str();
 }
 
-
 std::string to_string(TerminateReason s) {
-  static const char *strings[] = {"abort", "assert", "exec", "external", "free", "model", "overflow",
-                                  "ptr", "readonly", "report_error", "user", "unhandled"};
+  static const char *strings[] = {"return", "exit", "abort", "invalid", "assert", "extern_fn", "invalid_free", "mem_fault",
+                                  "readonly_fault", "invalid_call", "unhandled_instuction", "internal_fault",
+                                  "invalid_assume", "overflow", "snapshot"};
   if ((unsigned) s >= countof(strings))
     return "";
   return strings[(unsigned) s];
 }
 
 std::string to_string(StateStatus s) {
-  static const char *strings[] = {"invalid", "pending", "completed", "error", "faulted",
-                                  "incomplete", "decimated", "discarded", "snapshot"};
+  static const char *strings[] = {"waiting", "completed", "decimated", "discarded"};
   if ((unsigned) s >= countof(strings))
     return "";
   return strings[(unsigned) s];

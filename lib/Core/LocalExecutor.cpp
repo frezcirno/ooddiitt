@@ -165,7 +165,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
   }
 
   // WARNING: if this function returns false, state must not be accessed again
-  terminateState(state, "added invalid constraint");
+  terminateStateOnDiscard(state, "added invalid constraint");
   return false;
 }
 
@@ -487,7 +487,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
         // too deep. no more forking for this pointer.
         addConstraintOrTerminate(state, eqNull);
       } else {
-        terminateState(state, "memory depth exceeded");
+        terminateStateOnDiscard(state, "memory depth exceeded");
       }
       // must not touch state again in case of failure
 
@@ -554,7 +554,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               // state was terminated
             }
           } else {
-            terminateState(*next_fork, "lazy symbolic allocation failed");
+            terminateStateOnDiscard(*next_fork, "lazy symbolic allocation failed");
           }
         }
       }
@@ -605,7 +605,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   const ObjectState *os = op.second;
 
   if (os->readOnly) {
-    terminateStateOnError(state, TerminateReason::ReadOnly, "memory error: object read only");
+    terminateStateOnComplete(state, TerminateReason::ROFault, "memory error: object read only");
   }
 
   Expr::Width width = value->getWidth();
@@ -1277,11 +1277,10 @@ void LocalExecutor::runMainConcrete(Function *fn,
     }
 
     if (fn == at) {
-      state->status = StateStatus::Snapshot;
       state->arguments.clear();
       state->arguments.push_back(eArgC);
       state->arguments.push_back(eArgV);
-      interpreterHandler->processTestCase(*state);
+      interpreterHandler->processTestCase(*state, TerminateReason::Snapshot);
     } else {
       std::vector<ExecutionState *> init_states = {state};
       runFn(kf, init_states);
@@ -1409,9 +1408,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       executeInstruction(*state, ki);
 
     } catch (bad_expression &e) {
-      terminateState(*state, "uninitialized expression");
+      terminateStateOnDiscard(*state, "uninitialized expression");
     } catch (solver_failure &e) {
-      terminateState(*state, "solver failure");
+      terminateStateOnDiscard(*state, "solver failure");
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1433,7 +1432,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   loopForkCounter.clear();
   for (ExecutionState *state : states) {
-    terminateStateEarly(*state, "flushing states on halt");
+    terminateStateOnDiscard(*state, "flushing states on halt");
   }
   updateStates(nullptr);
   assert(states.empty());
@@ -1522,52 +1521,6 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
   return result;
 }
 
-void LocalExecutor::terminateState(ExecutionState &state, const string &message) {
-
-  if (!message.empty()) state.messages.push_back(message);
-  if (state.status == StateStatus::Completed    ||
-     (state.status == StateStatus::Error) ||
-     (interpreterOpts.mode != ExecModeID::igen && state.status == StateStatus::MemFaulted) ||
-     (SavePendingStates && state.status == StateStatus::Incomplete) ) {
-    interpreterHandler->processTestCase(state);
-  } else {
-    // ??
-  }
-  interpreterHandler->onStateFinalize(state);
-  Executor::terminateState(state, message);
-}
-
-void LocalExecutor::terminateStateOnExit(ExecutionState &state) {
-  state.status = StateStatus::Completed;
-  Executor::terminateStateOnExit(state);
-}
-
-void LocalExecutor::terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &message) {
-  state.status = StateStatus::MemFaulted;
-  state.instFaulting = ki;
-  terminateState(state, message);
-}
-
-void LocalExecutor::terminateStateEarly(ExecutionState &state, const string &message) {
-  state.status = StateStatus::Incomplete;
-  Executor::terminateStateEarly(state, message);
-}
-
-void LocalExecutor::terminateStateOnError(ExecutionState &state, TerminateReason termReason, const string &message) {
-  state.status = StateStatus::Error;
-  Executor::terminateStateOnError(state, termReason, message);
-}
-
-void LocalExecutor::terminateStateOnDecimated(ExecutionState &state) {
-  state.status = StateStatus::Decimated;
-  terminateState(state, "decimated");
-}
-
-void LocalExecutor::terminateStateOnDiscard(ExecutionState &state) {
-  state.status = StateStatus::Discarded;
-  terminateState(state, "discarded");
-}
-
 void LocalExecutor::checkMemoryUsage() {
 
   Executor::checkMemoryUsage();
@@ -1595,8 +1548,7 @@ unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_cou
     for (const auto &sf : state->stack) {
       for (const auto lf : sf.loopFrames) {
         if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
-          state->status = StateStatus::Decimated;
-          terminateStateOnDecimated(*state);
+          terminateStateOnDecimate(*state);
           killed++;
         }
       }
@@ -1775,7 +1727,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                   if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
 
                     // finally consider terminating the state.
-                    terminateState(*states[index], "loop throttled");
+                    terminateStateOnDiscard(*states[index], "loop throttled");
                   }
                 }
               }
@@ -1805,15 +1757,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
-          // this state completed
+          // this state completed.  if this was an exit or an abort, we would have
+          // handled it at the call site.  Since we don't know what this was, treat it like an abort
           state.last_ret_value = nullptr;
-          terminateStateOnExit(state);
+          ostringstream ss;
+          ss << "noreturn fn: " << ret_from->getName();
+          terminateStateOnComplete(state, TerminateReason::Abort, ss.str());
         } else {
           Executor::executeInstruction(state, ki);
         }
-//        if (!libc_initializing && (state.status != StateStatus::Completed) && kmodule->isUserFunction(ret_from->function)) {
-//          interpreterHandler->onStateUserFunctionReturn(state);
-//        }
       }
       break;
     }
@@ -1835,7 +1787,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
 
         if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
-          state.status = StateStatus::Snapshot;
           state.instFaulting = ki;
           unsigned numArgs = cs.arg_size();
 
@@ -1846,8 +1797,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             state.arguments.push_back(toUnique(state, e));
           }
 
-          interpreterHandler->processTestCase(state);
-          terminateState(state, "snapshot");
+          interpreterHandler->processTestCase(state, TerminateReason::Snapshot);
+          terminateStateOnComplete(state, TerminateReason::Snapshot);
           return;
         }
 
@@ -1882,7 +1833,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             // direct callee with no body.  not good...
             stringstream ss;
             ss << "undefined callee: " << fn_name;
-            terminateStateOnError(state, TerminateReason::External, ss.str());
+            terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
           }
 
         } else {
@@ -1927,7 +1878,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
         unsigned num_targets = targets.size();
         if (num_targets == 0) {
-          terminateStateOnError(state, TerminateReason::Ptr, "legal indirect callee not found");
+          terminateStateOnComplete(state, TerminateReason::MemFault, "legal indirect callee not found");
         } else if (num_targets == 1) {
           if (tracer != nullptr) {
             tracer->append_call(state.trace, kmodule->getKFunction(targets.front()));

@@ -267,25 +267,6 @@ namespace {
            cl::desc("Amount of time to dedicate to seeds, before normal search (default=0 (off))"),
            cl::init(0));
 
-  cl::list<TerminateReason>
-  ExitOnErrorType("exit-on-error-type",
-		  cl::desc("Stop execution after reaching a specified condition.  (default=off)"),
-		  cl::values(
-		    clEnumValN(TerminateReason::Abort, "Abort", "The program crashed"),
-		    clEnumValN(TerminateReason::Assert, "Assert", "An assertion was hit"),
-		    clEnumValN(TerminateReason::Exec, "Exec", "Trying to execute an unexpected instruction"),
-		    clEnumValN(TerminateReason::External, "External", "External objects referenced"),
-		    clEnumValN(TerminateReason::Free, "Free", "Freeing invalid memory"),
-		    clEnumValN(TerminateReason::Model, "Model", "Memory model limit hit"),
-		    clEnumValN(TerminateReason::Overflow, "Overflow", "An overflow occurred"),
-		    clEnumValN(TerminateReason::Ptr, "Ptr", "Pointer error"),
-		    clEnumValN(TerminateReason::ReadOnly, "ReadOnly", "Write to read-only memory"),
-		    clEnumValN(TerminateReason::ReportError, "ReportError", "klee_report_error called"),
-		    clEnumValN(TerminateReason::User, "User", "Wrong klee_* functions invocation"),
-		    clEnumValN(TerminateReason::Unhandled, "Unhandled", "Unhandled instruction hit"),
-		    clEnumValEnd),
-		  cl::ZeroOrMore);
-
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 0)
   cl::opt<unsigned int>
   StopAfterNInstructions("stop-after-n-instructions",
@@ -619,6 +600,7 @@ void Executor::branch(ExecutionState &state,
   // states if necessary due to OnlyReplaySeeds (inefficient but
   // simple).
 
+#if 0 == 1
   std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
     seedMap.find(&state);
   if (it != seedMap.end()) {
@@ -661,10 +643,13 @@ void Executor::branch(ExecutionState &state,
       }
     }
   }
+#endif
 
-  for (unsigned i=0; i<N; ++i)
-    if (result[i])
+  for (unsigned i=0; i<N; ++i) {
+    if (result[i]) {
       addConstraint(*result[i], conditions[i]);
+    }
+  }
 }
 
 ExecutionState *Executor::clone(ExecutionState *es) {
@@ -714,7 +699,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   bool success = solver->evaluate(current, condition, res);
   if (!success) {
     current.pc = current.prevPC;
-    terminateStateEarly(current, "Query timed out (fork).");
+    terminateStateOnDiscard(current, "Query timed out (fork).");
     return StatePair(0, 0);
   }
 
@@ -891,8 +876,8 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 
     // Kinda gross, do we even really still want this option?
     if (MaxDepth && MaxDepth<=trueState->depth) {
-      terminateStateEarly(*trueState, "max-depth exceeded.");
-      terminateStateEarly(*falseState, "max-depth exceeded.");
+      terminateStateOnDiscard(*trueState, "max-depth exceeded.");
+      terminateStateOnDiscard(*falseState, "max-depth exceeded.");
       return StatePair(0, 0);
     }
 
@@ -1229,7 +1214,7 @@ void Executor::executeCall(ExecutionState &state,
     unsigned callingArgs = arguments.size();
     unsigned funcArgs = f->arg_size();
     if (callingArgs < funcArgs) {
-      terminateStateOnError(state, TerminateReason::User, "calling function with too few arguments");
+      terminateStateOnComplete(state, TerminateReason::InvalidCall, "calling function with too few arguments");
       return;
     }
 
@@ -1237,7 +1222,7 @@ void Executor::executeCall(ExecutionState &state,
       Expr::Width WordSize = Context::get().getPointerWidth();
 
       if (callingArgs < funcArgs) {
-        terminateStateOnError(state, TerminateReason::User, "calling function with too few arguments");
+        terminateStateOnComplete(state, TerminateReason::InvalidCall, "calling function with too few arguments");
         return;
       }
 
@@ -1270,7 +1255,7 @@ void Executor::executeCall(ExecutionState &state,
         MemoryObject *mo = sf.varargs = memory->allocate(size, nullptr, MemKind::va_arg, state.prevPC->inst,
                                                         (requires16ByteAlignment ? 16 : 8));
         if (mo == nullptr) {
-          terminateStateOnExecError(state, "out of memory (varargs)");
+          terminateStateOnComplete(state, TerminateReason::InvalidCall, "out of memory (varargs)");
           return;
         }
 
@@ -1417,7 +1402,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     if (state.stack.size() <= 1) {
       assert(!caller && "caller set on initial stack frame");
-      terminateStateOnExit(state);
+      terminateStateOnComplete(state, TerminateReason::Return);
     } else {
 
       // before poping the stack frame, notify the handler
@@ -1445,7 +1430,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         // checking the type, since C defaults to returning int for
         // undeclared functions.
         if (!caller->use_empty()) {
-          terminateStateOnExecError(state, "return void when caller expected a result");
+          terminateStateOnComplete(state, TerminateReason::Return, "return void when caller expected a result");
         }
       }
     }
@@ -1608,7 +1593,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     // generate unreachable instructions in cases where it knows the
     // program will crash. So it is effectively a SEGV or internal
     // error.
-    terminateStateOnExecError(state, "reached \"unreachable\" instruction");
+    terminateStateOnComplete(state, TerminateReason::UnhandledInst, "reached \"unreachable\" instruction");
     break;
 
   case Instruction::Invoke:
@@ -1620,7 +1605,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     Function *f = getTargetFunction(fp, state);
 
     if (isa<InlineAsm>(fp)) {
-      terminateStateOnExecError(state, "inline assembly is unsupported");
+      terminateStateOnComplete(state, TerminateReason::UnhandledInst, "inline assembly is unsupported");
       break;
     }
     // evaluate arguments
@@ -1694,7 +1679,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
             executeCall(*res.first, ki, f, arguments);
           } else {
             if (!hasInvalid) {
-              terminateStateOnExecError(state, "invalid function pointer");
+              terminateStateOnComplete(state, TerminateReason::InvalidCall, "invalid function pointer");
               hasInvalid = true;
             }
           }
@@ -1727,7 +1712,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::VAArg:
-    terminateStateOnExecError(state, "unexpected VAArg instruction");
+    terminateStateOnComplete(state, TerminateReason::UnhandledInst, "unexpected VAArg instruction");
     break;
 
     // Arithmetic / logical
@@ -1921,7 +1906,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     }
 
     default:
-      terminateStateOnExecError(state, "invalid ICmp predicate");
+      terminateStateOnComplete(state, TerminateReason::UnhandledInst, "invalid ICmp predicate");
     }
     break;
   }
@@ -2027,7 +2012,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FAdd operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FAdd operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(left->getWidth()), left->getAPValue());
@@ -2047,7 +2032,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FSub operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FSub operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(left->getWidth()), left->getAPValue());
     Res.subtract(APFloat(*fpWidthToSemantics(right->getWidth()), right->getAPValue()), APFloat::rmNearestTiesToEven);
@@ -2066,7 +2051,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FMul operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FMul operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(left->getWidth()), left->getAPValue());
@@ -2086,7 +2071,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FDiv operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FDiv operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(left->getWidth()), left->getAPValue());
@@ -2106,7 +2091,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FRem operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FRem operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(left->getWidth()), left->getAPValue());
     Res.mod(APFloat(*fpWidthToSemantics(right->getWidth()),right->getAPValue()),
@@ -2125,7 +2110,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
                                        "floating point");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > arg->getWidth())
-      return terminateStateOnExecError(state, "Unsupported FPTrunc operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPTrunc operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(arg->getWidth()), arg->getAPValue());
@@ -2146,7 +2131,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
                                         "floating point");
     if (!fpWidthToSemantics(arg->getWidth()) || arg->getWidth() > resultType)
-      return terminateStateOnExecError(state, "Unsupported FPExt operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPExt operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Res(*fpWidthToSemantics(arg->getWidth()), arg->getAPValue());
 #else
@@ -2166,7 +2151,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
                                        "floating point");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
-      return terminateStateOnExecError(state, "Unsupported FPToUI operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToUI operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Arg(*fpWidthToSemantics(arg->getWidth()), arg->getAPValue());
@@ -2187,7 +2172,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
                                        "floating point");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
-      return terminateStateOnExecError(state, "Unsupported FPToSI operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToSI operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     llvm::APFloat Arg(*fpWidthToSemantics(arg->getWidth()), arg->getAPValue());
 #else
@@ -2209,7 +2194,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                        "floating point");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
-      return terminateStateOnExecError(state, "Unsupported UIToFP operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported UIToFP operation");
     llvm::APFloat f(*semantics, 0);
     f.convertFromAPInt(arg->getAPValue(), false,
                        llvm::APFloat::rmNearestTiesToEven);
@@ -2225,7 +2210,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                        "floating point");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
-      return terminateStateOnExecError(state, "Unsupported SIToFP operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported SIToFP operation");
     llvm::APFloat f(*semantics, 0);
     f.convertFromAPInt(arg->getAPValue(), true,
                        llvm::APFloat::rmNearestTiesToEven);
@@ -2242,7 +2227,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
                                          "floating point");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
-      return terminateStateOnExecError(state, "Unsupported FCmp operation");
+      return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FCmp operation");
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
     APFloat LHS(*fpWidthToSemantics(left->getWidth()),left->getAPValue());
@@ -2385,11 +2370,11 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::ExtractElement:
   case Instruction::InsertElement:
   case Instruction::ShuffleVector:
-    terminateStateOnError(state, TerminateReason::Unhandled, "XXX vector instructions unhandled");
+    terminateStateOnComplete(state, TerminateReason::UnhandledInst, "XXX vector instructions unhandled");
     break;
 
   default:
-    terminateStateOnExecError(state, "illegal instruction");
+    terminateStateOnComplete(state, TerminateReason::UnhandledInst, "illegal instruction");
     break;
   }
 }
@@ -2502,7 +2487,7 @@ void Executor::checkMemoryUsage() {
             idx = rand() % N;
 
           std::swap(arr[idx], arr[N - 1]);
-          terminateStateEarly(*arr[N - 1], "Memory limit exceeded.");
+          terminateStateOnDiscard(*arr[N - 1], "Memory limit exceeded.");
         }
       }
       atMemoryLimit = true;
@@ -2521,7 +2506,7 @@ void Executor::doDumpStates() {
        it != ie; ++it) {
     ExecutionState &state = **it;
     stepInstruction(state); // keep stats rolling
-    terminateStateEarly(state, "Execution halting.");
+    terminateStateOnDiscard(state, "Execution halting.");
   }
   updateStates(0);
 }
@@ -2678,42 +2663,37 @@ std::string Executor::getAddressInfo(ExecutionState &state,
   return info.str();
 }
 
-void Executor::terminateState(ExecutionState &state, const std::string &message) {
+void Executor::terminateState(ExecutionState &state) {
+
   if (replayKTest && replayPosition!=replayKTest->numObjects) {
     klee_warning_once(replayKTest, "replay did not consume all objects in test input.");
   }
 
   interpreterHandler->incPathsExplored();
-  interpreterHandler->incTermination(message);
 
   auto it = std::find(addedStates.begin(), addedStates.end(), &state);
-  if (it==addedStates.end()) {
+  if (it == addedStates.end()) {
     state.pc = state.prevPC;
     removedStates.push_back(&state);
   } else {
 
     // never reached searcher, just delete immediately
     auto it3 = seedMap.find(&state);
-    if (it3 != seedMap.end())
-      seedMap.erase(it3);
+    if (it3 != seedMap.end()) seedMap.erase(it3);
     addedStates.erase(it);
     processTree->remove(state.ptreeNode);
     delete &state;
   }
 }
 
-void Executor::terminateStateEarly(ExecutionState &state, const std::string &message) {
-//  if (!OnlyOutputStatesCoveringNew || state.coveredNew ||
-//      (AlwaysOutputSeeds && seedMap.count(&state)))
-//    interpreterHandler->processTestCase(state, (message + "\n").str().c_str(), "early");
-  terminateState(state, message);
-}
+void Executor::terminateStateOnComplete(ExecutionState &state, TerminateReason reason) {
 
-void Executor::terminateStateOnExit(ExecutionState &state) {
-//  if (!OnlyOutputStatesCoveringNew || state.coveredNew ||
-//      (AlwaysOutputSeeds && seedMap.count(&state)))
-//    interpreterHandler->processTestCase(state, 0, 0);
-  terminateState(state, "exit");
+  state.status = StateStatus::Completed;
+  if (is_valid(reason)) {
+    interpreterHandler->processTestCase(state, reason);
+  }
+  interpreterHandler->onStateFinalize(state, reason);
+  terminateState(state);
 }
 
 const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const ExecutionState &state,
@@ -2759,23 +2739,6 @@ const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const Execut
   return *ii;
 }
 
-bool Executor::shouldExitOn(enum TerminateReason termReason) {
-  std::vector<TerminateReason>::iterator s = ExitOnErrorType.begin();
-  std::vector<TerminateReason>::iterator e = ExitOnErrorType.end();
-
-  for (; s != e; ++s)
-    if (termReason == *s)
-      return true;
-
-  return false;
-}
-
-void Executor::terminateStateOnError(ExecutionState &state, TerminateReason termReason, const std::string &message) {
-
-  terminateState(state, message);
-  if (shouldExitOn(termReason)) haltExecution = true;
-}
-
 // XXX shoot me
 static const char *okExternalsList[] = { "printf",
                                          "fprintf",
@@ -2796,7 +2759,7 @@ void Executor::callExternalFunction(ExecutionState &state,
   std::string fn_name = function->getName();
   std::ostringstream ss;
   ss << "external function calls disallowed: " << fn_name;
-  terminateStateOnError(state, TerminateReason::User, ss.str());
+  terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
 
 #if 0 == 1
   if (NoExternals && !okExternals.count(function->getName())) {
@@ -3031,7 +2994,7 @@ void Executor::executeFree(ExecutionState &state,
            ie = rl.end(); it != ie; ++it) {
       const MemoryObject *mo = it->first.first;
       if (!mo->isHeap()) {
-        terminateStateOnError(*it->second, TerminateReason::Free, "invalid free of memory object");
+        terminateStateOnComplete(*it->second, TerminateReason::InvalidFree, "invalid free of memory object");
       } else {
         it->second->addressSpace.unbindObject(mo);
       }
@@ -3066,7 +3029,7 @@ void Executor::resolveExact(ExecutionState &state,
   }
 
   if (unbound) {
-    terminateStateOnError(*unbound, TerminateReason::Ptr, "memory error: invalid pointer: " + name);
+    terminateStateOnComplete(*unbound, TerminateReason::MemFault, "memory error: invalid pointer: " + name);
   }
 }
 
@@ -3109,14 +3072,14 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     bool success = solver->mustBeTrue(state, os->getBoundsCheckOffset(offset, bytes), inBounds);
     if (!success) {
       state.pc = state.prevPC;
-      terminateStateEarly(state, "Query timed out (bounds check).");
+      terminateStateOnDiscard(state, "Query timed out (bounds check).");
       return;
     }
 
     if (inBounds) {
       if (isWrite) {
         if (os->readOnly) {
-          terminateStateOnError(state, TerminateReason::ReadOnly, "memory error: object read only");
+          terminateStateOnComplete(state, TerminateReason::ROFault, "memory error: object read only");
         } else {
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
           wos->write(offset, value);
@@ -3156,7 +3119,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     if (bound) {
       if (isWrite) {
         if (os->readOnly) {
-          terminateStateOnError(*bound, TerminateReason::ReadOnly, "memory error: object read only");
+          terminateStateOnComplete(*bound, TerminateReason::ROFault, "memory error: object read only");
         } else {
           ObjectState *wos = bound->addressSpace.getWriteable(mo, os);
           wos->write(mo->getOffsetExpr(address), value);
@@ -3175,9 +3138,9 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // XXX should we distinguish out of bounds and overlapped cases?
   if (unbound) {
     if (incomplete) {
-      terminateStateEarly(*unbound, "Query timed out (resolve).");
+      terminateStateOnDiscard(*unbound, "Query timed out (resolve).");
     } else {
-      terminateStateOnError(*unbound, TerminateReason::Ptr, "memory error: out of bound pointer");
+      terminateStateOnComplete(*unbound, TerminateReason::MemFault, "memory error: out of bound pointer");
     }
   }
 }
@@ -3212,7 +3175,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
             std::vector<unsigned char> &values = si.assignment.bindings[array];
             values = std::vector<unsigned char>(mo->size, '\0');
           } else if (!AllowSeedExtension) {
-            terminateStateOnError(state, TerminateReason::User, "ran out of inputs during seeding");
+            terminateStateOnComplete(state, TerminateReason::InternalFault, "ran out of inputs during seeding");
             break;
           }
         } else {
@@ -3225,7 +3188,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
             << mo->name << "[" << mo->size << "]"
             << " vs " << obj->name << "[" << obj->numBytes << "]"
             << " in test\n";
-            terminateStateOnError(state, TerminateReason::User, msg.str());
+            terminateStateOnComplete(state, TerminateReason::InternalFault, msg.str());
             break;
           } else {
             std::vector<unsigned char> &values = si.assignment.bindings[array];
@@ -3242,11 +3205,11 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
   } else {
     ObjectState *os = bindObjectInState(state, mo);
     if (replayPosition >= replayKTest->numObjects) {
-      terminateStateOnError(state, TerminateReason::User, "replay count mismatch");
+      terminateStateOnComplete(state, TerminateReason::InternalFault, "replay count mismatch");
     } else {
       KTestObject *obj = &replayKTest->objects[replayPosition++];
       if (obj->numBytes != mo->size) {
-        terminateStateOnError(state, TerminateReason::User, "replay size mismatch");
+        terminateStateOnComplete(state, TerminateReason::InternalFault, "replay size mismatch");
       } else {
         for (unsigned i=0; i<mo->size; i++)
           os->write8(i, obj->bytes[i]);

@@ -149,13 +149,11 @@ protected:
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
-  void terminateState(ExecutionState &state, const std::string &message) override;
-  void terminateStateOnExit(ExecutionState &state) override;
-  void terminateStateEarly(ExecutionState &state, const std::string &message) override;
-  void terminateStateOnError(ExecutionState &state, TerminateReason termReason, const std::string &message) override;
-  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &message);
-  void terminateStateOnDecimated(ExecutionState &state);
-  void terminateStateOnDiscard(ExecutionState &state);
+
+  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &comment) {
+    state.instFaulting = ki;
+    terminateStateOnComplete(state, TerminateReason::MemFault, comment);
+  }
 
   bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 

@@ -89,29 +89,21 @@ namespace {
 class ReplayKleeHandler : public InterpreterHandler {
 private:
   string indentation;
-  vector<ExecutionState*> &results;
+  vector<pair<ExecutionState*,TerminateReason> > &results;
 
 public:
-  ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name);
+  ReplayKleeHandler(vector<pair<ExecutionState*,TerminateReason> > &_results, const string &_md_name)
+    : InterpreterHandler(Output, _md_name), indentation(""), results(_results) {
+    assert(results.empty());
+    if (IndentJson) indentation = "  ";
+  }
+
   ~ReplayKleeHandler() override = default;
 
-  void processTestCase(ExecutionState  &state) override;
+  void processTestCase(ExecutionState  &state, TerminateReason reason) override {
+    results.push_back(make_pair(new ExecutionState(state), reason));
+  }
 };
-
-ReplayKleeHandler::ReplayKleeHandler(vector<ExecutionState*> &_results, const string &_md_name)
-  : InterpreterHandler(Output, _md_name),
-    indentation(""),
-    results(_results) {
-
-  assert(results.empty());
-
-  if (IndentJson) indentation = "  ";
-}
-
-void ReplayKleeHandler::processTestCase(ExecutionState &state) {
-
-  results.push_back(new ExecutionState(state));
-}
 
 //===----------------------------------------------------------------------===//
 // main Driver function
@@ -174,18 +166,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
   test.max_loop_iter = root["maxLoopIteration"].asUInt();
   test.message = root["message"].asString();
   test.path_condition_vars = root["pathConditionVars"].asString();
-  test.status = (StateStatus) root["status"].asUInt();
+  test.term_reason = (TerminateReason) root["termination"].asUInt();
   test.test_id = root["testID"].asUInt();
   test.start = to_time_point(root["timeStarted"].asString());
   test.stop = to_time_point(root["timeStopped"].asString());
   fromDataString(test.stdin_buffer, root["stdin"].asString());
-
-  // RLR TODO: remove this conditional after all tests have been updated
-  if (root.isMember("unconstraintFlags")) {
-    test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
-  } else {
-    test.unconstraintFlags.setUnconstrainGlobals();
-  }
+  test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
 
   Json::Value &args = root["arguments"];
   if (args.isArray()) {
@@ -434,7 +420,7 @@ int main(int argc, char **argv, char **envp) {
     UnconstraintFlagsT flags;
     IOpts.progression.emplace_back(300, flags);
 
-    vector<ExecutionState *> ex_states;
+    vector<pair<ExecutionState*,TerminateReason> > ex_states;
     ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());
 
     Interpreter *interpreter = Interpreter::createLocal(*ctx, IOpts, handler);
@@ -458,7 +444,8 @@ int main(int argc, char **argv, char **envp) {
       outs() << "Replay forked into multiple paths" << oflush;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else {
-      state = ex_states.front();
+      state = ex_states.front().first;
+      TerminateReason term_reason = ex_states.front().second;
 
       state->stdout_capture.get_data(stdout_capture);
       state->stderr_capture.get_data(stderr_capture);
@@ -483,8 +470,8 @@ int main(int argc, char **argv, char **envp) {
         outs() << "ok" << oflush;
       } else {
         outs() << "incomplete" << oflush;
-        if (test.status != state->status) {
-          outs() << ", status differs: test=" << to_string(test.status) << " state=" << to_string(state->status);
+        if (test.term_reason != term_reason) {
+          outs() << ", termination differs: test=" << to_string(test.term_reason) << " rply=" << to_string(term_reason);
           if (const auto *inst = state->instFaulting) {
             const auto *iinfo = inst->info;
             fs::path file(iinfo->file);
@@ -565,7 +552,7 @@ int main(int argc, char **argv, char **envp) {
 
     state = nullptr;
     for (auto s : ex_states) {
-      delete s;
+      delete s.first;
     }
     ex_states.clear();
 
