@@ -112,8 +112,9 @@ void StateComparator::emitRetSequence(std::ostringstream &ss, std::deque<std::pa
   }
 }
 
-void StateComparator::doCompare() {
+bool StateComparator::doCompare() {
 
+  bool result = false;
   if (ver2.finalState == nullptr) {
     CompareDiff diff(DiffType::delta);
     diff.fn = diff.element = "@unknown";
@@ -132,13 +133,16 @@ void StateComparator::doCompare() {
     diff.distance = test.is_main() ? UINT_MAX : state->distance;
     diffs.emplace_back(diff);
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
-    compareExternalState();
+    result = compareExternalState();
   } else {
-    compareInternalState();
+    result = compareInternalState();
   }
+  return result;
 }
 
-void StateComparator::compareExternalState() {
+bool StateComparator::compareExternalState() {
+
+  assert(diffs.empty());
 
   // each  must have a return value, it must be an int, and they must be equal
   ref<ConstantExpr> exit_expr1 = dyn_cast<ConstantExpr>(ver1.finalState->last_ret_value);
@@ -168,17 +172,18 @@ void StateComparator::compareExternalState() {
   if (stderr1 != stderr2) {
     diffs.emplace_back(CompareExtDiff("@stderr", "different output"));
   }
+  return (diffs.empty());
 }
 
-void StateComparator::compareInternalState() {
+bool StateComparator::compareInternalState() {
 
   assert(ver1.fn_returns.size() == ver2.fn_returns.size() && "mismatched function return sizes");
+  assert(diffs.empty());
 
   // get the set of global variables to compare.  These are only
   // user globals (i.e. not stdlib) in both modules and of equivalent types
   set<const GlobalVariable*> gbs1;
   ver1.kmodule->getUserGlobals(gbs1);
-  globals.reserve(gbs1.size());
   for (const GlobalVariable *gv1 : gbs1) {
 
     assert(gv1 != nullptr);
@@ -195,7 +200,7 @@ void StateComparator::compareInternalState() {
         if (isEquivalentType(type, gv2->getType())) {
           const auto &itr2 = ver2.global_map.find(gv2);
           if (itr2 != ver2.global_map.end()) {
-            globals.emplace_back(name, itr1->second, itr2->second, type->getPointerElementType());
+            globals.emplace(name, itr1->second, itr2->second, type->getPointerElementType());
           }
         }
       }
@@ -218,12 +223,15 @@ void StateComparator::compareInternalState() {
   KFunction *kf1 = ver1.kmodule->getKFunction(test.entry_fn);
   KFunction *kf2 = ver2.kmodule->getKFunction(test.entry_fn);
   compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState);
+  return (diffs.empty());
 }
 
-void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
+bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
 
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
+
+  size_t diff_count = diffs.size();
 
   // check the return value
   Type *type = fn1->getReturnType();
@@ -290,17 +298,23 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   }
 
   // finally, check user global variables
-  for (const auto &entry : globals) {
+  for (auto itr = globals.begin(), end = globals.end(); itr != end; ++itr) {
+    const CompareGlobalEntry &entry = *itr;
     visited_ptrs.clear();
-    compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type);
+    if (!compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type)) {
+      itr = globals.erase(itr);
+    }
   }
+  return (diffs.size() == diff_count);
 }
 
-void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                                           const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                                           const string &name, llvm::Type *type) {
 
   assert(!type->isVoidTy());
+  size_t diff_count = diffs.size();
+
   if (type->isSingleValueType()) {
 
     if (type->isPointerTy()) {
@@ -365,13 +379,14 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     (void)ftype;
     assert("function type should never occur here");
   }
-
+  return (diffs.size() == diff_count);
 }
 
-void StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+bool StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                                            const MemoryObject *mo2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                                            const string &name, llvm::Type *type) {
 
+  size_t diff_count = diffs.size();
   if (!type->isVoidTy()) {
     if (const ObjectState *os1 = state1->addressSpace.findObject(mo1)) {
       const ObjectState *os2 = state2->addressSpace.findObject(mo2);
@@ -382,12 +397,14 @@ void StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t off
       }
     }
   }
+  return (diffs.size() == diff_count);
 }
 
-void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                       const ref<ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                       llvm::Type *type) {
 
+  size_t diff_count = diffs.size();
   if (!type->isVoidTy()) {
     if (type->isSingleValueType()) {
       string name = "@return";
@@ -423,12 +440,14 @@ void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
       assert("multi-value types should not occur as expressions");
     }
   }
+  return (diffs.size() == diff_count);
 }
 
-void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+bool StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                   const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
+  size_t diff_count = diffs.size();
   if (expr1->getWidth() != expr2->getWidth()) {
     diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
   } else {
@@ -436,12 +455,14 @@ void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
     uint64_t addr2 = expr2->getZExtValue();
     comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
   }
+  return (diffs.size() == diff_count);
 }
 
-void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
+bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
                                   uint64_t addr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
+  size_t diff_count = diffs.size();
   // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
   auto result = visited_ptrs.insert(make_pair(addr1, addr2));
   if (result.second) {
@@ -461,6 +482,7 @@ void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
       }
     }
   }
+  return (diffs.size() == diff_count);
 }
 
 } // end klee namespace
