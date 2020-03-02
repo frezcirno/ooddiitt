@@ -254,9 +254,23 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
         if (arg.hasName()) name = arg.getName();
         else name = std::to_string(idx);
 
-        ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(state1->stack.back().locals[kf1->getArgRegister(idx)].value);
-        ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(state2->stack.back().locals[kf2->getArgRegister(idx)].value);
-        comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
+        ref<Expr> expr1 = state1->stack.back().locals[kf1->getArgRegister(idx)].value;
+        if (!expr1.isNull()) {
+          ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(expr1);
+          if (!ptr1.isNull()) {
+            ref<Expr> expr2 = state2->stack.back().locals[kf2->getArgRegister(idx)].value;
+            if (!expr2.isNull()) {
+              ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(expr2);
+              if (!ptr2.isNull()) {
+                comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
+              } else {
+                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "ptr did not evaluate to a constant"));
+              }
+            } else {
+              diffs.emplace_back(CompareIntDiff(kf2, name, state2, "missing ptr value"));
+            }
+          }
+        }
       }
       idx += 1;
     }
@@ -328,7 +342,7 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     unsigned esize = datalayout->getTypeStoreSize(etype);
     unsigned eoffset = 0;
     for (unsigned idx = 0, end = etype->getVectorNumElements(); idx != end; ++idx) {
-      string index_name = name + '[' + std::to_string(idx) + ']';
+      string index_name = '[' + name + ':' + std::to_string(idx) + ']';
       compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
       eoffset += esize;
     }
@@ -341,7 +355,7 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
     unsigned esize = datalayout->getTypeStoreSize(etype);
     unsigned eoffset = 0;
     for (unsigned idx = 0, end = atype->getArrayNumElements(); idx != end; ++idx) {
-      string index_name = name + '[' + std::to_string(idx) + ']';
+      string index_name = '[' + name + ':' + std::to_string(idx) + ']';
       compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
       eoffset += esize;
     }

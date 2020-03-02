@@ -2945,7 +2945,7 @@ void Executor::executeAlloc(ExecutionState &state,
   uint64_t allocSize = cast<ConstantExpr>(size)->getZExtValue(W);
   if (allocSize > MAX_ALLOCATION_SIZE) {
 
-    errs() << "failing large allocation\n";
+    klee_warning("failing large allocation");
     bindLocal(target, state, ConstantExpr::createPointer(0));
     return;
   }
