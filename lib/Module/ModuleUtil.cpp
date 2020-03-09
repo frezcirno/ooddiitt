@@ -43,6 +43,7 @@
 #include <llvm/Support/InstIterator.h>
 #include <llvm/DIBuilder.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/IR/IRBuilder.h>
 
 using namespace llvm;
 using namespace std;
@@ -593,8 +594,31 @@ bool isPrepared(Module *m) {
 
 void modify_clib(llvm::Module *module) {
 
-  // remove the body of __check_one_fd
+  // find stdio_init and disable buffering
+  if (Function *stdio_init = module->getFunction("_stdio_init")) {
 
+    assert(stdio_init->size() == 1);
+    BasicBlock &bb = stdio_init->getEntryBlock();
+    Instruction *end_inst = bb.getTerminator();
+    assert(dyn_cast<ReturnInst>(end_inst));
+
+    GlobalVariable *stdin = module->getGlobalVariable("stdin");
+    GlobalVariable *stdout = module->getGlobalVariable("stdout");
+    GlobalVariable *stderr = module->getGlobalVariable("stderr");
+    Function *setbuf = module->getFunction("setbuf");
+    assert(stdin && stdout && stderr && setbuf);
+
+    IRBuilder<> irb(end_inst);
+
+    Type *byteptr_type = Type::getInt8PtrTy(module->getContext());
+    Value *null = Constant::getNullValue(byteptr_type);
+
+    irb.CreateCall2(setbuf, stdin, null);
+    irb.CreateCall2(setbuf, stdout, null);
+    irb.CreateCall2(setbuf, stderr, null);
+  }
+
+  // remove the body of __check_one_fd
   // and trivialize functions we will never use
   // RLR TODO: may need to trivialize or capture other functions
   set<string> drop_fns{"isatty", "tcgetattr", "ioctl", "__check_one_fd"};
@@ -616,7 +640,6 @@ void modify_clib(llvm::Module *module) {
   for (auto fn : unused_decls) {
     fn->eraseFromParent();
   }
-
 }
 
 static bool isEquivalentType(const Type *type1, const Type *type2, set<pair<const Type *, const Type *> > &visited) {

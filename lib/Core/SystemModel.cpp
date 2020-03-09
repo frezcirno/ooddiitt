@@ -34,6 +34,7 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"rint", &SystemModel::ExecuteRint},
     {"fabs", &SystemModel::ExecuteFabs},
     {"modf", &SystemModel::ExecuteModf},
+    {"__o_assert_fail", &SystemModel::ExecuteOAssertFail},
     {"__check_one_fd", &SystemModel::ExecuteNoop}
 };
 
@@ -408,6 +409,11 @@ bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&arg
   return false;
 }
 
+bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+//  ki->info->assemblyLine;
+  return true;
+}
 
 
 // RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,

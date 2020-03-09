@@ -169,16 +169,6 @@ ExecutionState::ExecutionState(const ExecutionState &state, const std::vector<re
 
 ExecutionState::~ExecutionState() {
 
-  // RLR TODO: why? this sould be done elsewhere, or not just for symbolics
-//  for (unsigned int i=0; i<symbolics.size(); i++)
-//  {
-//    const MemoryObject *mo = symbolics[i].first;
-//    assert(mo->refCount > 0);
-//    mo->refCount--;
-//    if (mo->refCount == 0)
-//      delete mo;
-//  }
-
   while (!stack.empty()) popFrame();
 }
 

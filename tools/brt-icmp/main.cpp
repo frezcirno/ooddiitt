@@ -253,23 +253,15 @@ Module *LoadModule(const string &filename) {
   return result;
 }
 
-map<string,KModule*> module_cache;
-
 KModule *PrepareModule(const string &filename) {
 
-  auto itr = module_cache.find(filename);
-  if (itr != module_cache.end()) {
-    return itr->second;
-  } else {
-    if (Module *module = LoadModule(filename)) {
-      if (!isPrepared(module)) {
-        errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
-      } else {
-        if (KModule *kmodule = new KModule(module)) {
-          kmodule->prepare();
-          module_cache.insert(make_pair(filename, kmodule));
-          return kmodule;
-        }
+  if (Module *module = LoadModule(filename)) {
+    if (!isPrepared(module)) {
+      errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+    } else {
+      if (KModule *kmodule = new KModule(module)) {
+        kmodule->prepare();
+        return kmodule;
       }
     }
   }
@@ -326,7 +318,7 @@ void getModuleNames(const string &dir, string &name1, string &name2) {
           string filename = pfile.filename().string();
           if (name1.empty() && boost::starts_with(filename, "pre")) {
             name1 = (fs::path(dir) / filename).string();
-          } else if (name2.empty() && boost::starts_with(filename, "post")) {
+          } else if (name2.empty() && boost::starts_with(filename, "rply")) {
             name2 = (fs::path(dir) / filename).string();
           }
         }
@@ -410,107 +402,115 @@ int main(int argc, char **argv, char **envp) {
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
   KModule *kmod1 = PrepareModule(mod_name1);
+  if (kmod1 == nullptr) {
+    klee_error("failed to load %s", mod_name1.c_str());
+  }
   KModule *kmod2 = PrepareModule(mod_name2);
+  if (kmod2 == nullptr) {
+    klee_error("failed to load %s", mod_name2.c_str());
+  }
   load_diff_info(DiffInfo, kmod1, kmod2);
 
   LLVMContext *ctx1 = nullptr;
   LLVMContext *ctx2 = nullptr;
-  if (kmod1 && kmod2) {
-    ctx1 = kmod1->getContextPtr();
-    ctx2 = kmod2->getContextPtr();
+  ctx1 = kmod1->getContextPtr();
+  ctx2 = kmod2->getContextPtr();
 
-    deque<string> test_files;
-    expand_test_files(Prefix, test_files);
+  deque<string> test_files;
+  expand_test_files(Prefix, test_files);
 
 #ifdef DO_HEAP_PROFILE
-    HeapProfilerStart("brt-icmp");
-    HeapProfilerDump("pre-loop");
+  HeapProfilerStart("brt-icmp");
+  HeapProfilerDump("pre-loop");
 #endif
 
-    for (const string &test_file : test_files) {
+  for (const string &test_file : test_files) {
 
-      TestCase test;
-      ifstream info;
-      info.open(test_file);
-      if (info.is_open()) {
-        Json::Value root;  // needed here if we intend to update later
-        info >> root;
-        load_test_case(root, test);
+    TestCase test;
+    ifstream info;
+    info.open(test_file);
+    if (info.is_open()) {
+      Json::Value root;  // needed here if we intend to update later
+      info >> root;
+      load_test_case(root, test);
+    }
+    if (!test.is_ready()) {
+      klee_error("failed to load test case '%s'", test_file.c_str());
+    }
+
+    // Common setup
+    Interpreter::InterpreterOptions IOpts;
+    IOpts.mode = ExecModeID::rply;
+    IOpts.user_mem_base = (void *) 0x90000000000;
+    IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
+    IOpts.trace = test.trace_type;
+    IOpts.test_objs = &test.objects;
+
+    StateVersion version1(kmod1);
+    StateVersion version2(kmod2);
+
+    auto *handler1 = new ICmpKleeHandler(version1);
+    Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
+    handler1->setInterpreter(interpreter1);
+    interpreter1->bindModule(kmod1);
+
+    theInterpreter = interpreter1;
+    interpreter1->runFunctionTestCase(test);
+    theInterpreter = nullptr;
+
+    version1.kmodule = kmod1;
+    if (version1.finalState != nullptr) {
+
+      if (version1.finalState->status != StateStatus::Completed) continue;
+
+      // now, lets do it all again with the second module
+
+      // RLR TODO: here be debug
+      if (test.test_id == 668) {
+        __asm("nop");
       }
-      if (!test.is_ready()) {
-        klee_error("failed to load test case '%s'", test_file.c_str());
-      }
 
-      // Common setup
-      Interpreter::InterpreterOptions IOpts;
-      IOpts.mode = ExecModeID::rply;
-      IOpts.user_mem_base = (void *) 0x90000000000;
-      IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-      IOpts.trace = test.trace_type;
-      IOpts.test_objs = &test.objects;
+      auto *handler2 = new ICmpKleeHandler(version2);
+      Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
+      handler2->setInterpreter(interpreter2);
+      interpreter2->bindModule(kmod2);
 
-      StateVersion version1(kmod1);
-      StateVersion version2(kmod2);
-
-      auto *handler1 = new ICmpKleeHandler(version1);
-      Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
-      handler1->setInterpreter(interpreter1);
-      interpreter1->bindModule(kmod1);
-
-      theInterpreter = interpreter1;
-      interpreter1->runFunctionTestCase(test);
+      theInterpreter = interpreter2;
+      interpreter2->runFunctionTestCase(test);
       theInterpreter = nullptr;
+      version2.kmodule = interpreter2->getKModule();
 
-      version1.kmodule = kmod1;
-      if (version1.finalState != nullptr) {
-
-        if (version1.finalState->status != StateStatus::Completed) continue;
-
-        // now, lets do it all again with the second module
-
-        auto *handler2 = new ICmpKleeHandler(version2);
-        Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
-        handler2->setInterpreter(interpreter2);
-        interpreter2->bindModule(kmod2);
-
-        theInterpreter = interpreter2;
-        interpreter2->runFunctionTestCase(test);
-        theInterpreter = nullptr;
-        version2.kmodule = interpreter2->getKModule();
-
-        StateComparator cmp(test, version1, version2);
-        if (cmp.alignFnReturns()) {
-          cmp.doCompare();
-        }
-
-        if (!cmp.empty()) {
-          outs() << test_file << ":\n";
-          for (const auto &diff : cmp) {
-            outs().indent(2) << to_string(diff) << oendl;
-          }
-        }
-        delete interpreter2;
-        delete handler2;
+      StateComparator cmp(test, version1, version2);
+      if (cmp.alignFnReturns()) {
+        cmp.doCompare();
       }
-      delete interpreter1;
-      delete handler1;
+
+      if (!cmp.empty()) {
+        outs() << test_file << ":\n";
+        for (const auto &diff : cmp) {
+          outs().indent(2) << to_string(diff) << oendl;
+        }
+      }
+      delete interpreter2;
+      delete handler2;
+    }
+    delete interpreter1;
+    delete handler1;
 
 #ifdef DO_HEAP_PROFILE
 //      HeapProfilerDump("end-loop");
 #endif
-    }
   }
 
 #ifdef DO_HEAP_PROFILE
 //  HeapProfilerDump("post-loop");
 #endif
 
-  // clean up the cached modules
-  for (auto &pr : module_cache) {
-    LLVMContext *ctx = pr.second->getContextPtr();
-    delete pr.second;
-    delete ctx;
-  }
+  // clean up the loaded modules
+  delete kmod1;
+  delete ctx1;
+  delete kmod2;
+  delete ctx2;
 
 #ifdef DO_HEAP_PROFILE
   HeapProfilerDump("going home");

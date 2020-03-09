@@ -62,17 +62,6 @@ namespace {
 /// with terminateState calls.
 
 ///
-
-// RLR TODO: annotation functions needed:
-// INVARIANT(a)         : if feasible, add to pc, else kill
-// EXPECT(a)            : if feasible, add to pc, else pass
-// IMPLIES(a, b)        : INVARIANT( ~a || b)
-// HOLDS(a)             : returns mustBeTrue(a)
-// MAY_HOLD(a)          : returns mayBeTrue(a)
-// VALID_POINTER(ptr)   : returns pointer validity
-// OBJECT_SIZE(ptr)     : if VALID_POINTER(ptr), returns object size, else kill
-
-
 // FIXME: We are more or less committed to requiring an intrinsic
 // library these days. We can move some of this stuff there,
 // especially things like realloc which have complicated semantics

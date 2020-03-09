@@ -58,6 +58,29 @@ using namespace std;
 
 namespace klee {
 
+// RLR TODO: here be debug
+struct ucklee__mbstate_t {
+  unsigned mask;
+  unsigned wc;
+};
+
+struct ucklee__STDIO_FILE_STRUCT {
+  unsigned short __modeflags;
+  unsigned char __ungot_width[2];
+  int __filedes;
+  unsigned char *__bufstart;	/* pointer to buffer */
+  unsigned char *__bufend;	/* pointer to 1 past end of buffer */
+  unsigned char *__bufpos;
+  unsigned char *__bufread; /* pointer to 1 past last buffered read char */
+  unsigned char *__bufgetc_u;	/* 1 past last readable by getc_unlocked */
+  unsigned char *__bufputc_u;	/* 1 past last writeable by putc_unlocked */
+  struct ucklee__STDIO_FILE_STRUCT *__nextopen;
+  unsigned __ungot[2];
+  ucklee__mbstate_t __state;
+  void *__unused;				/* Placeholder for codeset binding. */
+};
+
+
 class bad_expression : public std::runtime_error
 {
 public:
@@ -149,9 +172,6 @@ LocalExecutor::~LocalExecutor() {
   }
 
   if (baseState != nullptr) {
-    // RLR TODO: evaluate solver teardown
-    // this last state is leaked.  something in solver
-    // tear-down does not like its deletion
     delete baseState;
     baseState = nullptr;
   }
@@ -581,28 +601,17 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-
-#if 0 == 1
-    // RLR TODO: here be debug statements
-    map<uint64_t,const MemoryObject*> addresses;
-    for (auto obj : state.addressSpace.objects) {
-      uint64_t addr = obj.first->address;
-      addresses.insert(make_pair(obj.first->address, obj.first));
-    }
-    size_t size = addresses.size();
-    for (auto pr : addresses) {
-      uint64_t addr = pr.first;
-      const MemoryObject *mo = pr.second;
-      errs() << addr << ':' << mo << '\n';
-    }
-#endif
-
     terminateStateOnMemFault(state, target, "write resolveMO");
     return false;
   }
 
   const MemoryObject *mo = op.first;
   const ObjectState *os = op.second;
+
+  // RLR TODO: here be debug statements
+  if (mo->name  == "_stdio_streams") {
+    (void) true;
+  }
 
   if (os->readOnly) {
     terminateStateOnComplete(state, TerminateReason::ROFault, "memory error: object read only");
@@ -674,6 +683,19 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   }
   assert(isa<ConstantExpr>(offsetExpr));
   wos->write(offsetExpr, value);
+
+  // RLR TODO: here be debug
+  if (mo->name  == "_stdio_streams") {
+
+    uint64_t offset = (cast<ConstantExpr>(offsetExpr))->getZExtValue();
+
+    std::vector<unsigned char> data;
+    wos->readConcrete(data);
+    struct ucklee__STDIO_FILE_STRUCT *test1 = (struct ucklee__STDIO_FILE_STRUCT *) data.data();
+    struct ucklee__STDIO_FILE_STRUCT *test2 = test1 + 1;
+    struct ucklee__STDIO_FILE_STRUCT *test3 = test1 + 2;
+    return true;
+  }
   return true;
 }
 
@@ -800,20 +822,25 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
                                   size_t align,
                                   unsigned count) {
 
+  // empty symbolic name is rather pointless
+  assert(!name.empty());
   wop.first = nullptr;
   wop.second = nullptr;
-  // empty symolic name is rather pointless
-  if (!name.empty()) {
-    MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
-    if (mo != nullptr) {
-      ObjectState *os = makeSymbolic(state, mo);
-      if (os != nullptr) {
-        wop.first = mo;
-        wop.second = os;
-        return true;
-      }
-      delete mo;
+
+  Type *alloc_type = type;
+  if (count > 1) {
+    alloc_type = ArrayType::get(type, count);
+  }
+
+  MemoryObject *mo = allocMemory(state, alloc_type, allocSite, kind, name, align, count);
+  if (mo != nullptr) {
+    ObjectState *os = makeSymbolic(state, mo);
+    if (os != nullptr) {
+      wop.first = mo;
+      wop.second = os;
+      return true;
     }
+    delete mo;
   }
   return false;
 }
@@ -910,6 +937,20 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
+// RLR TODO: here be debug
+void DebugStdioStreams(const ExecutionState *s) {
+
+  auto op = s->addressSpace.findMemoryObjectByName("_stdio_streams");
+
+  std::vector<unsigned char> data1;
+  op.second->readConcrete(data1);
+  struct ucklee__STDIO_FILE_STRUCT *test1 = (struct ucklee__STDIO_FILE_STRUCT *) data1.data();
+  struct ucklee__STDIO_FILE_STRUCT *test2 = test1 + 1;
+  struct ucklee__STDIO_FILE_STRUCT *test3 = test1 + 2;
+
+  __asm("nop");
+}
+
 void LocalExecutor::bindModule(KModule *kmodule) {
 
   Executor::bindModule(kmodule);
@@ -925,7 +966,12 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   baseState->maxLoopForks = maxLoopForks;
 
   initializeGlobals(*baseState, interpreterOpts.test_objs);
+
+  // RLR TODO: here be debug
+  DebugStdioStreams(baseState);
   bindModuleConstants();
+  DebugStdioStreams(baseState);
+
 
   // look for a libc initializer, execute if found to initialize the base state
   Function *libc_init = kmodule->module->getFunction("__uClibc_init");
@@ -1405,6 +1451,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
         enable_state_switching = false;
 #endif
       }
+
       executeInstruction(*state, ki);
 
     } catch (bad_expression &e) {
@@ -1471,11 +1518,10 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
   processTree = new PTree(&init_state);
   init_state.ptreeNode = processTree->root;
 
-  states.insert(&init_state);
+  addedStates.push_back(&init_state);
 
   searcher = new DFSSearcher();
-  std::vector<ExecutionState *> newStates(states.begin(), states.end());
-  searcher->update(nullptr, newStates, std::vector<ExecutionState *>());
+  updateStates(nullptr);
   libc_initializing = true;
 
   while (libc_initializing && !states.empty()) {
@@ -1739,11 +1785,17 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     }
 
     case Instruction::Ret: {
+
       if (libc_initializing &&
           ((state.stack.size() == 0 || !state.stack.back().caller))) {
         libc_initializing = false;
       } else {
         KFunction *ret_from = state.stack.back().kf;
+
+        // RLR TODO: DEBUG
+        if (ret_from->getName() == "_stdio_init") {
+          (void) true;
+        }
 
         if (!libc_initializing) {
           if (tracer != nullptr) {
@@ -1778,6 +1830,11 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       if (fn != nullptr) {
         string fn_name = fn->getName();
         interpreterHandler->incCallCounter(fn);
+
+        // RLR TODO: DEBUG
+        if (fn_name == "_stdio_init") {
+          (void) true;
+        }
 
         if (break_fns.find(fn) != break_fns.end()) {
           outs() << "break at " << fn->getName() << '\n';
@@ -2101,11 +2158,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             return;
           }
         }
-        // RLR TODO: where was this needed?  at least one of the benchmarks geps a null ptr in correct code
-//      } else if (result == ResolveResult::NullAccess) {
-//        // well, ..., that can't be good.
-//        terminateState(state, "GEP from NULL base");
-//        return;
       }
 
       for (auto itr = kgepi->indices.begin(), end = kgepi->indices.end(); itr != end; ++itr) {

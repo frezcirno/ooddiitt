@@ -195,7 +195,6 @@ namespace klee {
 
     llvm::Type *getEquivalentType(const std::string &desc) const;
     void insertTypeDesc(llvm::Type *type)  {
-      std::string test = to_string(type);
       mapTypeDescs[to_string(type)] = type;
       type = type->getPointerTo(0);
       mapTypeDescs[to_string(type)] = type;

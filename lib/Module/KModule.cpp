@@ -38,7 +38,7 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Analysis/LoopPass.h>
 
-#include "ModuleTypes.h"
+#include "klee/Internal/Module/ModuleTypes.h"
 
 using namespace llvm;
 using namespace klee;
@@ -508,6 +508,7 @@ llvm::Type *KModule::getEquivalentType(const std::string &desc) const {
     return nullptr;
   }
 
+  // RLR TODO: type is not being handle correclty here - see coreutils reg: 22
   klee_warning("unrecognized type description: %s", desc.c_str());
   return nullptr;
 }

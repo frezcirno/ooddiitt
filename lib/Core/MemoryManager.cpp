@@ -120,7 +120,6 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   ++stats::allocations;
   MemoryObject *res = new MemoryObject(address, size, alignment, type, kind, allocSite, this);
   res->count = 1;
-//  objects.insert(res);
   return res;
 }
 
@@ -131,17 +130,13 @@ MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type 
 
     // RLR TODO: should we insure this does not overlap an existing injection or allocation?
     result = new MemoryObject((uint64_t) addr, size, alignment, type, kind, nullptr, this);
-//    objects.insert(result);
   }
   return result;
 }
 
 void MemoryManager::markFreed(MemoryObject *mo) {
-//  if (objects.find(mo) != objects.end()) {
-    if (!DeterministicAllocation)
-      free((void *) (mo->address));
-//    objects.erase(mo);
-//  }
+  if (!DeterministicAllocation)
+    free((void *) (mo->address));
 }
 
 size_t MemoryManager::getUsedDeterministicSize() {

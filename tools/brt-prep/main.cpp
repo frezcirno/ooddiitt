@@ -17,6 +17,7 @@
 #include "klee/Internal/Support/PrintVersion.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
+#include "klee/Internal/Module/ModuleTypes.h"
 #include "klee/Internal/Module/KInstruction.h"
 
 #include "llvm/IR/Constants.h"
@@ -61,8 +62,7 @@ namespace fs = boost::filesystem;
 
 namespace {
 
-  cl::opt<string> InputFile1(cl::desc("<original input bytecode>"), cl::Positional, cl::Required);
-  cl::opt<string> InputFile2(cl::desc("<modified input bytecode>"), cl::Positional);
+  cl::list<string> InputFiles(cl::desc("<original input bytecode>"), cl::Positional, cl::OneOrMore);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> FnPtrPatches("fp-patch", cl::desc("json specification for function pointer patching"), cl::init("fp-patch.json"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
@@ -83,7 +83,7 @@ namespace {
     clEnumValEnd),
     cl::init(MarkScope::module));
 
-  cl::opt<string> AssumeEq("assume-eq", cl::desc("assume the following functions are equivalent (useful for some library routines"));
+  cl::opt<string> AssumeEq("assume-equiv", cl::desc("assume the following functions are equivalent (useful for some library routines"));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -264,7 +264,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   // RLR TODO: evaluate how much of this we really need
   Function *f;
   // force import of __uClibc_main
-  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<LLVM_TYPE_Q Type*>(), true));
+  mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<Type*>(), true));
+  mainModule->getOrInsertFunction("setbuf", FunctionType::get(Type::getVoidTy(ctx), vector<Type*>(), true));
 
 #if 0 == 1
   // force various imports
@@ -319,6 +320,8 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // must rename iso99 version before linking, otherwise will not pull in new target
   replaceOrRenameFunction(mainModule, "__isoc99_fscanf", "fscanf");
+
+  set<string> retain_fns = { "setbuf" };
 
   mainModule = klee::linkWithLibrary(mainModule, uclibcBCA.c_str());
   assert(mainModule && "unable to link with uclibc");
@@ -629,11 +632,7 @@ void diffFns(KModule *kmod1,
   }
 }
 
-void diffGbs(KModule *kmod1,
-             KModule *kmod2,
-             Json::Value &added,
-             Json::Value &removed,
-             Json::Value &type) {
+void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &removed, Json::Value &changed) {
 
   set<string> gb_names1;
   set<string> gb_names2;
@@ -667,11 +666,61 @@ void diffGbs(KModule *kmod1,
   for (const auto &pr : gb_pairs) {
     assert(pr.first && pr.second);
     if (!isEquivalentType(pr.first->getType(), pr.second->getType())) {
-      type.append(pr.first->getName().str());
+      changed.append(pr.first->getName().str());
     }
   }
 }
 
+
+void constructTypeMap(Module *mod, map<string,StructType*> &ty_names) {
+
+  set<Type*> types;
+  ModuleTypes mod_types(mod, types);
+  for (const auto &ty : types) {
+    if (ty->isStructTy()) {
+      auto *sty = cast<StructType>(ty);
+      if (sty->hasName()) {
+        ty_names.insert(make_pair(sty->getName(), sty));
+      }
+    }
+  }
+}
+
+void diffTypes(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &removed, Json::Value &changed) {
+
+  map<string,StructType*> ty_names1;
+  constructTypeMap(kmod1->module, ty_names1);
+  set<string> types1;
+  for (const auto &itr : ty_names1) types1.insert(itr.first);
+
+  map<string,StructType*> ty_names2;
+  constructTypeMap(kmod2->module, ty_names2);
+  set<string> types2;
+  for (const auto &itr : ty_names2) types2.insert(itr.first);
+
+  set<string> types_added;
+  set_difference(types2.begin(), types2.end(), types1.begin(), types1.end(), inserter(types_added, types_added.end()));
+  for (auto ty : types_added) added.append(ty);
+
+  // find the globals that have been removed (in 1 but not in 2)
+  set<string> types_removed;
+  set_difference(types1.begin(), types1.end(), types2.begin(), types2.end(), inserter(types_removed, types_removed.end()));
+  for (auto ty : types_removed) removed.append(ty);
+
+  // those that are in both will need further checks
+  set<string> types_both;
+  set_intersection(types1.begin(), types1.end(), types2.begin(), types2.end(), inserter(types_both, types_both.end()));
+
+  for (const auto &name : types_both) {
+    const auto &itr1 = ty_names1.find(name);
+    const auto &itr2 = ty_names2.find(name);
+    assert(itr1 != ty_names1.end());
+    assert(itr2 != ty_names2.end());
+    if (!isEquivalentType(itr1->second, itr2->second)) {
+      changed.append(name);
+    }
+  }
+}
 
 void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
 
@@ -777,6 +826,10 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
     Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
     Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
+    Json::Value &fns_equivalent = functions["equivalent"] = Json::arrayValue;
+    for (const auto &fn : assume_eq) {
+      fns_equivalent.append(fn);
+    }
 
     set<string> added, removed, sigs, bodies, commons;
     diffFns(kmod1, kmod2, assume_eq, fns_added, fns_removed, sigs, bodies, commons);
@@ -786,8 +839,14 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     Json::Value &globals = root["globals"] = Json::objectValue;
     Json::Value &gbs_added = globals["added"] = Json::arrayValue;
     Json::Value &gbs_removed = globals["removed"] = Json::arrayValue;
-    Json::Value &gbs_changed_type = globals["type"] = Json::arrayValue;
-    diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed_type);
+    Json::Value &gbs_changed = globals["changed"] = Json::arrayValue;
+    diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed);
+
+    Json::Value &types = root["types"] = Json::objectValue;
+    Json::Value &tps_added = types["added"] = Json::arrayValue;
+    Json::Value &tps_removed = types["removed"] = Json::arrayValue;
+    Json::Value &tps_changed = types["changed"] = Json::arrayValue;
+    diffTypes(kmod1, kmod2, tps_added, tps_removed, tps_changed);
 
     root["pre-module"] = kmod1->getModuleIdentifier();
     root["post-module"] = kmod2->getModuleIdentifier();
@@ -833,34 +892,33 @@ int main(int argc, char **argv, char **envp) {
     LoadIndirectPatches(FnPtrPatches, indirect_rewrites);
   }
 
-  int exit_code = 1;
-  if (KModule *kmod1 = PrepareModule(InputFile1, indirect_rewrites, libDir, TraceT, MarkS)) {
-    const LLVMContext *ctx1 = kmod1->getContextPtr();
-    if (SaveModule(kmod1, Output)) {
-      if (InputFile2.empty()) {
-        // all done
-        exit_code = 0;
-      } else {
-        // now get the modified module
-        if (KModule *kmod2 = PrepareModule(InputFile2, indirect_rewrites, libDir, TraceT, MarkS)) {
-          const LLVMContext *ctx2 = kmod2->getContextPtr();
-          SaveModule(kmod2, Output);
-          // two for two
+  int exit_code = 0;
+  vector<KModule*> kmods;
+  kmods.reserve(InputFiles.size());
 
-          set<string> assume_eq;
-          if (!AssumeEq.empty()) {
-            boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
-          }
+  for (const string &input_file : InputFiles) {
 
-          emitDiff(kmod1, kmod2, assume_eq, Output);
-          exit_code = 0;
-          delete kmod2;
-          delete ctx2;
-        }
+    if (KModule *kmod = PrepareModule(input_file, indirect_rewrites, libDir, TraceT, MarkS)) {
+      kmods.push_back(kmod);
+      if (!SaveModule(kmod, Output)) {
+        exit_code = 1;
       }
     }
-    delete kmod1;
-    delete ctx1;
+  }
+
+  if (kmods.size() >= 2) {
+
+    set<string> assume_eq;
+    if (!AssumeEq.empty()) {
+      boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
+    }
+    emitDiff(kmods[0], kmods[1], assume_eq, Output);
+  }
+
+  for (auto kmod : kmods) {
+    LLVMContext *ctx = kmod->getContextPtr();
+    delete kmod;
+    delete ctx;
   }
   return exit_code;
 }

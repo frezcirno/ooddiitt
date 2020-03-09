@@ -261,18 +261,6 @@ enum class TraceCompareResult { ok, truncated, differs };
 
 TraceCompareResult compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
 
-#if 0 == 1
-  // RLR TODO: remove debug
-  unsigned t_length = t_trace.size();
-  unsigned s_length = s_trace.size();
-
-  auto itrT = t_trace.begin(), endT = t_trace.end();
-  auto itrS = s_trace.begin(), endS = s_trace.end();
-  while (itrT != endT && itrS != endS) {
-    outs() << *itrT++ << ' ' << *itrS++ << oendl;
-  }
-#endif
-
   if (boost::starts_with(t_trace, s_trace)) {
     if (t_trace.size() == s_trace.size()) {
       return TraceCompareResult::ok;

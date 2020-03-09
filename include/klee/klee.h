@@ -95,6 +95,19 @@ extern "C" {
    ? (void) (0)                                                         \
    : __assert_fail (#expr, __FILE__, __LINE__, __PRETTY_FUNCTION__))    \
 
+#ifdef ORACLE_ASSERT
+
+static inline void __o_assert_fail() { printf("o_assert failed\n"); }
+
+# define o_assert(expr)                                                 \
+     ((expr)                                                            \
+   ? (void) (0)                                                         \
+   : __o_assert_fail ())                                                \
+
+#else
+# define o_assert(expr)		((void) 0)
+#endif
+
   /* Return true if the given value is symbolic (represented by an
    * expression) in the current state. This is primarily for debugging
    * and writing tests but can also be used to enable prints in replay

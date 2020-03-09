@@ -72,7 +72,7 @@ namespace {
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
   cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
-  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (i:300)"));
+  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (g:60)"));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
@@ -464,7 +464,8 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   if (str.empty()) {
     // default progression
     UnconstraintFlagsT flags;
-    progression.emplace_back(300, flags);
+    flags.setUnconstrainGlobals();
+    progression.emplace_back(60, flags);
     result = true;
   } else {
 
