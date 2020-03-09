@@ -197,7 +197,7 @@ set(KLEE_COMPONENT_EXTRA_LIBRARIES "")
 ################################################################################
 # Find Boost
 ################################################################################
-find_package(Boost REQUIRED COMPONENTS system filesystem)
+find_package(Boost REQUIRED COMPONENTS regex system filesystem)
 if (Boost_FOUND)
   include_directories(SYSTEM ${Boost_INCLUDE_DIR})
 endif ()

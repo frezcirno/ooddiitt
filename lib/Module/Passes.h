@@ -218,6 +218,15 @@ private:
   const std::set<llvm::Function*> &fns;
 };
 
+class StructFoldPass : public llvm::ModulePass {
+  static char ID;
+public:
+  StructFoldPass(): ModulePass(ID) {}
+  virtual bool runOnModule(llvm::Module &M);
+private:
+  bool areAllEquivalent(const std::set<llvm::StructType*> &types) const;
+};
+
 }
 
 #endif

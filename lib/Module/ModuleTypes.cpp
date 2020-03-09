@@ -25,6 +25,18 @@ using namespace std;
 
 namespace klee {
 
+bool ModuleTypes::get(std::set<llvm::StructType*> &types) {
+
+  set<Type*> all_types;
+  get(all_types);
+  for (Type *type : all_types) {
+    if (StructType *st = dyn_cast<StructType>(type)) {
+      types.insert(st);
+    }
+  }
+  return !types.empty();
+}
+
 bool ModuleTypes::get(std::set<llvm::Type*> &types) {
 
   types.clear();

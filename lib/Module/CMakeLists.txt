@@ -19,6 +19,7 @@ klee_add_component(kleeModule
   PhiCleaner.cpp
   RaiseAsm.cpp
   FnMarker.cpp
+  StructFold.cpp
   ModuleTypes.cpp
 )
 

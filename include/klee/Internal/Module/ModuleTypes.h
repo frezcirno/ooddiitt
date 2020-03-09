@@ -43,7 +43,9 @@ class ModuleTypes {
 public:
   explicit ModuleTypes(const llvm::Module *m) : module(m) {}
   ModuleTypes(const llvm::Module *m, std::set<llvm::Type*> &types) : module(m) { get(types); }
+  ModuleTypes(const llvm::Module *m, std::set<llvm::StructType*> &types) : module(m) { get(types); }
   bool get(std::set<llvm::Type*> &types);
+  bool get(std::set<llvm::StructType*> &types);
 
 private:
   /// incorporateType - This method adds the type to the list of used

@@ -289,6 +289,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
     if (!fns_to_mark.empty()) {
       pm.add(new FnMarkerPass(mapFnMarkers, mapBBMarkers, fns_to_mark));
     }
+    pm.add(new StructFoldPass());
     pm.run(*module);
   }
 
@@ -499,18 +500,15 @@ llvm::Type *KModule::getEquivalentType(const std::string &desc) const {
       string type = desc.substr(pos + 2, desc.size() - pos - 3);
       Type *ele_type = getEquivalentType(type);
       if (ele_type != nullptr) return ArrayType::get(ele_type, stoul(count));
-      return nullptr;
+      return Type::getVoidTy(module->getContext());
     }
   } else if (desc.back() == '*') {
     string type = desc.substr(0, desc.size() - 1);
     Type *ele_type = getEquivalentType(type);
     if (ele_type != nullptr) return PointerType::get(ele_type, 0);
-    return nullptr;
+    return Type::getVoidTy(module->getContext());
   }
-
-  // RLR TODO: type is not being handle correclty here - see coreutils reg: 22
-  klee_warning("unrecognized type description: %s", desc.c_str());
-  return nullptr;
+  return Type::getVoidTy(module->getContext());
 }
 
 KConstant* KModule::getKConstant(Constant *c) {
