@@ -76,9 +76,11 @@ KModule::KModule(Module *_module)
   : module(_module),
     targetData(new DataLayout(module)),
     kleeMergeFn(nullptr),
+    module_types(_module),
     infos(nullptr),
     constantTable(nullptr),
-    module_trace(TraceType::invalid) {}
+    module_trace(TraceType::invalid)
+    {}
 
 KModule::~KModule() {
 
@@ -332,9 +334,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
 
 void KModule::prepare() {
 
-  LLVMContext &ctx = module->getContext();
-
-  // module has already been prepared, need to retrieve prepared values
+  // module has already been transformed, need to retrieve prepared values
 
   // since markers are already assigned, need to retrieve them from the module
   unsigned mdkind_fnID = module->getMDKindID("brt-klee.fnID");
@@ -449,22 +449,6 @@ void KModule::prepare() {
     }
     llvm::errs() << "]\n";
   }
-
-  // enum descriptions of all types in the module
-  set<Type*> types;
-  ModuleTypes mod_types(module, types);
-  for (auto type : types) {
-    insertTypeDesc(type);
-  }
-
-  // add primative and integer types to map
-  for (unsigned id = 0; id <= Type::LastPrimitiveTyID; ++id) {
-    insertTypeDesc(Type::getPrimitiveType(ctx, (Type::TypeID) id));
-  }
-  vector<unsigned> integers = { 1, 8, 16, 32, 64 };
-  for (unsigned width : integers) {
-    insertTypeDesc(Type::getIntNTy(ctx, width));
-  }
 }
 
 Function *KModule::getTargetFunction(Value *value) const {
@@ -484,31 +468,6 @@ Function *KModule::getTargetFunction(Value *value) const {
     }
   }
   return nullptr;
-}
-
-llvm::Type *KModule::getEquivalentType(const std::string &desc) const {
-
-  auto itr = mapTypeDescs.find(desc);
-  if (itr != mapTypeDescs.end()) {
-    return itr->second;
-  }
-
-  if (desc.front() == '[' && desc.back() == ']') {
-    size_t pos = desc.find('x');
-    if (pos != string::npos) {
-      string count = desc.substr(1, pos - 2);
-      string type = desc.substr(pos + 2, desc.size() - pos - 3);
-      Type *ele_type = getEquivalentType(type);
-      if (ele_type != nullptr) return ArrayType::get(ele_type, stoul(count));
-      return Type::getVoidTy(module->getContext());
-    }
-  } else if (desc.back() == '*') {
-    string type = desc.substr(0, desc.size() - 1);
-    Type *ele_type = getEquivalentType(type);
-    if (ele_type != nullptr) return PointerType::get(ele_type, 0);
-    return Type::getVoidTy(module->getContext());
-  }
-  return Type::getVoidTy(module->getContext());
 }
 
 KConstant* KModule::getKConstant(Constant *c) {

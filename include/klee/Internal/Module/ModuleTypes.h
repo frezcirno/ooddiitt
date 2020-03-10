@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include <vector>
 #include <set>
+#include <map>
 
 namespace llvm {
 
@@ -39,28 +40,39 @@ class ModuleTypes {
   std::set<const llvm::Value*> VisitedConstants;
   std::set<llvm::Type*> VisitedTypes;
   const llvm::Module *module;
+  std::map<std::string,llvm::Type*> mapDescToType;
 
-public:
-  explicit ModuleTypes(const llvm::Module *m) : module(m) {}
-  ModuleTypes(const llvm::Module *m, std::set<llvm::Type*> &types) : module(m) { get(types); }
-  ModuleTypes(const llvm::Module *m, std::set<llvm::StructType*> &types) : module(m) { get(types); }
-  bool get(std::set<llvm::Type*> &types);
-  bool get(std::set<llvm::StructType*> &types);
+  void insert_type(llvm::Type* type);
 
-private:
   /// incorporateType - This method adds the type to the list of used
   /// structures if it's not in there already.
-  void incorporateType(llvm::Type *Ty, std::set<llvm::Type*> &types);
+  void incorporateType(llvm::Type *Ty, std::set<llvm::StructType*> &types);
 
   /// incorporateValue - This method is used to walk operand lists finding types
   /// hiding in constant expressions and other operands that won't be walked in
   /// other ways.  GlobalValues, basic blocks, instructions, and inst operands
   /// are all explicitly enumerated.
-  void incorporateValue(const llvm::Value *V, std::set<llvm::Type*> &types);
+  void incorporateValue(const llvm::Value *V, std::set<llvm::StructType*> &types);
 
   /// incorporateMDNode - This method is used to walk the operands of an MDNode
   /// to find types hiding within.
-  void incorporateMDNode(const llvm::MDNode *V, std::set<llvm::Type*> &types);
+  void incorporateMDNode(const llvm::MDNode *V, std::set<llvm::StructType*> &types);
+
+  bool find(std::set<llvm::StructType*> &types);
+
+  static bool isEquivalentType(const llvm::Type *type1,
+                               const llvm::Type *type2,
+                               std::set<std::pair<const llvm::Type*, const llvm::Type*> > &visited);
+
+
+public:
+  explicit ModuleTypes(const llvm::Module *m);
+  llvm::Type *getEquivalentType(const std::string &desc);
+
+  static bool isEquivalentType(const llvm::Type *type1, const llvm::Type *type2);
+
+
+private:
 };
 
 } // end llvm namespace

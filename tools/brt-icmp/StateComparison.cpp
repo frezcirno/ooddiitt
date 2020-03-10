@@ -249,7 +249,7 @@ bool StateComparator::compareInternalState() {
         Type *type = gv1->getType();
         // in llvm, all globals are pointers to their addr
         assert(type->isPointerTy());
-        if (isEquivalentType(type, gv2->getType())) {
+        if (ModuleTypes::isEquivalentType(type, gv2->getType())) {
           const auto &itr2 = ver2.global_map.find(gv2);
           if (itr2 != ver2.global_map.end()) {
             globals.emplace(name, itr1->second, itr2->second, type->getPointerElementType());
@@ -296,7 +296,7 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
 
   // check the return value
   Type *type = fn1->getReturnType();
-  assert(isEquivalentType(type, fn2->getReturnType()));
+  assert(ModuleTypes::isEquivalentType(type, fn2->getReturnType()));
   if (!type->isVoidTy()) {
     // state1 may lack a return value due to an abort
     if (!state1->last_ret_value.isNull()) {

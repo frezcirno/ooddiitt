@@ -622,7 +622,7 @@ void diffFns(KModule *kmod1,
     Function *fn2 = pr.second;
     string fn_name = fn1->getName();
 
-    if (!isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
+    if (!ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
       sig.insert(fn_name);
     } else if ((assume_eq.find(fn_name) == assume_eq.end()) && (calcFnHash(fn1) != calcFnHash(fn2))) {
       body.insert(fn_name);
@@ -665,12 +665,15 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
 
   for (const auto &pr : gb_pairs) {
     assert(pr.first && pr.second);
-    if (!isEquivalentType(pr.first->getType(), pr.second->getType())) {
+    if (!ModuleTypes::isEquivalentType(pr.first->getType(), pr.second->getType())) {
       changed.append(pr.first->getName().str());
     }
   }
 }
 
+#if 0 == 1
+
+// RLR TODO: restore type comparison
 
 void constructTypeMap(Module *mod, map<string,StructType*> &ty_names) {
 
@@ -685,18 +688,19 @@ void constructTypeMap(Module *mod, map<string,StructType*> &ty_names) {
     }
   }
 }
+#endif
 
 void diffTypes(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &removed, Json::Value &changed) {
 
   map<string,StructType*> ty_names1;
-  constructTypeMap(kmod1->module, ty_names1);
+//  constructTypeMap(kmod1->module, ty_names1);
   set<string> types1;
-  for (const auto &itr : ty_names1) types1.insert(itr.first);
+//  for (const auto &itr : ty_names1) types1.insert(itr.first);
 
   map<string,StructType*> ty_names2;
-  constructTypeMap(kmod2->module, ty_names2);
+//  constructTypeMap(kmod2->module, ty_names2);
   set<string> types2;
-  for (const auto &itr : ty_names2) types2.insert(itr.first);
+//  for (const auto &itr : ty_names2) types2.insert(itr.first);
 
   set<string> types_added;
   set_difference(types2.begin(), types2.end(), types1.begin(), types1.end(), inserter(types_added, types_added.end()));
@@ -716,7 +720,7 @@ void diffTypes(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &
     const auto &itr2 = ty_names2.find(name);
     assert(itr1 != ty_names1.end());
     assert(itr2 != ty_names2.end());
-    if (!isEquivalentType(itr1->second, itr2->second)) {
+    if (!ModuleTypes::isEquivalentType(itr1->second, itr2->second)) {
       changed.append(name);
     }
   }

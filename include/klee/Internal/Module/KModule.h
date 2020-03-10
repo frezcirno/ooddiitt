@@ -18,6 +18,7 @@
 #include "klee/Interpreter.h"
 #include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Support/ModuleUtil.h"
+#include "ModuleTypes.h"
 
 #include <map>
 #include <set>
@@ -122,6 +123,7 @@ namespace klee {
     // Our shadow versions of LLVM structures.
     std::vector<KFunction*> functions;
     std::map<llvm::Function*, KFunction*> functionMap;
+    ModuleTypes module_types;
 
     KFunction *getKFunction(llvm::Function *fn)
       { auto itr = functionMap.find(fn); if (itr != functionMap.end()) return itr->second; return nullptr; }
@@ -154,7 +156,7 @@ namespace klee {
     std::set<const llvm::Function*> internalFunctions;
 
   public:
-    KModule(llvm::Module *_module);
+    explicit KModule(llvm::Module *_module);
     ~KModule();
 
     llvm::Module *detachModule() { llvm::Module *m = module; module = nullptr; return m; }
@@ -191,13 +193,6 @@ namespace klee {
       if (itr != mapFnTypes.end()) {
         fns.insert(itr->second.begin(), itr->second.end());
       }
-    }
-
-    llvm::Type *getEquivalentType(const std::string &desc) const;
-    void insertTypeDesc(llvm::Type *type)  {
-      mapTypeDescs[to_string(type)] = type;
-      type = type->getPointerTo(0);
-      mapTypeDescs[to_string(type)] = type;
     }
 
     bool isUserFunction(const llvm::Function* fn) const {

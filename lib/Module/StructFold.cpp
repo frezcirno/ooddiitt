@@ -22,6 +22,7 @@ char StructFoldPass::ID = 0;
 
 bool StructFoldPass::runOnModule(Module &module) {
 
+#ifdef REALLY_BAD_IDEA
   static regex re("(struct\\..*)\\.(\\d+)");
   map<string,set<StructType*> > baseTypes;
 
@@ -50,6 +51,7 @@ bool StructFoldPass::runOnModule(Module &module) {
       outs() << oendl;
     }
   }
+#endif
   return false;
 }
 

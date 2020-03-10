@@ -790,7 +790,7 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
                                           unsigned count) {
 
   size_t size = data.size();
-  Type *type = kmodule->getEquivalentType(type_desc);
+  Type *type = kmodule->module_types.getEquivalentType(type_desc);
   size_t align;
   if (type != nullptr) {
     align = kmodule->targetData->getPrefTypeAlignment(type);
