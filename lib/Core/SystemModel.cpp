@@ -411,7 +411,7 @@ bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&arg
 
 bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
-//  ki->info->assemblyLine;
+  state.o_asserts.push_back(ki);
   return true;
 }
 

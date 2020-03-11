@@ -50,3 +50,12 @@ char *foo04(unsigned bar) {
   if (bar == 3) exit(1);
   return NULL;
 }
+
+unsigned foo05(unsigned *bar, char *str) {
+  return *bar;
+}
+
+unsigned foo06(unsigned bar) {
+  return foo05(&bar, "bob");
+}
+

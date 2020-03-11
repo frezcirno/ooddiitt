@@ -397,7 +397,18 @@ int main(int argc, char **argv, char **envp) {
   // pre and post modules in the output directory
   string mod_name1;
   string mod_name2;
+  bool with_oracle = false;
   getModuleNames(Output, mod_name1, mod_name2);
+  if (mod_name1.empty()) {
+    errs() << "Failed to find pre-module\n";
+    exit(1);
+  }
+  if (mod_name2.empty()) {
+    errs() << "Failed to find post-module\n";
+    exit(1);
+  } else if (boost::starts_with(mod_name2, "rply")) {
+    with_oracle = true;
+  }
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
@@ -481,16 +492,21 @@ int main(int argc, char **argv, char **envp) {
       version2.kmodule = interpreter2->getKModule();
 
       StateComparator cmp(test, version1, version2);
+      outs() << test_file << ": ";
       if (cmp.alignFnReturns()) {
-        cmp.doCompare();
-      }
-
-      if (!cmp.empty()) {
-        outs() << test_file << ":\n";
-        for (const auto &diff : cmp) {
-          outs().indent(2) << to_string(diff) << oendl;
-        }
-      }
+        if (cmp.reachedChanged()) {
+          if (cmp.doCompare()) {
+            if (with_oracle && !cmp.beseechOracle()) outs() << "false negative\n";
+            else outs() << "ok\n";
+          } else {
+            if (with_oracle && cmp.beseechOracle()) outs() << "false positive\n";
+            else outs() << "diff\n";
+            for (const auto &diff : cmp) {
+              outs().indent(2) << to_string(diff) << oendl;
+            }
+          }
+        } else outs() << "discarded\n";
+      } else outs() << "misaligned fn returns\n";
       delete interpreter2;
       delete handler2;
     }

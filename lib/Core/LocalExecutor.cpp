@@ -793,6 +793,7 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
   Type *type = kmodule->module_types.getEquivalentType(type_desc);
   size_t align;
   if (type != nullptr) {
+    string test = to_string(type);
     align = kmodule->targetData->getPrefTypeAlignment(type);
   } else {
     LLVMContext &ctx = kmodule->module->getContext();
@@ -1337,6 +1338,10 @@ void LocalExecutor::runMainConcrete(Function *fn,
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {
 
   assert(!init_states.empty());
+
+  if (kf->isDiffChanged() || kf->isDiffRemoved() || kf->isDiffAdded()) {
+    for (auto &state : init_states) state->reached_modified_fn = true;
+  }
 
   // Delay init till now so that ticks don't accrue during
   // optimization and such.

@@ -46,3 +46,12 @@ char *foo04(unsigned bar) {
   return NULL;
 }
 
+unsigned foo05(unsigned *bar) {
+  printf("the value was %d\n", *bar);
+  return *bar;
+}
+
+unsigned foo06(unsigned bar) {
+  return foo05(&bar);
+}
+

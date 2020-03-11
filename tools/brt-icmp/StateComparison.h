@@ -89,6 +89,8 @@ public:
 
   bool alignFnReturns();
   bool doCompare();
+  bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
+  bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }
 
   bool empty() const { return diffs.empty(); }
   std::deque<CompareDiff>::iterator begin() { return diffs.begin(); }

@@ -290,14 +290,15 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   size_t diff_count = diffs.size();
 
   // RLR TODO: here be debug
-  if (fn1->getName() == "rpl_fflush") {
+  string ret_from = fn1->getName();
+
+  if (ret_from == "rpl_fflush") {
     __asm("nop");
   }
 
   // check the return value
   Type *type = fn1->getReturnType();
-  assert(ModuleTypes::isEquivalentType(type, fn2->getReturnType()));
-  if (!type->isVoidTy()) {
+  if (!type->isVoidTy() && ModuleTypes::isEquivalentType(type, fn2->getReturnType())) {
     // state1 may lack a return value due to an abort
     if (!state1->last_ret_value.isNull()) {
       // if state1 has a return value, then state2 must have one as well
@@ -314,9 +315,9 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   }
 
   // scan for pointer parameters - these could be outputs
-  if (!fn2->isVarArg()) {
+  if (!kf1->isDiffChangedSig() && !fn1->isVarArg()) {
     unsigned idx = 0;
-    for (auto itr = fn2->arg_begin(), end = fn2->arg_end(); itr != end; ++itr) {
+    for (auto itr = fn1->arg_begin(), end = fn1->arg_end(); itr != end; ++itr) {
       Argument &arg = *itr;
       if (auto *arg_type = dyn_cast<PointerType>(arg.getType())) {
         string name;

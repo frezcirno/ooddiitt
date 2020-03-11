@@ -50,10 +50,6 @@ ModuleTypes::ModuleTypes(const llvm::Module *m) : module(m) {
 
 llvm::Type *ModuleTypes::getEquivalentType(const std::string &desc) {
 
-
-  static regex re(R"((struct\..*)\.(\d+))");
-  smatch matches;
-
   // if this is type is cached, then return it
   auto itr = mapDescToType.find(desc);
   if (itr != mapDescToType.end()) {
@@ -80,12 +76,18 @@ llvm::Type *ModuleTypes::getEquivalentType(const std::string &desc) {
     // cache for future lookups
     mapDescToType.insert(make_pair(desc, type));
     return type;
-  } else if (regex_match(desc, matches, re)) {
+  } else {
 
-    // not cached, but this is a duplicate type
-    Type *type = getEquivalentType(matches[1]);
-    mapDescToType.insert(make_pair(desc, type));
-    return type;
+    static regex re(R"((struct\..*)\.(\d+))");
+    smatch matches;
+
+    if (regex_match(desc, matches, re)) {
+
+      // not cached, but this is a duplicate type
+      Type *type = getEquivalentType(matches[1]);
+      mapDescToType.insert(make_pair(desc, type));
+      return type;
+    }
   }
   return Type::getVoidTy(module->getContext());
 }
@@ -95,31 +97,34 @@ void ModuleTypes::insert_type(Type *type) {
   static regex re(R"((struct\..*)\.(\d+))");
 
   auto *st = dyn_cast<StructType>(type);
-  if (st != nullptr && st->hasName()) {
+  if (st != nullptr) {
+    if (st->hasName()) {
 
-    string name = st->getName();
-    smatch matches;
-    if (regex_match(name, matches, re)) {
+      string name("%");
+      name += st->getName().str();
+      smatch matches;
+      if (regex_match(name, matches, re)) {
 
-      string base = matches[1];
-      // if the structure base name is not already in the map, insert it
-      // if we later find the actual base, then entry will be overritten
-      if (mapDescToType.find(base) == mapDescToType.end()) {
-        mapDescToType.insert(make_pair(base, type));
-        mapDescToType.insert(make_pair(base + '*', type->getPointerTo(0)));
+        string base = matches[1];
+        // if the structure base name is not already in the map, insert it
+        // if we later find the actual base, then entry will be overritten
+        if (mapDescToType.find(base) == mapDescToType.end()) {
+          mapDescToType.insert(make_pair(base, type));
+          mapDescToType.insert(make_pair(base + '*', type->getPointerTo(0)));
+        }
+
+        mapDescToType.insert(make_pair(name, type));
+        type = type->getPointerTo(0);
+        mapDescToType.insert(make_pair(to_string(type), type));
+
+      } else {
+        // if keys already exist, then update to this type
+        auto pr = mapDescToType.insert(make_pair(name, type));
+        if (!pr.second) pr.first->second = type;
+        type = type->getPointerTo(0);
+        mapDescToType.insert(make_pair(to_string(type), type));
+        if (!pr.second) pr.first->second = type;
       }
-
-      mapDescToType.insert(make_pair(name, type));
-      type = type->getPointerTo(0);
-      mapDescToType.insert(make_pair(to_string(type), type));
-
-    } else {
-      // if keys already exist, then update to this type
-      auto pr = mapDescToType.insert(make_pair(name, type));
-      if (!pr.second) pr.first->second = type;
-      type = type->getPointerTo(0);
-      mapDescToType.insert(make_pair(to_string(type), type));
-      if (!pr.second) pr.first->second = type;
     }
   } else {
     mapDescToType.insert(make_pair(to_string(type), type));
