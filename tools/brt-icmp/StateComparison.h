@@ -88,7 +88,7 @@ public:
   StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2);
 
   bool alignFnReturns();
-  bool doCompare();
+  bool isEquivalent();
   bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
   bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }
 

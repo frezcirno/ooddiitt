@@ -135,7 +135,7 @@ void StateComparator::emitRetSequence(std::ostringstream &ss, std::deque<std::pa
   }
 }
 
-bool StateComparator::doCompare() {
+bool StateComparator::isEquivalent() {
 
   bool result = false;
   if (ver2.finalState == nullptr) {

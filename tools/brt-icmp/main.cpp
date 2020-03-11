@@ -304,10 +304,12 @@ void expand_test_files(const string &prefix, deque<string> &files) {
   sort(files.begin(), files.end());
 }
 
-void getModuleNames(const string &dir, string &name1, string &name2) {
+void getModuleNames(const string &dir, string &name1, string &name2, bool &with_oracle) {
 
   name1 = PreModule;
   name2 = PostModule;
+
+  with_oracle = false;
 
   if (name1.empty() || name2.empty()) {
     if (fs::is_directory(dir)) {
@@ -316,13 +318,15 @@ void getModuleNames(const string &dir, string &name1, string &name2) {
         if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".bc")) {
 
           string filename = pfile.filename().string();
-          if (name1.empty() && boost::starts_with(filename, "pre")) {
+          if (boost::starts_with(filename, "pre-")) {
             name1 = (fs::path(dir) / filename).string();
-          } else if (name2.empty() && boost::starts_with(filename, "rply")) {
+          } else if (boost::starts_with(filename, "rply-")) {
+            name2 = (fs::path(dir) / filename).string();
+            with_oracle = true;
+          } else if (name2.empty() && boost::starts_with(filename, "post-")) {
             name2 = (fs::path(dir) / filename).string();
           }
         }
-        if (!(name1.empty() || name2.empty())) break;
       }
     }
   }
@@ -398,7 +402,7 @@ int main(int argc, char **argv, char **envp) {
   string mod_name1;
   string mod_name2;
   bool with_oracle = false;
-  getModuleNames(Output, mod_name1, mod_name2);
+  getModuleNames(Output, mod_name1, mod_name2, with_oracle);
   if (mod_name1.empty()) {
     errs() << "Failed to find pre-module\n";
     exit(1);
@@ -406,8 +410,6 @@ int main(int argc, char **argv, char **envp) {
   if (mod_name2.empty()) {
     errs() << "Failed to find post-module\n";
     exit(1);
-  } else if (boost::starts_with(mod_name2, "rply")) {
-    with_oracle = true;
   }
 
   // Load the bytecode...
@@ -495,12 +497,14 @@ int main(int argc, char **argv, char **envp) {
       outs() << test_file << ": ";
       if (cmp.alignFnReturns()) {
         if (cmp.reachedChanged()) {
-          if (cmp.doCompare()) {
-            if (with_oracle && !cmp.beseechOracle()) outs() << "false negative\n";
-            else outs() << "ok\n";
+          if (cmp.isEquivalent()) {
+            outs() << "equivalent";
+            if (with_oracle && !cmp.beseechOracle()) outs() << " (false negative)";
+            outs() << oendl;
           } else {
-            if (with_oracle && cmp.beseechOracle()) outs() << "false positive\n";
-            else outs() << "diff\n";
+            outs() << "divergent";
+            if (with_oracle && cmp.beseechOracle()) outs() << " (false positive)";
+            outs() << oendl;
             for (const auto &diff : cmp) {
               outs().indent(2) << to_string(diff) << oendl;
             }
