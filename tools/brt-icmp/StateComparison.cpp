@@ -87,6 +87,23 @@ StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersi
   ptr_width = datalayout->getPointerSizeInBits();
 }
 
+void StateComparator::blacklistFunction(const string &name) {
+
+  if (KFunction *kf = ver1.kmodule->getKFunction(name)) blacklistedFns.insert(kf);
+  if (KFunction *kf = ver2.kmodule->getKFunction(name)) blacklistedFns.insert(kf);
+}
+
+void StateComparator::blacklistStructType(const string &name) {
+
+  ver1.kmodule->module_types.addMatchingStructTypes(name, blacklistedTypes);
+  ver2.kmodule->module_types.addMatchingStructTypes(name, blacklistedTypes);
+}
+
+bool StateComparator::checkTermination() {
+
+  return !(is_valid(ver1.term_reason) && (ver1.term_reason != ver2.term_reason));
+}
+
 bool StateComparator::alignFnReturns() {
 
   // main with constrained globals means we will only be compariing external state.
@@ -102,7 +119,21 @@ bool StateComparator::alignFnReturns() {
 
   // only continue if the function call returns are comparable, i.e. they are aligned
   //  RLR TODO: if not aligned, try to align them
-  if (ver1.fn_returns.size() != ver2.fn_returns.size()) return false;
+  if (ver1.fn_returns.size() != ver2.fn_returns.size()) {
+
+    CompareDiff diff(DiffType::warning);
+    diff.fn = "@unaligned";
+    diff.distance = UINT_MAX;
+
+    ostringstream ss;
+    emitRetSequence(ss, ver1.fn_returns);
+    ss << ':';
+    emitRetSequence(ss, ver2.fn_returns);
+    diff.desc = ss.str();
+
+    diffs.emplace_back(diff);
+    return false;
+  }
   auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
   auto itr2 = ver2.fn_returns.begin();
   while (itr1 != end1) {
@@ -272,7 +303,9 @@ bool StateComparator::compareInternalState() {
 
     // RLR TODO: here be debug
     if (test.test_id == 668) DebugStdioStreams(itr1->second, itr2->second);
-    compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
+    if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
+      compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
+    }
     ++itr1; ++itr2; ++counter;
   }
 
@@ -377,69 +410,71 @@ bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
   assert(!type->isVoidTy());
   size_t diff_count = diffs.size();
 
-  if (type->isSingleValueType()) {
+  if (!isBlacklisted(type)) {
+    if (type->isSingleValueType()) {
 
-    if (type->isPointerTy()) {
+      if (type->isPointerTy()) {
 
-      // pointer comparison
-      ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(os1->read(offset1, ptr_width));
-      ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(os2->read(offset2, ptr_width));
-      assert(!(ptr1.isNull() || ptr2.isNull()));
-      comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, cast<PointerType>(type));
+        // pointer comparison
+        ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(os1->read(offset1, ptr_width));
+        ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(os2->read(offset2, ptr_width));
+        assert(!(ptr1.isNull() || ptr2.isNull()));
+        comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, cast<PointerType>(type));
 
-    } else {
+      } else {
 
-      // primitive type. just do a raw comparison
-      unsigned size = datalayout->getTypeStoreSize(type);
-      vector<unsigned char> val1, val2;
-      os1->readConcrete(val1, offset1, size);
-      os2->readConcrete(val2, offset2, size);
-      if (val1 != val2) {
-        diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+        // primitive type. just do a raw comparison
+        unsigned size = datalayout->getTypeStoreSize(type);
+        vector<unsigned char> val1, val2;
+        os1->readConcrete(val1, offset1, size);
+        os2->readConcrete(val2, offset2, size);
+        if (val1 != val2) {
+          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+        }
       }
+    } else if (type->isStructTy()) {
+      auto *stype = cast<StructType>(type);
+
+      // recursively compare each field in the structure
+      const StructLayout *sl = datalayout->getStructLayout(stype);
+      for (unsigned idx = 0, end = stype->getNumElements(); idx != end; ++idx) {
+        Type *etype = stype->getElementType(idx);
+        unsigned eoffset = sl->getElementOffset(idx);
+        string field_name = '{' + name + ':' + std::to_string(idx) + '}';
+        compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, field_name, etype);
+      }
+
+    } else if (type->isVectorTy()) {
+      auto *vtype = cast<VectorType>(type);
+
+      // until shown otherwise, just treat vectors like arrays
+      Type *etype = vtype->getElementType();
+      unsigned esize = datalayout->getTypeStoreSize(etype);
+      unsigned eoffset = 0;
+      for (unsigned idx = 0, end = etype->getVectorNumElements(); idx != end; ++idx) {
+        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+        compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
+        eoffset += esize;
+      }
+
+    } else if (type->isArrayTy()) {
+      auto *atype = cast<ArrayType>(type);
+
+      // iteratively check each array element
+      Type *etype = atype->getElementType();
+      unsigned esize = datalayout->getTypeStoreSize(etype);
+      unsigned eoffset = 0;
+      for (unsigned idx = 0, end = atype->getArrayNumElements(); idx != end; ++idx) {
+        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+        compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
+        eoffset += esize;
+      }
+
+    } else if (type->isFunctionTy()) {
+      auto *ftype = cast<FunctionType>(type);
+      (void) ftype;
+      assert("function type should never occur here");
     }
-  } else if (type->isStructTy()) {
-    auto *stype = cast<StructType>(type);
-
-    // recursively compare each field in the structure
-    const StructLayout *sl = datalayout->getStructLayout(stype);
-    for (unsigned idx = 0, end = stype->getNumElements(); idx != end; ++idx) {
-      Type *etype = stype->getElementType(idx);
-      unsigned eoffset = sl->getElementOffset(idx);
-      string field_name = '{' + name +  ':' + std::to_string(idx) + '}';
-      compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, field_name, etype);
-    }
-
-  } else if (type->isVectorTy()) {
-    auto *vtype = cast<VectorType>(type);
-
-    // until shown otherwise, just treat vectors like arrays
-    Type *etype = vtype->getElementType();
-    unsigned esize = datalayout->getTypeStoreSize(etype);
-    unsigned eoffset = 0;
-    for (unsigned idx = 0, end = etype->getVectorNumElements(); idx != end; ++idx) {
-      string index_name = '[' + name + ':' + std::to_string(idx) + ']';
-      compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
-      eoffset += esize;
-    }
-
-  } else if (type->isArrayTy()) {
-    auto *atype = cast<ArrayType>(type);
-
-    // iteratively check each array element
-    Type *etype = atype->getElementType();
-    unsigned esize = datalayout->getTypeStoreSize(etype);
-    unsigned eoffset = 0;
-    for (unsigned idx = 0, end = atype->getArrayNumElements(); idx != end; ++idx) {
-      string index_name = '[' + name + ':' + std::to_string(idx) + ']';
-      compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
-      eoffset += esize;
-    }
-
-  } else if (type->isFunctionTy()) {
-    auto *ftype = cast<FunctionType>(type);
-    (void)ftype;
-    assert("function type should never occur here");
   }
   return (diffs.size() == diff_count);
 }
@@ -449,13 +484,15 @@ bool StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t off
                                            const string &name, llvm::Type *type) {
 
   size_t diff_count = diffs.size();
-  if (!type->isVoidTy()) {
-    if (const ObjectState *os1 = state1->addressSpace.findObject(mo1)) {
-      const ObjectState *os2 = state2->addressSpace.findObject(mo2);
-      if (os2 == nullptr) {
-        diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find memory object"));
-      } else {
-        compareObjectStates(os1, offset1, kf1, state1, os2, offset2, kf2, state2, name, type);
+  if (!isBlacklisted(type)) {
+    if (!type->isVoidTy()) {
+      if (const ObjectState *os1 = state1->addressSpace.findObject(mo1)) {
+        const ObjectState *os2 = state2->addressSpace.findObject(mo2);
+        if (os2 == nullptr) {
+          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find memory object"));
+        } else {
+          compareObjectStates(os1, offset1, kf1, state1, os2, offset2, kf2, state2, name, type);
+        }
       }
     }
   }
@@ -467,39 +504,41 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
                                       llvm::Type *type) {
 
   size_t diff_count = diffs.size();
-  if (!type->isVoidTy()) {
-    if (type->isSingleValueType()) {
-      string name = "@return";
-      if (type->isPointerTy()) {
+  if (!isBlacklisted(type)) {
+    if (!type->isVoidTy()) {
+      if (type->isSingleValueType()) {
+        string name = "@return";
+        if (type->isPointerTy()) {
 
-        // pointer comparison
-        comparePtrs(expr1, kf1, state1, expr2, kf2, state2, name, cast<PointerType>(type));
-      } else {
-
-        // these are supposed to fit in a single register
-        // since this is not a pointer value, they can be directly compared
-        Expr::Width width = expr1->getWidth();
-        if (expr2->getWidth() != width) {
-          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different width"));
+          // pointer comparison
+          comparePtrs(expr1, kf1, state1, expr2, kf2, state2, name, cast<PointerType>(type));
         } else {
-          // most of these types are no more than 64 bits.
-          if (width <= Expr::Int64) {
-            if (expr1->getZExtValue() != expr2->getZExtValue()) {
-              diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
-            }
+
+          // these are supposed to fit in a single register
+          // since this is not a pointer value, they can be directly compared
+          Expr::Width width = expr1->getWidth();
+          if (expr2->getWidth() != width) {
+            diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different width"));
           } else {
-            // this is a real hack to deal with bit-long expressions
-            long double val1, val2;
-            expr1->toMemory(&val1);
-            expr2->toMemory(&val2);
-            if (val1 != val2) {
-              diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+            // most of these types are no more than 64 bits.
+            if (width <= Expr::Int64) {
+              if (expr1->getZExtValue() != expr2->getZExtValue()) {
+                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+              }
+            } else {
+              // this is a real hack to deal with bit-long expressions
+              long double val1, val2;
+              expr1->toMemory(&val1);
+              expr2->toMemory(&val2);
+              if (val1 != val2) {
+                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+              }
             }
           }
         }
+      } else {
+        assert("multi-value types should not occur as expressions");
       }
-    } else {
-      assert("multi-value types should not occur as expressions");
     }
   }
   return (diffs.size() == diff_count);
@@ -510,12 +549,14 @@ bool StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
                                   const std::string &name, PointerType *type) {
 
   size_t diff_count = diffs.size();
-  if (expr1->getWidth() != expr2->getWidth()) {
-    diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
-  } else {
-    uint64_t addr1 = expr1->getZExtValue();
-    uint64_t addr2 = expr2->getZExtValue();
-    comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
+  if (!isBlacklisted(type)) {
+    if (expr1->getWidth() != expr2->getWidth()) {
+      diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
+    } else {
+      uint64_t addr1 = expr1->getZExtValue();
+      uint64_t addr2 = expr2->getZExtValue();
+      comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
+    }
   }
   return (diffs.size() == diff_count);
 }
@@ -525,39 +566,41 @@ bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
                                   const std::string &name, PointerType *type) {
 
   size_t diff_count = diffs.size();
-  // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
-  auto result = visited_ptrs.insert(make_pair(addr1, addr2));
-  if (result.second) {
+  if (!isBlacklisted(type)) {
+    // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
+    auto result = visited_ptrs.insert(make_pair(addr1, addr2));
+    if (result.second) {
 
-    ObjectPair op1;
-    if (state1->addressSpace.resolveOne(addr1, op1)) {
-      ObjectPair op2;
-      if (state2->addressSpace.resolveOne(addr2, op2)) {
+      ObjectPair op1;
+      if (state1->addressSpace.resolveOne(addr1, op1)) {
+        ObjectPair op2;
+        if (state2->addressSpace.resolveOne(addr2, op2)) {
 
-        // RLR TODO: here be debug
-        if (test.test_id == 668 && op1.first->name  == "_stdio_streams") {
+          // RLR TODO: here be debug
+          if (test.test_id == 668 && op1.first->name  == "_stdio_streams") {
 
-          std::vector<unsigned char> data1;
-          op1.second->readConcrete(data1);
-          struct ucklee__STDIO_FILE_STRUCT *test1_1 = (struct ucklee__STDIO_FILE_STRUCT *) data1.data();
-          struct ucklee__STDIO_FILE_STRUCT *test1_2 = test1_1 + 1;
-          struct ucklee__STDIO_FILE_STRUCT *test1_3 = test1_1 + 2;
+            std::vector<unsigned char> data1;
+            op1.second->readConcrete(data1);
+            struct ucklee__STDIO_FILE_STRUCT *test1_1 = (struct ucklee__STDIO_FILE_STRUCT *) data1.data();
+            struct ucklee__STDIO_FILE_STRUCT *test1_2 = test1_1 + 1;
+            struct ucklee__STDIO_FILE_STRUCT *test1_3 = test1_1 + 2;
 
-          std::vector<unsigned char> data2;
-          op2.second->readConcrete(data2);
-          struct ucklee__STDIO_FILE_STRUCT *test2_1 = (struct ucklee__STDIO_FILE_STRUCT *) data2.data();
-          struct ucklee__STDIO_FILE_STRUCT *test2_2 = test2_1 + 1;
-          struct ucklee__STDIO_FILE_STRUCT *test2_3 = test2_1 + 2;
-          __asm("nop");
+            std::vector<unsigned char> data2;
+            op2.second->readConcrete(data2);
+            struct ucklee__STDIO_FILE_STRUCT *test2_1 = (struct ucklee__STDIO_FILE_STRUCT *) data2.data();
+            struct ucklee__STDIO_FILE_STRUCT *test2_2 = test2_1 + 1;
+            struct ucklee__STDIO_FILE_STRUCT *test2_3 = test2_1 + 2;
+            __asm("nop");
+          }
+
+          uint64_t offset1 = addr1 - op1.first->address;
+          uint64_t offset2 = addr2 - op2.first->address;
+          string ptr_name = "*(" + name + ')';
+          compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
+
+        } else {
+          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find pointed object"));
         }
-
-        uint64_t offset1 = addr1 - op1.first->address;
-        uint64_t offset2 = addr2 - op2.first->address;
-        string ptr_name = "*(" + name + ')';
-        compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
-
-      } else {
-        diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find pointed object"));
       }
     }
   }

@@ -67,6 +67,7 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
+  cl::opt<string> BlackLists("cmp-blacklists", cl::desc("json formated diff file"), cl::init("blacklists.json"));
 }
 
 /***/
@@ -225,6 +226,29 @@ void load_test_case(Json::Value &root, TestCase &test) {
       string name = obj["name"].asString();
       string type = obj["type"].asString();
       test.objects.emplace_back(TestObject(addr, count, data, align, kind, name, type));
+    }
+  }
+}
+
+void load_blacklists(StateComparator &cmp, string filename) {
+
+  if (!filename.empty()) {
+    ifstream infile(filename);
+    if (infile.is_open()) {
+      Json::Value root;
+      infile >> root;
+
+      Json::Value &functions = root["functions"];
+      for (unsigned idx = 0, end = functions.size(); idx < end; ++idx) {
+        string fn = functions[idx].asString();
+        cmp.blacklistFunction(fn);
+      }
+
+      Json::Value &types = root["types"];
+      for (unsigned idx = 0, end = types.size(); idx < end; ++idx) {
+        string type = types[idx].asString();
+        cmp.blacklistStructType(type);
+      }
     }
   }
 }
@@ -494,23 +518,27 @@ int main(int argc, char **argv, char **envp) {
       version2.kmodule = interpreter2->getKModule();
 
       StateComparator cmp(test, version1, version2);
-      outs() << test_file << ": ";
-      if (cmp.alignFnReturns()) {
-        if (cmp.reachedChanged()) {
-          if (cmp.isEquivalent()) {
-            outs() << "equivalent";
-            if (with_oracle && !cmp.beseechOracle()) outs() << " (false negative)";
-            outs() << oendl;
-          } else {
-            outs() << "divergent";
-            if (with_oracle && cmp.beseechOracle()) outs() << " (false positive)";
-            outs() << oendl;
-            for (const auto &diff : cmp) {
-              outs().indent(2) << to_string(diff) << oendl;
+      load_blacklists(cmp, BlackLists);
+
+      outs() << fs::path(test_file).filename().string() << "->" << oflush;
+      if (cmp.checkTermination()) {
+        if (cmp.alignFnReturns()) {
+          if (cmp.reachedChanged()) {
+            if (cmp.isEquivalent()) {
+              outs() << "equivalent";
+              if (with_oracle && !cmp.beseechOracle()) outs() << " (false negative)";
+              outs() << oendl;
+            } else {
+              outs() << "divergent";
+              if (with_oracle && cmp.beseechOracle()) outs() << " (false positive)";
+              outs() << oendl;
+              for (const auto &diff : cmp) {
+                outs().indent(2) << to_string(diff) << oendl;
+              }
             }
-          }
-        } else outs() << "discarded\n";
-      } else outs() << "misaligned fn returns\n";
+          } else outs() << "discarded (did not reach)\n";
+        } else outs() << "discarded (misaligned fn returns)\n";
+      } else outs() << "diff (termination)\n";
       delete interpreter2;
       delete handler2;
     }

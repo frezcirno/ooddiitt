@@ -68,6 +68,7 @@ class ModuleTypes {
 public:
   explicit ModuleTypes(const llvm::Module *m);
   llvm::Type *getEquivalentType(const std::string &desc);
+  void addMatchingStructTypes(const std::string &desc, std::set<llvm::Type*> &types) const;
 
   static bool isEquivalentType(const llvm::Type *type1, const llvm::Type *type2);
 

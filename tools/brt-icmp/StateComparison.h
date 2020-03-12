@@ -83,10 +83,15 @@ class StateComparator {
   std::set<CompareGlobalEntry> globals;
   const llvm::DataLayout *datalayout;
   Expr::Width ptr_width;
+  std::set<KFunction*> blacklistedFns;
+  std::set<llvm::Type*> blacklistedTypes;
 
 public:
   StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2);
+  void blacklistFunction(const std::string &name);
+  void blacklistStructType(const std::string &name);
 
+  bool checkTermination();
   bool alignFnReturns();
   bool isEquivalent();
   bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
@@ -129,6 +134,9 @@ private:
   bool comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
                    uint64_t addr2, KFunction *kf2, ExecutionState *state2,
                    const std::string &name, llvm::PointerType *type);
+
+  bool isBlacklisted(KFunction *fk) { return blacklistedFns.find(fk) != blacklistedFns.end(); }
+  bool isBlacklisted(llvm::Type *type) { return blacklistedTypes.find(type) != blacklistedTypes.end(); }
 
 
   static void emitRetSequence(std::ostringstream &ss, std::deque<std::pair<KFunction*, ExecutionState*> > &fn_returns);

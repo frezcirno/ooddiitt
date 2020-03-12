@@ -92,6 +92,18 @@ llvm::Type *ModuleTypes::getEquivalentType(const std::string &desc) {
   return Type::getVoidTy(module->getContext());
 }
 
+void ModuleTypes::addMatchingStructTypes(const string &desc, set<Type*> &types) const {
+
+  string name = "%struct." + desc;
+  string prefix = name + ".";
+
+  for (const auto &itr : mapDescToType) {
+    if (itr.first == name || boost::starts_with(itr.first, prefix)) {
+      types.insert(itr.second);
+    }
+  }
+}
+
 void ModuleTypes::insert_type(Type *type) {
 
   static regex re(R"((struct\..*)\.(\d+))");
