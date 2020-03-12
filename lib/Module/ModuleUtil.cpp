@@ -613,9 +613,12 @@ void modify_clib(llvm::Module *module) {
     Type *byteptr_type = Type::getInt8PtrTy(module->getContext());
     Value *null = Constant::getNullValue(byteptr_type);
 
-    irb.CreateCall2(setbuf, stdin, null);
-    irb.CreateCall2(setbuf, stdout, null);
-    irb.CreateCall2(setbuf, stderr, null);
+    Value *v = irb.CreateLoad(stdin);
+    irb.CreateCall2(setbuf, v, null);
+    v = irb.CreateLoad(stdout);
+    irb.CreateCall2(setbuf, v, null);
+    v = irb.CreateLoad(stderr);
+    irb.CreateCall2(setbuf, v, null);
   }
 
   // remove the body of __check_one_fd

@@ -501,12 +501,6 @@ int main(int argc, char **argv, char **envp) {
       if (version1.finalState->status != StateStatus::Completed) continue;
 
       // now, lets do it all again with the second module
-
-      // RLR TODO: here be debug
-      if (test.test_id == 668) {
-        __asm("nop");
-      }
-
       auto *handler2 = new ICmpKleeHandler(version2);
       Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
       handler2->setInterpreter(interpreter2);

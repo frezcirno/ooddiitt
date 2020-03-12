@@ -46,18 +46,12 @@ StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
   : caller(_caller), kf(_kf), callPathNode(nullptr),
     numRegs(kf->numRegisters),
     minDistToUncoveredOnReturn(0), varargs(nullptr) {
-#ifdef _DEBUG
-  if (_kf->function->hasName()) fn_name = _kf->function->getName().str();
-#endif
   locals = new Cell[numRegs];
 }
 
 StackFrame::StackFrame(const StackFrame &s)
   : caller(s.caller),
     kf(s.kf),
-#ifdef _DEBUG
-    fn_name(s.fn_name),
-#endif
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),

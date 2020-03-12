@@ -404,28 +404,6 @@ Executor::~Executor() {
 
 /***/
 
-// RLR TODO: here be debug
-struct ucklee__mbstate_t {
-  unsigned mask;
-  unsigned wc;
-};
-
-struct ucklee__STDIO_FILE_STRUCT {
-  unsigned short __modeflags;
-  unsigned char __ungot_width[2];
-  int __filedes;
-  unsigned char *__bufstart;	/* pointer to buffer */
-  unsigned char *__bufend;	/* pointer to 1 past end of buffer */
-  unsigned char *__bufpos;
-  unsigned char *__bufread; /* pointer to 1 past last buffered read char */
-  unsigned char *__bufgetc_u;	/* 1 past last readable by getc_unlocked */
-  unsigned char *__bufputc_u;	/* 1 past last writeable by putc_unlocked */
-  struct ucklee__STDIO_FILE_STRUCT *__nextopen;
-  unsigned __ungot[2];
-  ucklee__mbstate_t __state;
-  void *__unused;				/* Placeholder for codeset binding. */
-};
-
 void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os, const Constant *c, unsigned offset) {
 
   DataLayout *targetData = kmodule->targetData;
@@ -441,11 +419,6 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os, co
   } else if (const ConstantArray *ca = dyn_cast<ConstantArray>(c)) {
     unsigned elementSize = targetData->getTypeStoreSize(ca->getType()->getElementType());
     for (unsigned i=0, e=ca->getNumOperands(); i != e; ++i) {
-
-      // RLR TODO: here be debug
-      if (i == 1 && os->getObject()->name  == "_stdio_streams") {
-        __asm("nop");
-      }
       initializeGlobalObject(state, os, ca->getOperand(i), offset + i * elementSize);
     }
   } else if (const ConstantStruct *cs = dyn_cast<ConstantStruct>(c)) {
@@ -469,17 +442,6 @@ void Executor::initializeGlobalObject(ExecutionState &state, ObjectState *os, co
     }
     os->write(offset, C);
   }
-
-  // RLR TODO: here be debug
-  if (os->getObject()->name  == "_stdio_streams") {
-    std::vector<unsigned char> data;
-    os->readConcrete(data);
-    struct ucklee__STDIO_FILE_STRUCT *test1 = (struct ucklee__STDIO_FILE_STRUCT *) data.data();
-    struct ucklee__STDIO_FILE_STRUCT *test2 = test1 + 1;
-    struct ucklee__STDIO_FILE_STRUCT *test3 = test1 + 2;
-    __asm("nop");
-  }
-
   os->clearWritten();
 }
 
@@ -548,11 +510,6 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
     size_t align = getAllocationAlignment(gv);
     std::string name = gv->getName();
 
-    // RLR TODO: here be debug
-    if (name  == "_stdio_streams") {
-      (void) true;
-    }
-
     if (!gv->hasInitializer()) {
       gv->setInitializer(ConstantPointerNull::get(gv->getType()));
     }
@@ -601,17 +558,6 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
     const ObjectState *os = state.addressSpace.findObject(mo);
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
     initializeGlobalObject(state, wos, gv->getInitializer(), 0);
-
-    // RLR TODO: here be debug
-    if (wos->getObject()->name  == "_stdio_streams") {
-      std::vector<unsigned char> data;
-      os->readConcrete(data);
-      struct ucklee__STDIO_FILE_STRUCT *test1 = (struct ucklee__STDIO_FILE_STRUCT *) data.data();
-      struct ucklee__STDIO_FILE_STRUCT *test2 = test1 + 1;
-      struct ucklee__STDIO_FILE_STRUCT *test3 = test1 + 2;
-      __asm("nop");
-    }
-
   }
 }
 

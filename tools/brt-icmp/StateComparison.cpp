@@ -17,29 +17,6 @@ using namespace std;
 
 namespace klee {
 
-// RLR TODO: here be debug
-struct ucklee__mbstate_t {
-  unsigned mask;
-  unsigned wc;
-};
-
-struct ucklee__STDIO_FILE_STRUCT {
-  unsigned short __modeflags;
-  unsigned char __ungot_width[2];
-  int __filedes;
-  unsigned char *__bufstart;	/* pointer to buffer */
-  unsigned char *__bufend;	/* pointer to 1 past end of buffer */
-  unsigned char *__bufpos;
-  unsigned char *__bufread; /* pointer to 1 past last buffered read char */
-  unsigned char *__bufgetc_u;	/* 1 past last readable by getc_unlocked */
-  unsigned char *__bufputc_u;	/* 1 past last writeable by putc_unlocked */
-  struct ucklee__STDIO_FILE_STRUCT *__nextopen;
-  unsigned __ungot[2];
-  ucklee__mbstate_t __state;
-  void *__unused;				/* Placeholder for codeset binding. */
-};
-
-
 string to_string(const vector<unsigned char> &buffer) {
   ostringstream bytes;
   for (auto itr = buffer.begin(), end = buffer.end(); itr != end; ++itr) {
@@ -233,35 +210,10 @@ bool StateComparator::compareExternalState() {
   return (diffs.empty());
 }
 
-
-// RLR TODO: here be debug
-void DebugStdioStreams(const ExecutionState *s1, const ExecutionState *s2) {
-
-  auto op1 = s1->addressSpace.findMemoryObjectByName("_stdio_streams");
-  auto op2 = s2->addressSpace.findMemoryObjectByName("_stdio_streams");
-
-  std::vector<unsigned char> data1;
-  op1.second->readConcrete(data1);
-  struct ucklee__STDIO_FILE_STRUCT *test1_1 = (struct ucklee__STDIO_FILE_STRUCT *) data1.data();
-  struct ucklee__STDIO_FILE_STRUCT *test1_2 = test1_1 + 1;
-  struct ucklee__STDIO_FILE_STRUCT *test1_3 = test1_1 + 2;
-
-  std::vector<unsigned char> data2;
-  op2.second->readConcrete(data2);
-  struct ucklee__STDIO_FILE_STRUCT *test2_1 = (struct ucklee__STDIO_FILE_STRUCT *) data2.data();
-  struct ucklee__STDIO_FILE_STRUCT *test2_2 = test2_1 + 1;
-  struct ucklee__STDIO_FILE_STRUCT *test2_3 = test2_1 + 2;
-  __asm("nop");
-
-}
-
 bool StateComparator::compareInternalState() {
 
   assert(ver1.fn_returns.size() == ver2.fn_returns.size() && "mismatched function return sizes");
   assert(diffs.empty());
-
-  // RLR TODO: here be debug
-  if (test.test_id == 668) DebugStdioStreams(ver1.initialState, ver2.initialState);
 
   // get the set of global variables to compare.  These are only
   // user globals (i.e. not stdlib) in both modules and of equivalent types
@@ -301,8 +253,6 @@ bool StateComparator::compareInternalState() {
     string name2 = itr2->first->getName();
     assert(name1 == name2 && "mismatched function names");
 
-    // RLR TODO: here be debug
-    if (test.test_id == 668) DebugStdioStreams(itr1->second, itr2->second);
     if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
       compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
     }
@@ -321,13 +271,6 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
   size_t diff_count = diffs.size();
-
-  // RLR TODO: here be debug
-  string ret_from = fn1->getName();
-
-  if (ret_from == "rpl_fflush") {
-    __asm("nop");
-  }
 
   // check the return value
   Type *type = fn1->getReturnType();
@@ -575,23 +518,6 @@ bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
       if (state1->addressSpace.resolveOne(addr1, op1)) {
         ObjectPair op2;
         if (state2->addressSpace.resolveOne(addr2, op2)) {
-
-          // RLR TODO: here be debug
-          if (test.test_id == 668 && op1.first->name  == "_stdio_streams") {
-
-            std::vector<unsigned char> data1;
-            op1.second->readConcrete(data1);
-            struct ucklee__STDIO_FILE_STRUCT *test1_1 = (struct ucklee__STDIO_FILE_STRUCT *) data1.data();
-            struct ucklee__STDIO_FILE_STRUCT *test1_2 = test1_1 + 1;
-            struct ucklee__STDIO_FILE_STRUCT *test1_3 = test1_1 + 2;
-
-            std::vector<unsigned char> data2;
-            op2.second->readConcrete(data2);
-            struct ucklee__STDIO_FILE_STRUCT *test2_1 = (struct ucklee__STDIO_FILE_STRUCT *) data2.data();
-            struct ucklee__STDIO_FILE_STRUCT *test2_2 = test2_1 + 1;
-            struct ucklee__STDIO_FILE_STRUCT *test2_3 = test2_1 + 2;
-            __asm("nop");
-          }
 
           uint64_t offset1 = addr1 - op1.first->address;
           uint64_t offset2 = addr2 - op2.first->address;

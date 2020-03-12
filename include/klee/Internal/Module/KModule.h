@@ -61,6 +61,7 @@ namespace klee {
     /// Whether instructions in this function should count as
     /// "coverable" for statistics and search heuristics.
     bool trackCoverage;
+    std::string fn_name;
 
     // loop analysis
     llvm::DominatorTree domTree;
@@ -73,14 +74,10 @@ namespace klee {
     bool diff_body;
     bool diff_sig;
 
-  private:
-    KFunction(const KFunction&);
-
-  public:
     explicit KFunction(llvm::Function*, KModule *);
     ~KFunction();
 
-    unsigned getArgRegister(unsigned index) { return index; }
+    static unsigned getArgRegister(unsigned index) { return index; }
     bool isLoopHeader(const llvm::BasicBlock *bb) const
       { const auto *loop = kloop.getLoopFor(bb); return (loop && loop->getHeader() == bb); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
@@ -92,9 +89,8 @@ namespace klee {
     bool isDiffChanged() const      {return diff_body || diff_sig; }
     bool isDiffChangedBody() const  {return diff_body; }
     bool isDiffChangedSig() const   {return diff_sig; }
-    std::string getName() const { std::string result; if (function != nullptr) result = function->getName().str(); return result; }
+    const std::string &getName() const { return fn_name; }
   };
-
 
   class KConstant {
   public:

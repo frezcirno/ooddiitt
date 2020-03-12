@@ -138,12 +138,7 @@ struct LoopFrame {
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
-
-#ifdef _DEBUG
-  std::string fn_name;
-#endif
   CallPathNode *callPathNode;
-
   std::set<const MemoryObject *> allocas;
   size_t numRegs;
   Cell *locals;

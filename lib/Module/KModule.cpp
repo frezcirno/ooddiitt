@@ -539,6 +539,7 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
     trackCoverage(true),
+    fn_name(_function->getName().str()),
     is_user(false),
     fnID(0),
     diff_added(false),

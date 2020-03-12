@@ -150,10 +150,8 @@ protected:
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
-  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &comment) {
-    state.instFaulting = ki;
-    terminateStateOnComplete(state, TerminateReason::MemFault, comment);
-  }
+  void terminateState(ExecutionState &state) override;
+  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &comment);
 
   bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 

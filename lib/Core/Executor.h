@@ -369,7 +369,7 @@ protected:
   const InstructionInfo & getLastNonKleeInternalInstruction(const ExecutionState &state, llvm::Instruction** lastInstruction);
 
   // remove state from queue and delete
-  void terminateState(ExecutionState &state);
+  virtual void terminateState(ExecutionState &state);
   // call exit handler and terminate state
 
   void terminateStateOnComplete(ExecutionState &state, TerminateReason reason);
