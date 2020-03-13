@@ -306,6 +306,8 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
 
     kmod->pre_module = root["pre-module"].asString();
     kmod->post_module = root["post-module"].asString();
+  } else {
+    klee_error("failed opening diff file: %s", filename.c_str());
   }
 }
 
