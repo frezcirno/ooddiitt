@@ -68,9 +68,9 @@ namespace {
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
   cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
-  cl::opt<unsigned> ShowFnFreq("show-fn-freq", cl::desc("display function's basic block frequency"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
+  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
@@ -100,7 +100,7 @@ public:
 
   ~ReplayKleeHandler() override = default;
 
-  void processTestCase(ExecutionState  &state, TerminateReason reason) override {
+  void onStateFinalize(ExecutionState &state, TerminateReason reason) override  {
     results.push_back(make_pair(new ExecutionState(state), reason));
   }
 };
@@ -257,6 +257,58 @@ bool update_test_case(const string &fname, Json::Value &root, const deque<unsign
   return true;
 }
 
+void load_diff_info(const string &diff_file, KModule *kmod) {
+
+  string filename = diff_file;
+  if (filename.empty()) {
+    filename = (fs::path(Output)/"diff.json").string();
+  }
+  ifstream infile(filename);
+  if (infile.is_open()) {
+    Json::Value root;
+    infile >> root;
+
+    Json::Value &fns = root["functions"];
+    Json::Value &fns_added = fns["added"];
+    for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
+      kmod->addDiffFnAdded(fns_added[idx].asString());
+    }
+    Json::Value &fns_removed = fns["removed"];
+    for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
+      kmod->addDiffFnRemoved(fns_removed[idx].asString());
+    }
+    Json::Value &fns_body = fns["body"];
+    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
+      string str = fns_body[idx].asString();
+      kmod->addDiffFnChangedBody(str);
+    }
+    Json::Value &fns_sig = fns["signature"];
+    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
+      string str = fns_sig[idx].asString();
+      kmod->addDiffFnChangedSig(str);
+    }
+
+    Json::Value &gbs = root["globals"];
+    Json::Value &gbs_added = gbs["added"];
+    for (unsigned idx = 0, end = gbs_added.size(); idx < end; ++idx) {
+      kmod->addDiffGlobalAdded(gbs_added[idx].asString());
+    }
+    Json::Value &gbs_removed = gbs["removed"];
+    for (unsigned idx = 0, end = gbs_removed.size(); idx < end; ++idx) {
+      kmod->addDiffGlobalRemoved(gbs_removed[idx].asString());
+    }
+
+    Json::Value &gbs_type = gbs["changed"];
+    for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
+      string str = gbs_type[idx].asString();
+      kmod->addDiffGlobalChanged(str);
+    }
+
+    kmod->pre_module = root["pre-module"].asString();
+    kmod->post_module = root["post-module"].asString();
+  }
+}
+
 enum class TraceCompareResult { ok, truncated, differs };
 
 TraceCompareResult compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
@@ -309,6 +361,7 @@ KModule *PrepareModule(const string &filename) {
       } else {
         if (KModule *kmodule = new KModule(module)) {
           kmodule->prepare();
+          load_diff_info(DiffInfo, kmodule);
           module_cache.insert(make_pair(filename, kmodule));
           return kmodule;
         }
@@ -388,7 +441,7 @@ int main(int argc, char **argv, char **envp) {
       klee_error("failed to load test case '%s'", test_file.c_str());
     }
 
-    outs() << fs::path(test_file).filename().string() << "->" << oflush;
+    outs() << fs::path(test_file).filename().string() << ':' << oflush;
 
     string module_name = ModuleName.empty() ? test.file_name : ModuleName;
     KModule *kmod = PrepareModule(module_name);
@@ -405,8 +458,8 @@ int main(int argc, char **argv, char **envp) {
     if (TraceT != TraceType::invalid) {
       IOpts.trace = TraceT;
     }
-    UnconstraintFlagsT flags;
-    IOpts.progression.emplace_back(300, flags);
+//    UnconstraintFlagsT flags;
+//    IOpts.progression.emplace_back(300, flags);
 
     vector<pair<ExecutionState*,TerminateReason> > ex_states;
     ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());
@@ -438,6 +491,27 @@ int main(int argc, char **argv, char **envp) {
       state->stdout_capture.get_data(stdout_capture);
       state->stderr_capture.get_data(stderr_capture);
 
+      if (state->status == StateStatus::Completed) {
+        outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
+        outs() << (unsigned) term_reason << ':' << state->reached_modified_fn;
+      } else {
+        outs() << "incomplete" << oflush;
+//        if (test.term_reason != term_reason) {
+//          outs() << ", termination differs: test=" << to_string(test.term_reason) << " rply=" << to_string(term_reason);
+//          if (const auto *inst = state->instFaulting) {
+//            const auto *iinfo = inst->info;
+//            fs::path file(iinfo->file);
+//            outs() << ", faulting instr=" << iinfo->assemblyLine << " (" << file.filename().string() << ',' << iinfo->line << ')';
+//          }
+//          outs() << oflush;
+//          exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
+//        }
+//        if (!state->messages.empty()) {
+//          outs() << " (" << state->messages.back() << ')' << oflush;
+//        }
+      }
+      outs() << oendl << oflush;
+
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {
           TraceCompareResult res = compare_traces(test.trace, state->trace);
@@ -451,59 +525,6 @@ int main(int argc, char **argv, char **envp) {
         } else {
           errs() << "incomparable trace types, ";
           exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
-        }
-      }
-
-      if (state->status == StateStatus::Completed) {
-        outs() << "ok" << oflush;
-      } else {
-        outs() << "incomplete" << oflush;
-        if (test.term_reason != term_reason) {
-          outs() << ", termination differs: test=" << to_string(test.term_reason) << " rply=" << to_string(term_reason);
-          if (const auto *inst = state->instFaulting) {
-            const auto *iinfo = inst->info;
-            fs::path file(iinfo->file);
-            outs() << ", faulting instr=" << iinfo->assemblyLine << " (" << file.filename().string() << ',' << iinfo->line << ')';
-          }
-          outs() << oflush;
-          exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
-        }
-        if (!state->messages.empty()) {
-          outs() << " (" << state->messages.back() << ')' << oflush;
-        }
-      }
-    }
-    outs() << oendf;
-
-    if ((state != nullptr) && (TraceT == TraceType::calls)) {
-      outs() << "Call Trace:\n";
-      outs() << test.entry_fn << '\n';
-
-      // build a reverse loop up map of function ids
-      map<unsigned, string> fnMap;
-      for (auto itr = kmod->functionMap.begin(), end = kmod->functionMap.end(); itr != end; ++itr) {
-        Function *fn = itr->first;
-        unsigned fnID = kmod->getFunctionID(fn);
-        if (fnID != 0) {
-          fnMap.insert(make_pair(fnID, fn->getName()));
-        }
-      }
-
-      int call_depth = 0;
-      for (auto entry : state->trace) {
-        bool is_call = (entry % 1000) == 1;
-        bool is_retn = (entry % 1000) == 2;
-        if (is_call) {
-          call_depth += 1;
-          unsigned fnID = entry / 1000;
-          auto itr = fnMap.find(fnID);
-          if (itr != fnMap.end()) {
-            assert(call_depth >= 0);
-            outs().indent(call_depth * 2);
-            outs() << itr->second << '\n';
-          }
-        } else if (is_retn) {
-          call_depth -= 1;
         }
       }
     }
@@ -521,20 +542,6 @@ int main(int argc, char **argv, char **envp) {
         for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
           outs() << *itr;
         }
-      }
-    }
-
-    if (ShowFnFreq > 0) {
-
-      // display a sorted list of function call invocations by target fn
-      // this can be used to determine when a libc function should be modeled for performance.
-      vector<pair<unsigned,const Function*> >fn_counters;
-      handler->getCallCounters(fn_counters);
-      sort(fn_counters.begin(), fn_counters.end(), greater<pair<unsigned,const Function*> >());
-      unsigned idx = 0;
-      for (const auto &pr : fn_counters) {
-        outs() << pr.second->getName() << ": " << pr.first << oendl;
-        if (++idx == ShowFnFreq) break;
       }
     }
 

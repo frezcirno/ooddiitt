@@ -399,7 +399,7 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
       kmod_pre->addDiffGlobalRemoved(gbs_removed[idx].asString());
     }
 
-    Json::Value &gbs_type = gbs["type"];
+    Json::Value &gbs_type = gbs["changed"];
     for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
       string str = gbs_type[idx].asString();
       kmod_pre->addDiffGlobalChanged(str);
