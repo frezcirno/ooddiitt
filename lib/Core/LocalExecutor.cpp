@@ -1442,28 +1442,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_state, llvm::Function *initializer) {
 
   ExecutionState *result = nullptr;
-
   KFunction *kf = kmodule->functionMap[initializer];
-
-  // RLR TODO: debug
-  map<string, uint64_t> names;
-  map<uint64_t,pair<uint64_t,string> > addrs;
-  for (auto itr = init_state.addressSpace.objects.begin(), end = init_state.addressSpace.objects.end(); itr != end; ++itr) {
-    const MemoryObject *mo = itr->first;
-    string name = "<unknown>";
-    if (!mo->name.empty()) name = mo->name;
-    names.insert(make_pair(name, mo->address));
-    addrs.insert(make_pair(mo->address, make_pair(mo->created_size, mo->name)));
-  }
-  for (const auto &itr : addrs) {
-    outs().write_hex(itr.first) << ", ";
-    outs().write_hex(itr.second.first) << ", ";
-    outs() << itr.second.second << oendl;
-  }
-
   unsigned entry = kf->basicBlockEntry[&initializer->getEntryBlock()];
   init_state.pc = &kf->instructions[entry];
-
   processTree = new PTree(&init_state);
   init_state.ptreeNode = processTree->root;
 

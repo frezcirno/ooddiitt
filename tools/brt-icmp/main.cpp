@@ -516,22 +516,24 @@ int main(int argc, char **argv, char **envp) {
 
       outs() << fs::path(test_file).filename().string() << "->" << oflush;
       if (cmp.checkTermination()) {
-        if (cmp.alignFnReturns()) {
-          if (cmp.reachedChanged()) {
-            if (cmp.isEquivalent()) {
-              outs() << "equivalent";
-              if (with_oracle && !cmp.beseechOracle()) outs() << " (false negative)";
-              outs() << oendl;
-            } else {
-              outs() << "divergent";
-              if (with_oracle && cmp.beseechOracle()) outs() << " (false positive)";
-              outs() << oendl;
-              for (const auto &diff : cmp) {
-                outs().indent(2) << to_string(diff) << oendl;
-              }
+        if (cmp.reachedChanged()) {
+          if (cmp.isEquivalent()) {
+            outs() << "equivalent";
+            if (with_oracle) {
+              if (!cmp.beseechOracle()) outs() << " (false negative)";
             }
-          } else outs() << "discarded (did not reach)\n";
-        } else outs() << "discarded (misaligned fn returns)\n";
+            outs() << oendl;
+          } else {
+            outs() << "divergent";
+            if (with_oracle) {
+              if (cmp.beseechOracle()) outs() << " (false positive)";
+            }
+            outs() << oendl;
+            for (const auto &diff : cmp) {
+              if (diff.type == DiffType::delta) outs().indent(2) << to_string(diff) << oendl;
+            }
+          }
+        } else outs() << "discarded (did not reach)\n";
       } else outs() << "diff (termination)\n";
       delete interpreter2;
       delete handler2;

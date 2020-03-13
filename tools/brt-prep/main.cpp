@@ -846,11 +846,13 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     Json::Value &gbs_changed = globals["changed"] = Json::arrayValue;
     diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed);
 
+#if 0 == 1
     Json::Value &types = root["types"] = Json::objectValue;
     Json::Value &tps_added = types["added"] = Json::arrayValue;
     Json::Value &tps_removed = types["removed"] = Json::arrayValue;
     Json::Value &tps_changed = types["changed"] = Json::arrayValue;
     diffTypes(kmod1, kmod2, tps_added, tps_removed, tps_changed);
+#endif
 
     root["pre-module"] = kmod1->getModuleIdentifier();
     root["post-module"] = kmod2->getModuleIdentifier();

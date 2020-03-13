@@ -94,6 +94,17 @@ bool StateComparator::alignFnReturns() {
     return true;
   }
 
+  // discard the return states from blacklisted fns
+  for (auto itr = ver1.fn_returns.begin(); itr != ver1.fn_returns.end(); ) {
+    if (isBlacklisted(itr->first)) itr = ver1.fn_returns.erase(itr);
+    else ++itr;
+  }
+
+  for (auto itr = ver2.fn_returns.begin(); itr != ver2.fn_returns.end(); ) {
+    if (isBlacklisted(itr->first)) itr = ver2.fn_returns.erase(itr);
+    else ++itr;
+  }
+
   // only continue if the function call returns are comparable, i.e. they are aligned
   //  RLR TODO: if not aligned, try to align them
   if (ver1.fn_returns.size() != ver2.fn_returns.size()) {
@@ -207,12 +218,11 @@ bool StateComparator::compareExternalState() {
   if (stderr1 != stderr2) {
     diffs.emplace_back(CompareExtDiff("@stderr", "different output"));
   }
-  return (diffs.empty());
+  return (size_diffs() == 0);
 }
 
 bool StateComparator::compareInternalState() {
 
-  assert(ver1.fn_returns.size() == ver2.fn_returns.size() && "mismatched function return sizes");
   assert(diffs.empty());
 
   // get the set of global variables to compare.  These are only
@@ -242,35 +252,37 @@ bool StateComparator::compareInternalState() {
     }
   }
 
-  // check each of the intermediate states.  rem that we have already verified that they are the same size
-  auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
-  auto itr2 = ver2.fn_returns.begin();
-  // RLR TOTO: DEBUG
-  unsigned counter = 0;
-  while (itr1 != end1) {
+  if (alignFnReturns()) {
 
-    string name1 = itr1->first->getName();
-    string name2 = itr2->first->getName();
-    assert(name1 == name2 && "mismatched function names");
+    // check each of the intermediate states.  rem that we have already verified that they are the same size
+    auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
+    auto itr2 = ver2.fn_returns.begin();
+    unsigned counter = 0;
+    while (itr1 != end1) {
 
-    if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
-      compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
+      string name1 = itr1->first->getName();
+      string name2 = itr2->first->getName();
+      assert(name1 == name2 && "mismatched function names");
+
+      if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
+        compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
+      }
+      ++itr1; ++itr2; ++counter;
     }
-    ++itr1; ++itr2; ++counter;
   }
 
   // check the final state
   KFunction *kf1 = ver1.kmodule->getKFunction(test.entry_fn);
   KFunction *kf2 = ver2.kmodule->getKFunction(test.entry_fn);
   compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState);
-  return (diffs.empty());
+  return (size_diffs() == 0);
 }
 
 bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
 
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
 
   // check the return value
   Type *type = fn1->getReturnType();
@@ -343,7 +355,7 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
       itr = globals.erase(itr);
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
@@ -351,7 +363,7 @@ bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
                                           const string &name, llvm::Type *type) {
 
   assert(!type->isVoidTy());
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
 
   if (!isBlacklisted(type)) {
     if (type->isSingleValueType()) {
@@ -419,14 +431,14 @@ bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       assert("function type should never occur here");
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 bool StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                                            const MemoryObject *mo2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                                            const string &name, llvm::Type *type) {
 
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
   if (!isBlacklisted(type)) {
     if (!type->isVoidTy()) {
       if (const ObjectState *os1 = state1->addressSpace.findObject(mo1)) {
@@ -439,14 +451,14 @@ bool StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t off
       }
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                       const ref<ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                       llvm::Type *type) {
 
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
   if (!isBlacklisted(type)) {
     if (!type->isVoidTy()) {
       if (type->isSingleValueType()) {
@@ -484,14 +496,14 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
       }
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 bool StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                   const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
   if (!isBlacklisted(type)) {
     if (expr1->getWidth() != expr2->getWidth()) {
       diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
@@ -501,14 +513,14 @@ bool StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunctio
       comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
                                   uint64_t addr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
-  size_t diff_count = diffs.size();
+  size_t diff_count = size_diffs();
   if (!isBlacklisted(type)) {
     // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
     auto result = visited_ptrs.insert(make_pair(addr1, addr2));
@@ -530,7 +542,7 @@ bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
       }
     }
   }
-  return (diffs.size() == diff_count);
+  return (size_diffs() == diff_count);
 }
 
 } // end klee namespace

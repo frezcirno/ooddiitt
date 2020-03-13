@@ -90,9 +90,15 @@ public:
   StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2);
   void blacklistFunction(const std::string &name);
   void blacklistStructType(const std::string &name);
+  unsigned size_diffs() const {
+    unsigned count = 0;
+    for (const auto &diff : diffs) {
+      if (diff.type == DiffType::delta) count += 1;
+    }
+    return count;
+  }
 
   bool checkTermination();
-  bool alignFnReturns();
   bool isEquivalent();
   bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
   bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }
@@ -107,6 +113,7 @@ private:
 
   bool compareExternalState();
   bool compareInternalState();
+  bool alignFnReturns();
   bool compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
   bool compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                            const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
