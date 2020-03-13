@@ -515,8 +515,9 @@ int main(int argc, char **argv, char **envp) {
       load_blacklists(cmp, BlackLists);
 
       outs() << fs::path(test_file).filename().string() << "->" << oflush;
-      if (cmp.checkTermination()) {
-        if (cmp.reachedChanged()) {
+      if (cmp.reachedChanged()) {
+        const KInstruction *ki =  cmp.checkTermination();
+        if (ki == nullptr) {
           if (cmp.isEquivalent()) {
             outs() << "equivalent";
             if (with_oracle) {
@@ -533,8 +534,8 @@ int main(int argc, char **argv, char **envp) {
               if (diff.type == DiffType::delta) outs().indent(2) << to_string(diff) << oendl;
             }
           }
-        } else outs() << "discarded (did not reach)\n";
-      } else outs() << "diff (termination)\n";
+        } else outs() << "diff (termination)" << " L" << ki->info->assemblyLine <<" (" << ki->info->file << ':' << ki->info->line << ')' << oendl;
+      } else outs() << "discarded (did not reach)\n";
       delete interpreter2;
       delete handler2;
     }

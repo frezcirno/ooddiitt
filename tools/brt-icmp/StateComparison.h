@@ -98,7 +98,7 @@ public:
     return count;
   }
 
-  bool checkTermination();
+  const KInstruction *checkTermination();
   bool isEquivalent();
   bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
   bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }

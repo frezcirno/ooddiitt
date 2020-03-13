@@ -76,9 +76,13 @@ void StateComparator::blacklistStructType(const string &name) {
   ver2.kmodule->module_types.addMatchingStructTypes(name, blacklistedTypes);
 }
 
-bool StateComparator::checkTermination() {
+const KInstruction *StateComparator::checkTermination() {
 
-  return !(is_valid(ver1.term_reason) && (ver1.term_reason != ver2.term_reason));
+  const KInstruction *result = nullptr;
+  if (!(is_valid(ver1.term_reason) && (ver1.term_reason != ver2.term_reason))) {
+    result = ver2.finalState->instFaulting;
+  }
+  return result;
 }
 
 bool StateComparator::alignFnReturns() {
