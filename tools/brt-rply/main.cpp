@@ -460,8 +460,6 @@ int main(int argc, char **argv, char **envp) {
     if (TraceT != TraceType::invalid) {
       IOpts.trace = TraceT;
     }
-//    UnconstraintFlagsT flags;
-//    IOpts.progression.emplace_back(300, flags);
 
     vector<pair<ExecutionState*,TerminateReason> > ex_states;
     ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());

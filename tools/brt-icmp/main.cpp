@@ -408,6 +408,8 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
 
     kmod_pre->pre_module = kmod_post->pre_module = root["pre-module"].asString();
     kmod_pre->post_module = kmod_post->post_module = root["post-module"].asString();
+  } else {
+    klee_error("failed opening diff file: %s", filename.c_str());
   }
 }
 
@@ -514,7 +516,7 @@ int main(int argc, char **argv, char **envp) {
       StateComparator cmp(test, version1, version2);
       load_blacklists(cmp, BlackLists);
 
-      outs() << fs::path(test_file).filename().string() << "->" << oflush;
+      outs() << fs::path(test_file).filename().string() << ':' << oflush;
       if (cmp.reachedChanged()) {
         const KInstruction *ki =  cmp.checkTermination();
         if (ki == nullptr) {
