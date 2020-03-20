@@ -67,8 +67,8 @@ namespace {
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
-  cl::opt<string> BlackLists("cmp-blacklists", cl::desc("json formated diff file"), cl::init("blacklists.json"));
-  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10));
+  cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
+  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
 }
 
 /***/
@@ -545,7 +545,7 @@ int main(int argc, char **argv, char **envp) {
       delete interpreter2;
       delete handler2;
     } else {
-      outs() << "version1 timeout\n";
+      errs() << fs::path(test_file).filename().string() << ": " << "version1 timeout" << oendf;
     }
     delete interpreter1;
     delete handler1;
