@@ -68,6 +68,7 @@ namespace {
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
   cl::opt<string> BlackLists("cmp-blacklists", cl::desc("json formated diff file"), cl::init("blacklists.json"));
+  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10));
 }
 
 /***/
@@ -484,6 +485,8 @@ int main(int argc, char **argv, char **envp) {
     IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
     IOpts.trace = test.trace_type;
     IOpts.test_objs = &test.objects;
+    UnconstraintFlagsT flags;
+    IOpts.progression.emplace_back(Timeout, flags);
 
     StateVersion version1(kmod1);
     StateVersion version2(kmod2);
