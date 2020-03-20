@@ -72,6 +72,7 @@ namespace {
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
+  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -460,6 +461,8 @@ int main(int argc, char **argv, char **envp) {
     if (TraceT != TraceType::invalid) {
       IOpts.trace = TraceT;
     }
+    UnconstraintFlagsT flags;
+    IOpts.progression.emplace_back(Timeout, flags);
 
     vector<pair<ExecutionState*,TerminateReason> > ex_states;
     ReplayKleeHandler *handler = new ReplayKleeHandler(ex_states, kmod->getModuleIdentifier());
@@ -469,8 +472,10 @@ int main(int argc, char **argv, char **envp) {
     interpreter->bindModule(kmod);
 
     theInterpreter = interpreter;
+    auto start_time = sys_clock::now();
     interpreter->runFunctionTestCase(test);
     theInterpreter = nullptr;
+    auto elapsed = chrono::duration_cast<chrono::milliseconds>(sys_clock::now() - start_time);
 
     // only used for verbose output
     vector<unsigned char> stdout_capture;
@@ -480,13 +485,11 @@ int main(int argc, char **argv, char **envp) {
 
     if (ex_states.empty()) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) TerminateReason::Invalid << ':' << 0;
-      outs() << oendl << oflush;
+      outs() << (unsigned) TerminateReason::Invalid << ':' << 0 << ':' << elapsed.count() << oendf;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else if (ex_states.size() > 1) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) TerminateReason::FailedLibcInit << ':' << 0;
-      outs() << oendl << oflush;
+      outs() << (unsigned) TerminateReason::FailedLibcInit << ':' << 0 << ':' << elapsed.count() << oendf;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else {
       state = ex_states.front().first;
@@ -495,26 +498,9 @@ int main(int argc, char **argv, char **envp) {
       state->stdout_capture.get_data(stdout_capture);
       state->stderr_capture.get_data(stderr_capture);
 
-      if (state->status == StateStatus::Completed) {
-        outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-        outs() << (unsigned) term_reason << ':' << state->reached_modified_fn;
-      } else {
-        errs() << fs::path(test_file).filename().string() << ':' << "incomplete\n";
-//        if (test.term_reason != term_reason) {
-//          outs() << ", termination differs: test=" << to_string(test.term_reason) << " rply=" << to_string(term_reason);
-//          if (const auto *inst = state->instFaulting) {
-//            const auto *iinfo = inst->info;
-//            fs::path file(iinfo->file);
-//            outs() << ", faulting instr=" << iinfo->assemblyLine << " (" << file.filename().string() << ',' << iinfo->line << ')';
-//          }
-//          outs() << oflush;
-//          exit_code = max(exit_code, EXIT_STATUS_CONFLICT);
-//        }
-//        if (!state->messages.empty()) {
-//          outs() << " (" << state->messages.back() << ')' << oflush;
-//        }
-      }
-      outs() << oendl << oflush;
+      assert(state->status == StateStatus::Completed);
+      outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
+      outs() << (unsigned) term_reason << ':' << state->reached_modified_fn << ':' << elapsed.count() << oendf;
 
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {

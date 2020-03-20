@@ -1190,7 +1190,8 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   }
 
   std::vector<ExecutionState*> init_states = { state };
-  timeout = 30;
+  assert(!interpreterOpts.progression.empty());
+  timeout = interpreterOpts.progression.front().timeout;
   runFn(kf, init_states);
 }
 

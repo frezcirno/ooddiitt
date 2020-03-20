@@ -334,11 +334,6 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
 
 void KModule::prepare() {
 
-  // RLR TODO: remove after no longer needed (soon)
-  if (Function *exit = module->getFunction("exit")) {
-    exit->deleteBody();
-  }
-
   // module has already been transformed, need to retrieve prepared values
 
   // since markers are already assigned, need to retrieve them from the module

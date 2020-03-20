@@ -541,6 +541,8 @@ int main(int argc, char **argv, char **envp) {
       } else outs() << "discarded (did not reach)\n";
       delete interpreter2;
       delete handler2;
+    } else {
+      outs() << "version1 timeout\n";
     }
     delete interpreter1;
     delete handler1;
