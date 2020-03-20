@@ -142,21 +142,13 @@ bool has_inline_asm(const Function *fn) {
 
 void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &msg) {
 
-  vector<string> names;
-  names.reserve(vals.size());
-  for (auto val : vals) {
+  for (const auto &val: vals) {
+    string name = "#unnamed";
     if (val->hasName()) {
-      names.push_back(val->getName().str());
-    } else {
-      names.push_back("#unnamed");
+      name = val->getName().str();
     }
+    outs() << msg << ": " << name << oendl;
   }
-  ostringstream ss;
-  ss << msg;
-  if (names.size() > 1) {
-    ss << 's';
-  }
-  klee_warning("%s: %s", ss.str().c_str(), alg::join(names, ", ").c_str());
 }
 
 void externalsAndGlobalsCheck(const Module *m) {
@@ -175,6 +167,10 @@ void externalsAndGlobalsCheck(const Module *m) {
       undefined_fns.insert(fn);
     } else {
       defined_fns.insert(fn);
+    }
+
+    if (boost::starts_with(fn->getName().str(), "rpl_")) {
+      outs() << "possible gnulib replacement: " << fn->getName().str() << oendl;
     }
 
     if (has_inline_asm(fn)) {
@@ -211,9 +207,12 @@ void externalsAndGlobalsCheck(const Module *m) {
   filterHandledGlobals(undefined_gbs);
 
   // report anything found
-  if (!undefined_fns.empty()) emitGlobalValueWarning(undefined_fns, "Undefined function");
-  if (!undefined_gbs.empty()) emitGlobalValueWarning(undefined_gbs, "Undefined global");
-  if (!inline_assm_fns.empty()) emitGlobalValueWarning(undefined_fns, "Inline assembly in function");
+  if (!undefined_fns.empty())
+    emitGlobalValueWarning(undefined_fns, "Undefined function");
+  if (!undefined_gbs.empty())
+    emitGlobalValueWarning(undefined_gbs, "Undefined global");
+  if (!inline_assm_fns.empty())
+    emitGlobalValueWarning(inline_assm_fns, "Inline assembly in function");
 }
 
 #ifndef SUPPORT_KLEE_UCLIBC
@@ -261,37 +260,10 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   if (!uclibcExists)
     klee_error("Cannot find klee-uclibc : %s", uclibcBCA.c_str());
 
-  // RLR TODO: evaluate how much of this we really need
-  Function *f;
-  // force import of __uClibc_main
   mainModule->getOrInsertFunction("__uClibc_main", FunctionType::get(Type::getVoidTy(ctx), vector<Type*>(), true));
   mainModule->getOrInsertFunction("setbuf", FunctionType::get(Type::getVoidTy(ctx), vector<Type*>(), true));
 
-#if 0 == 1
-  // force various imports
-  if (WithPOSIXRuntime) {
-    LLVM_TYPE_Q llvm::Type *i8Ty = Type::getInt8Ty(ctx);
-    mainModule->getOrInsertFunction("realpath",
-                                    PointerType::getUnqual(i8Ty),
-                                    PointerType::getUnqual(i8Ty),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("getutent",
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("__fgetc_unlocked",
-                                    Type::getInt32Ty(ctx),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-    mainModule->getOrInsertFunction("__fputc_unlocked",
-                                    Type::getInt32Ty(ctx),
-                                    Type::getInt32Ty(ctx),
-                                    PointerType::getUnqual(i8Ty),
-                                    NULL);
-  }
-#endif
-
-  f = mainModule->getFunction("__ctype_get_mb_cur_max");
+  Function *f = mainModule->getFunction("__ctype_get_mb_cur_max");
   if (f) f->setName("_stdlib_mb_cur_max");
 
   // Strip of asm prefixes for 64 bit versions because they are not
@@ -470,6 +442,7 @@ KModule *PrepareModule(const string &filename, const IndirectCallRewriteRecs &re
 
       set<Function*> module_fns;
       set<GlobalVariable*> module_globals;
+      module = dropUnusedFunctions(module);
       enumModuleVisibleDefines(module, module_fns, module_globals);
       module = rewriteFunctionPointers(module, rewrites);
       module = LinkModule(module, libDir);

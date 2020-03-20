@@ -479,10 +479,14 @@ int main(int argc, char **argv, char **envp) {
     ExecutionState *state = nullptr;
 
     if (ex_states.empty()) {
-      outs() << "Failed to replay" << oflush;
+      outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
+      outs() << (unsigned) TerminateReason::Invalid << ':' << 0;
+      outs() << oendl << oflush;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else if (ex_states.size() > 1) {
-      outs() << "Replay forked into multiple paths" << oflush;
+      outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
+      outs() << (unsigned) TerminateReason::FailedLibcInit << ':' << 0;
+      outs() << oendl << oflush;
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else {
       state = ex_states.front().first;
@@ -495,7 +499,7 @@ int main(int argc, char **argv, char **envp) {
         outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
         outs() << (unsigned) term_reason << ':' << state->reached_modified_fn;
       } else {
-        outs() << "incomplete" << oflush;
+        errs() << fs::path(test_file).filename().string() << ':' << "incomplete\n";
 //        if (test.term_reason != term_reason) {
 //          outs() << ", termination differs: test=" << to_string(test.term_reason) << " rply=" << to_string(term_reason);
 //          if (const auto *inst = state->instFaulting) {

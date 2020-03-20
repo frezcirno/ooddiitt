@@ -51,11 +51,12 @@ std::string to_string(const CompareDiff &diff) {
 StateVersion::~StateVersion() {
 
   // modules are deleted implicitly
-  delete initialState;
-  delete finalState;
-  for (auto &pr : fn_returns) {
-    delete pr.second;
-  }
+//  delete initialState;
+//  delete finalState;
+//
+//  for (auto &pr : fn_returns) {
+//    delete pr.second;
+//  }
 }
 
 StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2) :

@@ -377,11 +377,9 @@ protected:
   void terminateStateOnComplete(ExecutionState &state, TerminateReason reason, const std::string &comment)
     { state.messages.push_front(comment); terminateStateOnComplete(state, reason); }
 
-  void terminateStateOnDiscard(ExecutionState &state, const std::string &comment)
-    { state.status = StateStatus::Discarded; state.messages.push_front(comment); terminateState(state); }
+  void terminateStateOnDiscard(ExecutionState &state, const std::string &comment);
 
-  void terminateStateOnDecimate(ExecutionState &state)
-    { state.status = StateStatus::Decimated; terminateState(state); }
+  void terminateStateOnDecimate(ExecutionState &state);
 
   /// bindModuleConstants - Initialize the module constant table.
   virtual void bindModuleConstants();

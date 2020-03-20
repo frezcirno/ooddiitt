@@ -715,7 +715,12 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
     size = MinLazyAllocationSize;
   }
 
-  MemoryObject *mo = memory->allocate(size, type, kind, allocSite, align);
+  Type *alloc_type = type;
+  if (count > 1) {
+    alloc_type = ArrayType::get(type, count);
+  }
+
+  MemoryObject *mo = memory->allocate(size, alloc_type, kind, allocSite, align);
   if (mo == nullptr) {
     klee_error("Could not allocate memory for symbolic allocation");
   } else {
@@ -773,12 +778,7 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
   wop.first = nullptr;
   wop.second = nullptr;
 
-  Type *alloc_type = type;
-  if (count > 1) {
-    alloc_type = ArrayType::get(type, count);
-  }
-
-  MemoryObject *mo = allocMemory(state, alloc_type, allocSite, kind, name, align, count);
+  MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     if (os != nullptr) {
@@ -1051,17 +1051,17 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         // [0] must be printable
         // [ 1 .. N] must be printable or '\0'
         // [N + 1] must be '\0'
-        for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
-          ref<Expr> ch = wopArgv_body.second->read8(idx);
-          ref<Expr> gt = SgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
-          ref<Expr> lt = SleExpr::create(ch, ConstantExpr::create(0x7e, Expr::Int8));
-          ref<Expr> printable = AndExpr::create(gt, lt);
-          ref<Expr> cmd = printable;
-          if (index > 0) {
-            cmd = OrExpr::create(printable, EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8)));
-          }
-          addConstraint(*curr, cmd);
-        }
+//        for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
+//          ref<Expr> ch = wopArgv_body.second->read8(idx);
+//          ref<Expr> gt = SgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
+//          ref<Expr> lt = SleExpr::create(ch, ConstantExpr::create(0x7e, Expr::Int8));
+//          ref<Expr> printable = AndExpr::create(gt, lt);
+//          ref<Expr> cmd = printable;
+//          if (index > 0) {
+//            cmd = OrExpr::create(printable, EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8)));
+//          }
+//          addConstraint(*curr, cmd);
+//        }
         addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
 
         // and constrain pointer in argv array to point to body
@@ -1190,6 +1190,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   }
 
   std::vector<ExecutionState*> init_states = { state };
+  timeout = 30;
   runFn(kf, init_states);
 }
 
@@ -2309,7 +2310,6 @@ bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector
 
 void LocalExecutor::terminateState(ExecutionState &state) {
 
-  // RLR TODO: debug
   if (libc_initializing) {
     errs() << "\ntermination during libc init\n";
     for (const auto &msg : state.messages) {

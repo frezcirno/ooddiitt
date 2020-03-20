@@ -555,17 +555,17 @@ Module *rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &recs) 
                 }
                 if (rewrite) {
                   if (target == nullptr) {
-                    outs() << "Dropping indirect call in " << fn->getName() << '\n';
+                    outs() << m->getModuleIdentifier() << ": Dropping indirect call in " << fn->getName() << '\n';
                     drops.push_back(old_inst);
                   } else {
-                    outs() << "Rewriting indirect call in " << fn->getName() << " as direct call to " << target->getName() << '\n';
+                    outs() << m->getModuleIdentifier() << ": Rewriting indirect call in " << fn->getName() << " as direct call to " << target->getName() << '\n';
                     SmallVector<Value *, 8> args(cs.arg_begin(), cs.arg_end());
                     CallInst *new_inst = CallInst::Create(target, args);
                     new_inst->setCallingConv(cs.getCallingConv());
                     replacements.emplace_back(make_pair(old_inst, new_inst));
                   }
                 } else {
-                  outs() << "Warning: unpatched function pointer (" << sig << ") in " << fn->getName() << '\n';
+                  outs() << m->getModuleIdentifier() << ": Warning: unpatched function pointer (" << sig << ") in " << fn->getName() << '\n';
                 }
               }
             }
@@ -591,6 +591,32 @@ bool isPrepared(Module *m) {
   NamedMDNode *NMD = m->getNamedMetadata("brt-klee.usr-fns");
   return NMD != nullptr;
 }
+
+llvm::Module* dropUnusedFunctions(llvm::Module *module) {
+
+  // core utils provides its own version of these functions, use uclibc instead
+  set<string> drop_bodies = { "asprintf", "vfprintf", "fseeko" };
+  for (const string &name : drop_bodies) {
+    if (Function *fn = module->getFunction(name)) {
+      outs() << "deleting: " << fn->getName() << oendl;
+      fn->deleteBody();
+    }
+  }
+
+  unsigned num_fns = UINT32_MAX;
+  while (num_fns > module->size()) {
+    num_fns = module->size();
+    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+      Function *fn = itr;
+      if (fn->hasName() && (fn->getName() != "main") && !fn->hasAddressTaken() && fn->use_empty()) {
+        outs() << "dropping: " << fn->getName() << oendl;
+        fn->dropAllReferences();
+      }
+    }
+  }
+  return module;
+}
+
 
 void modify_clib(llvm::Module *module) {
 
@@ -628,6 +654,13 @@ void modify_clib(llvm::Module *module) {
   for (const auto &name : drop_fns) {
     if (Function *fn = module->getFunction(name)) {
       fn->dropAllReferences();
+    }
+  }
+
+  set<string> decl_fns{ "exit" };
+  for (const auto &name : decl_fns) {
+    if (Function *fn = module->getFunction(name)) {
+      fn->deleteBody();
     }
   }
 

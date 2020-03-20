@@ -50,7 +50,11 @@ void klee::klee_error(const char *msg, ...) {
 void klee::klee_warning(const char *msg, ...) {
   va_list ap;
   va_start(ap, msg);
-  klee_vfmessage(Silent ? stderr : stdout, warningPrefix, msg, ap);
+  if (Silent) {
+    klee_vfmessage(stderr, warningPrefix, msg, ap);
+  } else {
+    klee_vfmessage(stdout, warningPrefix, msg, ap);
+  }
   va_end(ap);
 }
 

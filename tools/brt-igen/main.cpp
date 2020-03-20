@@ -181,7 +181,6 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
 
   Interpreter *i = getInterpreter();
   assert(!state.isProcessed);
-  assert(state.status == StateStatus::Completed);
 
   if (i != nullptr && !NoOutput) {
 
@@ -464,8 +463,9 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   if (str.empty()) {
     // default progression
     UnconstraintFlagsT flags;
-    flags.setUnconstrainGlobals();
-    progression.emplace_back(60, flags);
+// RLR TODO: should put this back
+//    flags.setUnconstrainGlobals();
+    progression.emplace_back(300, flags);
     result = true;
   } else {
 

@@ -115,7 +115,7 @@ string toDataString(const vector<unsigned char> &data, unsigned max) {
 std::string to_string(TerminateReason s) {
   static const char *strings[] = {"return", "exit", "abort", "invalid", "assert", "extern_fn", "invalid_free", "mem_fault",
                                   "readonly_fault", "invalid_call", "unhandled_instuction", "internal_fault",
-                                  "invalid_assume", "overflow", "snapshot"};
+                                  "invalid_assume", "overflow", "snapshot", "timeout", "failed_libc_init" };
   if ((unsigned) s >= countof(strings))
     return "";
   return strings[(unsigned) s];

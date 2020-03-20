@@ -2698,6 +2698,20 @@ void Executor::terminateStateOnComplete(ExecutionState &state, TerminateReason r
   terminateState(state);
 }
 
+void Executor::terminateStateOnDiscard(ExecutionState &state, const std::string &comment) {
+  state.status = StateStatus::Discarded;
+  state.messages.push_front(comment);
+  if (DumpStatesOnHalt) {
+    interpreterHandler->processTestCase(state, TerminateReason::Timeout);
+  }
+  terminateState(state);
+}
+
+void Executor::terminateStateOnDecimate(ExecutionState &state) {
+  state.status = StateStatus::Decimated;
+  terminateState(state);
+}
+
 const InstructionInfo & Executor::getLastNonKleeInternalInstruction(const ExecutionState &state,
     Instruction ** lastInstruction) {
   // unroll the stack of the applications state and find

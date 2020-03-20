@@ -303,7 +303,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
     vector<Value*> values;
     values.reserve(module_fns.size());
     for (auto fn : module_fns) {
-      values.push_back((Value*) fn);
+      values.push_back((Value *) fn);
       user_fns.insert(fn);
     }
     MDNode *Node = MDNode::get(ctx, values);
@@ -333,6 +333,11 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
 }
 
 void KModule::prepare() {
+
+  // RLR TODO: remove after no longer needed (soon)
+  if (Function *exit = module->getFunction("exit")) {
+    exit->deleteBody();
+  }
 
   // module has already been transformed, need to retrieve prepared values
 

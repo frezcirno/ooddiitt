@@ -497,10 +497,13 @@ int main(int argc, char **argv, char **envp) {
     interpreter1->runFunctionTestCase(test);
     theInterpreter = nullptr;
 
-    version1.kmodule = kmod1;
     if (version1.finalState != nullptr) {
 
-      if (version1.finalState->status != StateStatus::Completed) continue;
+      if (version1.finalState->status != StateStatus::Completed) {
+        continue;
+      }
+
+      outs() << fs::path(test_file).filename().string() << ':' << oflush;
 
       // now, lets do it all again with the second module
       auto *handler2 = new ICmpKleeHandler(version2);
@@ -511,12 +514,10 @@ int main(int argc, char **argv, char **envp) {
       theInterpreter = interpreter2;
       interpreter2->runFunctionTestCase(test);
       theInterpreter = nullptr;
-      version2.kmodule = interpreter2->getKModule();
 
       StateComparator cmp(test, version1, version2);
       load_blacklists(cmp, BlackLists);
 
-      outs() << fs::path(test_file).filename().string() << ':' << oflush;
       if (cmp.reachedChanged()) {
         const KInstruction *ki =  cmp.checkTermination();
         if (ki == nullptr) {

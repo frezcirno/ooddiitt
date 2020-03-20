@@ -46,7 +46,9 @@ enum class TerminateReason {
   InternalFault,
   InvalidAssume,
   Overflow,
-  Snapshot
+  Snapshot,
+  Timeout,
+  FailedLibcInit,
 };
 
 std::string to_string(TerminateReason s);
