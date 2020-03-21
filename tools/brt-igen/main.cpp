@@ -157,6 +157,8 @@ InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const stri
     pid_watchdog(0),
     args(_args) {
 
+  started_at = sys_clock::now();
+
   // if the directory was not newly created, then we need to find the next available case id
   if (!wasOutputCreated()) {
 
@@ -190,6 +192,8 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
     string filename;
     if (openTestCaseFile(fout, testID, filename)) {
 
+      auto stopped_at = sys_clock::now();
+
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
       root["module"] = getModuleName();
@@ -203,7 +207,8 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
       root["maxLoopForks"] = state.maxLoopForks;
       root["maxLazyDepth"] = state.maxLazyDepth;
       root["timeStarted"] = klee::to_string(started_at);
-      root["timeStopped"] = currentISO8601TimeUTC();
+      root["timeStopped"] = klee::to_string(stopped_at);
+      root["timeElapsed"] = chrono::duration_cast<chrono::milliseconds>(stopped_at - started_at).count();
 
       const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
       if (flags != nullptr) {
