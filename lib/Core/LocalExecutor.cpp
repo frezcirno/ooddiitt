@@ -73,6 +73,7 @@ class Tracer {
 };
 
 cl::opt<unsigned> SymArgs("sym-args", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
+cl::opt<bool> PrintableSymArgs("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
@@ -1028,7 +1029,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       }
 
       // argv[0] -> binary name
-      // argv[1 .. SymArgs] = symbolic value
+      // argv[1 .. SymArgs - 1] = symbolic value
       // argv[SymArgs] = null
 
       // despite being symbolic, argv[0] always points to program name
@@ -1036,7 +1037,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // allocate the command line arg strings for each starting state
       init_states[0] = state;
-      for (unsigned index = 1; index <= SymArgs; index++) {
+      for (unsigned index = 1; index <= SymArgs; ++index) {
 
         ExecutionState *prev = init_states[index - 1];
         ExecutionState *curr = init_states[index] = new ExecutionState(*prev);
@@ -1048,21 +1049,26 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         }
 
         // constrain strings to command line strings, i.e.
-        // [0] must be printable
-        // [ 1 .. N] must be printable or '\0'
+        // [0]  must _not_ be '\0'
         // [N + 1] must be '\0'
-//        for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
-//          ref<Expr> ch = wopArgv_body.second->read8(idx);
-//          ref<Expr> gt = SgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
-//          ref<Expr> lt = SleExpr::create(ch, ConstantExpr::create(0x7e, Expr::Int8));
-//          ref<Expr> printable = AndExpr::create(gt, lt);
-//          ref<Expr> cmd = printable;
-//          if (index > 0) {
-//            cmd = OrExpr::create(printable, EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8)));
-//          }
-//          addConstraint(*curr, cmd);
-//        }
+        addConstraint(*curr, NeExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create(0, Expr::Int8)));
         addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
+
+        if (PrintableSymArgs) {
+          // [ 1 .. N] must be printable or '\0'
+          for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
+            ref<Expr> ch = wopArgv_body.second->read8(idx);
+            ref<Expr> gte = UgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
+            ref<Expr> lte = UleExpr::create(ch, ConstantExpr::create(0x7f, Expr::Int8));
+            ref<Expr> printable = AndExpr::create(gte, lte);
+            if (index == 0) {
+              addConstraint(*curr, printable);
+            } else {
+              ref<Expr> null = EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8));
+              addConstraint(*curr, OrExpr::create(printable, null));
+            }
+          }
+        }
 
         // and constrain pointer in argv array to point to body
         ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
