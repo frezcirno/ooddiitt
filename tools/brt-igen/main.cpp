@@ -60,7 +60,7 @@
 #include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-
+#include <regex>
 
 using namespace llvm;
 using namespace klee;
@@ -254,28 +254,44 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
         const MemoryObject *mo = test.first;
         vector<unsigned char> &data = test.second;
 
-        Json::Value obj = Json::objectValue;
-        obj["name"] = mo->name;
-        obj["kind"] = (unsigned) mo->kind;
-        obj["count"] = mo->count;
-        obj["type"] = klee::to_string(mo->type);
-
-        // scale to 32 or 64 bits
-        unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-        vector<unsigned char> addr;
-        unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
-        for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-          addr.push_back(*addrBytes);
-        }
-        obj["addr"] = toDataString(addr);
-        obj["data"] = toDataString(data);
-        obj["align"] = mo->align;
-
         if (mo->name == "#stdin_buff") {
           root["stdin"] = toDataString(data, state.stdin_offset);
-        }
+        } else {
 
-        objects.append(obj);
+          Json::Value obj = Json::objectValue;
+
+          // the program arguments argv_d..d require truncating at null terminator
+          // otherwise, risk missing oob access
+          regex re("argv_[0-9]+");
+          if (regex_match(mo->name, re)) {
+            // set new count at null terminator
+            auto itr = find(data.begin(), data.end(), 0);
+            assert(itr != data.end());  // if not null-terminated, then we're not in kansas anymore
+            unsigned len = distance(data.begin(), itr) + 1;
+            obj["count"] = len;
+            assert(mo->type->isArrayTy()); // and your little dog too...
+            obj["type"] = klee::to_string(ArrayType::get(mo->type->getArrayElementType(), len));
+            obj["data"] = toDataString(data, len);
+          } else {
+            obj["count"] = mo->count;
+            obj["type"] = klee::to_string(mo->type);
+            obj["data"] = toDataString(data);
+          }
+          obj["name"] = mo->name;
+          obj["kind"] = (unsigned) mo->kind;
+
+          // scale to 32 or 64 bits
+          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+          vector<unsigned char> addr;
+          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
+          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+            addr.push_back(*addrBytes);
+          }
+          obj["addr"] = toDataString(addr);
+          obj["align"] = mo->align;
+
+          objects.append(obj);
+        }
       }
 
       Json::Value &arguments = root["arguments"] = Json::arrayValue;

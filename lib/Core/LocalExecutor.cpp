@@ -52,8 +52,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 
-#define LEN_CMDLINE_ARGS 8
-
 using namespace llvm;
 using namespace std;
 namespace fs=boost::filesystem;
@@ -72,8 +70,10 @@ class Tracer {
   virtual unsigned to_entry(KInstruction *ki);
 };
 
-cl::opt<unsigned> SymArgs("sym-args", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
-cl::opt<bool> PrintableSymArgs("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
+cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
+cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
+cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
+cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
 cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
@@ -965,7 +965,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   unsigned ptr_width =  Context::get().getPointerWidth();
 
   WObjectPair wopStdIn;
-  if (!allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, LEN_CMDLINE_ARGS + 1)) {
+  if (!allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, SymStdinSize + 1)) {
     klee_error("failed to allocate symbolic stdin_buff");
   }
   moStdInBuff = wopStdIn.first;
@@ -1003,7 +1003,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       assert(fn->getArgumentList().size() == 2);
 
       init_states.clear();
-      init_states.resize(SymArgs + 1);
+      init_states.resize(SymArgsMax+ 1);
 
       // push the module name into the state
       std::string md_name = kmodule->getModuleIdentifier();
@@ -1024,7 +1024,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
-      if (!allocSymbolic(*state, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgs + 2)) {
+      if (!allocSymbolic(*state, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgsMax + 2)) {
         klee_error("failed to allocate symbolic argv_array");
       }
 
@@ -1037,14 +1037,14 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // allocate the command line arg strings for each starting state
       init_states[0] = state;
-      for (unsigned index = 1; index <= SymArgs; ++index) {
+      for (unsigned index = 1; index <= SymArgsMax; ++index) {
 
         ExecutionState *prev = init_states[index - 1];
         ExecutionState *curr = init_states[index] = new ExecutionState(*prev);
 
         WObjectPair wopArgv_body;
         std::string argName = "argv_" + itostr(index);
-        if (!allocSymbolic(*curr, char_type, fn, MemKind::param, argName.c_str(), wopArgv_body, char_align, LEN_CMDLINE_ARGS + 1)) {
+        if (!allocSymbolic(*curr, char_type, fn, MemKind::param, argName.c_str(), wopArgv_body, char_align, SymArgsLength + 1)) {
           klee_error("failed to allocate symbolic command line arg");
         }
 
@@ -1052,11 +1052,11 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         // [0]  must _not_ be '\0'
         // [N + 1] must be '\0'
         addConstraint(*curr, NeExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create(0, Expr::Int8)));
-        addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(LEN_CMDLINE_ARGS), ConstantExpr::create(0, Expr::Int8)));
+        addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(SymArgsLength), ConstantExpr::create(0, Expr::Int8)));
 
-        if (PrintableSymArgs) {
+        if (SymArgsPrintable) {
           // [ 1 .. N] must be printable or '\0'
-          for (unsigned idx = 0; idx < LEN_CMDLINE_ARGS; ++idx) {
+          for (unsigned idx = 0; idx < SymArgsLength; ++idx) {
             ref<Expr> ch = wopArgv_body.second->read8(idx);
             ref<Expr> gte = UgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
             ref<Expr> lte = UleExpr::create(ch, ConstantExpr::create(0x7f, Expr::Int8));
@@ -1075,12 +1075,12 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         addConstraint(*curr, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
       }
 
-      for (unsigned idx1 = 0; idx1 <= SymArgs; ++idx1) {
+      for (unsigned idx1 = 0; idx1 <= SymArgsMax; ++idx1) {
         // for each state constrain argc
         ExecutionState *curr = init_states[idx1];
 
         // and the remainder of the argv array should be null
-        for (unsigned idx2 = idx1; idx2 <= SymArgs; ++idx2) {
+        for (unsigned idx2 = idx1; idx2 <= SymArgsMax; ++idx2) {
           ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (idx2 + 1), ptr_width);
           addConstraint(*curr, EqExpr::create(ptr, ConstantExpr::createPointer(0)));
         }
