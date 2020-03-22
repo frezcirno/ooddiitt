@@ -381,11 +381,16 @@ KModule *PrepareModule(const string &filename) {
 
 void expand_test_files(const string &prefix, deque<string> &files) {
 
+  // if tests are not specified, then default to all tests in the output directory
   if (ReplayTests.empty()) {
     ReplayTests.push_back(Output);
   }
+  deque<string> worklist(ReplayTests.begin(), ReplayTests.end());
+  string annotated_prefix = prefix + '-';
 
-  for (const auto &str : ReplayTests) {
+  while (!worklist.empty()) {
+    string str = worklist.front();
+    worklist.pop_front();
     fs::path entry(str);
     boost::system::error_code ec;
     fs::file_status s = fs::status(entry, ec);
@@ -397,16 +402,38 @@ void expand_test_files(const string &prefix, deque<string> &files) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) &&
            (pfile.extension().string() == ".json") &&
-           (boost::starts_with(pfile.filename().string(), prefix))) {
+           (boost::starts_with(pfile.filename().string(), annotated_prefix))) {
 
           files.push_back(pfile.string());
         }
       }
+    } else if (entry.parent_path().empty()) {
+      // only filename given, try the output directory
+      worklist.push_back((Output/entry).string());
     } else {
       errs() << "Entry not found: " << str << '\n';
     }
   }
   sort(files.begin(), files.end());
+}
+
+void getModuleName(const string &dir, string &name) {
+
+  // if cmd line arg does not end in .bc, this could be a prefix
+  // look for a matching bitcode file in the output directory
+  if (!boost::ends_with(name, ".bc")) {
+    string prefix = name + '-';
+    for (fs::directory_iterator itr{dir}, end{}; itr != end; ++itr) {
+      fs::path pfile(itr->path());
+      if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".bc")) {
+        string filename = pfile.filename().string();
+        if (boost::starts_with(filename, prefix)) {
+          name = pfile.string();
+          break;
+        }
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv, char **envp) {
@@ -446,7 +473,13 @@ int main(int argc, char **argv, char **envp) {
 
     outs() << fs::path(test_file).filename().string() << ':' << oflush;
 
-    string module_name = ModuleName.empty() ? test.file_name : ModuleName;
+    string module_name = ModuleName;
+    if (module_name.empty()) {
+      module_name = test.module_name;
+    } else {
+      getModuleName(Output, module_name);
+    }
+
     KModule *kmod = PrepareModule(module_name);
     LLVMContext *ctx = kmod->getContextPtr();
 

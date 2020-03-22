@@ -304,8 +304,12 @@ void expand_test_files(const string &prefix, deque<string> &files) {
   if (ReplayTests.empty()) {
     ReplayTests.push_back(Output);
   }
+  deque<string> worklist(ReplayTests.begin(), ReplayTests.end());
+  string annotated_prefix = prefix + '-';
 
-  for (const auto &str : ReplayTests) {
+  while (!worklist.empty()) {
+    string str = worklist.front();
+    worklist.pop_front();
     fs::path entry(str);
     boost::system::error_code ec;
     fs::file_status s = fs::status(entry, ec);
@@ -317,11 +321,14 @@ void expand_test_files(const string &prefix, deque<string> &files) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) &&
             (pfile.extension().string() == ".json") &&
-            (boost::starts_with(pfile.filename().string(), prefix))) {
+            (boost::starts_with(pfile.filename().string(), annotated_prefix))) {
 
           files.push_back(pfile.string());
         }
       }
+    } else if (entry.parent_path().empty()) {
+      // only filename given, try the output directory
+      worklist.push_back((Output/entry).string());
     } else {
       errs() << "Entry not found: " << str << '\n';
     }
