@@ -705,6 +705,7 @@ void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
   for (auto fn_itr = mod->begin(), fn_end = mod->end(); fn_itr != fn_end; ++fn_itr) {
     Function *fn = &*fn_itr;
     if (!fn->isDeclaration() && !fn->isIntrinsic()) {
+
       for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
         for (auto in_itr = bb_itr->begin(), in_end = bb_itr->end(); in_itr != in_end; ++in_itr) {
           CallSite CS(cast<Value>(in_itr));
@@ -734,14 +735,17 @@ void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function
   }
 
   set<Function*> scope(targets.begin(), targets.end());
-  unsigned size = 0;
+  unsigned prior_size = 0;
   unsigned depth = 0;
 
-  while (size != scope.size()) {
-    size = scope.size();
+  while (prior_size != scope.size()) {
+    prior_size = scope.size();
     depth += 1;
-    for (Function *fn : scope) {
-      scope.insert(caller_graph[fn].begin(), caller_graph[fn].end());
+
+    set<Function*> worklist(scope);
+    for (Function *fn : worklist) {
+      const auto &callers = caller_graph[fn];
+      scope.insert(callers.begin(), callers.end());
     }
     for (Function *fn : cmn) {
       string name = fn->getName();
@@ -782,10 +786,13 @@ void entryFns(KModule *kmod1,
   reachesFns(kmod2, commons, changes, map2);
 
   // potential entries are those that reach any changed function and functions whose bodies (only) have changed.
-  for (const auto &pr : map1) {
-    auto itr = map2.find(pr.first);
-    if ((itr != map2.end()) && (sigs.find(pr.first) == sigs.end())) {
-      distances.insert(make_pair(pr.first, std::min(pr.second, itr->second)));
+  for (auto itr1 = map1.begin(), end1 = map1.end(); itr1 != end1; ++itr1) {
+    // cannot enter at a changed sig
+    if (sigs.find(itr1->first) == sigs.end()) {
+      auto itr2 = map2.find(itr1->first);
+      if (itr2 != map2.end()) {
+        distances.insert(make_pair(itr1->first, std::min(itr1->second, itr2->second)));
+      }
     }
   }
 }

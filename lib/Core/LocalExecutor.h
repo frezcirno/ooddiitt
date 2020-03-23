@@ -123,7 +123,7 @@ protected:
                             const llvm::Type *type,
                             KInstruction *target,
                             const std::string &name,
-                            bool allow_null = true);
+                            bool allow_null);
 
   bool allocSymbolic(ExecutionState &state,
                      llvm::Type *type,

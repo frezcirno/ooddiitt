@@ -484,8 +484,7 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   if (str.empty()) {
     // default progression
     UnconstraintFlagsT flags;
-// RLR TODO: should put this back
-//    flags.setUnconstrainGlobals();
+    flags.setUnconstrainGlobals();
     progression.emplace_back(300, flags);
     result = true;
   } else {

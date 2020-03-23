@@ -76,12 +76,13 @@ cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
 cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
 cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
-cl::opt<unsigned> LazyAllocationCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyAllocCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
-cl::opt<unsigned> LazyAllocationOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
-cl::opt<unsigned> MinLazyAllocationSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
-cl::opt<unsigned> LazyAllocationDepth("lazy-allocation-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
-cl::opt<unsigned> LazyAllocationExt("lazy-allocation-ext", cl::init(0), cl::desc("number of lazy allocations to include existing memory objects of same type"));
+cl::opt<unsigned> LazyAllocOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
+cl::opt<unsigned> LazyAllocMinSize("lazy-allocation-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
+cl::opt<unsigned> LazyAllocDepth("lazy-allocation-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
+cl::opt<unsigned> LazyAllocExisting("lazy-allocation-existing", cl::init(2), cl::desc("number of lazy allocations to include existing memory objects of same type"));
+cl::opt<bool> LazyAllocDisableNull("lazy-allocation-disable-null", cl::init(false), cl::desc("do not lazy allocate to a null object"));
 cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("Number of loop iterations"));
 cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
 cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(0), cl::desc("Number of states within loop body"));
@@ -89,11 +90,11 @@ cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line numb
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
-  lazyAllocationCount(LazyAllocationCount),
+  lazyAllocationCount(LazyAllocCount),
   lazyStringLength(LazyStringLength),
   maxLoopIteration(MaxLoopIteration),
   maxLoopForks(MaxLoopForks),
-  maxLazyDepth(LazyAllocationDepth),
+  maxLazyDepth(LazyAllocDepth),
   maxStatesInLoop(MaxLoopStates),
   baseState(nullptr),
   timeout(0),
@@ -441,7 +442,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     if (!suffix.empty()) name += ':' + suffix;
 
     // this is an unconstrained ptr-ptr.
-    expandLazyAllocation(state, e, type->getPointerElementType(), target, name);
+    expandLazyAllocation(state, e, type->getPointerElementType(), target, name, !LazyAllocDisableNull);
   }
   return true;
 }
@@ -492,7 +493,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
       if (next_fork != nullptr) {
 
         // pointer may not be null
-        if (LazyAllocationExt > 0) {
+        if (LazyAllocExisting > 0) {
 
           unsigned counter = 0;
 
@@ -501,7 +502,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
           next_fork->addressSpace.getMemoryObjects(listOPs, base_type);
           for (const auto &pr : listOPs) {
 
-            if (next_fork == nullptr || counter >= LazyAllocationExt)
+            if (next_fork == nullptr || counter >= LazyAllocExisting)
               break;
 
             const MemoryObject *existingMO = pr.first;
@@ -519,7 +520,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
         if (next_fork != nullptr) {
 
           // calc lazyAllocationCount by type i8* (string, byte buffer) gets more
-          unsigned count = LazyAllocationCount;
+          unsigned count = LazyAllocCount;
           if (base_type->isIntegerTy(8) && count < lazyStringLength) {
             count = lazyStringLength;
           }
@@ -527,7 +528,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
           // finally, try with a new object
           WObjectPair wop;
           if (allocSymbolic(*next_fork, base_type, target->inst, MemKind::lazy, '*' + name, wop, 0, count)) {
-            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->created_size / count));
+            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocOffset * (wop.first->created_size / count));
             ref<Expr> eq = EqExpr::create(addr, ptr);
             if (addConstraintOrTerminate(*next_fork, eq)) {
               // insure strings are null-terminated
@@ -712,8 +713,8 @@ MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
   }
   unsigned created_size = size;
 
-  if ((kind == MemKind::lazy) && (size < MinLazyAllocationSize)) {
-    size = MinLazyAllocationSize;
+  if ((kind == MemKind::lazy) && (size < LazyAllocMinSize)) {
+    size = LazyAllocMinSize;
   }
 
   Type *alloc_type = type;
@@ -1927,7 +1928,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 Type *eleType = argType->getPointerElementType();
                 unsigned eleSize;
 
-                // reconsider LazyAllocationCount for fallback size here...
+                // reconsider LazyAllocCount for fallback size here...
                 if (eleType->isSized()) {
                   eleSize = (unsigned) kmodule->targetData->getTypeStoreSize(eleType);
                 } else {
@@ -1995,15 +1996,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
             Type *base_type = ty->getPointerElementType();
 
-            // LazyAllocationCount needs to be expanded for string and buffer types.
-            unsigned count = LazyAllocationCount;
+            // LazyAllocCount needs to be expanded for string and buffer types.
+            unsigned count = LazyAllocCount;
             if (base_type->isIntegerTy(8) && count < lazyStringLength) {
               count = lazyStringLength;
             }
             // finally, try with a new object
             WObjectPair wop;
             allocSymbolic(*sp.second, base_type, i, MemKind::lazy, fullName(fnName, counter, "*0"), wop, 0, count);
-            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocationOffset * (wop.first->size / count));
+            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocOffset * (wop.first->size / count));
             ref<Expr> eq = EqExpr::create(retExpr, ptr);
             addConstraint(*sp.second, eq);
 
