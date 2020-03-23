@@ -346,7 +346,9 @@ Module *LoadModule(const string &filename) {
       result = nullptr;
     }
   }
-  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  if (!result) {
+    klee_error("error materializing program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  }
   BufferPtr.take();
   return result;
 }

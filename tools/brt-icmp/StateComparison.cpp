@@ -485,14 +485,17 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
               if (expr1->getZExtValue() != expr2->getZExtValue()) {
                 diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
               }
-            } else {
-              // this is a real hack to deal with bit-long expressions
-              long double val1, val2;
-              expr1->toMemory(&val1);
-              expr2->toMemory(&val2);
-              if (val1 != val2) {
+            } else if (width == Expr::Fl80) {
+
+              unsigned char val1[Expr::Fl80 / 8];
+              unsigned char val2[Expr::Fl80 / 8];
+              expr1->toMemory(val1);
+              expr2->toMemory(val2);
+              if (memcmp(val1, val2, Expr::Fl80 / 8) != 0) {
                 diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
               }
+            } else {
+              klee_error("unsupported expr width");
             }
           }
         }
