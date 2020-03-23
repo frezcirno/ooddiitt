@@ -9,7 +9,7 @@
 #include "../Core/SystemModel.h"
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalVariable.h>
-
+#include <zconf.h>
 
 namespace llvm {
 RawOStreamOperator oflush = RawOStreamOperator::base_flush;
@@ -170,6 +170,14 @@ std::string to_string(UnconstraintFlagsT flags) {
     if (flags.test(p.first)) ss << ',' << p.second;
   }
   return ss.str();
+}
+
+void show_args(int argc, char *argv[]) {
+
+  for (int idx = 0; idx < argc; ++idx) {
+    llvm::outs() << argv[idx] << (idx + 1 < argc ? ' ' : '\n');
+  }
+  llvm::outs() << "PID: " << getpid() << llvm::oendl;
 }
 
 void HashAccumulator::add(const std::string &str) {

@@ -670,17 +670,12 @@ int main(int argc, char **argv, char **envp) {
     pid_watchdog = getppid();
   }
 
+  // write out command line info, for reference
+  if (ShowArgs) show_args(argc, argv);
+
 #ifdef _DEBUG
   EnableMemDebuggingChecks();
 #endif // _DEBUG
-
-  // write out command line info, for reference
-  if (ShowArgs) {
-    for (int i = 0; i < argc; i++) {
-      outs() << argv[i] << (i + 1 < argc ? " " : "\n");
-    }
-    outs() << "PID: " << getpid() << "\n";
-  }
 
   // Load the bytecode and verify that its been prepped
   KModule *kmod = PrepareModule(InputFile);

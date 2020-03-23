@@ -69,6 +69,7 @@ namespace {
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
   cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
+  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
 }
 
 /***/
@@ -429,6 +430,10 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
+
+  // write out command line info, for reference
+  if (ShowArgs) show_args(argc, argv);
+
   exit_code = 0;
 
   // if pre and post module are empty (default) then try to automatically find

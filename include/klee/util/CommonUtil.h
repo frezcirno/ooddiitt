@@ -123,6 +123,7 @@ void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 sys_clock::time_point to_time_point(const std::string &str);
 std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
+void show_args(int argc, char *argv[]);
 
 class HashAccumulator {
   uint64_t hash;

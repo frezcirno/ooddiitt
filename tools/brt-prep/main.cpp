@@ -114,6 +114,7 @@ namespace {
   cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
 }
 
 
@@ -855,6 +856,9 @@ int main(int argc, char **argv, char **envp) {
 
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
+
+  // write out command line info, for reference
+  if (ShowArgs) show_args(argc, argv);
 
 #ifdef _DEBUG
   EnableMemDebuggingChecks();

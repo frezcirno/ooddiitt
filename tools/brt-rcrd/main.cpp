@@ -69,6 +69,7 @@ namespace {
   cl::opt<string> StdInText("stdin-text", cl::desc("text to inject into test as stdin"));
   cl::opt<string> StdInData("stdin-data", cl::desc("data block to inject into test as stdin"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
+  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
 }
 
 /***/
@@ -363,6 +364,10 @@ int main(int argc, char **argv, char **envp) {
   parseArguments(argc, argv);
   sys::PrintStackTraceOnErrorSignal();
   sys::SetInterruptFunction(interrupt_handle);
+
+  // write out command line info, for reference
+  if (ShowArgs) show_args(argc, argv);
+
   exit_code = 0;
 
   // Load the bytecode...
