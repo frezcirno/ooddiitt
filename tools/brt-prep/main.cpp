@@ -152,7 +152,7 @@ void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &m
   }
 }
 
-void externalsAndGlobalsCheck(const Module *m) {
+void externalsAndGlobalsCheck(const Module *m, set<Function*> &undef_fns_out) {
 
   // get a set of undefined symbols
   set<const Value*> undefined_fns;
@@ -206,6 +206,13 @@ void externalsAndGlobalsCheck(const Module *m) {
   // these should be removed from the warning list.
   filterHandledFunctions(undefined_fns);
   filterHandledGlobals(undefined_gbs);
+
+  // insert discovered undefined fns into the output parameter
+  for (auto const &val : undefined_fns) {
+    if (auto fn = dyn_cast<Function>(val)) {
+      undef_fns_out.insert(const_cast<Function*>(fn));
+    }
+  }
 
   // report anything found
   if (!undefined_fns.empty())
@@ -433,7 +440,12 @@ void LoadIndirectPatches(const string &filename, IndirectCallRewriteRecs &recs) 
   }
 }
 
-KModule *PrepareModule(const string &filename, const IndirectCallRewriteRecs &rewrites, const string& libDir, TraceType ttype, MarkScope mscope) {
+KModule *PrepareModule(const string &filename,
+                       set<Function*> &undefined_fns,
+                       const IndirectCallRewriteRecs &rewrites,
+                       const string& libDir,
+                       TraceType ttype,
+                       MarkScope mscope) {
 
   if (Module *module = LoadModule(filename)) {
 
@@ -457,7 +469,7 @@ KModule *PrepareModule(const string &filename, const IndirectCallRewriteRecs &re
         MOpts.CheckOvershift = CheckOvershift;
 
         kmodule->transform(MOpts, module_fns, module_globals, ttype, mscope);
-        externalsAndGlobalsCheck(module);
+        externalsAndGlobalsCheck(module, undefined_fns);
         return kmodule;
       }
     }
@@ -700,8 +712,11 @@ void diffTypes(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &
   }
 }
 
-void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
+void constructCallGraphs(KModule *kmod,
+                         map<Function*,set<Function*> > &caller_graph,
+                         map<Function*,set<Function*> > &callee_graph) {
 
+  Module *mod = kmod->module;
   for (auto fn_itr = mod->begin(), fn_end = mod->end(); fn_itr != fn_end; ++fn_itr) {
     Function *fn = &*fn_itr;
     if (!fn->isDeclaration() && !fn->isIntrinsic()) {
@@ -712,7 +727,8 @@ void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
           if (CS) {
             Function *callee = CS.getCalledFunction();
             if (callee != nullptr && !callee->isIntrinsic()) {
-              graph[callee].insert(fn);
+              caller_graph[fn].insert(callee);
+              callee_graph[callee].insert(fn);
             }
           }
         }
@@ -721,20 +737,17 @@ void constructCallerGraph(Module *mod, map<Function*,set<Function*> > &graph) {
   }
 }
 
-void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function*> &targets, map<string,unsigned> &distance_map) {
+void calcDistanceMap(Module *mod,
+                     const map<Function*,set<Function*> > callee_graph,
+                     const set<string> &sources, const set<Function*> &sinks,
+                     map<string,unsigned> &distance_map) {
 
-  map<Function*,set<Function*> > caller_graph;
-  constructCallerGraph(mod, caller_graph);
-  set<Function*> cmn;
-  for (const auto &str : commons) {
-    if (Function *fn = mod->getFunction(str)) cmn.insert(fn);
+  set<Function*> srcs;
+  for (const auto &str : sources) {
+    if (Function *fn = mod->getFunction(str)) srcs.insert(fn);
   }
 
-  for (Function *fn : targets) {
-    distance_map.insert(make_pair(fn->getName(), 0));
-  }
-
-  set<Function*> scope(targets.begin(), targets.end());
+  set<Function*> scope(sinks.begin(), sinks.end());
   unsigned prior_size = 0;
   unsigned depth = 0;
 
@@ -744,10 +757,13 @@ void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function
 
     set<Function*> worklist(scope);
     for (Function *fn : worklist) {
-      const auto &callers = caller_graph[fn];
-      scope.insert(callers.begin(), callers.end());
+      auto itr = callee_graph.find(fn);
+      if (itr != callee_graph.end()) {
+        const auto &callers = itr->second;
+        scope.insert(callers.begin(), callers.end());
+      }
     }
-    for (Function *fn : cmn) {
+    for (Function *fn : srcs) {
       string name = fn->getName();
       if ((distance_map.find(name) == distance_map.end()) && (scope.find(fn) != scope.end())) {
         distance_map.insert(make_pair(name, depth));
@@ -756,16 +772,42 @@ void calcDistanceMap(Module *mod, const set<string> &commons, const set<Function
   }
 }
 
-void reachesFns(KModule *kmod, const set<string> &commons, const set<string> &changed, map<string,unsigned> &map) {
+void reachesFns(KModule *kmod,
+                const map<Function*,set<Function*> > callee_graph,
+                const set<string> &sources,
+                const set<string> &changed,
+                map<string,unsigned> &map) {
 
   // construct a target set of changed functions
-  set<Function*> targets;
+  set<Function*> sinks;
   for (const auto &fn_name : changed) {
     if (Function *fn = kmod->getFunction(fn_name)) {
-      targets.insert(fn);
+      sinks.insert(fn);
+      map.insert(make_pair(fn->getName(), 0));
     }
   }
-  calcDistanceMap(kmod->module, commons, targets, map);
+  calcDistanceMap(kmod->module, callee_graph, sources, sinks, map);
+}
+
+void addReaching(Function *fn, const map<Function*,set<Function*> > &caller_graph, set<Function*> &reaching) {
+
+  deque<Function*> worklist;
+  worklist.push_back(fn);
+
+  while (!worklist.empty()) {
+    Function *curr = worklist.front();
+    worklist.pop_front();
+
+    auto ins = reaching.insert(curr);
+    if (ins.second) {
+      auto itr = caller_graph.find(curr);
+      if (itr != caller_graph.end()) {
+        for (auto &callee : itr->second) {
+          worklist.push_back(callee);
+        }
+      }
+    }
+  }
 }
 
 void entryFns(KModule *kmod1,
@@ -773,17 +815,25 @@ void entryFns(KModule *kmod1,
               const set<string> &commons,
               const set<string> &sigs,
               const set<string> &bodies,
-              map<string,unsigned> &distances) {
+              const set<Function*> &undefined_fns,
+              map<string,pair<unsigned,set<Function*> > > &entry_points) {
 
   set<string> changes;
   changes.insert(bodies.begin(), bodies.end());
   changes.insert(sigs.begin(), sigs.end());
 
+  map<Function*,set<Function*> > caller_graph1;
+  map<Function*,set<Function*> > callee_graph1;
+  constructCallGraphs(kmod1, caller_graph1, callee_graph1);
+  map<Function*,set<Function*> > caller_graph2;
+  map<Function*,set<Function*> > callee_graph2;
+  constructCallGraphs(kmod2, caller_graph2, callee_graph2);
+
   map<string,unsigned> map1;
-  reachesFns(kmod1, commons, changes, map1);
+  reachesFns(kmod1, callee_graph1, commons, changes, map1);
 
   map<string,unsigned> map2;
-  reachesFns(kmod2, commons, changes, map2);
+  reachesFns(kmod2, callee_graph2, commons, changes, map2);
 
   // potential entries are those that reach any changed function and functions whose bodies (only) have changed.
   for (auto itr1 = map1.begin(), end1 = map1.end(); itr1 != end1; ++itr1) {
@@ -791,13 +841,21 @@ void entryFns(KModule *kmod1,
     if (sigs.find(itr1->first) == sigs.end()) {
       auto itr2 = map2.find(itr1->first);
       if (itr2 != map2.end()) {
-        distances.insert(make_pair(itr1->first, std::min(itr1->second, itr2->second)));
+        auto ins = entry_points.insert(make_pair(itr1->first, make_pair(std::min(itr1->second, itr2->second), set<Function*>{})));
+        auto &undefines = ins.first->second.second;
+        set<Function*> reach;
+        addReaching(kmod1->getFunction(itr1->first), caller_graph1, reach);
+        addReaching(kmod2->getFunction(itr2->first), caller_graph2, reach);
+        set_intersection(undefined_fns.begin(), undefined_fns.end(), reach.begin(), reach.end(), inserter(undefines, undefines.end()));
       }
     }
   }
 }
 
-void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, const string &outDir) {
+void emitDiff(KModule *kmod1, KModule *kmod2,
+              const set<Function*> &undefined_fns,
+              const set<string> &assume_eq,
+              const string &outDir) {
 
   fs::path path(outDir);
   string pathname = (path /= "diff.json").string();
@@ -812,8 +870,17 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
     Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
     Json::Value &fns_equivalent = functions["equivalent"] = Json::arrayValue;
-    for (const auto &fn : assume_eq) {
-      fns_equivalent.append(fn);
+    Json::Value &fns_undef = functions["undefined"] = Json::arrayValue;
+    for (const auto &name : assume_eq) {
+      fns_equivalent.append(name);
+    }
+
+    set<string> undefined_fn_names;
+    for (const auto &fn : undefined_fns) {
+      undefined_fn_names.insert(fn->getName().str());
+    }
+    for (const auto &name : undefined_fn_names) {
+      fns_undef.append(name);
     }
 
     set<string> added, removed, sigs, bodies, commons;
@@ -839,9 +906,22 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     root["post-module"] = kmod2->getModuleIdentifier();
 
     Json::Value &fns_entries = functions["entry_points"] = Json::objectValue;
-    map<string,unsigned> entry_points;
-    entryFns(kmod1, kmod2, commons, sigs, bodies, entry_points);
-    for (const auto &pr : entry_points) fns_entries[pr.first] = pr.second;
+    map<string,pair<unsigned,set<Function*> > > entry_points;
+    entryFns(kmod1, kmod2, commons, sigs, bodies, undefined_fns, entry_points);
+    for (const auto &pr : entry_points) {
+      Json::Value &fn_entry = fns_entries[pr.first] = Json::objectValue;
+      fn_entry["distance"] = pr.second.first;
+      if (!pr.second.second.empty()) {
+        set<string> names;
+        for (const auto &fn : pr.second.second) {
+          names.insert(fn->getName().str());
+        }
+        Json::Value &undef_fns = fns_entries["undefinedFns"] = Json::arrayValue;
+        for (const auto &name : names) {
+          undef_fns.append(name);
+        }
+      }
+    }
 
     string indent;
     if (IndentJson) indent = "  ";
@@ -885,10 +965,11 @@ int main(int argc, char **argv, char **envp) {
   int exit_code = 0;
   vector<KModule*> kmods;
   kmods.reserve(InputFiles.size());
+  set<Function*> undefined_fns;
 
   for (const string &input_file : InputFiles) {
 
-    if (KModule *kmod = PrepareModule(input_file, indirect_rewrites, libDir, TraceT, MarkS)) {
+    if (KModule *kmod = PrepareModule(input_file, undefined_fns, indirect_rewrites, libDir, TraceT, MarkS)) {
       kmods.push_back(kmod);
       if (!SaveModule(kmod, Output)) {
         exit_code = 1;
@@ -902,7 +983,7 @@ int main(int argc, char **argv, char **envp) {
     if (!AssumeEq.empty()) {
       boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
     }
-    emitDiff(kmods[0], kmods[1], assume_eq, Output);
+    emitDiff(kmods[0], kmods[1], undefined_fns, assume_eq, Output);
   }
 
   for (auto kmod : kmods) {
