@@ -743,11 +743,12 @@ MemoryObject *LocalExecutor::injectMemory(ExecutionState &state,
   Type *type = kmodule->module_types.getEquivalentType(type_desc);
   size_t align;
   if (type != nullptr) {
-    string test = to_string(type);
     align = kmodule->targetData->getPrefTypeAlignment(type);
   } else {
+    // no matching data type in this module.  treat it as a byte array
     LLVMContext &ctx = kmodule->module->getContext();
     align = kmodule->targetData->getPrefTypeAlignment(Type::getInt32Ty(ctx));
+    type = ArrayType::get(Type::getInt8Ty(ctx), size);
   }
 
   MemoryObject *mo = memory->inject(addr, size, type, kind, align);

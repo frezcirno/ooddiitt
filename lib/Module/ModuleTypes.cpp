@@ -61,21 +61,29 @@ llvm::Type *ModuleTypes::getEquivalentType(const std::string &desc) {
     if (pos != string::npos) {
       unsigned count = stoul(desc.substr(1, pos - 2));
       string sub_desc = desc.substr(pos + 2, desc.size() - pos - 3);
-      Type *type = ArrayType::get(getEquivalentType(sub_desc), count);
+      if (Type *sub_type = getEquivalentType(sub_desc)) {
+        Type *type = ArrayType::get(sub_type, count);
 
-      // cache for future lookups
-      mapDescToType.insert(make_pair(desc, type));
-      return type;
+        // cache for future lookups
+        mapDescToType.insert(make_pair(desc, type));
+        return type;
+      } else {
+        return nullptr;
+      }
     }
   } else if (desc.back() == '*') {
 
     // not cached, but this is a pointer
     string sub_desc = desc.substr(0, desc.size() - 1);
-    Type *type = PointerType::get(getEquivalentType(sub_desc), 0);
+    if (Type *sub_type = getEquivalentType(sub_desc)) {
+      Type *type = PointerType::get(sub_type, 0);
 
-    // cache for future lookups
-    mapDescToType.insert(make_pair(desc, type));
-    return type;
+      // cache for future lookups
+      mapDescToType.insert(make_pair(desc, type));
+      return type;
+    } else {
+      return nullptr;
+    }
   } else {
 
     static regex re(R"((struct\..*)\.(\d+))");
@@ -89,7 +97,7 @@ llvm::Type *ModuleTypes::getEquivalentType(const std::string &desc) {
       return type;
     }
   }
-  return Type::getVoidTy(module->getContext());
+  return nullptr;
 }
 
 void ModuleTypes::addMatchingStructTypes(const string &desc, set<Type*> &types) const {
