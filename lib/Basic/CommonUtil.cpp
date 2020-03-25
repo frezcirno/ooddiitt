@@ -174,10 +174,10 @@ std::string to_string(UnconstraintFlagsT flags) {
 
 void show_args(int argc, char *argv[]) {
 
+  llvm::outs() << '#';
   for (int idx = 0; idx < argc; ++idx) {
     llvm::outs() << argv[idx] << (idx + 1 < argc ? ' ' : '\n');
   }
-  llvm::outs() << "PID: " << getpid() << llvm::oendl;
 }
 
 void HashAccumulator::add(const std::string &str) {
