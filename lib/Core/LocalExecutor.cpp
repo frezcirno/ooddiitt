@@ -74,8 +74,6 @@ cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum numb
 cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
 cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
-cl::opt<bool> SavePendingStates("save-pending-states", cl::init(false), cl::desc("at timeout, save states that have not completed"));
-cl::opt<bool> SaveFaultingStates("save-faulting-states", cl::init(false), cl::desc("save states that have faulted"));
 cl::opt<unsigned> LazyAllocCount("lazy-allocation-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
 cl::opt<unsigned> LazyAllocOffset("lazy-allocation-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
