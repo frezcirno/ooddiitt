@@ -916,7 +916,7 @@ void emitDiff(KModule *kmod1, KModule *kmod2,
         for (const auto &fn : pr.second.second) {
           names.insert(fn->getName().str());
         }
-        Json::Value &undef_fns = fns_entries["undefinedFns"] = Json::arrayValue;
+        Json::Value &undef_fns = fn_entry["undefinedFns"] = Json::arrayValue;
         for (const auto &name : names) {
           undef_fns.append(name);
         }
