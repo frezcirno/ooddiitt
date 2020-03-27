@@ -11,7 +11,7 @@ This is a collection of our notes about the installation of [KLEE](https://klee.
 pse-tools
 ├── klee (optional)
 ├── brt-klee
-├── klee-uclibc (linux only)
+├── klee-uclibc
 ├── llvm-3.4
 ├── minisat
 ├── stp
