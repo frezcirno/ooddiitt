@@ -905,7 +905,7 @@ void emitDiff(KModule *kmod1, KModule *kmod2,
     root["pre-module"] = kmod1->getModuleIdentifier();
     root["post-module"] = kmod2->getModuleIdentifier();
 
-    Json::Value &fns_entries = functions["entry_points"] = Json::objectValue;
+    Json::Value &fns_entries = functions["entryPoints"] = Json::objectValue;
     map<string,pair<unsigned,set<Function*> > > entry_points;
     entryFns(kmod1, kmod2, commons, sigs, bodies, undefined_fns, entry_points);
     for (const auto &pr : entry_points) {
