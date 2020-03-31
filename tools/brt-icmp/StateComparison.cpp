@@ -36,15 +36,22 @@ string to_string(const CharacterOutput &out) {
   return to_string(buffer);
 }
 
+
+std::string to_string(const CompareCheckpoint &checkpoint) {
+
+  ostringstream ss;
+  ss << checkpoint.fn << ';';
+  if (checkpoint.distance != UINT32_MAX) ss << checkpoint.distance;
+  else ss << '+';
+  return ss.str();
+}
+
 std::string to_string(const CompareDiff &diff) {
 
   static const char type_designators[] = { 'I', 'D', 'I', 'W', 'F' };
   ostringstream ss;
 
-  ss << type_designators[(unsigned) diff.type] << ';';
-  if (diff.distance == UINT_MAX) ss << "+;";
-  else ss << diff.distance << ';';
-  ss << diff.fn << ';' << diff.element << ';' << diff.desc;
+  ss << type_designators[(unsigned) diff.type] << ';' << diff.element << ';' << diff.desc;
   return ss.str();
 }
 
@@ -110,6 +117,8 @@ bool StateComparator::alignFnReturns() {
     else ++itr;
   }
 
+#if 0 == 1
+  // RLR TODO: this needs to be restored
   // only continue if the function call returns are comparable, i.e. they are aligned
   //  RLR TODO: if not aligned, try to align them
   if (ver1.fn_returns.size() != ver2.fn_returns.size()) {
@@ -146,6 +155,7 @@ bool StateComparator::alignFnReturns() {
     }
     ++itr1; ++itr2;
   }
+#endif
   return true;
 }
 
@@ -159,37 +169,53 @@ void StateComparator::emitRetSequence(std::ostringstream &ss, std::deque<std::pa
   }
 }
 
+bool StateComparator::diffs_found() const {
+  for (auto &cp : checkpoints) {
+    if (!cp.diffs.empty()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool StateComparator::isEquivalent() {
 
   bool result = false;
   if (ver2.finalState == nullptr) {
-    CompareDiff diff(DiffType::delta);
-    diff.fn = diff.element = "@unknown";
-    diff.desc = "incomplete execution";
-    if (test.is_main()) diff.distance = UINT_MAX;
-    diffs.emplace_back(diff);
+    checkpoints.emplace_back("@n/a");
+    auto &diffs = checkpoints.back().diffs;
+    diffs.emplace_back(DiffType::delta, "@n/a", "incomplete execution");
   } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
              (ver1.term_reason != ver2.term_reason)) {
+
     ExecutionState *state = ver2.finalState;
-    CompareDiff diff(DiffType::delta);
-    diff.fn = diff.element = "@unknown";
-    diff.desc = to_string(ver2.term_reason);
-    if (!state->messages.empty()) diff.desc += '-' + state->messages.back();
-    if (!state->stack.empty()) diff.fn = ver2.finalState->stack.back().kf->getName();
-    if (state->instFaulting != nullptr) diff.element = std::to_string(state->instFaulting->info->assemblyLine);
-    diff.distance = test.is_main() ? UINT_MAX : state->distance;
-    diffs.emplace_back(diff);
+    string fn = "@unknown";
+    if (!state->stack.empty()) fn = ver2.finalState->stack.back().kf->getName();
+    checkpoints.emplace_back(fn);
+
+    auto &diffs = checkpoints.back().diffs;
+    string element = "@unknown";
+    if (state->instFaulting != nullptr) element = std::to_string(state->instFaulting->info->assemblyLine);
+
+    ostringstream ss;
+    ss << to_string(ver2.term_reason);
+    if (!state->messages.empty()) ss << '-' << state->messages.back();
+    diffs.emplace_back(DiffType::delta, element, ss.str());
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
     result = compareExternalState();
   } else {
     result = compareInternalState();
   }
-  return result;
+  return !diffs_found();
 }
 
 bool StateComparator::compareExternalState() {
 
-  assert(diffs.empty());
+  assert(checkpoints.empty());
+
+  // external comparison will only have a single checkpoint, at program termination
+  checkpoints.emplace_back("@main");
+  auto &diffs = checkpoints.back().diffs;
 
   // each  must have a return value, it must be an int, and they must be equal
   ref<ConstantExpr> exit_expr1 = dyn_cast<ConstantExpr>(ver1.finalState->last_ret_value);
@@ -197,17 +223,17 @@ bool StateComparator::compareExternalState() {
 
   if (!is_valid(ver1.term_reason)) return true;
   if (ver1.term_reason != ver2.term_reason) {
-    diffs.emplace_back(CompareExtDiff("@post", "did not complete"));
+    diffs.emplace_back(DiffType::delta, "@post", "did not complete");
 
   } else if (!exit_expr1.isNull()) {
     if (exit_expr2.isNull()) {
-      diffs.emplace_back(CompareExtDiff("@exit_code", "missing"));
+      diffs.emplace_back(DiffType::delta, "@exit_code", "missing");
     } else {
       // if they have one value, make sure its the same (could be no value in the case of an abort)
       unsigned exit_code1 = exit_expr1->getZExtValue(Expr::Int32);
       unsigned exit_code2 = exit_expr2->getZExtValue(Expr::Int32);
       if (exit_code1 != exit_code2) {
-        diffs.emplace_back(CompareExtDiff("@exit_code", "different value"));
+        diffs.emplace_back(DiffType::delta, "@exit_code", "different value");
       }
     }
   }
@@ -215,20 +241,20 @@ bool StateComparator::compareExternalState() {
   string stdout1 = to_string(ver1.finalState->stdout_capture);
   string stdout2 = to_string(ver2.finalState->stdout_capture);
   if (stdout1 != stdout2) {
-    diffs.emplace_back(CompareExtDiff("@stdout", "different output"));
+    diffs.emplace_back(DiffType::delta, "@stdout", "different output");
   }
 
   string stderr1 = to_string(ver1.finalState->stderr_capture);
   string stderr2 = to_string(ver2.finalState->stderr_capture);
   if (stderr1 != stderr2) {
-    diffs.emplace_back(CompareExtDiff("@stderr", "different output"));
+    diffs.emplace_back(DiffType::delta, "@stderr", "different output");
   }
-  return (size_diffs() == 0);
+  return !diffs_found();
 }
 
 bool StateComparator::compareInternalState() {
 
-  assert(diffs.empty());
+  assert(checkpoints.empty());
 
   // get the set of global variables to compare.  These are only
   // user globals (i.e. not stdlib) in both modules and of equivalent types
@@ -270,6 +296,8 @@ bool StateComparator::compareInternalState() {
       assert(name1 == name2 && "mismatched function names");
 
       if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
+        unsigned distance = min(itr1->second->distance, itr2->second->distance);
+        checkpoints.emplace_back(name1, distance);
         compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
       }
       ++itr1; ++itr2; ++counter;
@@ -279,15 +307,21 @@ bool StateComparator::compareInternalState() {
   // check the final state
   KFunction *kf1 = ver1.kmodule->getKFunction(test.entry_fn);
   KFunction *kf2 = ver2.kmodule->getKFunction(test.entry_fn);
+
+  unsigned distance = min(ver1.finalState->distance, ver2.finalState->distance);
+  checkpoints.emplace_back(test.entry_fn, distance);
+
   compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState);
-  return (size_diffs() == 0);
+  return !diffs_found();
 }
 
-bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
+void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
+
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
 
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
-  size_t diff_count = size_diffs();
 
   // check the return value
   Type *type = fn1->getReturnType();
@@ -302,7 +336,7 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
         visited_ptrs.clear();
         compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
       } else {
-        diffs.emplace_back(CompareIntDiff(kf2, "@return", state2, "missing return value"));
+        diffs.emplace_back(DiffType::delta, "@return", "missing return value");
       }
     }
   }
@@ -327,10 +361,10 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
               if (!ptr2.isNull()) {
                 comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
               } else {
-                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "ptr did not evaluate to a constant"));
+                diffs.emplace_back(DiffType::delta, name, "ptr did not evaluate to a constant");
               }
             } else {
-              diffs.emplace_back(CompareIntDiff(kf2, name, state2, "missing ptr value"));
+              diffs.emplace_back(DiffType::delta, name, "missing ptr value");
             }
           }
         }
@@ -343,32 +377,31 @@ bool StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   string stdout1 = to_string(state1->stdout_capture);
   string stdout2 = to_string(state2->stdout_capture);
   if (stdout1 != stdout2) {
-    diffs.emplace_back(CompareIntDiff(kf1, "@stdout", state2, "different output"));
+    diffs.emplace_back(DiffType::delta, "@stdout", "different output");
   }
 
   string stderr1 = to_string(state1->stderr_capture);
   string stderr2 = to_string(state2->stderr_capture);
   if (stderr1 != stderr2) {
-    diffs.emplace_back(CompareIntDiff(kf1, "@stderr", state2, "different output"));
+    diffs.emplace_back(DiffType::delta, "@stderr", "different output");
   }
 
   // finally, check user global variables
   for (auto itr = globals.begin(), end = globals.end(); itr != end; ++itr) {
     const CompareGlobalEntry &entry = *itr;
     visited_ptrs.clear();
-    if (!compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type)) {
-      itr = globals.erase(itr);
-    }
+    compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type);
   }
-  return (size_diffs() == diff_count);
 }
 
-bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                                           const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                                           const string &name, llvm::Type *type) {
 
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
+
   assert(!type->isVoidTy());
-  size_t diff_count = size_diffs();
 
   if (!isBlacklisted(type)) {
     if (type->isSingleValueType()) {
@@ -389,7 +422,7 @@ bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
         os1->readConcrete(val1, offset1, size);
         os2->readConcrete(val2, offset2, size);
         if (val1 != val2) {
-          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+          diffs.emplace_back(DiffType::delta, name, "different value");
         }
       }
     } else if (type->isStructTy()) {
@@ -436,34 +469,35 @@ bool StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       assert("function type should never occur here");
     }
   }
-  return (size_diffs() == diff_count);
 }
 
-bool StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
+void StateComparator::compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                                            const MemoryObject *mo2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                                            const string &name, llvm::Type *type) {
 
-  size_t diff_count = size_diffs();
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
+
   if (!isBlacklisted(type)) {
     if (!type->isVoidTy()) {
       if (const ObjectState *os1 = state1->addressSpace.findObject(mo1)) {
         const ObjectState *os2 = state2->addressSpace.findObject(mo2);
         if (os2 == nullptr) {
-          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find memory object"));
+          diffs.emplace_back(DiffType::delta, name, "unable to find memory object");
         } else {
           compareObjectStates(os1, offset1, kf1, state1, os2, offset2, kf2, state2, name, type);
         }
       }
     }
   }
-  return (size_diffs() == diff_count);
 }
 
-bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                       const ref<ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                       llvm::Type *type) {
 
-  size_t diff_count = size_diffs();
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
   if (!isBlacklisted(type)) {
     if (!type->isVoidTy()) {
       if (type->isSingleValueType()) {
@@ -478,12 +512,12 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
           // since this is not a pointer value, they can be directly compared
           Expr::Width width = expr1->getWidth();
           if (expr2->getWidth() != width) {
-            diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different width"));
+            diffs.emplace_back(DiffType::delta, name, "different width");
           } else {
             // most of these types are no more than 64 bits.
             if (width <= Expr::Int64) {
               if (expr1->getZExtValue() != expr2->getZExtValue()) {
-                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+                diffs.emplace_back(DiffType::delta, name, "different value");
               }
             } else if (width == Expr::Fl80) {
 
@@ -492,7 +526,7 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
               expr1->toMemory(val1);
               expr2->toMemory(val2);
               if (memcmp(val1, val2, Expr::Fl80 / 8) != 0) {
-                diffs.emplace_back(CompareIntDiff(kf2, name, state2, "different value"));
+                diffs.emplace_back(DiffType::delta, name, "different value");
               }
             } else {
               klee_error("unsupported expr width");
@@ -504,31 +538,31 @@ bool StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
       }
     }
   }
-  return (size_diffs() == diff_count);
 }
 
-bool StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
+void StateComparator::comparePtrs(const ref<klee::ConstantExpr> &expr1, KFunction *kf1, ExecutionState *state1,
                                   const ref<klee::ConstantExpr> &expr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
-  size_t diff_count = size_diffs();
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
   if (!isBlacklisted(type)) {
     if (expr1->getWidth() != expr2->getWidth()) {
-      diffs.emplace_back(CompareIntDiff(kf2, name, state2, "incompatible pointer widths"));
+      diffs.emplace_back(DiffType::delta, name, "incompatible pointer widths");
     } else {
       uint64_t addr1 = expr1->getZExtValue();
       uint64_t addr2 = expr2->getZExtValue();
       comparePtrs(addr1, kf1, state1, addr2, kf2, state2, name, type);
     }
   }
-  return (size_diffs() == diff_count);
 }
 
-bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
+void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState *state1,
                                   uint64_t addr2, KFunction *kf2, ExecutionState *state2,
                                   const std::string &name, PointerType *type) {
 
-  size_t diff_count = size_diffs();
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
   if (!isBlacklisted(type)) {
     // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
     auto result = visited_ptrs.insert(make_pair(addr1, addr2));
@@ -545,12 +579,11 @@ bool StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
           compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
 
         } else {
-          diffs.emplace_back(CompareIntDiff(kf2, name, state2, "unable to find pointed object"));
+          diffs.emplace_back(DiffType::delta, name, "unable to find pointed object");
         }
       }
     }
   }
-  return (size_diffs() == diff_count);
 }
 
 } // end klee namespace

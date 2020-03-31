@@ -156,8 +156,6 @@ protected:
   bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
-  unsigned numStatesInLoop(const llvm::Loop *loop) const;
-  unsigned decimateStatesInLoop(const llvm::Loop *loop, unsigned skip_counter = 0);
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(const ExecutionState *state);
@@ -166,15 +164,13 @@ protected:
   }
   void checkMemoryUsage() override;
 
+  void branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) override;
+  ExecutionState *clone(ExecutionState *es) override;
+  StatePair fork(ExecutionState &current, ref<Expr> condition, bool isInternal) override;
 
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
-  unsigned maxLoopIteration;
-  unsigned maxLoopForks;
   unsigned maxLazyDepth;
-  std::set<ExecutionState*> faulting_state_stash;
-  std::map<const llvm::Loop*, unsigned> loopForkCounter;
-  std::map<const llvm::Loop*, unsigned> loopStateCounter;
   unsigned maxStatesInLoop;
   ExecutionState *baseState;
   uint64_t timeout;
@@ -190,6 +186,11 @@ protected:
   TraceType trace_type;
   MemoryObject *moStdInBuff;
   ProgramTracer *tracer;
+  std::map<const llvm::Loop *, ExecutionStates> loopingStates;
+
+#ifdef _DEBUG
+  bool isOnlyInLoop(ExecutionState *state, const llvm::Loop *loop);
+#endif
 
   // behavior conditioned by exec mode
   bool doSaveFault;

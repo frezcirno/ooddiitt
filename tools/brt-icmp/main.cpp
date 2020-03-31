@@ -264,7 +264,7 @@ Module *LoadModule(const string &filename) {
   OwningPtr<MemoryBuffer> BufferPtr;
   llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
   if (ec) {
-    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+    klee_error("failure loading program '%s': %s", filename.c_str(), ec.message().c_str());
   }
 
   result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
@@ -274,7 +274,7 @@ Module *LoadModule(const string &filename) {
       result = nullptr;
     }
   }
-  if (!result) klee_error("error loading program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+  if (!result) klee_error("failure materializing program '%s': %s", filename.c_str(), ErrorMsg.c_str());
   BufferPtr.take();
   return result;
 }
@@ -548,8 +548,13 @@ int main(int argc, char **argv, char **envp) {
               if (cmp.beseechOracle()) outs() << " (false positive)";
             }
             outs() << oendl;
-            for (const auto &diff : cmp) {
-              if (diff.type == DiffType::delta) outs().indent(2) << to_string(diff) << oendl;
+            for (const auto &cp : cmp.checkpoints) {
+              if (!cp.diffs.empty()) {
+                outs().indent(2) << to_string(cp) << oendl;
+                for (const auto &diff : cp.diffs) {
+                  outs().indent(4) << to_string(diff) << oendl;
+                }
+              }
             }
           }
         } else outs() << "diff (termination)" << " L" << ki->info->assemblyLine <<" (" << ki->info->file << ':' << ki->info->line << ')' << oendl;

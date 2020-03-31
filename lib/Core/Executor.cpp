@@ -302,6 +302,7 @@ namespace {
 
 
 namespace klee {
+
 RNG theRNG;
 
 Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
@@ -698,7 +699,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   bool success = solver->evaluate(current, condition, res);
   if (!success) {
     current.pc = current.prevPC;
-    terminateStateOnDiscard(current, "Query timed out (fork).");
+    terminateStateOnDispose(current, "Query timed out (fork).");
     return StatePair(0, 0);
   }
 
@@ -875,8 +876,8 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 
     // Kinda gross, do we even really still want this option?
     if (MaxDepth && MaxDepth<=trueState->depth) {
-      terminateStateOnDiscard(*trueState, "max-depth exceeded.");
-      terminateStateOnDiscard(*falseState, "max-depth exceeded.");
+      terminateStateOnDispose(*trueState, "max-depth exceeded.");
+      terminateStateOnDispose(*falseState, "max-depth exceeded.");
       return StatePair(0, 0);
     }
 
@@ -2508,7 +2509,7 @@ void Executor::doDumpStates() {
        it != ie; ++it) {
     ExecutionState &state = **it;
     stepInstruction(state); // keep stats rolling
-    terminateStateOnDiscard(state, "Execution halting.");
+    terminateStateOnDiscard(state, "Execution halting");
   }
   updateStates(0);
 }
@@ -2704,6 +2705,12 @@ void Executor::terminateStateOnDiscard(ExecutionState &state, const std::string 
   if (DumpStatesOnHalt) {
     interpreterHandler->processTestCase(state, TerminateReason::Timeout);
   }
+  terminateState(state);
+}
+
+void Executor::terminateStateOnDispose(ExecutionState &state, const std::string &comment) {
+  state.status = StateStatus::Discarded;
+  state.messages.push_front(comment);
   terminateState(state);
 }
 
@@ -3088,7 +3095,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     bool success = solver->mustBeTrue(state, os->getBoundsCheckOffset(offset, bytes), inBounds);
     if (!success) {
       state.pc = state.prevPC;
-      terminateStateOnDiscard(state, "Query timed out (bounds check).");
+      terminateStateOnDispose(state, "Query timed out (bounds check).");
       return;
     }
 
@@ -3154,7 +3161,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   // XXX should we distinguish out of bounds and overlapped cases?
   if (unbound) {
     if (incomplete) {
-      terminateStateOnDiscard(*unbound, "Query timed out (resolve).");
+      terminateStateOnDispose(*unbound, "Query timed out (resolve).");
     } else {
       terminateStateOnComplete(*unbound, TerminateReason::MemFault, "memory error: out of bound pointer");
     }

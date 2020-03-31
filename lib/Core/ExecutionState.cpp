@@ -232,11 +232,22 @@ ExecutionState *ExecutionState::branch() {
   falseState->branched_at = pc;
   falseState->coveredNew = false;
   falseState->coveredLines.clear();
-
   weight *= .5;
   falseState->weight -= weight;
-
   return falseState;
+}
+
+const llvm::Loop *ExecutionState::getCurrentLoop() {
+
+  const llvm::Loop *result = nullptr;
+  if (!stack.empty()) {
+    StackFrame &sf = stack.back();
+    if (!sf.loopFrames.empty()) {
+      LoopFrame &lf = sf.loopFrames.back();
+      result = lf.loop;
+    }
+  }
+  return result;
 }
 
 void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {

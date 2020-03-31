@@ -336,7 +336,7 @@ Module *LoadModule(const string &filename) {
   OwningPtr<MemoryBuffer> BufferPtr;
   llvm::error_code ec=MemoryBuffer::getFileOrSTDIN(filename.c_str(), BufferPtr);
   if (ec) {
-    klee_error("error loading program '%s': %s", filename.c_str(), ec.message().c_str());
+    klee_error("failure loading program '%s': %s", filename.c_str(), ec.message().c_str());
   }
 
   result = getLazyBitcodeModule(BufferPtr.get(), *ctx, &ErrorMsg);
@@ -347,7 +347,7 @@ Module *LoadModule(const string &filename) {
     }
   }
   if (!result) {
-    klee_error("error materializing program '%s': %s", filename.c_str(), ErrorMsg.c_str());
+    klee_error("failure materializing program '%s': %s", filename.c_str(), ErrorMsg.c_str());
   }
   BufferPtr.take();
   return result;
@@ -482,7 +482,7 @@ int main(int argc, char **argv, char **envp) {
 
     string module_name = ModuleName;
     if (module_name.empty()) {
-      module_name = test.module_name;
+      module_name = test.file_name;
     } else {
       getModuleName(Output, module_name);
     }

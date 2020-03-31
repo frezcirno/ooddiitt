@@ -122,7 +122,7 @@ private:
   KModule *kmodule;
 };
 
-
+#if 0 == 1
 struct LoopFrame {
   const llvm::Loop *loop;
   std::map<const llvm::Loop*,unsigned> &global_counters;
@@ -133,6 +133,16 @@ struct LoopFrame {
   LoopFrame(const LoopFrame &s) : loop(s.loop), global_counters(s.global_counters), counter(s.counter)
     { global_counters[loop] += 1; }
   ~LoopFrame() { global_counters[loop] -= 1; }
+};
+#endif
+
+struct LoopFrame {
+  const llvm::Loop *loop;
+  unsigned counter;
+
+  explicit LoopFrame(const llvm::Loop *l) : loop(l), counter(0) {};
+  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter) {};
+  ~LoopFrame() = default;
 };
 
 struct StackFrame {
@@ -317,6 +327,7 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
+  const llvm::Loop *getCurrentLoop();
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo) const { return findSymbolic(mo) != nullptr; }

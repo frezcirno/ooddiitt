@@ -9,7 +9,6 @@
 
 #include "LocalExecutor.h"
 #include "Context.h"
-#include "CoreStats.h"
 #include "ExternalDispatcher.h"
 #include "MemoryManager.h"
 #include "PTree.h"
@@ -35,6 +34,7 @@
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/System/MemoryUsage.h"
+#include "klee/Internal/Support/Debug.h"
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Attributes.h"
@@ -57,6 +57,8 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace klee {
+
+extern RNG theRNG;
 
 class bad_expression : public std::runtime_error
 {
@@ -81,17 +83,13 @@ cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("
 cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyAllocExisting("lazy-alloc-existing", cl::init(2), cl::desc("number of lazy allocations to include existing memory objects of same type"));
 cl::opt<bool> LazyAllocNull("lazy-alloc-null", cl::init(true), cl::desc("do not lazy allocate to a null object"));
-cl::opt<unsigned> MaxLoopIteration("max-loop-iteration", cl::init(4), cl::desc("Number of loop iterations"));
-cl::opt<unsigned> MaxLoopForks("max-loop-forks", cl::init(16), cl::desc("Number of forks within loop body"));
-cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(0), cl::desc("Number of states within loop body"));
+cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(1000), cl::desc("Number of states within loop body (default=1000"));
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
   Executor(ctx, opts, ih),
   lazyAllocationCount(LazyAllocCount),
   lazyStringLength(LazyStringLength),
-  maxLoopIteration(MaxLoopIteration),
-  maxLoopForks(MaxLoopForks),
   maxLazyDepth(LazyAllocDepth),
   maxStatesInLoop(MaxLoopStates),
   baseState(nullptr),
@@ -164,7 +162,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
   }
 
   // WARNING: if this function returns false, state must not be accessed again
-  terminateStateOnDiscard(state, "added invalid constraint");
+  terminateStateOnDispose(state, "added invalid constraint");
   return false;
 }
 
@@ -470,7 +468,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
         // too deep. no more forking for this pointer.
         addConstraintOrTerminate(state, eqNull);
       } else {
-        terminateStateOnDiscard(state, "memory depth exceeded");
+        terminateStateOnDispose(state, "memory depth exceeded");
       }
       // must not touch state again in case of failure
 
@@ -537,7 +535,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               // state was terminated
             }
           } else {
-            terminateStateOnDiscard(*next_fork, "lazy symbolic allocation failed");
+            terminateStateOnDispose(*next_fork, "lazy symbolic allocation failed");
           }
         }
       }
@@ -893,10 +891,8 @@ void LocalExecutor::bindModule(KModule *kmodule) {
 
   // prepare a generic initial state
   baseState = new ExecutionState();
-  baseState->maxLoopIteration = maxLoopIteration;
   baseState->lazyAllocationCount = lazyAllocationCount;
   baseState->maxLazyDepth = maxLazyDepth;
-  baseState->maxLoopForks = maxLoopForks;
 
   initializeGlobals(*baseState, interpreterOpts.test_objs);
   bindModuleConstants();
@@ -951,7 +947,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   }
 
   std::string name = fn->getName();
-  faulting_state_stash.clear();
   std::vector<ExecutionState*> init_states;
 
   // useful values for later
@@ -1137,8 +1132,6 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) return;
 
-  faulting_state_stash.clear();
-
   // reverse the stdin data.  then we can pop data from end
   size_t stdin_size = test.stdin_buffer.size();
   if (stdin_size > 1) {
@@ -1213,8 +1206,6 @@ void LocalExecutor::runMainConcrete(Function *fn,
     // not in this compilation unit
     return;
   }
-
-  faulting_state_stash.clear();
 
   ExecutionState *state = new ExecutionState(*baseState, kf, fn->getName());
   if (statsTracker) statsTracker->framePushed(*state, nullptr);
@@ -1395,9 +1386,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       executeInstruction(*state, ki);
 
     } catch (bad_expression &e) {
-      terminateStateOnDiscard(*state, "uninitialized expression");
+      terminateStateOnDispose(*state, "uninitialized expression");
     } catch (solver_failure &e) {
-      terminateStateOnDiscard(*state, "solver failure");
+      terminateStateOnDispose(*state, "solver failure");
     }
     processTimers(state, 0);
     updateStates(state);
@@ -1417,9 +1408,11 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     if (!doConcreteInterpretation) checkMemoryUsage();
   }
 
-  loopForkCounter.clear();
-  for (ExecutionState *state : states) {
-    terminateStateOnDiscard(*state, "flushing states on halt");
+  if (!states.empty()) {
+    outs() << "terminating " << states.size() << " incomplete states\n";
+    for (ExecutionState *state : states) {
+      terminateStateOnDiscard(*state, "flushing states on halt");
+    }
   }
   updateStates(nullptr);
   assert(states.empty());
@@ -1440,11 +1433,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     delete state;
   }
   init_states.clear();
-
-  // RLR TODO: now consider our stashed faulting states?
-  faulting_state_stash.clear();
-
-  // RLR TODO: save pending states as well...
 }
 
 ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_state, llvm::Function *initializer) {
@@ -1481,7 +1469,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
     updateStates(state);
   }
 
-  loopForkCounter.clear();
+//  loopForkCounter.clear();
 
   // libc initializer should not have forked any additional states
   if (states.empty()) {
@@ -1506,48 +1494,7 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
 }
 
 void LocalExecutor::checkMemoryUsage() {
-
   Executor::checkMemoryUsage();
-
-  // expensive, so do not do this very often
-  if ((maxStatesInLoop > 0) && (stats::instructions % 0xFFF) == 0) {
-    vector<const Loop*> too_many;
-    for (auto &pr : loopStateCounter) {
-      if (pr.second > maxStatesInLoop) {
-        too_many.push_back(pr.first);
-      }
-    }
-    for (const auto *loop : too_many) {
-      decimateStatesInLoop(loop, 99);
-    }
-  }
-}
-
-unsigned LocalExecutor::decimateStatesInLoop(const Loop *loop, unsigned skip_counter) {
-
-  unsigned killed = 0;
-  unsigned counter = 0;
-  skip_counter++;
-  for (ExecutionState *state : states) {
-    for (const auto &sf : state->stack) {
-      for (const auto lf : sf.loopFrames) {
-        if ((lf.loop == loop) && (++counter % skip_counter != 0)) {
-          terminateStateOnDecimate(*state);
-          killed++;
-        }
-      }
-    }
-  }
-  return killed;
-}
-
-unsigned LocalExecutor::numStatesInLoop(const Loop *loop) const {
-
-  auto itr = loopStateCounter.find(loop);
-  if (itr != loopStateCounter.end()) {
-    return itr->second;
-  }
-  return 0;
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
@@ -1601,6 +1548,9 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
           LoopFrame &lf = sf.loopFrames.back();
           if (lf.loop == dst_loop) lf.counter += 1;
         }
+#ifdef _DEBUG
+        assert(isOnlyInLoop(&state, dst_loop));
+#endif
       }
     } else {
 
@@ -1612,23 +1562,43 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
       if (src_loop == nullptr) {
 
         // entered the first loop
+#ifdef _DEBUG
         assert(sf.loopFrames.empty());
         assert(src_depth == 0 && dst_depth == 1);
-        sf.loopFrames.emplace_back(LoopFrame(dst_loop, loopStateCounter));
+#endif
+        sf.loopFrames.emplace_back(LoopFrame(dst_loop));
+
+        // insert this state into the destination loop set
+#ifdef _DEBUG
+        // should not be in any loop
+        assert(isOnlyInLoop(&state, nullptr));
+#endif
+        loopingStates[dst_loop].insert(&state);
+
       } else if (dst_loop == nullptr) {
 
         // left the last loop
+#ifdef _DEBUG
         assert(src_depth > 0 && dst_depth == 0);
+#endif
         for (unsigned idx = 0; idx < src_depth; ++idx) {
           sf.loopFrames.pop_back();
         }
+#ifdef _DEBUG
         assert(sf.loopFrames.empty());
+        assert(isOnlyInLoop(&state, src_loop));
+#endif
+        // remove this state from the source loop set
+        loopingStates[dst_loop].erase(&state);
+
       } else {
 
         // neither empty implies we just transitioned up/down nested loops
         if (src_depth < dst_depth) {
 
+#ifdef _DEBUG
           assert(src_loop->contains(dst_loop));
+#endif
           // create frames for each intermediate loop
           const llvm::Loop *curr = dst_loop;
           std::vector<const llvm::Loop*> loops;
@@ -1637,17 +1607,26 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
             curr = curr->getParentLoop();
           }
           for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-            sf.loopFrames.emplace_back(LoopFrame(*itr, loopStateCounter));
+            sf.loopFrames.emplace_back(LoopFrame(*itr));
           }
         } else {
 
           // pop loops from frame until we get to the source
+#ifdef _DEBUG
           assert(dst_loop->contains(src_loop));
+#endif
           for (unsigned idx = 0, end = src_depth - dst_depth; idx < end; ++idx) {
             sf.loopFrames.pop_back();
           }
+#ifdef _DEBUG
           assert(sf.loopFrames.back().loop == dst_loop);
+#endif
         }
+#ifdef _DEBUG
+        assert(isOnlyInLoop(&state, src_loop));
+#endif
+        loopingStates[src_loop].erase(&state);
+        loopingStates[dst_loop].insert(&state);
       }
     }
   }
@@ -1680,8 +1659,10 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         assert(bi->getCondition() == bi->getOperand(0) && "Wrong operand index!");
         const KFunction *kf = kmodule->functionMap[src->getParent()];
         state.allBranchCounter++;
-        ref<Expr> cond = eval(ki, 0, state).value;
 
+        const Loop *loop = state.getCurrentLoop();
+
+        ref<Expr> cond = eval(ki, 0, state).value;
         Executor::StatePair branches = fork(state, cond, false);
 
         // NOTE: There is a hidden dependency here, markBranchVisited
@@ -1691,32 +1672,35 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         if (statsTracker && kf->trackCoverage)
           statsTracker->markBranchVisited(branches.first, branches.second);
 
-        ExecutionState *states[2] = { branches.first, branches.second };
-        bool bothSatisfyable = (states[0] != nullptr) && (states[1] != nullptr);
+        if (branches.first && !branches.second) {
+          transferToBasicBlock(*branches.first, src, bi->getSuccessor(0));
+        } else if (!branches.first && branches.second) {
+          transferToBasicBlock(*branches.second, src, bi->getSuccessor(1));
+        } else if (branches.first && branches.second) {
 
-        for (unsigned index = 0; index < countof(states); ++index) {
-          if (states[index] != nullptr) {
+          ExecutionState *states[2] = { branches.first, branches.second };
+          BasicBlock *dsts[2] = { bi->getSuccessor(0), bi->getSuccessor(1) };
+          if (loop != nullptr) {
+            ExecutionStates &ls = loopingStates[loop];
+            if (ls.size() > maxStatesInLoop) {
 
-            BasicBlock *dst = bi->getSuccessor(index);
-            transferToBasicBlock(*states[index], src, dst);
-
-            if (!doConcreteInterpretation && bothSatisfyable) {
-              states[index]->unconBranchCounter++;
-              StackFrame &sf = states[index]->stack.back();
-              if (!sf.loopFrames.empty()) {
-
-                LoopFrame &lf = sf.loopFrames.back();
-                ++loopForkCounter[lf.loop];
-                if (lf.loop->isLoopExiting(src) && lf.loop->contains(dst)) {
-                  if (lf.counter > maxLoopIteration && loopForkCounter[lf.loop] > maxLoopForks){
-
-                    // finally consider terminating the state.
-                    terminateStateOnDiscard(*states[index], "loop throttled");
-                  }
+              // exceeded max num of states in this loop
+              // there can be only one...
+              unsigned discard = 0;
+              if (loop->isLoopExiting(src)) {
+                if (!loop->contains(dsts[0])) {
+                  discard = 1;
                 }
+              } else if (theRNG.getBool()){
+                // discard 1
+                discard = 1;
               }
+              terminateStateOnDiscard(*states[discard], "loop throttled");
+              states[discard] = nullptr;
             }
           }
+          if (states[0]) transferToBasicBlock(*states[0], src, dsts[0]);
+          if (states[1]) transferToBasicBlock(*states[1], src, dsts[1]);
         }
       }
       break;
@@ -2323,6 +2307,16 @@ void LocalExecutor::terminateState(ExecutionState &state) {
       errs() << msg << oendl;
     }
   }
+  if (!state.stack.empty()) {
+    StackFrame &sf = state.stack.back();
+    if (!sf.loopFrames.empty()) {
+      LoopFrame &lf = sf.loopFrames.back();
+#ifdef _DEBUG
+      assert(isOnlyInLoop(&state, lf.loop));
+#endif
+      loopingStates[lf.loop].erase(&state);
+    }
+  }
   Executor::terminateState(state);
 };
 
@@ -2361,6 +2355,56 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state,
   }
   return true;
 }
+
+void LocalExecutor::branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) {
+
+  const llvm::Loop *loop = state.getCurrentLoop();
+  Executor::branch(state, conditions, result);
+  if (loop != nullptr) {
+    ExecutionStates &ls = loopingStates[loop];
+    for (auto s : result) {
+      ls.insert(s);
+    }
+  }
+}
+
+ExecutionState *LocalExecutor::clone(ExecutionState *state) {
+
+  const llvm::Loop *loop = state->getCurrentLoop();
+  ExecutionState *result = Executor::clone(state);
+  if ((result != nullptr) && (loop != nullptr)) {
+    loopingStates[loop].insert(result);
+  }
+  return result;
+}
+
+Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
+
+  const llvm::Loop *loop = current.getCurrentLoop();
+  StatePair pr = Executor::fork(current, condition, isInternal);
+  if (loop != nullptr) {
+    ExecutionStates &ls = loopingStates[loop];
+    if (pr.first != nullptr) ls.insert(pr.first);
+    if (pr.second != nullptr) ls.insert(pr.second);
+  }
+  return pr;
+}
+
+#ifdef _DEBUG
+
+bool LocalExecutor::isOnlyInLoop(ExecutionState *state, const llvm::Loop *loop) {
+
+  for (auto itr = loopingStates.begin(), end = loopingStates.end(); itr != end; ++itr) {
+    unsigned expected = (itr->first == loop) ? 1 : 0;
+    if (itr->second.count(state) != expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
+#endif
+
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,

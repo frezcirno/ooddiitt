@@ -127,3 +127,16 @@ int foo06(char *ptr[2]) {
   }
   return result;
 }
+
+void foo07(char **args) {
+
+  while (*args != NULL) {
+    printf("%s\n", args);
+    args += 1;
+  }
+}
+
+int main(int argc, char *argv[]) {
+
+  foo07(argv);
+}
