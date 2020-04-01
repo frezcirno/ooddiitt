@@ -66,6 +66,7 @@ namespace klee {
     // loop analysis
     llvm::DominatorTree domTree;
     KLoop kloop;
+    std::set<const llvm::Loop*> loops;
 
     bool is_user;
     unsigned fnID;

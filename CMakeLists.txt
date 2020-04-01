@@ -162,6 +162,7 @@ if (ENABLE_KLEE_ASSERTS)
 else()
   message(STATUS "KLEE assertions disabled")
   list(APPEND KLEE_COMPONENT_CXX_DEFINES "NDEBUG")
+  add_definitions(-DNDEBUG)
 endif()
 
 ################################################################################

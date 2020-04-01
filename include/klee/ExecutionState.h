@@ -122,20 +122,6 @@ private:
   KModule *kmodule;
 };
 
-#if 0 == 1
-struct LoopFrame {
-  const llvm::Loop *loop;
-  std::map<const llvm::Loop*,unsigned> &global_counters;
-  unsigned counter;
-
-  LoopFrame(const llvm::Loop *l, std::map<const llvm::Loop*,unsigned> &g) : loop(l), global_counters(g), counter(0)
-    { global_counters[loop] += 1; }
-  LoopFrame(const LoopFrame &s) : loop(s.loop), global_counters(s.global_counters), counter(s.counter)
-    { global_counters[loop] += 1; }
-  ~LoopFrame() { global_counters[loop] -= 1; }
-};
-#endif
-
 struct LoopFrame {
   const llvm::Loop *loop;
   unsigned counter;

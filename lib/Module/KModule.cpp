@@ -617,6 +617,15 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
   domTree.runOnFunction(*function);
   kloop.releaseMemory();
   kloop.Analyze(domTree.getBase());
+
+  // the right way to do this is to enumerate the loops.
+  // but toplevelloops is not initialized, although the bbmap is.  weird.
+  for (auto itr = function->begin(), end = function->end(); itr != end; ++itr) {
+    BasicBlock *bb = itr;
+    if (const Loop *loop = kloop.getLoopFor(bb)) {
+      loops.insert(loop);
+    }
+  }
 }
 
 KFunction::~KFunction() {

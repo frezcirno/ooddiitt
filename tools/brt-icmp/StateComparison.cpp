@@ -1,11 +1,9 @@
-//
-//
-//
 // Created by rrutledge on 10/23/19.
 //
 
 #include "StateComparison.h"
 #include <vector>
+#include <llvm/Support/CommandLine.h>
 
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Support/raw_ostream.h"
@@ -16,6 +14,8 @@ using namespace llvm;
 using namespace std;
 
 namespace klee {
+
+cl::opt<bool> ReturnsFitLCS("returns-fit-lcs", cl::init(false), cl::desc("align function return checkpoints along longest common subsequence"));
 
 string to_string(const vector<unsigned char> &buffer) {
   ostringstream bytes;
@@ -117,55 +117,110 @@ bool StateComparator::alignFnReturns() {
     else ++itr;
   }
 
-#if 0 == 1
-  // RLR TODO: this needs to be restored
-  // only continue if the function call returns are comparable, i.e. they are aligned
-  //  RLR TODO: if not aligned, try to align them
-  if (ver1.fn_returns.size() != ver2.fn_returns.size()) {
-
-    CompareDiff diff(DiffType::warning);
-    diff.fn = "@unaligned";
-    diff.distance = UINT_MAX;
-
-    ostringstream ss;
-    emitRetSequence(ss, ver1.fn_returns);
-    ss << ':';
-    emitRetSequence(ss, ver2.fn_returns);
-    diff.desc = ss.str();
-
-    diffs.emplace_back(diff);
-    return false;
+  map<KFunction*,KFunction*> ver1_to_ver2;
+  map<KFunction*,KFunction*> ver2_to_ver1;
+  for (auto itr = ver1.fn_returns.begin(), end = ver1.fn_returns.end(); itr != end; ++itr) {
+    KFunction *kf1 = itr->first;
+    KFunction *kf2 = ver2.kmodule->getKFunction(kf1->getName());
+    assert(kf2);
+    ver1_to_ver2.insert(make_pair(kf1, kf2));
+    ver2_to_ver1.insert(make_pair(kf2, kf1));
   }
-  auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
-  auto itr2 = ver2.fn_returns.begin();
-  while (itr1 != end1) {
-    if (itr1->first->getName() != itr2->first->getName()) {
-      CompareDiff diff(DiffType::warning);
-      diff.fn = "@unaligned";
-      diff.distance = UINT_MAX;
 
-      ostringstream ss;
-      emitRetSequence(ss, ver1.fn_returns);
-      ss << ':';
-      emitRetSequence(ss, ver2.fn_returns);
-      diff.desc = ss.str();
-
-      diffs.emplace_back(diff);
-      return false;
+  if (ver1.fn_returns.size() == ver2.fn_returns.size()) {
+    auto itr1 = ver1.fn_returns.begin(), end1 = ver1.fn_returns.end();
+    auto itr2 = ver2.fn_returns.begin();
+    while (itr1 != end1) {
+      if (itr1->first != ver2_to_ver1[itr2->first]) {
+        return false;
+      }
+      ++itr1; ++itr2;
     }
-    ++itr1; ++itr2;
+    return true;
   }
-#endif
-  return true;
+
+  if (ReturnsFitLCS) {
+
+    vector<KFunction *> seq1, seq2, lcs;
+    seq1.reserve(ver1.fn_returns.size());
+    for (auto itr = ver1.fn_returns.begin(), end = ver1.fn_returns.end(); itr != end; ++itr) {
+      seq1.push_back(itr->first);
+    }
+    seq2.reserve(ver2.fn_returns.size());
+    for (auto itr = ver2.fn_returns.begin(), end = ver2.fn_returns.end(); itr != end; ++itr) {
+      seq2.push_back(ver2_to_ver1[itr->first]);
+    }
+
+    calcLongestCommonSubSeq(seq1, seq2, lcs);
+
+    if (!lcs.empty()) {
+      dropFnReturns(ver1.fn_returns, lcs);
+      for (unsigned idx = 0; idx < lcs.size(); ++idx) {
+        lcs[idx] = ver1_to_ver2[lcs[idx]];
+      }
+      dropFnReturns(ver2.fn_returns, lcs);
+      return true;
+    }
+  }
+  return false;
 }
 
-void StateComparator::emitRetSequence(std::ostringstream &ss, std::deque<std::pair<KFunction*, ExecutionState*> > &fn_returns) {
+void StateComparator::dropFnReturns(deque<pair<KFunction*, ExecutionState*> > &rets, const vector<KFunction*> &kfs) {
 
-  bool first = true;
-  for (auto &pr : fn_returns) {
-    if (first) first = false;
-    else ss << ',';
-    ss << pr.first->getName();
+  assert(rets.size() >= kfs.size());
+
+  // drop all fn_returns not in lcs sequence
+  unsigned idx = 0;
+  for (auto itr = rets.begin(); itr != rets.end(); ) {
+    if (idx >= kfs.size() || itr->first != kfs[idx]) {
+      itr = rets.erase(itr);
+    } else {
+      ++itr;
+      ++idx;
+    }
+  }
+  assert(rets.size() == kfs.size());
+}
+
+void StateComparator::calcLongestCommonSubSeq(const vector<KFunction*> &seq1,
+                                              const vector<KFunction*> &seq2,
+                                              vector<KFunction*> &lcs) {
+
+  // calculate longest length
+  unsigned len[seq1.size() + 1][seq2.size() + 1];
+
+  for (unsigned idx1 = 0; idx1 <= seq1.size(); ++idx1) {
+    for (unsigned idx2 = 0; idx2 <= seq2.size(); ++idx2) {
+      unsigned new_length;
+      if ((idx1 == 0) || (idx2 == 0)) {
+        new_length = 0;
+      } else if (seq1[idx1 - 1] == seq2[idx2 - 1]) {
+        new_length = len[idx1 - 1][idx2 - 1] + 1;
+      } else {
+        new_length = max(len[idx1 - 1][idx2], len[idx1][idx2 - 1]);
+      }
+      len[idx1][idx2] = new_length;
+    }
+  }
+
+  // get the longest sequence
+  unsigned idx = len[seq1.size()][seq2.size()];
+  lcs.clear();
+  lcs.resize(idx);
+
+  // and copy an example of longest back into lcs
+  unsigned idx1 = seq1.size();
+  unsigned idx2 = seq2.size();
+  while ((idx1 > 0) && (idx2 > 0)) {
+
+    if (seq1[idx1 - 1] == seq2[idx2 - 1]) {
+      lcs[idx - 1] = seq1[idx1 - 1];
+      --idx; --idx1; --idx2;
+    } else if (len[idx1 - 1][idx2] > len[idx1][idx2 - 1]) {
+      --idx1;
+    } else {
+      --idx2;
+    }
   }
 }
 

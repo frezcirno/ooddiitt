@@ -1490,6 +1490,10 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
 
   delete processTree;
   processTree = nullptr;
+
+  // loop state is no longer valid
+  loopingStates.clear();
+
   return result;
 }
 
@@ -1548,9 +1552,7 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
           LoopFrame &lf = sf.loopFrames.back();
           if (lf.loop == dst_loop) lf.counter += 1;
         }
-#ifdef _DEBUG
-        assert(isOnlyInLoop(&state, dst_loop));
-#endif
+        assert(isOnlyInLoop(&state, kf, dst_loop));
       }
     } else {
 
@@ -1562,43 +1564,33 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
       if (src_loop == nullptr) {
 
         // entered the first loop
-#ifdef _DEBUG
         assert(sf.loopFrames.empty());
         assert(src_depth == 0 && dst_depth == 1);
-#endif
         sf.loopFrames.emplace_back(LoopFrame(dst_loop));
 
         // insert this state into the destination loop set
-#ifdef _DEBUG
         // should not be in any loop
-        assert(isOnlyInLoop(&state, nullptr));
-#endif
+        assert(isOnlyInLoop(&state, kf, nullptr));
         loopingStates[dst_loop].insert(&state);
 
       } else if (dst_loop == nullptr) {
 
         // left the last loop
-#ifdef _DEBUG
         assert(src_depth > 0 && dst_depth == 0);
-#endif
         for (unsigned idx = 0; idx < src_depth; ++idx) {
           sf.loopFrames.pop_back();
         }
-#ifdef _DEBUG
         assert(sf.loopFrames.empty());
-        assert(isOnlyInLoop(&state, src_loop));
-#endif
+        assert(isOnlyInLoop(&state, kf, src_loop));
         // remove this state from the source loop set
-        loopingStates[dst_loop].erase(&state);
+        loopingStates[src_loop].erase(&state);
 
       } else {
 
         // neither empty implies we just transitioned up/down nested loops
         if (src_depth < dst_depth) {
 
-#ifdef _DEBUG
           assert(src_loop->contains(dst_loop));
-#endif
           // create frames for each intermediate loop
           const llvm::Loop *curr = dst_loop;
           std::vector<const llvm::Loop*> loops;
@@ -1612,19 +1604,13 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
         } else {
 
           // pop loops from frame until we get to the source
-#ifdef _DEBUG
           assert(dst_loop->contains(src_loop));
-#endif
           for (unsigned idx = 0, end = src_depth - dst_depth; idx < end; ++idx) {
             sf.loopFrames.pop_back();
           }
-#ifdef _DEBUG
           assert(sf.loopFrames.back().loop == dst_loop);
-#endif
         }
-#ifdef _DEBUG
-        assert(isOnlyInLoop(&state, src_loop));
-#endif
+        assert(isOnlyInLoop(&state, kf, src_loop));
         loopingStates[src_loop].erase(&state);
         loopingStates[dst_loop].insert(&state);
       }
@@ -1712,6 +1698,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           ((state.stack.size() == 0 || !state.stack.back().caller))) {
         libc_initializing = false;
       } else {
+        assert(!state.stack.empty());
         KFunction *ret_from = state.stack.back().kf;
         if (!libc_initializing) {
           if (tracer != nullptr) {
@@ -1732,6 +1719,16 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           ss << "noreturn fn: " << ret_from->getName();
           terminateStateOnComplete(state, TerminateReason::Abort, ss.str());
         } else {
+          // if exiting from middle of loop, then
+          // need to adjust loop states
+          if (!state.stack.empty()) {
+            StackFrame &sf = state.stack.back();
+            if (!sf.loopFrames.empty()) {
+              LoopFrame &lf = sf.loopFrames.back();
+              assert(isOnlyInLoop(&state, sf.kf, lf.loop));
+              loopingStates[lf.loop].erase(&state);
+            }
+          }
           Executor::executeInstruction(state, ki);
         }
       }
@@ -2307,12 +2304,14 @@ void LocalExecutor::terminateState(ExecutionState &state) {
       errs() << msg << oendl;
     }
   }
-  if (!state.stack.empty()) {
-    StackFrame &sf = state.stack.back();
+
+  // remove state from any loops
+  for (auto itr = state.stack.begin(), end = state.stack.end(); itr != end; ++itr) {
+    StackFrame &sf = *itr;
     if (!sf.loopFrames.empty()) {
       LoopFrame &lf = sf.loopFrames.back();
 #ifdef _DEBUG
-      assert(isOnlyInLoop(&state, lf.loop));
+      assert(isOnlyInLoop(&state, sf.kf, lf.loop));
 #endif
       loopingStates[lf.loop].erase(&state);
     }
@@ -2384,19 +2383,36 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
   StatePair pr = Executor::fork(current, condition, isInternal);
   if (loop != nullptr) {
     ExecutionStates &ls = loopingStates[loop];
-    if (pr.first != nullptr) ls.insert(pr.first);
-    if (pr.second != nullptr) ls.insert(pr.second);
+    if (pr.first != nullptr) {
+      ls.insert(pr.first);
+    }
+    if (pr.second != nullptr) {
+      ls.insert(pr.second);
+    }
   }
   return pr;
 }
 
-#ifdef _DEBUG
+#ifndef NDEBUG
 
-bool LocalExecutor::isOnlyInLoop(ExecutionState *state, const llvm::Loop *loop) {
+bool LocalExecutor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
 
-  for (auto itr = loopingStates.begin(), end = loopingStates.end(); itr != end; ++itr) {
-    unsigned expected = (itr->first == loop) ? 1 : 0;
-    if (itr->second.count(state) != expected) {
+  // if this is a recursive call, then we cannot say if this is an error
+  assert(!state->stack.empty());
+  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
+    if (state->stack[idx].kf == kf) {
+      return true;
+    }
+  }
+
+  for (auto itr = kf->loops.begin(), end = kf->loops.end(); itr != end; ++itr) {
+    unsigned expected = (*itr == loop) ? 1 : 0;
+    const auto &res = loopingStates.find(*itr);
+    if (res != loopingStates.end()) {
+      if (res->second.count(state) != expected) {
+        return false;
+      }
+    } else if (expected) {
       return false;
     }
   }

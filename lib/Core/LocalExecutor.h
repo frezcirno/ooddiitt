@@ -189,7 +189,7 @@ protected:
   std::map<const llvm::Loop *, ExecutionStates> loopingStates;
 
 #ifdef _DEBUG
-  bool isOnlyInLoop(ExecutionState *state, const llvm::Loop *loop);
+  bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
 #endif
 
   // behavior conditioned by exec mode

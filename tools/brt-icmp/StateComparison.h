@@ -27,7 +27,8 @@ struct StateVersion {
   bool forked;
   std::deque<std::pair<KFunction*, ExecutionState*> > fn_returns;
 
-  explicit StateVersion(KModule *k) : kmodule(k), initialState(nullptr), finalState(nullptr), forked(false)  {}
+  explicit StateVersion(KModule *k) :
+      kmodule(k), initialState(nullptr), finalState(nullptr), term_reason(TerminateReason::Invalid), forked(false)  {}
   virtual ~StateVersion();
 };
 
@@ -52,22 +53,8 @@ struct CompareCheckpoint {
   unsigned distance;
   std::deque<CompareDiff> diffs;
 
-  CompareCheckpoint(const std::string &f, unsigned d = UINT32_MAX) : fn(f), distance(d) {}
+  explicit CompareCheckpoint(const std::string &f, unsigned d = UINT32_MAX) : fn(f), distance(d) {}
 };
-
-#if 0 == 1
-struct CompareExtDiff : CompareDiff {
-  explicit CompareExtDiff(const std::string &e) : CompareDiff(DiffType::delta) { fn = "@top"; element = e; distance = UINT_MAX; }
-  CompareExtDiff(const std::string &e, const std::string &d) : CompareExtDiff(e) { desc = d; }
-};
-
-struct CompareIntDiff : CompareDiff {
-  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state) : CompareDiff(DiffType::delta)
-    { fn = kf->getName(); element = e; distance = state->distance; }
-  CompareIntDiff(KFunction *kf, const std::string &e, ExecutionState *state, const std::string &d)
-    : CompareIntDiff(kf, e, state) { desc = d; }
-};
-#endif
 
 std::string to_string(const CompareCheckpoint &checkpoint);
 std::string to_string(const CompareDiff &diff);
@@ -107,17 +94,14 @@ public:
 
   std::deque<CompareCheckpoint> checkpoints;
 
-//  bool empty() const { return checkpoints.empty(); }
-//  std::deque<CompareDiff>::iterator begin() { return diffs.begin(); }
-//  std::deque<CompareDiff>::iterator end() { return diffs.end(); }
-//  std::deque<CompareDiff>::const_iterator begin() const { return diffs.begin(); }
-//  std::deque<CompareDiff>::const_iterator end() const { return diffs.end(); }
-
 private:
 
   bool compareExternalState();
   bool compareInternalState();
   bool alignFnReturns();
+  void calcLongestCommonSubSeq(const std::vector<KFunction*> &seq1, const std::vector<KFunction*> &seq2, std::vector<KFunction*> &lcs);
+  void dropFnReturns(std::deque<std::pair<KFunction*, ExecutionState*> > &rets, const std::vector<KFunction*> &kfs);
+
   void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
   void compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                            const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
@@ -149,8 +133,6 @@ private:
   bool isBlacklisted(KFunction *fk) { return blacklistedFns.find(fk) != blacklistedFns.end(); }
   bool isBlacklisted(llvm::Type *type) { return blacklistedTypes.find(type) != blacklistedTypes.end(); }
 
-
-  static void emitRetSequence(std::ostringstream &ss, std::deque<std::pair<KFunction*, ExecutionState*> > &fn_returns);
 };
 
 }
