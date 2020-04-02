@@ -235,9 +235,8 @@ bool StateComparator::diffs_found() const {
 
 bool StateComparator::isEquivalent() {
 
-  bool result = false;
   if (ver2.finalState == nullptr) {
-    checkpoints.emplace_back("@n/a");
+    checkpoints.emplace_back("@n/a", UINT32_MAX);
     auto &diffs = checkpoints.back().diffs;
     diffs.emplace_back(DiffType::delta, "@n/a", "incomplete execution");
   } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
@@ -246,7 +245,7 @@ bool StateComparator::isEquivalent() {
     ExecutionState *state = ver2.finalState;
     string fn = "@unknown";
     if (!state->stack.empty()) fn = ver2.finalState->stack.back().kf->getName();
-    checkpoints.emplace_back(fn);
+    checkpoints.emplace_back(fn, state->stack.size());
 
     auto &diffs = checkpoints.back().diffs;
     string element = "@unknown";
@@ -265,9 +264,9 @@ bool StateComparator::isEquivalent() {
     if (!state->messages.empty()) ss << ": " << state->messages.back();
     diffs.emplace_back(DiffType::delta, element, ss.str());
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
-    result = compareExternalState();
+    compareExternalState();
   } else {
-    result = compareInternalState();
+    compareInternalState();
   }
   return !diffs_found();
 }
@@ -277,7 +276,7 @@ bool StateComparator::compareExternalState() {
   assert(checkpoints.empty());
 
   // external comparison will only have a single checkpoint, at program termination
-  checkpoints.emplace_back("@main");
+  checkpoints.emplace_back("@main", UINT32_MAX);
   auto &diffs = checkpoints.back().diffs;
 
   // each  must have a return value, it must be an int, and they must be equal

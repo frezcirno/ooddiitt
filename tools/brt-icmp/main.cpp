@@ -518,7 +518,7 @@ int main(int argc, char **argv, char **envp) {
         continue;
       }
 
-      outs() << fs::path(test_file).filename().string() << ':' << oflush;
+      outs() << fs::path(test_file).filename().string() << ';' << oflush;
 
       // now, lets do it all again with the second module
       auto *handler2 = new ICmpKleeHandler(version2);
@@ -537,23 +537,34 @@ int main(int argc, char **argv, char **envp) {
         const KInstruction *ki =  cmp.checkTermination();
         if (ki == nullptr) {
           if (cmp.isEquivalent()) {
-            outs() << "equivalent";
+            outs() << "equivalent;0;";
             if (with_oracle) {
-              if (!cmp.beseechOracle()) outs() << " (false negative)";
+              if (!cmp.beseechOracle()) {
+                outs() << '-';
+              } else {
+                outs() << '+';
+              }
+            } else {
+              outs() << '?';
             }
             outs() << oendl;
           } else {
-            outs() << "divergent";
+            outs() << "divergent;" << cmp.checkpoints.size() << ';';
             if (with_oracle) {
-              if (cmp.beseechOracle()) outs() << " (false positive)";
+              if (cmp.beseechOracle()) {
+                outs() << '-';
+              } else {
+                outs() << '+';
+              }
+            } else {
+              outs() << '?';
             }
             outs() << oendl;
+
             for (const auto &cp : cmp.checkpoints) {
-              if (!cp.diffs.empty()) {
-                outs().indent(2) << to_string(cp) << oendl;
-                for (const auto &diff : cp.diffs) {
-                  outs().indent(4) << to_string(diff) << oendl;
-                }
+              outs().indent(2) << to_string(cp) << oendl;
+              for (const auto &diff : cp.diffs) {
+                outs().indent(4) << to_string(diff) << oendl;
               }
             }
           }

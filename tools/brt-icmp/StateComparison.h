@@ -53,7 +53,7 @@ struct CompareCheckpoint {
   unsigned distance;
   std::deque<CompareDiff> diffs;
 
-  explicit CompareCheckpoint(const std::string &f, unsigned d = UINT32_MAX) : fn(f), distance(d) {}
+  explicit CompareCheckpoint(const std::string &f, unsigned d) : fn(f), distance(d) {}
 };
 
 std::string to_string(const CompareCheckpoint &checkpoint);
