@@ -1012,7 +1012,7 @@ ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
 
 /* Concretize the given expression, and return a possible constant value.
    'reason' is just a documentation string stating the reason for concretization. */
-ref<klee::ConstantExpr>Executor::toConstant(ExecutionState &state, ref<Expr> e, const char *reason) {
+ref<klee::ConstantExpr> Executor::toConstant(ExecutionState &state, ref<Expr> e, const char *reason) {
 
   ref<ConstantExpr> result;
   e = state.constraints.simplifyExpr(e);
@@ -1033,6 +1033,18 @@ ref<klee::ConstantExpr>Executor::toConstant(ExecutionState &state, ref<Expr> e, 
         state.messages.push_back(os.str());
       }
     }
+  }
+  return result;
+}
+
+ref<klee::ConstantExpr> Executor::toExample(ExecutionState &state, ref<Expr> e) {
+
+  ref<ConstantExpr> result;
+  if (isa<ConstantExpr>(e)) {
+    result = dyn_cast<ConstantExpr>(e);
+  } else {
+    e = state.constraints.simplifyExpr(e);
+    solver->getValue(state, e, result);
   }
   return result;
 }

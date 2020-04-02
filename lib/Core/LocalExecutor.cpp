@@ -358,7 +358,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnMemFault(state, target, "read resolveMO");
+    terminateStateOnMemFault(state, target, address, nullptr, "read resolveMO");
     return false;
   }
 
@@ -377,7 +377,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     ref<ConstantExpr> coffsetExpr = cast<ConstantExpr>(offsetExpr);
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
     if (offset + bytes - 1 > os->visible_size) {
-      terminateStateOnMemFault(*currState, target, "read OoB const offset");
+      terminateStateOnMemFault(*currState, target, address, mo, "read OoB const offset");
       return false;
     }
   } else {
@@ -390,9 +390,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     Executor::StatePair sp = fork(*currState, mc, true);
     if (sp.first == nullptr) {
       // no satisfying inbounds solution, both currState and sp.second must terminate
-      terminateStateOnMemFault(*currState, target, "read OoB1 offset");
+      terminateStateOnMemFault(*currState, target, address, mo, "read OoB1 offset");
       if (sp.second != nullptr && sp.second != currState) {
-        terminateStateOnMemFault(*sp.second, target, "read OoB2 offset");
+        terminateStateOnMemFault(*sp.second, target, address, mo, "read OoB2 offset");
       }
       return false;
 
@@ -400,7 +400,7 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
       // inbound solution exists.  should continue as currState. sp.second must terminate
       currState = sp.first;
       if (sp.second != nullptr) {
-        terminateStateOnMemFault(*sp.second, target, "read OoB3 offset");
+        terminateStateOnMemFault(*sp.second, target, address, mo, "read OoB3 offset");
       }
     }
   }
@@ -562,7 +562,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnMemFault(state, target, "write resolveMO");
+    terminateStateOnMemFault(state, target, address, nullptr, "write resolveMO");
     return false;
   }
 
@@ -570,7 +570,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   const ObjectState *os = op.second;
 
   if (os->readOnly) {
-    terminateStateOnComplete(state, TerminateReason::ROFault, "memory error: object read only");
+    terminateStateOnMemFault(state, target, address, mo, "memory error: object read only");
   }
 
   Expr::Width width = value->getWidth();
@@ -590,7 +590,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     const auto offset = (unsigned) coffsetExpr->getZExtValue();
     if (offset + bytes > os->visible_size) {
 
-      terminateStateOnMemFault(*currState, target, "write OoB const offset");
+      terminateStateOnMemFault(*currState, target, address, mo, "write OoB const offset");
       return false;
     }
   } else {
@@ -603,9 +603,9 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
     Executor::StatePair sp = fork(*currState, mc, true);
     if (sp.first == nullptr) {
       // no satisfying inbounds solution, both currState and sp.second must terminate
-      terminateStateOnMemFault(*currState, target, "write OoB1 offset");
+      terminateStateOnMemFault(*currState, target, address, mo, "write OoB1 offset");
       if (sp.second != nullptr && sp.second != currState) {
-        terminateStateOnMemFault(*sp.second, target, "write OoB2 offset");
+        terminateStateOnMemFault(*sp.second, target, address, mo, "write OoB2 offset");
       }
       return false;
 
@@ -613,7 +613,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       // inbound solution exists.  should continue as currState. sp.second must terminate
       currState = sp.first;
       if (sp.second != nullptr) {
-        terminateStateOnMemFault(*sp.second, target, "write OoB3 offset");
+        terminateStateOnMemFault(*sp.second, target, address, mo, "write OoB3 offset");
       }
     }
   }
@@ -633,7 +633,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
       }
       offsetExpr = cex;
     } else {
-      terminateStateOnMemFault(*currState, target, "write memory solver unable to get example offset");
+      terminateStateOnMemFault(*currState, target, address, mo, "write memory solver unable to get example offset");
       return false;
     }
   }
@@ -2319,12 +2319,18 @@ void LocalExecutor::terminateState(ExecutionState &state) {
   Executor::terminateState(state);
 };
 
-void LocalExecutor::terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &comment) {
+void LocalExecutor::terminateStateOnMemFault(ExecutionState &state,
+                                             const KInstruction *ki,
+                                             ref<Expr> addr,
+                                             const MemoryObject *mo,
+                                             const std::string &comment) {
   state.instFaulting = ki;
+  state.addrFaulting = toExample(state, addr)->getZExtValue();
+  state.moFaulting = mo;
   ostringstream ss;
   ss << comment;
   if (const auto *info = ki->info) {
-    ss << " @ " << info->assemblyLine << ' '  << fs::path(info->file).filename().string() << ':' << info->line;
+    ss << " @L" << info->assemblyLine << " ("  << fs::path(info->file).filename().string() << ':' << info->line << "):";
   }
   bool first = true;
   for (const auto &frame : state.stack) {
@@ -2341,11 +2347,26 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state,
                                         std::vector<SymbolicSolution> &result,
                                         const std::set<MemKind> &kinds) {
 
-  // copy out all memory objects
+  // need the set of MemoryObjects representing user globals.
+  set<const MemoryObject*> global_user_mos;
+  set<const llvm::GlobalVariable*> gbs;
+  kmodule->getUserGlobals(gbs);
+  for (auto &gb : gbs) {
+    MemoryObject *mo = globalObjects.find(gb)->second;
+    if (mo != nullptr) {
+      global_user_mos.insert(mo);
+    }
+  }
+
+    // copy out all memory objects
   for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
     const MemoryObject *mo = itr->first;
     if (kinds.find(mo->kind) != kinds.end()) {
 
+      // only include the user globals
+      if ((mo->kind == MemKind::global) && (global_user_mos.find(mo) == global_user_mos.end())) {
+        continue;
+      }
       const ObjectState *os = itr->second;
       result.emplace_back(make_pair(mo, vector<unsigned char>{}));
       vector<unsigned char> &value = result.back().second;

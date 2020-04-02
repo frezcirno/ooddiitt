@@ -250,11 +250,19 @@ bool StateComparator::isEquivalent() {
 
     auto &diffs = checkpoints.back().diffs;
     string element = "@unknown";
-    if (state->instFaulting != nullptr) element = std::to_string(state->instFaulting->info->assemblyLine);
+    if (ver2.term_reason == TerminateReason::MemFault) {
+      if (state->moFaulting != nullptr) {
+        element = state->moFaulting->name;
+      } else {
+        ostringstream ss;
+        ss << "@0x" << hex << setfill('0') << setw(16) << state->addrFaulting;
+        element = ss.str();
+      }
+    }
 
     ostringstream ss;
     ss << to_string(ver2.term_reason);
-    if (!state->messages.empty()) ss << '-' << state->messages.back();
+    if (!state->messages.empty()) ss << ": " << state->messages.back();
     diffs.emplace_back(DiffType::delta, element, ss.str());
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
     result = compareExternalState();

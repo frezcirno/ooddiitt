@@ -151,7 +151,11 @@ protected:
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
   void terminateState(ExecutionState &state) override;
-  void terminateStateOnMemFault(ExecutionState &state, const KInstruction *ki, const std::string &comment);
+  void terminateStateOnMemFault(ExecutionState &state,
+                                const KInstruction *ki,
+                                ref<Expr> addr,
+                                const MemoryObject *mo,
+                                const std::string &comment);
 
   bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
 

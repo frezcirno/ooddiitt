@@ -276,6 +276,8 @@ public:
   StateStatus status;
   std::deque<std::string> messages;
   const KInstruction *instFaulting;
+  uint64_t addrFaulting;
+  const MemoryObject *moFaulting;
   std::deque<unsigned> trace;
   std::vector<ref<Expr> > arguments;
   unsigned allBranchCounter;
