@@ -70,6 +70,7 @@ namespace {
   cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
+  cl::opt<string> TrueFaults("true-faults", cl::desc("list of true faults in post-module"));
 }
 
 /***/
@@ -337,12 +338,10 @@ void expand_test_files(const string &prefix, deque<string> &files) {
   sort(files.begin(), files.end());
 }
 
-void getModuleNames(const string &dir, string &name1, string &name2, bool &with_oracle) {
+void getModuleNames(const string &dir, string &name1, string &name2) {
 
   name1 = PreModule;
   name2 = PostModule;
-
-  with_oracle = false;
 
   if (name1.empty() || name2.empty()) {
     if (fs::is_directory(dir)) {
@@ -355,7 +354,6 @@ void getModuleNames(const string &dir, string &name1, string &name2, bool &with_
             name1 = (fs::path(dir) / filename).string();
           } else if (boost::starts_with(filename, "rply-")) {
             name2 = (fs::path(dir) / filename).string();
-            with_oracle = true;
           } else if (name2.empty() && boost::starts_with(filename, "post-")) {
             name2 = (fs::path(dir) / filename).string();
           }
@@ -422,6 +420,24 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
   }
 }
 
+bool isTrueFault(const vector<pair<string, unsigned> > &true_faults, const ExecutionState *state) {
+
+  if (const KInstruction *ki = state->instFaulting) {
+    if (const InstructionInfo *ii = ki->info) {
+
+      fs::path pfile(ii->file);
+      string filename = pfile.filename().string();
+
+      for (const auto pr : true_faults) {
+        if (pr.first == filename && pr.second == ii->line) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -440,8 +456,7 @@ int main(int argc, char **argv, char **envp) {
   // pre and post modules in the output directory
   string mod_name1;
   string mod_name2;
-  bool with_oracle = false;
-  getModuleNames(Output, mod_name1, mod_name2, with_oracle);
+  getModuleNames(Output, mod_name1, mod_name2);
   if (mod_name1.empty()) {
     errs() << "Failed to find pre-module\n";
     exit(1);
@@ -470,6 +485,23 @@ int main(int argc, char **argv, char **envp) {
 
   deque<string> test_files;
   expand_test_files(Prefix, test_files);
+
+  vector<pair<string, unsigned> >true_faults;
+  if (!TrueFaults.empty()) {
+    vector<string> entries;
+    boost::split(entries, TrueFaults, [](char c){return c == ',';});
+    true_faults.reserve(entries.size());
+    for (const auto &entry: entries) {
+      string::size_type offset = entry.find(':');
+      if (offset != string::npos) {
+        string file = entry.substr(0, offset);
+        unsigned line = stoul(entry.substr(offset + 1));
+        true_faults.emplace_back(file, line);
+      }
+    }
+  }
+
+  bool with_oracle = kmod2->hasOracle() || !true_faults.empty();
 
 #ifdef DO_HEAP_PROFILE
   HeapProfilerStart("brt-icmp");
@@ -551,7 +583,8 @@ int main(int argc, char **argv, char **envp) {
           } else {
             outs() << "divergent;" << cmp.checkpoints.size() << ';';
             if (with_oracle) {
-              if (cmp.beseechOracle()) {
+              if (cmp.beseechOracle() &&
+                 ((version2.term_reason != TerminateReason::MemFault) || (!isTrueFault(true_faults, version2.finalState)))) {
                 outs() << '-';
               } else {
                 outs() << '+';

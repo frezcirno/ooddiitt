@@ -73,7 +73,7 @@ class Tracer {
 };
 
 cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
-cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
+cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(8), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
 cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
 cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
@@ -2414,8 +2414,6 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
   return pr;
 }
 
-#ifndef NDEBUG
-
 bool LocalExecutor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
 
   // if this is a recursive call, then we cannot say if this is an error
@@ -2439,9 +2437,6 @@ bool LocalExecutor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llv
   }
   return true;
 }
-
-#endif
-
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,
                                       const InterpreterOptions &opts,

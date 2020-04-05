@@ -507,7 +507,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       unsigned esize = datalayout->getTypeStoreSize(etype);
       unsigned eoffset = 0;
       for (unsigned idx = 0, end = etype->getVectorNumElements(); idx != end; ++idx) {
-        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+//        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+        string index_name = name;
         compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
         eoffset += esize;
       }
@@ -520,7 +521,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
       unsigned esize = datalayout->getTypeStoreSize(etype);
       unsigned eoffset = 0;
       for (unsigned idx = 0, end = atype->getArrayNumElements(); idx != end; ++idx) {
-        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+//        string index_name = '[' + name + ':' + std::to_string(idx) + ']';
+        string index_name = name;
         compareObjectStates(os1, offset1 + eoffset, kf1, state1, os2, offset2 + eoffset, kf2, state2, index_name, etype);
         eoffset += esize;
       }

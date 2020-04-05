@@ -174,6 +174,8 @@ namespace klee {
                    TraceType ttrace = TraceType::invalid,
                    MarkScope mscope = MarkScope::invalid);
 
+    bool hasOracle() { return getKFunction("__o_assert_fail") != nullptr; }
+
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
