@@ -411,7 +411,14 @@ bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&arg
 
 bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
-  state.o_asserts.push_back(ki);
+  unsigned id = 0;
+  if (!args.empty()) {
+    ref<ConstantExpr> id_expr = dyn_cast<ConstantExpr>(executor->toUnique(state, args[0]));
+    if (!id_expr.isNull()) {
+      id = id_expr->getZExtValue();
+    }
+  }
+  state.o_asserts.emplace_back(id, ki);
   return true;
 }
 

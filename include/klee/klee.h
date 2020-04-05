@@ -97,15 +97,15 @@ extern "C" {
 
 #ifdef ORACLE_ASSERT
 
-static inline void __o_assert_fail() { printf("o_assert failed\n"); }
+static inline void __o_assert_fail(unsigned id) { printf("o_assert %u failed\n", id); }
 
-# define o_assert(expr)                                                 \
+# define o_assert(id, expr)                                             \
      ((expr)                                                            \
    ? (void) (0)                                                         \
-   : __o_assert_fail ())                                                \
+   : __o_assert_fail (id))                                              \
 
 #else
-# define o_assert(expr)		((void) 0)
+# define o_assert(id, expr)		((void) 0)
 #endif
 
   /* Return true if the given value is symbolic (represented by an

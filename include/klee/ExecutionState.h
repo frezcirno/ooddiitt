@@ -294,7 +294,7 @@ public:
   ref<Expr> last_ret_value;
   unsigned distance;
   bool reached_modified_fn;
-  std::deque<KInstruction*> o_asserts;
+  std::deque<std::pair<unsigned,KInstruction*> >o_asserts;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
