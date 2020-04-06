@@ -557,6 +557,12 @@ int main(int argc, char **argv, char **envp) {
           exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
         }
       }
+      if (Verbose) {
+        if (state->instFaulting != nullptr) {
+          outs() << "#Faulting statement at " << state->instFaulting->info->file << ':' << state->instFaulting->info->line << oendl;
+        }
+      }
+
     }
 
     if (ShowOutput) {
