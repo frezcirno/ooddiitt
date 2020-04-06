@@ -98,7 +98,7 @@ extern "C" {
 #ifdef ORACLE_ASSERT
 
 static inline void __o_assert_fail(unsigned id) {                       \
-  FILE *fp = fopen("log-oassert.txt", "w");                             \
+  FILE *fp = fopen("log-oassert.txt", "a");                             \
   if (fp != NULL) {                                                     \
     fprintf(fp, "o_assert %u failed\n", id);                            \
     fclose(fp);                                                         \
