@@ -385,55 +385,76 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
 
-  // check the return value
-  Type *type = fn1->getReturnType();
-  if (!type->isVoidTy() && ModuleTypes::isEquivalentType(type, fn2->getReturnType())) {
-    // state1 may lack a return value due to an abort
-    if (!state1->last_ret_value.isNull()) {
-      // if state1 has a return value, then state2 must have one as well
-      if (!state2->last_ret_value.isNull()) {
-        ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
-        ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
-        assert(!(ret1.isNull() || ret2.isNull()));
-        visited_ptrs.clear();
-        compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
-      } else {
-        diffs.emplace_back(DiffType::delta, "@return", "missing return value");
+  KFunction *last_kf1 = nullptr;
+  if (state1->stack.size() > 0) {
+    last_kf1 = state1->stack.back().kf;
+  }
+  KFunction *last_kf2 = nullptr;
+  if (state2->stack.size() > 0) {
+    last_kf2= state2->stack.back().kf;
+  }
+  if (last_kf1 && last_kf2 && last_kf1->getName() == last_kf2->getName()) {
+
+    // check the return value
+    Type *type = fn1->getReturnType();
+    if (!type->isVoidTy() && ModuleTypes::isEquivalentType(type, fn2->getReturnType())) {
+      // state1 may lack a return value due to an abort
+      if (!state1->last_ret_value.isNull()) {
+        // if state1 has a return value, then state2 must have one as well
+        if (!state2->last_ret_value.isNull()) {
+          ref<ConstantExpr> ret1 = dyn_cast<ConstantExpr>(state1->last_ret_value);
+          ref<ConstantExpr> ret2 = dyn_cast<ConstantExpr>(state2->last_ret_value);
+          assert(!(ret1.isNull() || ret2.isNull()));
+          visited_ptrs.clear();
+          compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
+        } else {
+          diffs.emplace_back(DiffType::delta, "@return", "missing return value");
+        }
       }
     }
-  }
 
-  // scan for pointer parameters - these could be outputs
-  if (!kf1->isDiffChangedSig() && !fn1->isVarArg()) {
-    unsigned idx = 0;
-    for (auto itr = fn1->arg_begin(), end = fn1->arg_end(); itr != end; ++itr) {
-      Argument &arg = *itr;
-      if (auto *arg_type = dyn_cast<PointerType>(arg.getType())) {
-        string name;
-        if (arg.hasName()) name = arg.getName();
-        else name = std::to_string(idx);
+    // scan for pointer parameters - these could be outputs
+    if (!kf1->isDiffChangedSig() && !fn1->isVarArg()) {
+      unsigned idx = 0;
+      for (auto itr = fn1->arg_begin(), end = fn1->arg_end(); itr != end; ++itr) {
+        Argument &arg = *itr;
+        if (auto *arg_type = dyn_cast<PointerType>(arg.getType())) {
+          string name;
+          if (arg.hasName()) name = arg.getName();
+          else name = std::to_string(idx);
 
-        ref<Expr> expr1 = state1->stack.back().locals[kf1->getArgRegister(idx)].value;
-        if (!expr1.isNull()) {
-          ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(expr1);
-          if (!ptr1.isNull()) {
-            ref<Expr> expr2 = state2->stack.back().locals[kf2->getArgRegister(idx)].value;
-            if (!expr2.isNull()) {
-              ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(expr2);
-              if (!ptr2.isNull()) {
-                comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
+          ref<Expr> expr1 = state1->stack.back().locals[kf1->getArgRegister(idx)].value;
+          if (!expr1.isNull()) {
+            ref<ConstantExpr> ptr1 = dyn_cast<ConstantExpr>(expr1);
+            if (!ptr1.isNull()) {
+              ref<Expr> expr2 = state2->stack.back().locals[kf2->getArgRegister(idx)].value;
+              if (!expr2.isNull()) {
+                ref<ConstantExpr> ptr2 = dyn_cast<ConstantExpr>(expr2);
+                if (!ptr2.isNull()) {
+                  comparePtrs(ptr1, kf1, state1, ptr2, kf2, state2, name, arg_type);
+                } else {
+                  diffs.emplace_back(DiffType::delta, name, "ptr did not evaluate to a constant");
+                }
               } else {
-                diffs.emplace_back(DiffType::delta, name, "ptr did not evaluate to a constant");
+                diffs.emplace_back(DiffType::delta, name, "missing ptr value");
               }
-            } else {
-              diffs.emplace_back(DiffType::delta, name, "missing ptr value");
             }
           }
         }
+        idx += 1;
       }
-      idx += 1;
     }
+  } else {
+    // executions ended at different functions.  one exited before/after the other
+    ostringstream ss;
+    ss << "exited from different functions (";
+    ss << ((last_kf1 == nullptr) ? "void" : last_kf1->getName());
+    ss << ':';
+    ss << ((last_kf2 == nullptr) ? "void" : last_kf2->getName());
+    ss << ')';
+    diffs.emplace_back(DiffType::delta, kf1->getName(), ss.str());
   }
+
 
   // check output devices
   string stdout1 = to_string(state1->stdout_capture);
