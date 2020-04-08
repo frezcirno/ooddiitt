@@ -70,7 +70,7 @@ namespace {
   cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
-  cl::opt<string> TrueFaults("true-faults", cl::desc("list of true faults in post-module"));
+  cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"));
 }
 
 /***/
@@ -420,19 +420,11 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
   }
 }
 
-bool isTrueFault(const vector<pair<string, unsigned> > &true_faults, const ExecutionState *state) {
+bool isTrueFault(const vector<Function *> &true_faults, const ExecutionState *state) {
 
   if (const KInstruction *ki = state->instFaulting) {
-    if (const InstructionInfo *ii = ki->info) {
-
-      fs::path pfile(ii->file);
-      string filename = pfile.filename().string();
-
-      for (const auto pr : true_faults) {
-        if (pr.first == filename && pr.second == ii->line) {
-          return true;
-        }
-      }
+    if (find(true_faults.begin(), true_faults.end(), ki->inst->getParent()->getParent()) != true_faults.end()) {
+      return true;
     }
   }
   return false;
@@ -486,17 +478,14 @@ int main(int argc, char **argv, char **envp) {
   deque<string> test_files;
   expand_test_files(Prefix, test_files);
 
-  vector<pair<string, unsigned> >true_faults;
+  vector<Function *>true_faults;
   if (!TrueFaults.empty()) {
     vector<string> entries;
     boost::split(entries, TrueFaults, [](char c){return c == ',';});
     true_faults.reserve(entries.size());
-    for (const auto &entry: entries) {
-      string::size_type offset = entry.find(':');
-      if (offset != string::npos) {
-        string file = entry.substr(0, offset);
-        unsigned line = stoul(entry.substr(offset + 1));
-        true_faults.emplace_back(file, line);
+    for (const auto &entry : entries) {
+      if (Function *fn = kmod2->getFunction(entry)) {
+        true_faults.push_back(fn);
       }
     }
   }
