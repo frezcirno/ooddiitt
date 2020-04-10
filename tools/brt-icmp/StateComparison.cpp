@@ -649,22 +649,35 @@ void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
   assert(!checkpoints.empty());
   auto &diffs = checkpoints.back().diffs;
   if (!isBlacklisted(type)) {
-    // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
-    auto result = visited_ptrs.insert(make_pair(addr1, addr2));
-    if (result.second) {
 
-      ObjectPair op1;
-      if (state1->addressSpace.resolveOne(addr1, op1)) {
-        ObjectPair op2;
-        if (state2->addressSpace.resolveOne(addr2, op2)) {
+    if (addr1 == 0) {
+      if (addr2 != 0) {
+        diffs.emplace_back(DiffType::delta, name, "pointer is not null");
+      }
+    } else {
+      // addr1 is not zero, so it must point to an object
+      if (addr2 == 0) {
+        diffs.emplace_back(DiffType::delta, name, "pointer is null");
+      } else {
+        // neither pointer is null, so both must point to objects
+        // do not recurse through the same pointer pair twice, prevents pointer cycles from looping forever
+        auto result = visited_ptrs.insert(make_pair(addr1, addr2));
+        if (result.second) {
 
-          uint64_t offset1 = addr1 - op1.first->address;
-          uint64_t offset2 = addr2 - op2.first->address;
-          string ptr_name = "*(" + name + ')';
-          compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
+          ObjectPair op1;
+          if (state1->addressSpace.resolveOne(addr1, op1)) {
+            ObjectPair op2;
+            if (state2->addressSpace.resolveOne(addr2, op2)) {
 
-        } else {
-          diffs.emplace_back(DiffType::delta, name, "unable to find pointed object");
+              uint64_t offset1 = addr1 - op1.first->address;
+              uint64_t offset2 = addr2 - op2.first->address;
+              string ptr_name = "*(" + name + ')';
+              compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
+
+            } else {
+              diffs.emplace_back(DiffType::delta, name, "unable to find referenced object");
+            }
+          }
         }
       }
     }
