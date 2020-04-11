@@ -1432,7 +1432,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   if (!states.empty()) {
-    klee_warning("terminating %u incomplete states", states.size());
+    klee_warning("terminating %lu incomplete states", states.size());
     for (ExecutionState *state : states) {
       terminateStateOnDiscard(*state, "flushing states on halt");
     }
