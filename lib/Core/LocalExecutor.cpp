@@ -1002,20 +1002,43 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
       // push the module name into the state
       std::string md_name = kmodule->getModuleIdentifier();
+      // program name requires some post-processing.
+      // strip paths and bc extension
+      std::string prog_name;
+      size_t pos = md_name.rfind('/');
+      if (pos != string::npos) {
+        prog_name = md_name.substr(pos + 1);
+      } else {
+        prog_name = md_name;
+      }
+      if (boost::ends_with(prog_name, ".bc")) {
+        prog_name = prog_name.substr(0, prog_name.size() - 3);
+      }
+
+      // also need to remove a pre, post, or rply prefix so all programs see same prog name
+      if (boost::starts_with(prog_name, "pre-")) {
+        prog_name = prog_name.substr(4);
+      }
+      if (boost::starts_with(prog_name, "post-")) {
+        prog_name = prog_name.substr(5);
+      }
+      if (boost::starts_with(prog_name, "rply-")) {
+        prog_name = prog_name.substr(5);
+      }
 
       WObjectPair wopProgName;
-      if (!allocSymbolic(*state, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, md_name.size() + 1)) {
+      if (!allocSymbolic(*state, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, prog_name.size() + 1)) {
         klee_error("failed to allocate symbolic argv_array");
       }
       MemoryObject *moProgName = wopProgName.first;
       ObjectState *osProgName = wopProgName.second;
 
-      for (unsigned idx = 0, end = md_name.size(); idx < end; ++idx) {
-        char ch = md_name[idx];
+      for (unsigned idx = 0; idx < prog_name.size(); ++idx) {
+        char ch = prog_name[idx];
         addConstraint(*state, EqExpr::create(osProgName->read8(idx), ConstantExpr::create(ch, Expr::Int8)));
       }
       // null terminate the string
-      addConstraint(*state, EqExpr::create(osProgName->read8(md_name.size()), ConstantExpr::create(0, Expr::Int8)));
+      addConstraint(*state, EqExpr::create(osProgName->read8(prog_name.size()), ConstantExpr::create(0, Expr::Int8)));
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
