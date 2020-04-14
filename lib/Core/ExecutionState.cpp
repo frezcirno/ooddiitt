@@ -246,23 +246,34 @@ ExecutionState *ExecutionState::branch() {
   return falseState;
 }
 
-const llvm::Loop *ExecutionState::getCurrentLoop() {
+const llvm::Loop *ExecutionState::getTopMostLoop() const {
 
   const llvm::Loop *result = nullptr;
   if (!stack.empty()) {
-    StackFrame &sf = stack.back();
+    const StackFrame &sf = stack.back();
     if (!sf.loopFrames.empty()) {
-      LoopFrame &lf = sf.loopFrames.back();
+      const LoopFrame &lf = sf.loopFrames.back();
       result = lf.loop;
     }
   }
   return result;
 }
 
+bool ExecutionState::getAllLoops(std::set<const llvm::Loop *> &loops) const {
+
+  for (auto itr = stack.begin(), end = stack.end(); itr != end; ++itr) {
+    const StackFrame &sf = *itr;
+    if (!sf.loopFrames.empty()) {
+      const LoopFrame &lf = sf.loopFrames.back();
+      loops.insert(lf.loop);
+    }
+  }
+  return !loops.empty();
+}
+
 void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
   stack.emplace_back(StackFrame(caller,kf));
 }
-
 
 void ExecutionState::popFrame() {
 

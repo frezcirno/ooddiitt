@@ -1567,6 +1567,8 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
     const llvm::Loop *src_loop = kf->kloop.getLoopFor(src);
     const llvm::Loop *dst_loop = kf->kloop.getLoopFor(dst);
 
+    assert(src_loop == nullptr || isInLoop(&state, kf, src_loop));
+
     if (src_loop == dst_loop) {
       // either source and destination are not in a loop,
       // or they are in the same loop
@@ -1671,7 +1673,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         const KFunction *kf = kmodule->functionMap[src->getParent()];
         state.allBranchCounter++;
 
-        const Loop *loop = state.getCurrentLoop();
+        const Loop *loop = state.getTopMostLoop();
 
         ref<Expr> cond = eval(ki, 0, state).value;
         Executor::StatePair branches = fork(state, cond, false);
@@ -2403,9 +2405,10 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state,
 
 void LocalExecutor::branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) {
 
-  const llvm::Loop *loop = state.getCurrentLoop();
+  set<const Loop*> loops;
+  state.getAllLoops(loops);
   Executor::branch(state, conditions, result);
-  if (loop != nullptr) {
+  for (auto &loop : loops) {
     ExecutionStates &ls = loopingStates[loop];
     for (auto s : result) {
       ls.insert(s);
@@ -2415,19 +2418,23 @@ void LocalExecutor::branch(ExecutionState &state, const std::vector< ref<Expr> >
 
 ExecutionState *LocalExecutor::clone(ExecutionState *state) {
 
-  const llvm::Loop *loop = state->getCurrentLoop();
+  set<const Loop*> loops;
+  state->getAllLoops(loops);
   ExecutionState *result = Executor::clone(state);
-  if ((result != nullptr) && (loop != nullptr)) {
-    loopingStates[loop].insert(result);
+  if (result != nullptr) {
+    for (auto &loop : loops) {
+      loopingStates[loop].insert(result);
+    }
   }
   return result;
 }
 
 Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
 
-  const llvm::Loop *loop = current.getCurrentLoop();
+  set<const Loop*> loops;
+  current.getAllLoops(loops);
   StatePair pr = Executor::fork(current, condition, isInternal);
-  if (loop != nullptr) {
+  for (auto &loop : loops) {
     ExecutionStates &ls = loopingStates[loop];
     if (pr.first != nullptr) {
       ls.insert(pr.first);
@@ -2437,6 +2444,27 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
     }
   }
   return pr;
+}
+
+bool LocalExecutor::isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
+
+  // if this is a recursive call, then we cannot say if this is an error
+  assert(!state->stack.empty());
+  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
+    if (state->stack[idx].kf == kf) {
+      return true;
+    }
+  }
+
+  const auto &res = loopingStates.find(loop);
+  if (res != loopingStates.end()) {
+    if (res->second.count(state) != 1) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool LocalExecutor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {

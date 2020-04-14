@@ -316,7 +316,8 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
-  const llvm::Loop *getCurrentLoop();
+  const llvm::Loop *getTopMostLoop() const;
+  bool getAllLoops(std::set<const llvm::Loop *> &loops) const;
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
   bool isSymbolic(const MemoryObject *mo) const { return findSymbolic(mo) != nullptr; }

@@ -192,6 +192,7 @@ protected:
   ProgramTracer *tracer;
   std::map<const llvm::Loop *, ExecutionStates> loopingStates;
   bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
+  bool isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
 
   // behavior conditioned by exec mode
   bool doSaveFault;
