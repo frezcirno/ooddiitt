@@ -43,9 +43,23 @@ string to_char_string(const CharacterOutput &out) {
   string result;
   vector<unsigned char> buffer;
   out.get_data(buffer);
-  result.reserve(buffer.size() + 1);
+  result.reserve(buffer.size() * 2); // just a guess, due to escaped chars
   for (unsigned char &ch : buffer) {
-    result += ch;
+    if (isprint(ch))  {
+      if (ch == '\\') {
+        result += "\\\\";
+      } else {
+        result += ch;
+      }
+    } else {
+      result += '\\';
+      unsigned char hi = (unsigned char) (ch >> 4);
+      unsigned char low = (unsigned char) (ch & 0x0F);
+      hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
+      low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+      result += hi;
+      result += low;
+    }
   }
   return result;
 }
