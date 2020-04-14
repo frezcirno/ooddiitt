@@ -10,6 +10,8 @@
 #include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/Cell.h"
 
+#include "dtl/dtl.hpp"
+
 using namespace llvm;
 using namespace std;
 
@@ -29,13 +31,24 @@ string to_string(const vector<unsigned char> &buffer) {
   return bytes.str();
 }
 
-string to_string(const CharacterOutput &out) {
+string to_data_string(const CharacterOutput &out) {
 
   vector<unsigned char> buffer;
   out.get_data(buffer);
   return to_string(buffer);
 }
 
+string to_char_string(const CharacterOutput &out) {
+
+  string result;
+  vector<unsigned char> buffer;
+  out.get_data(buffer);
+  result.reserve(buffer.size() + 1);
+  for (unsigned char &ch : buffer) {
+    result += ch;
+  }
+  return result;
+}
 
 std::string to_string(const CompareCheckpoint &checkpoint) {
 
@@ -248,15 +261,36 @@ bool StateComparator::isEquivalent() {
     checkpoints.emplace_back(fn, state->stack.size());
 
     auto &diffs = checkpoints.back().diffs;
-    string element = "@unknown";
-    if (ver2.term_reason == TerminateReason::MemFault) {
-      if (state->moFaulting != nullptr) {
-        element = state->moFaulting->name;
-      } else {
-        ostringstream ss;
-        ss << "@0x" << hex << setfill('0') << setw(16) << state->addrFaulting;
-        element = ss.str();
+    string element;
+    switch (ver2.term_reason) {
+
+      case TerminateReason::MemFault: {
+        if (state->moFaulting != nullptr) {
+          element = state->moFaulting->name;
+        } else {
+          ostringstream ss;
+          ss << "@0x" << hex << setfill('0') << setw(16) << state->addrFaulting;
+          element = ss.str();
+        }
       }
+      break;
+
+      case TerminateReason::Exit: {
+        element = fn;
+        element += ".exit()";
+      }
+      break;
+
+      case TerminateReason::Abort: {
+        element = fn;
+        element += ".abort()";
+      }
+      break;
+
+      default: {
+        element = "@unknown";
+      }
+      break;
     }
 
     ostringstream ss;
@@ -300,16 +334,36 @@ bool StateComparator::compareExternalState() {
     }
   }
 
-  string stdout1 = to_string(ver1.finalState->stdout_capture);
-  string stdout2 = to_string(ver2.finalState->stdout_capture);
+  string stdout1 = to_data_string(ver1.finalState->stdout_capture);
+  string stdout2 = to_data_string(ver2.finalState->stdout_capture);
   if (stdout1 != stdout2) {
-    diffs.emplace_back(DiffType::delta, "@stdout", "different output");
+
+    string out1 = to_char_string(ver1.finalState->stdout_capture);
+    string out2 = to_char_string(ver2.finalState->stdout_capture);
+
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    diffs.emplace_back(DiffType::delta, "@stdout", desc);
   }
 
-  string stderr1 = to_string(ver1.finalState->stderr_capture);
-  string stderr2 = to_string(ver2.finalState->stderr_capture);
+  string stderr1 = to_data_string(ver1.finalState->stderr_capture);
+  string stderr2 = to_data_string(ver2.finalState->stderr_capture);
   if (stderr1 != stderr2) {
-    diffs.emplace_back(DiffType::delta, "@stderr", "different output");
+
+    string out1 = to_char_string(ver1.finalState->stderr_capture);
+    string out2 = to_char_string(ver2.finalState->stderr_capture);
+
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    diffs.emplace_back(DiffType::delta, "@stderr", desc);
   }
   return !diffs_found();
 }
@@ -333,7 +387,7 @@ bool StateComparator::compareInternalState() {
       if (gv2 != nullptr) {
 
         Type *type = gv1->getType();
-        // in llvm, all globals are pointers to their addr
+        // in llvm IR, all globals are pointers to their addr
         assert(type->isPointerTy());
         if (ModuleTypes::isEquivalentType(type, gv2->getType())) {
           const auto &itr2 = ver2.global_map.find(gv2);
@@ -360,7 +414,7 @@ bool StateComparator::compareInternalState() {
       if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
         unsigned distance = min(itr1->second->distance, itr2->second->distance);
         checkpoints.emplace_back(name1, distance);
-        compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second);
+        compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second, false);
       }
       ++itr1; ++itr2; ++counter;
     }
@@ -373,11 +427,11 @@ bool StateComparator::compareInternalState() {
   unsigned distance = min(ver1.finalState->distance, ver2.finalState->distance);
   checkpoints.emplace_back(test.entry_fn, distance);
 
-  compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState);
+  compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState, true);
   return !diffs_found();
 }
 
-void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2) {
+void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2, bool is_final) {
 
   assert(!checkpoints.empty());
   auto &diffs = checkpoints.back().diffs;
@@ -408,7 +462,9 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
           visited_ptrs.clear();
           compareRetExprs(ret1, kf1, state1, ret2, kf2, state2, type);
         } else {
-          diffs.emplace_back(DiffType::delta, "@return", "missing return value");
+          string element = kf1->getName();
+          element +=".@return";
+          diffs.emplace_back(DiffType::delta, element, "missing return value");
         }
       }
     }
@@ -419,9 +475,10 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
       for (auto itr = fn1->arg_begin(), end = fn1->arg_end(); itr != end; ++itr) {
         Argument &arg = *itr;
         if (auto *arg_type = dyn_cast<PointerType>(arg.getType())) {
-          string name;
-          if (arg.hasName()) name = arg.getName();
-          else name = std::to_string(idx);
+          string name = kf1->getName();
+          name += ".@";
+          if (arg.hasName()) name += arg.getName();
+          else name += std::to_string(idx);
 
           ref<Expr> expr1 = state1->stack.back().locals[kf1->getArgRegister(idx)].value;
           if (!expr1.isNull()) {
@@ -444,36 +501,49 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
         idx += 1;
       }
     }
-  } else {
-    // executions ended at different functions.  one exited before/after the other
-    ostringstream ss;
-    ss << "exited from different functions (";
-    ss << ((last_kf1 == nullptr) ? "void" : last_kf1->getName());
-    ss << ':';
-    ss << ((last_kf2 == nullptr) ? "void" : last_kf2->getName());
-    ss << ')';
-    diffs.emplace_back(DiffType::delta, kf1->getName(), ss.str());
   }
-
 
   // check output devices
-  string stdout1 = to_string(state1->stdout_capture);
-  string stdout2 = to_string(state2->stdout_capture);
+  string stdout1 = to_data_string(state1->stdout_capture);
+  string stdout2 = to_data_string(state2->stdout_capture);
   if (stdout1 != stdout2) {
-    diffs.emplace_back(DiffType::delta, "@stdout", "different output");
+
+    string out1 = to_char_string(state1->stdout_capture);
+    string out2 = to_char_string(state2->stdout_capture);
+
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    diffs.emplace_back(DiffType::delta, "@stdout", desc);
   }
 
-  string stderr1 = to_string(state1->stderr_capture);
-  string stderr2 = to_string(state2->stderr_capture);
+  string stderr1 = to_data_string(state1->stderr_capture);
+  string stderr2 = to_data_string(state2->stderr_capture);
   if (stderr1 != stderr2) {
-    diffs.emplace_back(DiffType::delta, "@stderr", "different output");
+
+    string out1 = to_char_string(state1->stderr_capture);
+    string out2 = to_char_string(state2->stderr_capture);
+
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    diffs.emplace_back(DiffType::delta, "@stderr", desc);
   }
 
-  // finally, check user global variables
-  for (auto itr = globals.begin(), end = globals.end(); itr != end; ++itr) {
-    const CompareGlobalEntry &entry = *itr;
-    visited_ptrs.clear();
-    compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type);
+  // finally, if this is not the final state or both fns returned, then check user global variables
+  // if they did not return, no further execution is possible and no further behavior.
+  if (!is_final || ((ver1.term_reason == TerminateReason::Return) && (ver2.term_reason == TerminateReason::Return))) {
+    for (auto itr = globals.begin(), end = globals.end(); itr != end; ++itr) {
+      const CompareGlobalEntry &entry = *itr;
+      visited_ptrs.clear();
+      compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type);
+    }
   }
 }
 
@@ -586,7 +656,8 @@ void StateComparator::compareRetExprs(const ref<ConstantExpr> &expr1, KFunction 
   if (!isBlacklisted(type)) {
     if (!type->isVoidTy()) {
       if (type->isSingleValueType()) {
-        string name = "@return";
+        string name = kf1->getName();
+        name += ".@return";
         if (type->isPointerTy()) {
 
           // pointer comparison

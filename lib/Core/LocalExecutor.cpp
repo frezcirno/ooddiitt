@@ -892,7 +892,9 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   // prepare a generic initial state
   baseState = new ExecutionState();
   baseState->lazyAllocationCount = lazyAllocationCount;
+  baseState->lazyStringLength = lazyStringLength;
   baseState->maxLazyDepth = maxLazyDepth;
+  baseState->maxStatesInLoop = maxStatesInLoop;
 
   initializeGlobals(*baseState, interpreterOpts.test_objs);
   bindModuleConstants();

@@ -203,9 +203,8 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
       root["argC"] = args.size();
       root["lazyAllocationCount"] = state.lazyAllocationCount;
       root["lazyStringLength"] = state.lazyStringLength;
-      root["maxLoopIteration"] = state.maxLoopIteration;
-      root["maxLoopForks"] = state.maxLoopForks;
       root["maxLazyDepth"] = state.maxLazyDepth;
+      root["maxStatesInLoop"] = state.maxStatesInLoop;
       root["timeStarted"] = klee::to_string(started_at);
       root["timeStopped"] = klee::to_string(stopped_at);
       root["timeElapsed"] = chrono::duration_cast<chrono::milliseconds>(stopped_at - started_at).count();

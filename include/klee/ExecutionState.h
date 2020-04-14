@@ -268,11 +268,12 @@ public:
 
   std::string name;
   bool isProcessed;
+
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
-  unsigned maxLoopIteration;
-  unsigned maxLoopForks;
   unsigned maxLazyDepth;
+  unsigned maxStatesInLoop;
+
   StateStatus status;
   std::deque<std::string> messages;
   const KInstruction *instFaulting;

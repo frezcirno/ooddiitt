@@ -83,11 +83,12 @@ ExecutionState::ExecutionState() :
     ptreeNode(0),
     name("_germinal_"),
     isProcessed(false),
+
     lazyAllocationCount(0),
     lazyStringLength(0),
-    maxLoopIteration(0),
-    maxLoopForks(0),
     maxLazyDepth(0),
+    maxStatesInLoop(0),
+
     status(StateStatus::Waiting),
     instFaulting(nullptr),
     addrFaulting(0),
@@ -130,11 +131,12 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     arrayNames(state.arrayNames),
     callTargetCounter(state.callTargetCounter),
     isProcessed(state.isProcessed),
+
     lazyAllocationCount(state.lazyAllocationCount),
     lazyStringLength(state.lazyStringLength),
-    maxLoopIteration(state.maxLoopIteration),
-    maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    maxStatesInLoop(state.maxStatesInLoop),
+
     status(state.status),
     messages(state.messages),
     instFaulting(state.instFaulting),
@@ -200,11 +202,12 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     callTargetCounter(state.callTargetCounter),
     name(state.name),
     isProcessed(state.isProcessed),
+
     lazyAllocationCount(state.lazyAllocationCount),
     lazyStringLength(state.lazyStringLength),
-    maxLoopIteration(state.maxLoopIteration),
-    maxLoopForks(state.maxLoopForks),
     maxLazyDepth(state.maxLazyDepth),
+    maxStatesInLoop(state.maxStatesInLoop),
+
     status(state.status),
     messages(state.messages),
     instFaulting(state.instFaulting),

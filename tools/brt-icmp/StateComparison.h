@@ -102,7 +102,7 @@ private:
   void calcLongestCommonSubSeq(const std::vector<KFunction*> &seq1, const std::vector<KFunction*> &seq2, std::vector<KFunction*> &lcs);
   void dropFnReturns(std::deque<std::pair<KFunction*, ExecutionState*> > &rets, const std::vector<KFunction*> &kfs);
 
-  void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2);
+  void compareInternalState(KFunction *kf1, ExecutionState *state1, KFunction *kf2, ExecutionState *state2, bool is_final);
   void compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                            const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                            const std::string &name, llvm::Type *type);
