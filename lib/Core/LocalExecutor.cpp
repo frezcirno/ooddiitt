@@ -1166,6 +1166,10 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     baseState->stdin_buffer = test.stdin_buffer;
   }
 
+  for (auto value : test.fps_produced) {
+    baseState->fps_produced.push_back(value);
+  }
+
   // inject the test case memory objects into the replay state
   for (const auto &obj : test.objects) {
 

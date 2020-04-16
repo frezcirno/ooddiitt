@@ -207,6 +207,14 @@ void load_test_case(Json::Value &root, TestCase &test) {
     }
   }
 
+  Json::Value fps = root["fpsProduced"];
+  if (fps.isArray()) {
+    test.fps_produced.reserve(fps.size());
+    for (unsigned idx = 0, end = fps.size(); idx < end; ++idx) {
+      test.fps_produced.push_back(fps[idx].asDouble());
+    }
+  }
+
   test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {

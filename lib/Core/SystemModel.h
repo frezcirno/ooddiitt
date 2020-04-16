@@ -53,6 +53,7 @@ private:
   bool ExecuteFabs(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 
   LocalExecutor *executor;
   const ModelOptions &opts;

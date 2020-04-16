@@ -225,6 +225,11 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
         msgs.append(msg);
       }
 
+      Json::Value &fps = root["fpsProduced"] = Json::arrayValue;
+      for (auto fp : state.fps_produced) {
+        fps.append(fp);
+      }
+
       // store the path condition
       string constraints;
       i->getConstraintLog(state, constraints, LogType::SMTVARS);

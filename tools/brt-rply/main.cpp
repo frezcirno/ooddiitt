@@ -204,6 +204,14 @@ void load_test_case(Json::Value &root, TestCase &test) {
     }
   }
 
+  Json::Value fps = root["fpsProduced"];
+  if (fps.isArray()) {
+    test.fps_produced.reserve(fps.size());
+    for (unsigned idx = 0, end = fps.size(); idx < end; ++idx) {
+      test.fps_produced.push_back(fps[idx].asDouble());
+    }
+  }
+
   test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
@@ -233,7 +241,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
 bool update_test_case(const string &fname, Json::Value &root, const deque<unsigned> &trace) {
 
   // add the new trace as a new entity
-  Json::Value &rtrace = root["replyTrace"] = Json::arrayValue;
+  Json::Value &rtrace = root["replayTrace"] = Json::arrayValue;
   for (auto entry : trace) {
     rtrace.append(entry);
   }
@@ -309,7 +317,7 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
     kmod->pre_module = root["pre-module"].asString();
     kmod->post_module = root["post-module"].asString();
   } else {
-    klee_error("failed opening diff file: %s", filename.c_str());
+    klee_warning("diff file not found");
   }
 }
 

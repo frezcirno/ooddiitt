@@ -80,6 +80,7 @@ public:
   std::vector<unsigned> trace;
   std::vector<TestObject> objects;
   std::vector<unsigned char> stdin_buffer;
+  std::vector<int> fps_produced;
 
   bool is_main() const {
     for (const auto &obj : objects) {

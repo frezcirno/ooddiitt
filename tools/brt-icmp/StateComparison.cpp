@@ -52,11 +52,11 @@ string to_char_string(const CharacterOutput &out) {
         result += ch;
       }
     } else {
-      result += '\\';
       unsigned char hi = (unsigned char) (ch >> 4);
       unsigned char low = (unsigned char) (ch & 0x0F);
       hi = (unsigned char) ((hi > 9) ? ('A' + (hi - 10)) : ('0' + hi));
       low = (unsigned char) ((low > 9) ? ('A' + (low - 10)) : ('0' + low));
+      result += '\\';
       result += hi;
       result += low;
     }

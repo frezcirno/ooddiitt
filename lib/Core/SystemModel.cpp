@@ -35,6 +35,7 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"fabs", &SystemModel::ExecuteFabs},
     {"modf", &SystemModel::ExecuteModf},
     {"__o_assert_fail", &SystemModel::ExecuteOAssertFail},
+    {"xstrtod", &SystemModel::ExecuteXStrToD},
     {"__check_one_fd", &SystemModel::ExecuteNoop}
 };
 
@@ -422,6 +423,82 @@ bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr
   return true;
 }
 
+
+bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  static vector<double> values = { -3.0 , -2.0 , -1.0 , -0.5, -0.1, 0.1 , 0.5, 1.0 , 2.0 , 3.0 };
+  ref<ConstantExpr> str = executor->toConstant(state, args[0], "XStrToD");
+  ref<ConstantExpr> ptr = executor->toConstant(state, args[2], "XStrToD");
+  unsigned result = 0;
+
+  if (executor->getOptions().mode == ExecModeID::igen) {
+
+    // in input generation mode
+    ObjectPair op;
+    LocalExecutor::ResolveResult res = executor->resolveMO(state, str, op);
+    if (state.isSymbolic(op.first)) {
+      for (auto value : values) {
+
+        ExecutionState *ns = executor->clone(&state);
+        res = executor->resolveMO(*ns, ptr, op);
+        if (res == LocalExecutor::ResolveResult::OK) {
+          const MemoryObject *mo = op.first;
+          const ObjectState *os = op.second;
+          ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
+          ref<Expr> offset = mo->getOffsetExpr(ptr);
+
+          llvm::APFloat f(value);
+          ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
+          wos->write(offset, outparam);
+          ns->fps_produced.push_back(value);
+        }
+      }
+
+      res = executor->resolveMO(state, ptr, op);
+      if (res == LocalExecutor::ResolveResult::OK) {
+        const MemoryObject *mo = op.first;
+        const ObjectState *os = op.second;
+        ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+        ref<Expr> offset = mo->getOffsetExpr(ptr);
+
+        llvm::APFloat f(0.0);
+        ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
+        wos->write(offset, outparam);
+        state.fps_produced.push_back(f.convertToDouble());
+        result = 1;
+      }
+      retExpr = ConstantExpr::create(result, Expr::Int32);
+      return true;
+    }
+    state.fps_produced.push_back(APFloat::getInf(APFloat::IEEEdouble).convertToDouble());
+    return false;
+  } else {
+
+    // otherwise, we must be in a replay mode
+    if (!state.fps_produced.empty()) {
+
+      APFloat value(state.fps_produced.front());
+      state.fps_produced.pop_front();
+      if (!value.isInfinity()) {
+
+        // not the flag value, so write back the next value in sequence
+        ObjectPair op;
+        LocalExecutor::ResolveResult res = executor->resolveMO(state, ptr, op);
+        if (res == LocalExecutor::ResolveResult::OK) {
+          const MemoryObject *mo = op.first;
+          const ObjectState *os = op.second;
+          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+          ref<Expr> offset = mo->getOffsetExpr(ptr);
+
+          ref<ConstantExpr> outparam = ConstantExpr::alloc(value.bitcastToAPInt());
+          wos->write(offset, outparam);
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 
 // RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,
 
