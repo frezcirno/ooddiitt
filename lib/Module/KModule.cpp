@@ -18,6 +18,7 @@
 #include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Internal/System/Memory.h"
+#include "klee/Internal/Module/ModuleTypes.h"
 
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/Instructions.h"
@@ -39,10 +40,12 @@
 #include <llvm/Analysis/LoopPass.h>
 #include <llvm/DebugInfo.h>
 
-#include "klee/Internal/Module/ModuleTypes.h"
+#include <boost/filesystem.hpp>
 
 using namespace llvm;
 using namespace klee;
+namespace fs=boost::filesystem;
+
 using std::vector;
 using std::map;
 using std::set;
@@ -175,16 +178,23 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
     DISubprogram di_sp(*itr);
     if (Function *fn = di_sp.getFunction()) {
-      if (sources.find(di_sp.getFilename()) != sources.end()) {
+      string filename = fs::path(di_sp.getFilename()).filename().string();
+      if (sources.find(filename) != sources.end()) {
         user_fns.insert(fn);
       }
     }
   }
 
+  // have to find at least one user function
+  if (user_fns.empty()) {
+    klee_error("No user functions found");
+  }
+
   for (auto itr = finder.global_variable_begin(), end = finder.global_variable_end(); itr != end; ++itr) {
     DIGlobalVariable di_gv(*itr);
     if (GlobalVariable *gv = di_gv.getGlobal()) {
-      if (sources.find(di_gv.getFilename()) != sources.end()) {
+      string filename = fs::path(di_gv.getFilename()).filename().string();
+      if (sources.find(filename) != sources.end()) {
         user_gbs.insert(gv);
       }
     }

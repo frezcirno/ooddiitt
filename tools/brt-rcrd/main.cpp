@@ -345,7 +345,7 @@ KModule *PrepareModule(const string &filename) {
 
   if (Module *module = LoadModule(filename)) {
     if (!isPrepared(module)) {
-      errs() << "not prepared: " << module->getModuleIdentifier() << '\n';
+      klee_error("not prepared: %s", module->getModuleIdentifier().c_str());
     } else {
       if (KModule *kmodule = new KModule(module)) {
         kmodule->prepare();
