@@ -482,6 +482,8 @@ bool SystemModel::doConstrainString(ExecutionState &state, const ObjectState *os
 
 bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
+//  static const vector<string> values = { "0", "-3" , "-2" , "-1" , "-0.5", "-0.1", "0.1" , "0.5", "1" , "2" , "3" };
+  static const vector<string> values = { "0", "1" , "2" , "3" };
   ref<ConstantExpr> str = executor->toConstant(state, args[0], "XStrToD");
   ref<ConstantExpr> ptr = executor->toConstant(state, args[2], "XStrToD");
 
@@ -490,18 +492,36 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
 
     ref<Expr> ch = op.second->read8(0);
     if (!executor->isUnique(state, ch)) {
-      if (doConstrainString(state, op.second, 0, "1")) {
+
+      const MemoryObject *mo = op.first;
+      for (auto itr = values.begin(), end = values.end(); itr != end; ++itr) {
+        // skip the first
+        if (itr != values.begin()) {
+          if (ExecutionState *ns = executor->clone(&state)) {
+            const ObjectState *os = ns->addressSpace.findObject(mo);
+            if (doConstrainString(*ns, os, 0, *itr)) {
+              ns->restartInstruction();
+              if (ki != nullptr) {
+                executor->frequent_forkers[ki->info->assemblyLine] += 1;
+              }
+            } else {
+              ostringstream ss;
+              ss << "xstrtod: " << mo->name << " failed to constrain";
+              state.messages.push_back(ss.str());
+              outs() << ss.str() << oendl;
+              executor->terminateStateOnDispose(*ns, "unsatisfiable xstrtod");
+            }
+          }
+        }
+      }
+      if (doConstrainString(state, op.second, 0, values.front())) {
         state.restartInstruction();
-        ostringstream ss;
-        ss << "xstrtod: " << op.first->name << " constrained";
-        state.messages.push_back(ss.str());
-        outs () << ss.str() << oendl;
         return true;
       } else {
         ostringstream ss;
-        ss << "xstrtod: " << op.first->name << " failed to constrain";
+        ss << "xstrtod: " << mo->name << " failed to constrain";
         state.messages.push_back(ss.str());
-        outs () << ss.str() << oendl;
+        outs() << ss.str() << oendl;
       }
     } else {
       ref<ConstantExpr> value;
@@ -514,7 +534,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
     }
   }
 
-#if 0 == 1
+#if 0
 
 //  static vector<string> values = { "0.0", "-3.0" , "-2.0" , "-1.0" , "-0.5", "-0.1", "0.1" , "0.5", "1.0" , "2.0" , "3.0" };
   static vector<string> values = { "0", "1", "2" };
@@ -558,7 +578,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
   return false;
 }
 
-#if 0 == 1
+#if 0
 bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   static vector<double> values = { -3.0 , -2.0 , -1.0 , -0.5, -0.1, 0.1 , 0.5, 1.0 , 2.0 , 3.0 };
