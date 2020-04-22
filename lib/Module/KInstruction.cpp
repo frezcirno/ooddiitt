@@ -19,7 +19,7 @@ KInstruction::~KInstruction() {
 }
 
 void KInstruction::printFileLine(llvm::raw_ostream &debugFile) {
-  if (info->file != "")
+  if (info->file != nullptr)
     debugFile << info->file << ":" << info->line;
   else
     debugFile << "[no debug info]";

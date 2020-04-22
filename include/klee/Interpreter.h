@@ -254,7 +254,7 @@ public:
   virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result, const std::set<MemKind> &kinds)
     { return false; }
 
-  virtual void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) = 0;
+  virtual void getCoveredLines(const ExecutionState &state, std::map<const char*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }
   virtual TraceType getTraceType() const { return TraceType::invalid; }
   virtual const UnconstraintFlagsT *getUnconstraintFlags() { return nullptr; }

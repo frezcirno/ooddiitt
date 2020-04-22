@@ -110,6 +110,10 @@ public:
   void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
 };
 
+typedef std::pair<const char*,unsigned> TraceEntryT;
+typedef std::deque<TraceEntryT> TraceDequeT;
+std::string to_string(const TraceEntryT &entry);
+
 std::string to_string(UnconstraintFlagsT flags);
 std::string to_string(MarkScope m);
 std::string to_string(const llvm::Type *type);

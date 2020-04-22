@@ -41,81 +41,66 @@ struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 
-
 class ProgramTracer {
 
 public:
-  ProgramTracer() {}
-  virtual ~ProgramTracer() {}
-  void append(std::deque<unsigned> &trace, unsigned entry, bool force=false) {
-      if ((entry != 0) && (force || trace.empty() || (trace.back() != entry)) ) trace.push_back(entry); }
-  virtual void append_instr(std::deque<unsigned> &trace, KInstruction *ki) {}
-  virtual void append_call(std::deque<unsigned> &trace, const KFunction *kf) {}
-  virtual void append_return(std::deque<unsigned> &trace, const KFunction *kf) {}
+  ProgramTracer() = default;
+  virtual ~ProgramTracer() = default;
+  void append(TraceDequeT &trace, const char *str, unsigned entry, bool force=false) {
+      if (
+          (entry != 0) &&
+          (force || trace.empty() || (trace.back().first != str) || (trace.back().second != entry))
+         ) trace.emplace_back(str, entry); }
+  void append(TraceDequeT &trace, unsigned entry, bool force=false) {
+    if (
+        (entry != 0) &&
+        (force || trace.empty() || (trace.back().second != entry))
+       ) trace.emplace_back(nullptr, entry); }
+  virtual void append_instr(TraceDequeT &trace, KInstruction *ki) {}
+  virtual void append_call(TraceDequeT &trace, const KFunction *kf) {}
+  virtual void append_return(TraceDequeT &trace, const KFunction *kf) {}
 };
 
 class AssemblyTracer : public ProgramTracer {
 public:
-  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
     append(trace, ki->info->assemblyLine);
   }
 };
 
 class StatementTracer : public ProgramTracer {
 public:
-  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
-    const llvm::DebugLoc loc = ki->inst->getDebugLoc();
-    append(trace, loc.getLine());
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
+    append(trace, ki->info->file, ki->info->line);
   }
 };
 
 class BBlocksTracer : public ProgramTracer {
 public:
-  BBlocksTracer(KModule *k) : kmodule(k)  {
-    k->getMarkedFns(fns);
-  }
+  explicit BBlocksTracer(KModule *k) : kmodule(k)  { }
 
-  BBlocksTracer(KModule *k, const std::set<std::string> *f) : kmodule(k)  {
-    if (f != nullptr) {
-      for (const auto &name : *f) {
-        if (const llvm::Function *fn = kmodule->module->getFunction(name))
-          fns.insert(fn);
-      }
-    }
-  }
-
-  BBlocksTracer(KModule *k, const std::set<const llvm::Function*> *f) : kmodule(k)  {
-    if (f != nullptr) { for (const auto &fn : *f) { fns.insert(fn); } }
-  }
-
-  BBlocksTracer(KModule *k, const llvm::Function *fn) : kmodule(k)  {
-    if (fn != nullptr) { fns.insert(fn); }
-  }
-
-  void append_instr(std::deque<unsigned> &trace, KInstruction *ki) override  {
-    const llvm::BasicBlock *bb = ki->inst->getParent();
-    const llvm::Function *fn = bb->getParent();
-    if (fns.find(fn) != fns.end()) {
-      auto pr = kmodule->getMarker(fn, bb);
-      append(trace, (pr.first * 1000) + pr.second);
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
+    llvm::BasicBlock *bb = ki->inst->getParent();
+    llvm::Function *fn = bb->getParent();
+    auto pr = kmodule->getMarker(fn, bb);
+    if (pr.second != 0) {
+      KFunction *kf = kmodule->getKFunction(fn);
+      append(trace, kf->getName().c_str(), pr.second);
     }
   }
 private:
   KModule *kmodule;
-  std::set<const llvm::Function*> fns;
 };
 
 class CallTracer : public ProgramTracer {
 public:
   explicit CallTracer(KModule *k) : kmodule(k)  {}
-  void append_call(std::deque<unsigned> &trace, const KFunction *kf) override {
-    unsigned fnID = kf->fnID;
-    if (fnID != 0) append(trace, fnID * 1000 + 1, true);
+  void append_call(TraceDequeT &trace, const KFunction *kf) override {
+    append(trace, kf->getName().c_str(), 1, true);
   }
 
-  void append_return(std::deque<unsigned> &trace, const KFunction *kf) override {
-    unsigned fnID = kf->fnID;
-    if (fnID != 0) append(trace, fnID * 1000 + 2, true);
+  void append_return(TraceDequeT &trace, const KFunction *kf) override {
+    append(trace, kf->getName().c_str(), 2, true);
   }
 
 private:
@@ -251,7 +236,7 @@ public:
   bool forkDisabled;
 
   /// @brief Set containing which lines in which files are covered by this state
-  std::map<const std::string *, std::set<unsigned> > coveredLines;
+  std::map<const char*, std::set<unsigned> > coveredLines;
 
   /// @brief Pointer to the process tree of the current state
   PTreeNode *ptreeNode;
@@ -279,7 +264,7 @@ public:
   const KInstruction *instFaulting;
   uint64_t addrFaulting;
   const MemoryObject *moFaulting;
-  std::deque<unsigned> trace;
+  std::deque<std::pair<const char *,unsigned> >trace;
   std::vector<ref<Expr> > arguments;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
@@ -296,7 +281,6 @@ public:
   unsigned distance;
   bool reached_modified_fn;
   std::deque<std::pair<unsigned,KInstruction*> >o_asserts;
-  std::deque<double> fps_produced;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

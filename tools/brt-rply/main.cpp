@@ -204,20 +204,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
     }
   }
 
-  Json::Value fps = root["fpsProduced"];
-  if (fps.isArray()) {
-    test.fps_produced.reserve(fps.size());
-    for (unsigned idx = 0, end = fps.size(); idx < end; ++idx) {
-      test.fps_produced.push_back(fps[idx].asDouble());
-    }
-  }
-
   test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
     test.trace.reserve(trace.size());
     for (unsigned idx = 0, end = trace.size(); idx < end; ++idx) {
-      test.trace.push_back(trace[idx].asUInt());
+      test.trace.push_back(trace[idx].asString());
     }
   }
 
@@ -238,12 +230,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-bool update_test_case(const string &fname, Json::Value &root, const deque<unsigned> &trace) {
+bool update_test_case(const string &fname, Json::Value &root, TraceDequeT &trace) {
 
   // add the new trace as a new entity
   Json::Value &rtrace = root["replayTrace"] = Json::arrayValue;
-  for (auto entry : trace) {
-    rtrace.append(entry);
+  for (const auto &entry : trace) {
+    rtrace.append(to_string(entry));
   }
 
   ofstream info;
@@ -323,10 +315,16 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
 
 enum class TraceCompareResult { ok, truncated, differs };
 
-TraceCompareResult compare_traces(const vector<unsigned> &t_trace, const deque<unsigned> &s_trace) {
+TraceCompareResult compare_traces(const vector<string> &t_trace, const TraceDequeT &s_trace) {
 
-  if (boost::starts_with(t_trace, s_trace)) {
-    if (t_trace.size() == s_trace.size()) {
+  vector<string> tmp;
+  tmp.reserve(s_trace.size());
+  for (const auto &entry : s_trace) {
+    tmp.push_back(to_string(entry));
+  }
+
+  if (boost::starts_with(t_trace, tmp)) {
+    if (t_trace.size() == tmp.size()) {
       return TraceCompareResult::ok;
     } else {
       return TraceCompareResult::truncated;
@@ -447,13 +445,22 @@ void getModuleName(const string &dir, string &name) {
   }
 }
 
+
+static const char *err_context = nullptr;
+static void PrintStackTraceSignalHandler(void *) {
+  if (err_context != nullptr) {
+    fprintf(stderr, "context: %s\n", err_context);
+  }
+  sys::PrintStackTrace(stderr);
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
   parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
+  sys::AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
   sys::SetInterruptFunction(interrupt_handle);
 
   // write out command line info, for reference
@@ -487,6 +494,7 @@ int main(int argc, char **argv, char **envp) {
     }
 
     outs() << fs::path(test_file).filename().string() << ':' << oflush;
+    err_context = test_file.c_str();
 
     string module_name = ModuleName;
     if (module_name.empty()) {

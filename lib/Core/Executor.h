@@ -198,6 +198,10 @@ protected:
   // @brief buffer to store logs before flushing to file
   llvm::raw_string_ostream debugLogBuffer;
 
+  std::map<unsigned, unsigned> frequent_forkers;
+  std::map<const llvm::Loop *,std::set<ExecutionState*> > loopingStates;
+  unsigned maxStatesInLoop;
+
   llvm::Function* getTargetFunction(llvm::Value *calledVal, ExecutionState &state);
 
 //  void printFileLine(ExecutionState &state, KInstruction *ki,
@@ -408,6 +412,9 @@ protected:
   void printDebugInstructions(ExecutionState &state);
   void doDumpStates();
 
+  bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
+  bool isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
+
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ie);
   ~Executor() override;
@@ -467,7 +474,7 @@ public:
   void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) override;
   bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) override;
 
-  void getCoveredLines(const ExecutionState &state, std::map<const std::string*, std::set<unsigned> > &res) override;
+  void getCoveredLines(const ExecutionState &state, std::map<const char*, std::set<unsigned> > &res) override;
 
   Expr::Width getWidthForLLVMType(LLVM_TYPE_Q llvm::Type *type) const;
   size_t getAllocationAlignment(const llvm::Value *allocSite) const;

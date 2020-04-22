@@ -37,6 +37,7 @@
 #include "llvm/IR/Metadata.h"
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Analysis/LoopPass.h>
+#include <llvm/DebugInfo.h>
 
 #include "klee/Internal/Module/ModuleTypes.h"
 
@@ -165,20 +166,31 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
   }
 }
 
-void KModule::transform(const Interpreter::ModuleOptions &opts,
-                        const set<Function*> &module_fns,
-                        const set<GlobalVariable*> &module_gbs,
-                        TraceType ttrace,
-                        MarkScope mscope) {
+void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string> &sources, TraceType ttrace, MarkScope mscope) {
 
   assert(module != nullptr);
 
+  DebugInfoFinder finder;
+  finder.processModule(*module);
+  for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
+    DISubprogram sp(*itr);
+    if (sources.find(sp.getFilename()) != sources.end()) {
+      user_fns.insert(sp.getFunction());
+    }
+  }
+
+  for (auto itr = finder.global_variable_begin(), end = finder.global_variable_end(); itr != end; ++itr) {
+    DIGlobalVariable gv(*itr);
+    if (sources.find(gv.getFilename()) != sources.end()) {
+      user_gbs.insert(gv.getGlobal());
+    }
+  }
+
   set<Function*> fns_to_mark;
-  if (mscope == MarkScope::module) {
-    fns_to_mark = module_fns;
-  } else if (mscope == MarkScope::all) {
-    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-      fns_to_mark.insert(itr);
+  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+    Function *fn = itr;
+    if (mscope == MarkScope::all || user_fns.find(fn) != user_fns.end()) {
+      fns_to_mark.insert(fn);
     }
   }
 
@@ -299,10 +311,10 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
   infos = new InstructionInfoTable();
   infos->BuildTable(module);
 
-  if (!module_fns.empty()) {
+  if (!user_fns.empty()) {
     vector<Value*> values;
-    values.reserve(module_fns.size());
-    for (auto fn : module_fns) {
+    values.reserve(user_fns.size());
+    for (auto fn : user_fns) {
       values.push_back((Value *) fn);
       user_fns.insert(fn);
     }
@@ -310,10 +322,11 @@ void KModule::transform(const Interpreter::ModuleOptions &opts,
     NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
     NMD->addOperand(Node);
   }
-  if (!module_gbs.empty()) {
+
+  if (!user_gbs.empty()) {
     vector<Value*> values;
-    values.reserve(module_gbs.size());
-    for (auto gb : module_gbs) {
+    values.reserve(user_gbs.size());
+    for (auto gb : user_gbs) {
       values.push_back((Value*) gb);
       user_gbs.insert(gb);
     }

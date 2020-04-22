@@ -267,28 +267,6 @@ namespace {
            cl::desc("Amount of time to dedicate to seeds, before normal search (default=0 (off))"),
            cl::init(0));
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 0)
-  cl::opt<unsigned int>
-  StopAfterNInstructions("stop-after-n-instructions",
-                         cl::desc("Stop execution after specified number of instructions (default=0 (off))"),
-                         cl::init(0));
-#else
-  cl::opt<unsigned long long>
-  StopAfterNInstructions("stop-after-n-instructions",
-                         cl::desc("Stop execution after specified number of instructions (default=0 (off))"),
-                         cl::init(0));
-#endif
-
-  cl::opt<unsigned>
-  MaxForks("max-forks",
-           cl::desc("Only fork this many times (default=-1 (off))"),
-           cl::init(~0u));
-
-  cl::opt<unsigned>
-  MaxDepth("max-depth",
-           cl::desc("Only allow this many symbolic branches (default=0 (off))"),
-           cl::init(0));
-
   cl::opt<unsigned>
   MaxMemory("max-memory",
             cl::desc("Refuse to fork when above this amount of memory (in MB, default=2000)"),
@@ -298,6 +276,9 @@ namespace {
   MaxMemoryInhibit("max-memory-inhibit",
             cl::desc("Inhibit forking at memory cap (vs. random terminate) (default=on)"),
             cl::init(true));
+
+  cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(1000), cl::desc("Number of states within loop body (default=1000"));
+
 }
 
 
@@ -316,7 +297,9 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       coreSolverTimeout(MaxCoreSolverTime != 0 && MaxInstructionTime != 0
                             ? std::min(MaxCoreSolverTime, MaxInstructionTime)
                             : std::max(MaxCoreSolverTime, MaxInstructionTime)),
-      debugInstFile(0), debugLogBuffer(debugBufferString) {
+      debugInstFile(0), debugLogBuffer(debugBufferString),
+      maxStatesInLoop(MaxLoopStates)
+{
 
   if (coreSolverTimeout) UseForkedCoreSolver = true;
   Solver *coreSolver = klee::createCoreSolver(CoreSolverToUse);
@@ -569,13 +552,13 @@ void Executor::branch(ExecutionState &state,
   unsigned N = conditions.size();
   assert(N);
 
-  if (MaxForks!=~0u && stats::forks >= MaxForks) {
+  if (inhibitForking) {
     unsigned next = theRNG.getInt32() % N;
     for (unsigned i=0; i<N; ++i) {
       if (i == next) {
         result.push_back(&state);
       } else {
-        result.push_back(NULL);
+        result.push_back(nullptr);
       }
     }
   } else {
@@ -588,9 +571,8 @@ void Executor::branch(ExecutionState &state,
       ExecutionState *ns = es->branch();
       addedStates.push_back(ns);
       result.push_back(ns);
-      es->ptreeNode->data = 0;
-      std::pair<PTree::Node*,PTree::Node*> res =
-        processTree->split(es->ptreeNode, ns, es);
+      es->ptreeNode->data = nullptr;
+      std::pair<PTree::Node*,PTree::Node*> res = processTree->split(es->ptreeNode, ns, es);
       ns->ptreeNode = res.first;
       es->ptreeNode = res.second;
     }
@@ -654,20 +636,26 @@ void Executor::branch(ExecutionState &state,
 
 ExecutionState *Executor::clone(ExecutionState *es) {
 
-  ExecutionState *ns = es->branch();
-  addedStates.push_back(ns);
-  es->ptreeNode->data = nullptr;
-  std::pair<PTree::Node*,PTree::Node*> res = processTree->split(es->ptreeNode, ns, es);
-  ns->ptreeNode = res.first;
-  es->ptreeNode = res.second;
-  return ns;
+  if (!inhibitForking) {
+    ExecutionState *ns = es->branch();
+    addedStates.push_back(ns);
+    es->ptreeNode->data = nullptr;
+    std::pair<PTree::Node *, PTree::Node *> res = processTree->split(es->ptreeNode, ns, es);
+    ns->ptreeNode = res.first;
+    es->ptreeNode = res.second;
+    return ns;
+  }
+  return nullptr;
 }
 
 Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
+
   Solver::Validity res;
 
-  auto it = seedMap.find(&current);
-  bool isSeeding = it != seedMap.end();
+//  auto it = seedMap.end();
+  bool isSeeding = false;
+  ExecutionState *trueState = nullptr;
+  ExecutionState *falseState = nullptr;
 
   if (!isSeeding && !isa<ConstantExpr>(condition) &&
       (MaxStaticForkPct!=1. || MaxStaticSolvePct != 1. ||
@@ -696,92 +684,6 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
     }
   }
 
-  bool success = solver->evaluate(current, condition, res);
-  if (!success) {
-    current.pc = current.prevPC;
-    terminateStateOnDispose(current, "Query timed out (fork).");
-    return StatePair(0, 0);
-  }
-
-  if (!isSeeding) {
-    if (replayPath && !isInternal) {
-      assert(replayPosition<replayPath->size() &&
-             "ran out of branches in replay path mode");
-      bool branch = (*replayPath)[replayPosition++];
-
-      if (res==Solver::True) {
-        assert(branch && "hit invalid branch in replay path mode");
-      } else if (res==Solver::False) {
-        assert(!branch && "hit invalid branch in replay path mode");
-      } else {
-        // add constraints
-        if(branch) {
-          res = Solver::True;
-          addConstraint(current, condition);
-        } else  {
-          res = Solver::False;
-          addConstraint(current, Expr::createIsZero(condition));
-        }
-      }
-    } else if (res==Solver::Unknown) {
-      assert(!replayKTest && "in replay mode, only one branch can be true.");
-
-      if ((MaxMemoryInhibit && atMemoryLimit) ||
-          current.forkDisabled ||
-          inhibitForking ||
-          (MaxForks!=~0u && stats::forks >= MaxForks)) {
-
-	if (MaxMemoryInhibit && atMemoryLimit)
-	  log_warning("skipping fork (memory cap exceeded)");
-	else if (current.forkDisabled)
-	  log_warning("skipping fork (fork disabled on current path)");
-	else if (inhibitForking)
-	  log_warning("skipping fork (fork disabled globally)");
-	else
-	  log_warning("skipping fork (max-forks reached)");
-
-        TimerStatIncrementer timer(stats::forkTime);
-        if (theRNG.getBool()) {
-          addConstraint(current, condition);
-          res = Solver::True;
-        } else {
-          addConstraint(current, Expr::createIsZero(condition));
-          res = Solver::False;
-        }
-      }
-    }
-  }
-
-  // Fix branch in only-replay-seed mode, if we don't have both true
-  // and false seeds.
-  if (isSeeding &&
-      (current.forkDisabled || OnlyReplaySeeds) &&
-      res == Solver::Unknown) {
-    bool trueSeed=false, falseSeed=false;
-    // Is seed extension still ok here?
-    for (std::vector<SeedInfo>::iterator siit = it->second.begin(),
-           siie = it->second.end(); siit != siie; ++siit) {
-      ref<ConstantExpr> res;
-      bool success =
-        solver->getValue(current, siit->assignment.evaluate(condition), res);
-      assert(success && "FIXME: Unhandled solver failure");
-      (void) success;
-      if (res->isTrue()) {
-        trueSeed = true;
-      } else {
-        falseSeed = true;
-      }
-      if (trueSeed && falseSeed)
-        break;
-    }
-    if (!(trueSeed && falseSeed)) {
-      assert(trueSeed || falseSeed);
-
-      res = trueSeed ? Solver::True : Solver::False;
-      addConstraint(current, trueSeed ? condition : Expr::createIsZero(condition));
-    }
-  }
-
   // XXX - even if the constraint is provable one way or the other we
   // can probably benefit by adding this constraint and allowing it to
   // reduce the other constraints. For example, if we do a binary
@@ -789,68 +691,68 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   // the value it has been fixed at, we should take this as a nice
   // hint to just use the single constraint instead of all the binary
   // search ones. If that makes sense.
-  if (res==Solver::True) {
+
+  bool success = solver->evaluate(current, condition, res);
+  if (!success) {
+    current.pc = current.prevPC;
+    terminateStateOnDispose(current, "Query timed out (fork).");
+  } else if (res==Solver::True) {
     if (!isInternal) {
       if (pathWriter) {
         current.pathOS << "1";
       }
     }
-
-    return StatePair(&current, 0);
+    trueState = &current;
   } else if (res==Solver::False) {
     if (!isInternal) {
       if (pathWriter) {
         current.pathOS << "0";
       }
     }
+    falseState = &current;
+  } else if (inhibitForking) {
 
-    return StatePair(0, &current);
+    // only one state survives
+    if (theRNG.getBool()) {
+      trueState = &current;
+      if (pathWriter) {
+        if (!isInternal) {
+          trueState->pathOS << "1";
+        }
+      }
+      if (symPathWriter) {
+        if (!isInternal) {
+          trueState->symPathOS << "1";
+        }
+      }
+      addConstraint(*trueState, condition);
+    } else {
+      falseState = &current;
+      if (pathWriter) {
+        if (!isInternal) {
+          falseState->pathOS << "0";
+        }
+      }
+      if (symPathWriter) {
+        if (!isInternal) {
+          falseState->symPathOS << "0";
+        }
+      }
+      addConstraint(*falseState, Expr::createIsZero(condition));
+    }
+
   } else {
+
     TimerStatIncrementer timer(stats::forkTime);
-    ExecutionState *falseState, *trueState = &current;
+    trueState = &current;
 
     ++stats::forks;
 
     falseState = trueState->branch();
     addedStates.push_back(falseState);
 
-    if (it != seedMap.end()) {
-      std::vector<SeedInfo> seeds = it->second;
-      it->second.clear();
-      std::vector<SeedInfo> &trueSeeds = seedMap[trueState];
-      std::vector<SeedInfo> &falseSeeds = seedMap[falseState];
-      for (std::vector<SeedInfo>::iterator siit = seeds.begin(),
-             siie = seeds.end(); siit != siie; ++siit) {
-        ref<ConstantExpr> res;
-        bool success =
-          solver->getValue(current, siit->assignment.evaluate(condition), res);
-        assert(success && "FIXME: Unhandled solver failure");
-        (void) success;
-        if (res->isTrue()) {
-          trueSeeds.push_back(*siit);
-        } else {
-          falseSeeds.push_back(*siit);
-        }
-      }
-
-      bool swapInfo = false;
-      if (trueSeeds.empty()) {
-        if (&current == trueState) swapInfo = true;
-        seedMap.erase(trueState);
-      }
-      if (falseSeeds.empty()) {
-        if (&current == falseState) swapInfo = true;
-        seedMap.erase(falseState);
-      }
-      if (swapInfo) {
-        std::swap(trueState->coveredNew, falseState->coveredNew);
-        std::swap(trueState->coveredLines, falseState->coveredLines);
-      }
-    }
-
-    current.ptreeNode->data = 0;
-    std::pair<PTree::Node*, PTree::Node*> res =
-      processTree->split(current.ptreeNode, falseState, trueState);
+    current.ptreeNode->data = nullptr;
+    std::pair<PTree::Node *, PTree::Node *> res = processTree->split(current.ptreeNode, falseState, trueState);
     falseState->ptreeNode = res.first;
     trueState->ptreeNode = res.second;
 
@@ -873,16 +775,8 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 
     addConstraint(*trueState, condition);
     addConstraint(*falseState, Expr::createIsZero(condition));
-
-    // Kinda gross, do we even really still want this option?
-    if (MaxDepth && MaxDepth<=trueState->depth) {
-      terminateStateOnDispose(*trueState, "max-depth exceeded.");
-      terminateStateOnDispose(*falseState, "max-depth exceeded.");
-      return StatePair(0, 0);
-    }
-
-    return StatePair(trueState, falseState);
   }
+  return StatePair(trueState, falseState);
 }
 
 void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
@@ -1053,9 +947,8 @@ void Executor::executeGetValue(ExecutionState &state,
                                ref<Expr> e,
                                KInstruction *target) {
   e = state.constraints.simplifyExpr(e);
-  std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it =
-    seedMap.find(&state);
-  if (it==seedMap.end() || isa<ConstantExpr>(e)) {
+  auto it = seedMap.find(&state);
+  if (it == seedMap.end() || isa<ConstantExpr>(e)) {
     ref<ConstantExpr> value;
     bool success = solver->getValue(state, e, value);
     assert(success && "FIXME: Unhandled solver failure");
@@ -1063,31 +956,34 @@ void Executor::executeGetValue(ExecutionState &state,
     bindLocal(target, state, value);
   } else {
     std::set< ref<Expr> > values;
-    for (std::vector<SeedInfo>::iterator siit = it->second.begin(),
-           siie = it->second.end(); siit != siie; ++siit) {
+    for (auto siit = it->second.begin(), siie = it->second.end(); siit != siie; ++siit) {
       ref<ConstantExpr> value;
-      bool success =
-        solver->getValue(state, siit->assignment.evaluate(e), value);
+      bool success = solver->getValue(state, siit->assignment.evaluate(e), value);
       assert(success && "FIXME: Unhandled solver failure");
       (void) success;
       values.insert(value);
     }
 
     std::vector< ref<Expr> > conditions;
-    for (std::set< ref<Expr> >::iterator vit = values.begin(),
-           vie = values.end(); vit != vie; ++vit)
+    for (auto vit = values.begin(), vie = values.end(); vit != vie; ++vit) {
       conditions.push_back(EqExpr::create(e, *vit));
+    }
 
     std::vector<ExecutionState*> branches;
     branch(state, conditions, branches);
 
-    std::vector<ExecutionState*>::iterator bit = branches.begin();
-    for (std::set< ref<Expr> >::iterator vit = values.begin(),
-           vie = values.end(); vit != vie; ++vit) {
+    auto bit = branches.begin();
+    unsigned counter = 0;
+    for (auto vit = values.begin(), vie = values.end(); vit != vie; ++vit) {
       ExecutionState *es = *bit;
-      if (es)
+      if (es != nullptr) {
         bindLocal(target, *es, *vit);
+        counter += 1;
+      }
       ++bit;
+    }
+    if (target && counter > 1) {
+      frequent_forkers[target->info->assemblyLine] += (counter - 1);
     }
   }
 }
@@ -1136,8 +1032,6 @@ void Executor::stepInstruction(ExecutionState &state) {
   ++stats::instructions;
   state.prevPC = state.pc;
   ++state.pc;
-
-  if (stats::instructions == StopAfterNInstructions) haltExecution = true;
 }
 
 void Executor::executeCall(ExecutionState &state,
@@ -1462,6 +1356,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
              "Wrong operand index!");
       ref<Expr> cond = eval(ki, 0, state).value;
       Executor::StatePair branches = fork(state, cond, false);
+      if (ki && branches.first && branches.second) {
+        frequent_forkers[ki->info->assemblyLine] += 1;
+      }
 
       // NOTE: There is a hidden dependency here, markBranchVisited
       // requires that we still be in the context of the branch
@@ -1489,11 +1386,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       LLVM_TYPE_Q llvm::IntegerType *Ty =
         cast<IntegerType>(si->getCondition()->getType());
       ConstantInt *ci = ConstantInt::get(Ty, CE->getZExtValue());
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
       unsigned index = si->findCaseValue(ci).getSuccessorIndex();
-#else
-      unsigned index = si->findCaseValue(ci);
-#endif
       transferToBasicBlock(state, si->getParent(), si->getSuccessor(index));
     } else {
       // Handle possible different branch targets
@@ -1505,24 +1398,20 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       //   the scase values, still default is handled last
       std::vector<BasicBlock *> bbOrder;
       std::map<BasicBlock *, ref<Expr> > branchTargets;
-
       std::map<ref<Expr>, BasicBlock *> expressionOrder;
 
-      // Iterate through all non-default cases and order them by expressions
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
-      for (SwitchInst::CaseIt i = si->case_begin(), e = si->case_end(); i != e;
-           ++i) {
-        ref<Expr> value = evalConstant(i.getCaseValue());
-#else
-      for (unsigned i = 1, cases = si->getNumCases(); i < cases; ++i) {
-        ref<Expr> value = evalConstant(si->getCaseValue(i));
-#endif
+      bool exceeded_loop = false;
+      const Loop *loop = state.getTopMostLoop();
+      if (loop != nullptr) {
+        std::set<ExecutionState*> &ls = loopingStates[loop];
+        exceeded_loop = ls.size() > maxStatesInLoop;
+      }
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 1)
+      // Iterate through all non-default cases and order them by expressions
+      for (SwitchInst::CaseIt i = si->case_begin(), e = si->case_end(); i != e; ++i) {
+        ref<Expr> value = evalConstant(i.getCaseValue());
+
         BasicBlock *caseSuccessor = i.getCaseSuccessor();
-#else
-        BasicBlock *caseSuccessor = si->getSuccessor(i);
-#endif
         expressionOrder.insert(std::make_pair(value, caseSuccessor));
       }
 
@@ -1530,10 +1419,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       ref<Expr> defaultValue = ConstantExpr::alloc(1, Expr::Bool);
 
       // iterate through all non-default cases but in order of the expressions
-      for (std::map<ref<Expr>, BasicBlock *>::iterator
-               it = expressionOrder.begin(),
-               itE = expressionOrder.end();
-           it != itE; ++it) {
+      for (auto it = expressionOrder.begin(), itE = expressionOrder.end(); it != itE; ++it) {
         ref<Expr> match = EqExpr::create(cond, it->first);
 
         // Make sure that the default value does not contain this target's value
@@ -1553,10 +1439,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
           // values for the same target basic block. We spare us forking too
           // many times but we generate more complex condition expressions
           // TODO Add option to allow to choose between those behaviors
-          std::pair<std::map<BasicBlock *, ref<Expr> >::iterator, bool> res =
-              branchTargets.insert(std::make_pair(
-                  caseSuccessor, ConstantExpr::alloc(0, Expr::Bool)));
-
+          auto res = branchTargets.insert(std::make_pair(caseSuccessor, ConstantExpr::alloc(0, Expr::Bool)));
           res.first->second = OrExpr::create(match, res.first->second);
 
           // Only add basic blocks which have not been target of a branch yet
@@ -1572,9 +1455,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       assert(success && "FIXME: Unhandled solver failure");
       (void) success;
       if (res) {
-        std::pair<std::map<BasicBlock *, ref<Expr> >::iterator, bool> ret =
-            branchTargets.insert(
-                std::make_pair(si->getDefaultDest(), defaultValue));
+        auto ret = branchTargets.insert(std::make_pair(si->getDefaultDest(), defaultValue));
         if (ret.second) {
           bbOrder.push_back(si->getDefaultDest());
         }
@@ -1583,22 +1464,31 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       // Fork the current state with each state having one of the possible
       // successors of this switch
       std::vector< ref<Expr> > conditions;
-      for (std::vector<BasicBlock *>::iterator it = bbOrder.begin(),
-                                               ie = bbOrder.end();
-           it != ie; ++it) {
+      for (auto it = bbOrder.begin(), ie = bbOrder.end(); it != ie; ++it) {
         conditions.push_back(branchTargets[*it]);
       }
       std::vector<ExecutionState*> branches;
-      branch(state, conditions, branches);
+      if (exceeded_loop) {
+        bool tmp = inhibitForking;
+        inhibitForking = true;
+        branch(state, conditions, branches);
+        inhibitForking = tmp;
+      } else {
+        branch(state, conditions, branches);
+      }
 
-      std::vector<ExecutionState*>::iterator bit = branches.begin();
-      for (std::vector<BasicBlock *>::iterator it = bbOrder.begin(),
-                                               ie = bbOrder.end();
-           it != ie; ++it) {
+      auto bit = branches.begin();
+      unsigned fork_counter = 0;
+      for (auto it = bbOrder.begin(), ie = bbOrder.end(); it != ie; ++it) {
         ExecutionState *es = *bit;
-        if (es)
+        if (es != nullptr) {
           transferToBasicBlock(*es, bb, *it);
+          fork_counter += 1;
+        }
         ++bit;
+      }
+      if (ki && fork_counter > 1) {
+        frequent_forkers[ki->info->assemblyLine] += (fork_counter - 1);
       }
     }
     break;
@@ -2535,6 +2425,7 @@ void Executor::run(ExecutionState &initialState) {
 
   states.insert(&initialState);
 
+#if 0 == 1
   if (usingSeeds) {
     std::vector<SeedInfo> &v = seedMap[&initialState];
 
@@ -2603,7 +2494,7 @@ void Executor::run(ExecutionState &initialState) {
       return;
     }
   }
-
+#endif
   searcher = constructUserSearcher(*this);
 
   std::vector<ExecutionState *> newStates(states.begin(), states.end());
@@ -3017,7 +2908,9 @@ void Executor::executeFree(ExecutionState &state,
                            ref<Expr> address,
                            KInstruction *target) {
   StatePair zeroPointer = fork(state, Expr::createIsZero(address), true);
+  unsigned counter = 0;
   if (zeroPointer.first) {
+    counter += 1;
     if (target != nullptr)
       bindLocal(target, *zeroPointer.first, Expr::createPointer(0));
   }
@@ -3025,18 +2918,22 @@ void Executor::executeFree(ExecutionState &state,
     ExactResolutionList rl;
     resolveExact(*zeroPointer.second, address, rl, "free");
 
-    for (Executor::ExactResolutionList::iterator it = rl.begin(),
-           ie = rl.end(); it != ie; ++it) {
+    for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
       const MemoryObject *mo = it->first.first;
       if (!mo->isHeap()) {
         terminateStateOnComplete(*it->second, TerminateReason::InvalidFree, "invalid free of memory object");
+        target = nullptr;
       } else {
         it->second->addressSpace.unbindObject(mo);
       }
     }
     if (target != nullptr) {
       bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
+      counter += 1;
     }
+  }
+  if (target && counter > 1) {
+    frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 
@@ -3049,8 +2946,7 @@ void Executor::resolveExact(ExecutionState &state,
   state.addressSpace.resolve(state, solver, p, rl);
 
   ExecutionState *unbound = &state;
-  for (ResolutionList::iterator it = rl.begin(), ie = rl.end();
-       it != ie; ++it) {
+  for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
     ref<Expr> inBounds = EqExpr::create(p, it->first->getBaseExpr());
 
     StatePair branches = fork(*unbound, inBounds, true);
@@ -3148,6 +3044,9 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     ref<Expr> inBounds = os->getBoundsCheckPointer(address, bytes);
 
     StatePair branches = fork(*unbound, inBounds, true);
+    if (target && branches.first && branches.second) {
+      frequent_forkers[target->info->assemblyLine] += 1;
+    }
     ExecutionState *bound = branches.first;
 
     // bound can be 0 on failure or overlapped
@@ -3494,8 +3393,7 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
   return true;
 }
 
-void Executor::getCoveredLines(const ExecutionState &state,
-                               std::map<const std::string*, std::set<unsigned> > &res) {
+void Executor::getCoveredLines(const ExecutionState &state, std::map<const char*, std::set<unsigned> > &res) {
   res = state.coveredLines;
 }
 
@@ -3621,6 +3519,54 @@ void Executor::getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryO
     }
   }
 }
+
+bool Executor::isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
+
+  // if this is a recursive call, then we cannot say if this is an error
+  assert(!state->stack.empty());
+  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
+    if (state->stack[idx].kf == kf) {
+      return true;
+    }
+  }
+
+  const auto &res = loopingStates.find(loop);
+  if (res != loopingStates.end()) {
+    if (res->second.count(state) != 1) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Executor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
+
+  // if this is a recursive call, then we cannot say if this is an error
+  assert(!state->stack.empty());
+  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
+    if (state->stack[idx].kf == kf) {
+      return true;
+    }
+  }
+
+  for (auto itr = kf->loops.begin(), end = kf->loops.end(); itr != end; ++itr) {
+    unsigned expected = (*itr == loop) ? 1 : 0;
+    const auto &res = loopingStates.find(*itr);
+    if (res != loopingStates.end()) {
+      if (res->second.count(state) != expected) {
+        return false;
+      }
+    } else if (expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
+
 
 }
 

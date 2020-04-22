@@ -169,8 +169,7 @@ namespace klee {
     //
     void prepare();
     void transform(const Interpreter::ModuleOptions &opts,
-                   const std::set<llvm::Function*> &module_fns,
-                   const std::set<llvm::GlobalVariable*> &module_globals,
+                   const std::set<std::string> &sources,
                    TraceType ttrace = TraceType::invalid,
                    MarkScope mscope = MarkScope::invalid);
 

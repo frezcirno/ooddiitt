@@ -25,18 +25,21 @@ namespace klee {
   /* Stores debug information for a KInstruction */
   struct InstructionInfo {
     unsigned id;
-    const std::string file;
+    const char *file;
+    const char *path;
     unsigned line;
     unsigned assemblyLine;
 
   public:
-    InstructionInfo() : id(0), line(0), assemblyLine(0) {};
+    InstructionInfo() : id(0), file(nullptr), path(nullptr), line(0), assemblyLine(0) {};
     InstructionInfo(unsigned _id,
-                    std::string &_file,
+                    const char *_file,
+                    const char *_path,
                     unsigned _line,
                     unsigned _assemblyLine)
       : id(_id),
         file(_file),
+        path(_path),
         line(_line),
         assemblyLine(_assemblyLine) {
     }
@@ -46,13 +49,15 @@ namespace klee {
 //    std::string dummyString;
 //    InstructionInfo dummyInfo;
     std::map<const llvm::Instruction*, InstructionInfo> infos;
-//    std::set<const std::string> internedStrings;
-
-
+    std::set<std::string> internedStrings;
 
   private:
-//    const std::string *internString(std::string s);
-    bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, unsigned &Line);
+    const char *internString(const std::string &s) {
+      auto itr = internedStrings.insert(s);
+      return (*itr.first).c_str();
+    }
+
+    bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Path, unsigned &Line);
 
   public:
     InstructionInfoTable() = default;

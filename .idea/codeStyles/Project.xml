@@ -21,9 +21,6 @@
       <option name="ALIGN_INIT_LIST_IN_COLUMNS" value="false" />
       <option name="KEEP_BLANK_LINES_BEFORE_END" value="1" />
     </Objective-C>
-    <clangFormatSettings>
-      <option name="ENABLED" value="true" />
-    </clangFormatSettings>
     <codeStyleSettings language="ObjectiveC">
       <option name="KEEP_BLANK_LINES_IN_DECLARATIONS" value="1" />
       <option name="KEEP_BLANK_LINES_IN_CODE" value="1" />

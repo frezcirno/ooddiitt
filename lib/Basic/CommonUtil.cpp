@@ -11,6 +11,9 @@
 #include <llvm/IR/GlobalVariable.h>
 #include <zconf.h>
 
+#include <boost/filesystem.hpp>
+
+
 namespace llvm {
 RawOStreamOperator oflush = RawOStreamOperator::base_flush;
 RawOStreamOperator oendl = RawOStreamOperator::base_endl;
@@ -40,6 +43,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &o
 };
 
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace klee {
 
@@ -169,6 +173,16 @@ std::string to_string(UnconstraintFlagsT flags) {
   for (auto &p: flag2name) {
     if (flags.test(p.first)) ss << ',' << p.second;
   }
+  return ss.str();
+}
+
+string to_string(const TraceEntryT &entry) {
+
+  ostringstream ss;
+  if (entry.first != nullptr) {
+    ss << entry.first << ':';
+  }
+  ss << entry.second;
   return ss.str();
 }
 

@@ -10,10 +10,12 @@
 #include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Module/Cell.h"
 
+#include <boost/filesystem.hpp>
 #include "dtl/dtl.hpp"
 
 using namespace llvm;
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace klee {
 
@@ -97,6 +99,10 @@ StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersi
   test(t), ver1(v1), ver2(v2), datalayout(ver1.kmodule->targetData) {
 
   ptr_width = datalayout->getPointerSizeInBits();
+  // get a list of oracle ids encountered during the rply execution
+  for (const auto &entry : v2.finalState->o_asserts) {
+    oracle_ids.insert(entry.first);
+  }
 }
 
 void StateComparator::blacklistFunction(const string &name) {
@@ -279,12 +285,13 @@ bool StateComparator::isEquivalent() {
     switch (ver2.term_reason) {
 
       case TerminateReason::MemFault: {
-        if (state->moFaulting != nullptr) {
-          element = state->moFaulting->name;
-        } else {
+        if (state->instFaulting != nullptr) {
           ostringstream ss;
-          ss << "@0x" << hex << setfill('0') << setw(16) << state->addrFaulting;
+          ss << '@' << fs::path(state->instFaulting->info->file).filename().string();
+          ss << ':' << state->instFaulting->info->line;
           element = ss.str();
+        } else {
+          element = "@unknown";
         }
       }
       break;
@@ -309,6 +316,9 @@ bool StateComparator::isEquivalent() {
 
     ostringstream ss;
     ss << to_string(ver2.term_reason);
+    if ((state->moFaulting != nullptr) && (!state->moFaulting->name.empty())) {
+      ss << ':' << state->moFaulting->name;
+    }
     if (!state->messages.empty()) ss << ": " << state->messages.back();
     diffs.emplace_back(DiffType::delta, element, ss.str());
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {

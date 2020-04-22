@@ -60,8 +60,7 @@ public:
   }
 };
 
-static void buildInstructionToLineMap(Module *m,
-                                      std::map<const Instruction*, unsigned> &out) {
+static void buildInstructionToLineMap(Module *m, std::map<const Instruction*, unsigned> &out) {
   InstructionToLineAnnotator a;
   std::string str;
   llvm::raw_string_ostream os(str);
@@ -86,23 +85,23 @@ static void buildInstructionToLineMap(Module *m,
   }
 }
 
-static std::string getDSPIPath(DILocation Loc) {
+static void getDSPIPath(DILocation Loc, std::string &file, std::string &path) {
   std::string dir = Loc.getDirectory();
-  std::string file = Loc.getFilename();
+  file = Loc.getFilename();
   if (dir.empty() || file[0] == '/') {
-    return file;
+    path = file;
   } else if (*dir.rbegin() == '/') {
-    return dir + file;
+    path = dir + file;
   } else {
-    return dir + "/" + file;
+    path = dir + "/" + file;
   }
 }
 
-bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, unsigned &Line) {
+bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Path, unsigned &Line) {
 
   if (MDNode *N = I->getMetadata("dbg")) {
     DILocation Loc(N);
-    File = getDSPIPath(Loc);
+    getDSPIPath(Loc, File, Path);
     Line = Loc.getLineNumber();
     return true;
   }
@@ -125,25 +124,34 @@ void InstructionInfoTable::BuildTable(llvm::Module *m) {
     // initial instructions in a function (correspond to the formal parameters),
     // so we first search forward to find the first instruction with debug info,
     // if any.
-    std::string file;
+    const char *file;
+    const char *path;
     unsigned line = 0;
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
-      if (getInstructionDebugInfo(instr, file, line))
+      std::string tmp_file, tmp_path;
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+        file = internString(tmp_file);
+        path = internString(tmp_path);
         break;
+      }
     }
 
     // start over, using the first found debug values from above
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
       unsigned assemblyLine = lineTable[instr];
+      std::string tmp_file, tmp_path;
 
       // Update our source level debug information.
-      getInstructionDebugInfo(instr, file, line);
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+        file = internString(tmp_file);
+        path = internString(tmp_path);
+      }
 
       MDNode *N = MDNode::get(ctx, MDString::get(ctx, std::to_string(assemblyLine)));
       instr->setMetadata(mdkline, N);
-      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, line, assemblyLine)));
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, path, line, assemblyLine)));
     }
   }
 }
@@ -160,26 +168,35 @@ void InstructionInfoTable::LoadTable(llvm::Module *m) {
     // initial instructions in a function (correspond to the formal parameters),
     // so we first search forward to find the first instruction with debug info,
     // if any.
-    std::string file;
+    const char *file;
+    const char *path;
     unsigned line = 0;
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
-      if (getInstructionDebugInfo(instr, file, line))
+      std::string tmp_file, tmp_path;
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+        file = internString(tmp_file);
+        path = internString(tmp_path);
         break;
+      }
     }
 
     // start over, using the first found debug values from above
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
+      std::string tmp_file, tmp_path;
 
       // Update our source level debug information.
-      getInstructionDebugInfo(instr, file, line);
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+        file = internString(tmp_file);
+        path = internString(tmp_path);
+      }
       unsigned assemblyLine = 0;
       if (MDNode *node = instr->getMetadata(mdkline)) {
         std::string str = cast<MDString>(node->getOperand(0))->getString();
         assemblyLine = std::stoi(str);
       }
-      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, line, assemblyLine)));
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, path, line, assemblyLine)));
     }
   }
 }

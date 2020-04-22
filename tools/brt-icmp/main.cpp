@@ -71,6 +71,7 @@ namespace {
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
   cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"));
+  cl::opt<unsigned> OracleID("oracle-id", cl::desc("oracle id corresponding to regression (default=0)"), cl::init(0));
 }
 
 /***/
@@ -207,20 +208,12 @@ void load_test_case(Json::Value &root, TestCase &test) {
     }
   }
 
-  Json::Value fps = root["fpsProduced"];
-  if (fps.isArray()) {
-    test.fps_produced.reserve(fps.size());
-    for (unsigned idx = 0, end = fps.size(); idx < end; ++idx) {
-      test.fps_produced.push_back(fps[idx].asDouble());
-    }
-  }
-
   test.trace_type = (TraceType) root["traceType"].asUInt();
   Json::Value &trace = root["trace"];
   if (trace.isArray()) {
     test.trace.reserve(trace.size());
     for (unsigned idx = 0, end = trace.size(); idx < end; ++idx) {
-      test.trace.push_back(trace[idx].asUInt());
+      test.trace.push_back(trace[idx].asString());
     }
   }
 
@@ -438,13 +431,21 @@ bool isTrueFault(const vector<Function *> &true_faults, const ExecutionState *st
   return false;
 }
 
+static const char *err_context = nullptr;
+static void PrintStackTraceSignalHandler(void *) {
+  if (err_context != nullptr) {
+    fprintf(stderr, "context: %s\n", err_context);
+  }
+  sys::PrintStackTrace(stderr);
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
   parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
+  sys::AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
   sys::SetInterruptFunction(interrupt_handle);
 
   // write out command line info, for reference
@@ -548,6 +549,7 @@ int main(int argc, char **argv, char **envp) {
       }
 
       outs() << fs::path(test_file).filename().string() << ';' << oflush;
+      err_context = test_file.c_str();
 
       // now, lets do it all again with the second module
       auto *handler2 = new ICmpKleeHandler(version2);
@@ -568,7 +570,7 @@ int main(int argc, char **argv, char **envp) {
           if (cmp.isEquivalent()) {
             outs() << "equivalent;0;";
             if (with_oracle) {
-              if (!cmp.beseechOracle()) {
+              if (!cmp.beseechOracle(OracleID)) {
                 outs() << '-';
               } else {
                 outs() << '+';
@@ -580,11 +582,14 @@ int main(int argc, char **argv, char **envp) {
           } else {
             outs() << "divergent;" << cmp.checkpoints.size() << ';';
             if (with_oracle) {
-              if (cmp.beseechOracle() &&
-                 ((version2.term_reason != TerminateReason::MemFault) || (!isTrueFault(true_faults, version2.finalState)))) {
+              if (version2.term_reason == TerminateReason::MemFault && isTrueFault(true_faults, version2.finalState)) {
+                outs() << '!';
+              } else if (cmp.beseechOracle()) {
                 outs() << '-';
-              } else {
+              } else if (cmp.beseechOracle(OracleID)) {
                 outs() << '+';
+              } else{
+                outs() << '!';
               }
             } else {
               outs() << '?';

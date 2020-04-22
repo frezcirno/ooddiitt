@@ -3,6 +3,7 @@
 #include <set>
 #include <string>
 #include "LocalExecutor.h"
+#include "TimingSolver.h"
 #include "SystemModel.h"
 
 using namespace std;
@@ -34,8 +35,11 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"rint", &SystemModel::ExecuteRint},
     {"fabs", &SystemModel::ExecuteFabs},
     {"modf", &SystemModel::ExecuteModf},
+    {"setlocale", &SystemModel::ExecuteReturnNull},
+    {"bindtextdomain", &SystemModel::ExecuteReturnNull},
+    {"textdomain", &SystemModel::ExecuteReturnNull},
     {"__o_assert_fail", &SystemModel::ExecuteOAssertFail},
-    {"xstrtod", &SystemModel::ExecuteXStrToD},
+//    {"xstrtod", &SystemModel::ExecuteXStrToD},
     {"__check_one_fd", &SystemModel::ExecuteNoop}
 };
 
@@ -56,6 +60,9 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::output_fns = {
     { "perror", &SystemModel::ExecuteNoop}
 };
 
+
+const ref<ConstantExpr> SystemModel::expr_true = ConstantExpr::create(1, Expr::Bool);
+const ref<ConstantExpr> SystemModel::expr_false = ConstantExpr::create(0, Expr::Bool);
 
 SystemModel::SystemModel(LocalExecutor *e, const ModelOptions &o) : executor(e), opts(o), ki(nullptr), fn(nullptr) {
 
@@ -188,20 +195,25 @@ bool SystemModel::ExecuteRead(ExecutionState &state, std::vector<ref<Expr> >&arg
 
             // close state so no further reads will succeed
             state.stdin_closed = true;
+            if (ns != nullptr) {
 
-            ObjectPair op;
-            LocalExecutor::ResolveResult result = executor->resolveMO(*ns, eaddr, op);
-            if (result == LocalExecutor::ResolveResult::OK) {
-              const MemoryObject *mo = op.first;
-              const ObjectState *os = op.second;
+              ObjectPair op;
+              LocalExecutor::ResolveResult result = executor->resolveMO(*ns, eaddr, op);
+              if (result == LocalExecutor::ResolveResult::OK) {
+                const MemoryObject *mo = op.first;
+                const ObjectState *os = op.second;
 
-              const ObjectState *stdin_os = ns->addressSpace.findObject(executor->moStdInBuff);
-              ref<Expr> ch = stdin_os->read8(ns->stdin_offset++);
-              ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
-              unsigned offset = eaddr->getZExtValue() - mo->address;
-              wos->write8(offset, ch);
-              ref<Expr> one = ConstantExpr::create(1, Expr::Int64);
-              executor->bindLocal(ki, *ns, one);
+                const ObjectState *stdin_os = ns->addressSpace.findObject(executor->moStdInBuff);
+                ref<Expr> ch = stdin_os->read8(ns->stdin_offset++);
+                ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
+                unsigned offset = eaddr->getZExtValue() - mo->address;
+                wos->write8(offset, ch);
+                ref<Expr> one = ConstantExpr::create(1, Expr::Int64);
+                executor->bindLocal(ki, *ns, one);
+                if (ki) {
+                  executor->frequent_forkers[ki->info->assemblyLine] += 1;
+                }
+              }
             }
           }
         } else {
@@ -286,6 +298,13 @@ bool SystemModel::ExecuteNoop(ExecutionState &state, std::vector<ref<Expr> >&arg
 
   return true;
 }
+
+bool SystemModel::ExecuteReturnNull(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  retExpr = ConstantExpr::createPointer(0);
+  return true;
+}
+
 
 bool SystemModel::ExecuteReturnFirstArg(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
@@ -424,6 +443,122 @@ bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr
 }
 
 
+bool SystemModel::canConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const string &str) {
+
+  // check each character of string
+  for (char ch : str) {
+    ref<Expr> ch1 = os->read8(index);
+    ref<Expr> ch2 = ConstantExpr::create(ch, ch1->getWidth());
+    if (executor->solver->mustBeFalse(state, EqExpr::create(ch1, ch2))) {
+      return false;
+    }
+    index += 1;
+  }
+  // finally, check for null termination
+  ref<Expr> ch1 = os->read8(index);
+  ref<Expr> ch2 = ConstantExpr::create(0, ch1->getWidth());
+  return (!executor->solver->mustBeFalse(state, EqExpr::create(ch1, ch2)));
+}
+
+bool SystemModel::doConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const string &str) {
+
+  if (canConstrainString(state, os, index, str)) {
+
+    // constrain each character of string
+    for (char ch : str) {
+      ref<Expr> ch1 = os->read8(index);
+      ref<Expr> ch2 = ConstantExpr::create(ch, ch1->getWidth());
+      executor->addConstraint(state, EqExpr::create(ch1, ch2));
+      index += 1;
+    }
+    // finally, add null termination
+    ref<Expr> ch1 = os->read8(index);
+    ref<Expr> ch2 = ConstantExpr::create(0, ch1->getWidth());
+    executor->addConstraint(state, EqExpr::create(ch1, ch2));
+    return true;
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  ref<ConstantExpr> str = executor->toConstant(state, args[0], "XStrToD");
+  ref<ConstantExpr> ptr = executor->toConstant(state, args[2], "XStrToD");
+
+  ObjectPair op;
+  if (executor->resolveMO(state, str, op) == LocalExecutor::ResolveResult::OK) {
+
+    ref<Expr> ch = op.second->read8(0);
+    if (!executor->isUnique(state, ch)) {
+      if (doConstrainString(state, op.second, 0, "1")) {
+        state.restartInstruction();
+        ostringstream ss;
+        ss << "xstrtod: " << op.first->name << " constrained";
+        state.messages.push_back(ss.str());
+        outs () << ss.str() << oendl;
+        return true;
+      } else {
+        ostringstream ss;
+        ss << "xstrtod: " << op.first->name << " failed to constrain";
+        state.messages.push_back(ss.str());
+        outs () << ss.str() << oendl;
+      }
+    } else {
+      ref<ConstantExpr> value;
+      executor->solver->getValue(state, ch, value);
+      char c = value->getZExtValue(8);
+      ostringstream ss;
+      ss << "xstrtod: " << op.first->name << " \'" << c << "\' is unique";
+      state.messages.push_back(ss.str());
+      outs () << ss.str() << oendl;
+    }
+  }
+
+#if 0 == 1
+
+//  static vector<string> values = { "0.0", "-3.0" , "-2.0" , "-1.0" , "-0.5", "-0.1", "0.1" , "0.5", "1.0" , "2.0" , "3.0" };
+  static vector<string> values = { "0", "1", "2" };
+
+  if (executor->getOptions().mode == ExecModeID::igen) {
+
+    // in input generation mode
+    ObjectPair op;
+    if (executor->resolveMO(state, str, op) == LocalExecutor::ResolveResult::OK) {
+      ref<Expr> ch = op.second->read8(0);
+      if (!executor->isUnique(state, ch)) {
+
+        for (auto itr = values.begin(), end = values.end(); itr != end; ++itr) {
+          // skip the first
+          if (itr != values.begin()) {
+
+            ExecutionState *ns = executor->clone(&state);
+            if (ns != nullptr) {
+              ObjectPair op2;
+              if (executor->resolveMO(*ns, str, op2) == LocalExecutor::ResolveResult::OK) {
+                if (doConstrainString(*ns, op2.second, 0, *itr)) {
+                  if (ki) {
+                    executor->frequent_forkers[ki->info->assemblyLine] += 1;
+                  }
+                  ns->restartInstruction();
+                } else {
+                  executor->terminateStateOnDispose(*ns, "unsatisfiable xstrtod");
+                }
+              }
+            }
+          }
+        }
+        if (doConstrainString(state, op.second, 0, values.front())) {
+          state.restartInstruction();
+          return true;
+        }
+      }
+    }
+  }
+#endif
+  return false;
+}
+
+#if 0 == 1
 bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   static vector<double> values = { -3.0 , -2.0 , -1.0 , -0.5, -0.1, 0.1 , 0.5, 1.0 , 2.0 , 3.0 };
@@ -437,6 +572,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
     ObjectPair op;
     LocalExecutor::ResolveResult res = executor->resolveMO(state, str, op);
     if (state.isSymbolic(op.first)) {
+
       for (auto value : values) {
 
         ExecutionState *ns = executor->clone(&state);
@@ -451,6 +587,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
           ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
           wos->write(offset, outparam);
           ns->fps_produced.push_back(value);
+          executor->bindLocal(ki, *ns, expr_true);
         }
       }
 
@@ -465,9 +602,8 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
         ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
         wos->write(offset, outparam);
         state.fps_produced.push_back(f.convertToDouble());
-        result = 1;
       }
-      retExpr = ConstantExpr::create(result, Expr::Int32);
+      retExpr = expr_true;
       return true;
     }
     state.fps_produced.push_back(APFloat::getInf(APFloat::IEEEdouble).convertToDouble());
@@ -492,6 +628,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
 
           ref<ConstantExpr> outparam = ConstantExpr::alloc(value.bitcastToAPInt());
           wos->write(offset, outparam);
+          retExpr = expr_true;
           return true;
         }
       }
@@ -499,6 +636,7 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
   }
   return false;
 }
+#endif
 
 // RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,
 

@@ -471,8 +471,7 @@ void SpecialFunctionHandler::handleIsSymbolic(ExecutionState &state,
 void SpecialFunctionHandler::handlePreferCex(ExecutionState &state,
                                              KInstruction *target,
                                              std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to klee_prefex_cex");
+  assert(arguments.size()==2 && "invalid number of arguments to klee_prefex_cex");
 
   ref<Expr> cond = arguments[1];
   if (cond->getWidth() != Expr::Bool)
@@ -481,8 +480,7 @@ void SpecialFunctionHandler::handlePreferCex(ExecutionState &state,
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "prefex_cex");
 
-  assert(rl.size() == 1 &&
-         "prefer_cex target must resolve to precisely one object");
+  assert(rl.size() == 1 && "prefer_cex target must resolve to precisely one object");
 
   rl[0].first.first->cexPreferences.push_back(cond);
 }
@@ -594,6 +592,9 @@ void SpecialFunctionHandler::handleGetObjSize(ExecutionState &state,
     executor.bindLocal(target, *it->second,
                         ConstantExpr::create(it->first.first->size, executor.kmodule->targetData->getTypeSizeInBits(target->inst->getType())));
   }
+  if (target && rl.size() > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (rl.size() - 1);
+  }
 }
 
 void SpecialFunctionHandler::handleGetErrno(ExecutionState &state,
@@ -625,8 +626,10 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
   Executor::StatePair zeroPointer = executor.fork(state, Expr::createIsZero(address), true);
   assert(zeroPointer.first == nullptr || zeroPointer.second == nullptr);
 
+  unsigned counter = 0;
   if (zeroPointer.first) { // address == 0
     executor.executeAlloc(*zeroPointer.first, size, MemKind::heap, target);
+    counter += 1;
   }
   if (zeroPointer.second) {
 
@@ -635,9 +638,13 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
     LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, address, op);
     if (result == LocalExecutor::ResolveResult::OK) {
       executor.executeAlloc(*zeroPointer.second, size, MemKind::heap, target, false, op.second);
+      counter += 1;
     } else {
       executor.terminateStateOnComplete(*zeroPointer.second, TerminateReason::MemFault, "cannot find object to realloc");
     }
+  }
+  if (target && counter > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 
@@ -717,6 +724,7 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "make_symbolic");
 
+  unsigned counter = 0;
   for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first.first;
     const ObjectState *os = it->first.second;
@@ -742,9 +750,13 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
 
     if (res) {
       executor.executeMakeSymbolic(*s, mo, name);
+      counter += 1;
     } else {
       executor.terminateStateOnComplete(*s, TerminateReason::MemFault, "wrong size given to klee_make_symbolic[_name]");
     }
+  }
+  if (target && counter > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 

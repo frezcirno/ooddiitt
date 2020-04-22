@@ -249,10 +249,10 @@ void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason r
 
       TraceType trace_type = i->getTraceType();
       if (trace_type != TraceType::invalid) {
-        root["traceType"] = (unsigned) trace_type;
+        root["traceType"] = (unsigned)trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
-        for (auto entry : state.trace) {
-          trace.append(entry);
+        for (const auto &entry : state.trace) {
+          trace.append(to_string(entry));
         }
       }
 

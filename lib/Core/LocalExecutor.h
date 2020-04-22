@@ -175,7 +175,6 @@ protected:
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
   unsigned maxLazyDepth;
-  unsigned maxStatesInLoop;
   ExecutionState *baseState;
   uint64_t timeout;
   UnconstraintFlagsT unconstraintFlags;
@@ -190,9 +189,6 @@ protected:
   TraceType trace_type;
   MemoryObject *moStdInBuff;
   ProgramTracer *tracer;
-  std::map<const llvm::Loop *, ExecutionStates> loopingStates;
-  bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
-  bool isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
 
   // behavior conditioned by exec mode
   bool doSaveFault;

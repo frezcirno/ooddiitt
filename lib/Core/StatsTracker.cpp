@@ -325,7 +325,7 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
         //
         // FIXME: This trick no longer works, we should fix this in the line
         // number propogation.
-          es.coveredLines[&ii.file].insert(ii.line);
+          es.coveredLines[ii.file].insert(ii.line);
 	es.coveredNew = true;
         es.instsSinceCovNew = 1;
 	++stats::coveredInstructions;
@@ -528,7 +528,7 @@ void StatsTracker::writeIStats() {
   if (istatsMask & (1<<stats::states.getID()))
     updateStateStatistics(1);
 
-  std::string sourceFile = "";
+  const char *sourceFile = nullptr;
 
   CallSiteSummaryTable callSiteStats;
   if (UseCallPaths)
@@ -557,7 +557,7 @@ void StatsTracker::writeIStats() {
           Instruction *instr = &*it;
           const InstructionInfo &ii = executor.kmodule->infos->getInfo(instr);
           unsigned index = ii.id;
-          if (ii.file!=sourceFile) {
+          if (ii.file != sourceFile) {
             of << "fl=" << ii.file << "\n";
             sourceFile = ii.file;
           }
@@ -580,7 +580,7 @@ void StatsTracker::writeIStats() {
                 const InstructionInfo &fii =
                   executor.kmodule->infos->getFunctionInfo(f);
 
-                if (fii.file!="" && fii.file!=sourceFile)
+                if (fii.file != nullptr && fii.file != sourceFile)
                   of << "cfl=" << fii.file << "\n";
                 of << "cfn=" << f->getName().str() << "\n";
                 of << "calls=" << csi.count << " ";

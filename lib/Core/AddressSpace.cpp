@@ -55,13 +55,14 @@ ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
 bool AddressSpace::resolveOne(uint64_t address, ObjectPair &result) {
 
   MemoryObject hack(address);
+  result.first = nullptr;
+  result.second = nullptr;
   if (const MemoryMap::value_type *res = objects.lookup_previous(&hack)) {
     const MemoryObject *mo = res->first;
     // Check if the provided address is between start and end of the object
     // [mo->address, mo->address + mo->size) or the object is a 0-sized object.
-    if ((mo->size==0 && address==mo->address) ||
-        (address - mo->address < mo->size)) {
-      result = *res;
+    result = *res;
+    if ((mo->size==0 && address==mo->address) || (address - mo->address < mo->size)) {
       return true;
     }
   }

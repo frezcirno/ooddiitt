@@ -89,12 +89,15 @@ public:
 
   const KInstruction *checkTermination();
   bool isEquivalent();
-  bool beseechOracle() const { return ver2.finalState->o_asserts.empty(); }
+  bool beseechOracle() const { return oracle_ids.empty(); }
+  bool beseechOracle(unsigned id) const { return (oracle_ids.find(id) == oracle_ids.end()); }
   bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }
 
   std::deque<CompareCheckpoint> checkpoints;
 
 private:
+
+  std::set<unsigned> oracle_ids;
 
   bool compareExternalState();
   bool compareInternalState();

@@ -45,11 +45,8 @@
 #endif
 
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/system_error.h"
 #include "json/json.h"
-#endif
-
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -65,6 +62,7 @@
 using namespace llvm;
 using namespace klee;
 using namespace std;
+namespace fs=boost::filesystem;
 
 namespace {
 
@@ -225,22 +223,20 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
         msgs.append(msg);
       }
 
-      Json::Value &fps = root["fpsProduced"] = Json::arrayValue;
-      for (auto fp : state.fps_produced) {
-        fps.append(fp);
-      }
-
       // store the path condition
       string constraints;
       i->getConstraintLog(state, constraints, LogType::SMTVARS);
       root["pathConditionVars"] = constraints;
 
-      stringstream ss;
-      for (unsigned index = 0; index < args.size(); ++index) {
-        if (index > 0) ss << ' ';
-        ss << '\'' << args[index] << '\'';
+      {
+        stringstream ss;
+        for (unsigned index = 0; index < args.size(); ++index) {
+          if (index > 0)
+            ss << ' ';
+          ss << '\'' << args[index] << '\'';
+        }
+        root["argV"] = ss.str();
       }
-      root["argV"] = ss.str();
 
       vector<ExprSolution> args;
       for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
@@ -318,10 +314,10 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
 
       TraceType trace_type = i->getTraceType();
       if (trace_type != TraceType::invalid) {
-        root["traceType"] = (unsigned) trace_type;
+        root["traceType"] = (unsigned)trace_type;
         Json::Value &trace = root["trace"] = Json::arrayValue;
-        for (auto entry : state.trace) {
-          trace.append(entry);
+        for (const auto &entry : state.trace) {
+          trace.append(to_string(entry));
         }
       }
 

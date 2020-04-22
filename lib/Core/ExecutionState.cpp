@@ -156,8 +156,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     last_ret_value(state.last_ret_value),
     distance(state.distance),
     reached_modified_fn(state.reached_modified_fn),
-    o_asserts(state.o_asserts),
-    fps_produced(state.fps_produced)
+    o_asserts(state.o_asserts)
 
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
@@ -229,8 +228,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     last_ret_value(state.last_ret_value),
     distance(state.distance),
     reached_modified_fn(state.reached_modified_fn),
-    o_asserts(state.o_asserts),
-    fps_produced(state.fps_produced)
+    o_asserts(state.o_asserts)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -517,7 +515,7 @@ void ExecutionState::dumpStack(llvm::raw_ostream &out) const {
         out << "=" << value;
     }
     out << ")";
-    if (ii.file != "")
+    if (ii.file != nullptr)
       out << " at " << ii.file << ":" << ii.line;
     out << "\n";
     target = sf.caller;

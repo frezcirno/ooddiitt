@@ -73,7 +73,7 @@ class Tracer {
 };
 
 cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
-cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(8), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
+cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
 cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
 cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
@@ -83,7 +83,6 @@ cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("
 cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
 cl::opt<unsigned> LazyAllocExisting("lazy-alloc-existing", cl::init(2), cl::desc("number of lazy allocations to include existing memory objects of same type"));
 cl::opt<bool> LazyAllocNull("lazy-alloc-null", cl::init(true), cl::desc("do not lazy allocate to a null object"));
-cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(1000), cl::desc("Number of states within loop body (default=1000"));
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
@@ -91,7 +90,6 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   lazyAllocationCount(LazyAllocCount),
   lazyStringLength(LazyStringLength),
   maxLazyDepth(LazyAllocDepth),
-  maxStatesInLoop(MaxLoopStates),
   baseState(nullptr),
   timeout(0),
   progression(opts.progression),
@@ -174,7 +172,8 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
 
   if (isa<ConstantExpr>(address)) {
     ref<ConstantExpr> caddress = cast<ConstantExpr>(address);
-    if (caddress.get()->isZero()) {
+    if (caddress->getZExtValue() < 1024) {
+      // close to zero anyway...
       return ResolveResult::NullAccess;
     }
 
@@ -237,11 +236,14 @@ void LocalExecutor::executeFree(ExecutionState &state,
                                 ref<Expr> address,
                                 KInstruction *target) {
   StatePair zeroPointer = fork(state, Expr::createIsZero(address), true);
+  unsigned counter = 0;
   if (zeroPointer.first) {
+    counter += 1;
     if (target)
       bindLocal(target, *zeroPointer.first, Expr::createPointer(0));
   }
   if (zeroPointer.second) { // address != 0
+    counter += 1;
 
     ObjectPair op;
     if (resolveMO(*zeroPointer.second, address, op) == ResolveResult::OK) {
@@ -258,6 +260,9 @@ void LocalExecutor::executeFree(ExecutionState &state,
     if (target) {
       bindLocal(target, *zeroPointer.second, Expr::createPointer(0));
     }
+  }
+  if (target && counter > 1) {
+    frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 
@@ -358,7 +363,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   ObjectPair op;
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnMemFault(state, target, address, nullptr, "read resolveMO");
+    // could not find an object, but op.first points to object before
+    terminateStateOnMemFault(state, target, address, op.first, "read resolveMO");
     return false;
   }
 
@@ -457,6 +463,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
     // count current depth of lazy allocations
     unsigned depth = 0;
+    unsigned fork_counter = 0;
     for (auto end = (unsigned) name.size(); depth < end && name.at(depth) == '*'; ++depth);
 
     ref<ConstantExpr> null = Expr::createPointer(0);
@@ -480,6 +487,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
         // in the true case, ptr is null, so nothing further to do
         next_fork = sp.second;
+        fork_counter += 1;
       } else {
         next_fork = &state;
       }
@@ -509,6 +517,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
               ref<Expr> eq = EqExpr::create(addr, ptr);
               StatePair sp = fork(*next_fork, eq, true);
               counter += 1;
+              fork_counter += 1;
               next_fork = sp.second;
             }
           }
@@ -528,8 +537,10 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
             ref<Expr> eq = EqExpr::create(addr, ptr);
             if (addConstraintOrTerminate(*next_fork, eq)) {
               // insure strings are null-terminated
+              fork_counter += 1;
               if (base_type->isIntegerTy(8)) {
-                addConstraint(*next_fork, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
+                ref<Expr> read = wop.second->read8(count - 1);
+                addConstraint(*next_fork, EqExpr::create(read, ConstantExpr::create(0, read->getWidth())));
               }
             } else {
               // state was terminated
@@ -540,6 +551,10 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
         }
       }
     }
+    if (target && fork_counter > 1) {
+      frequent_forkers[target->info->assemblyLine] += (fork_counter - 1);
+    }
+
   } else if (base_type->isFunctionTy()) {
     // just say NO to function pointers
     ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
@@ -562,7 +577,8 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   ResolveResult result = resolveMO(state, address, op);
   if (result != ResolveResult::OK) {
-    terminateStateOnMemFault(state, target, address, nullptr, "write resolveMO");
+    // could not find an object, but op.first points to object before
+    terminateStateOnMemFault(state, target, address, op.first, "write resolveMO");
     return false;
   }
 
@@ -855,10 +871,9 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
-    if (kmodule->isUserGlobal(v) && v->hasName()) {
-      string gv_name = v->getName().str();
-      if (v->isConstant() || v->hasHiddenVisibility())  continue; // next global
+    if (v->hasName() && !(v->isConstant() || v->hasHiddenVisibility()) && kmodule->isUserGlobal(v)) {
 
+      string gv_name = v->getName().str();
       auto pos = gv_name.find('.');
       // if dot in first position or the prefix does not equal the function name, continue to next variable
       if (pos == 0) continue;
@@ -1035,12 +1050,23 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       MemoryObject *moProgName = wopProgName.first;
       ObjectState *osProgName = wopProgName.second;
 
+      // get the expression width
+      ref<Expr> value = osProgName->read8(0);
+      Expr::Width width = value->getWidth();
+
+      // create some common constant expressions used frequently
+      const ref<ConstantExpr> null = ConstantExpr::create(0, width);
+
       for (unsigned idx = 0; idx < prog_name.size(); ++idx) {
-        char ch = prog_name[idx];
-        addConstraint(*state, EqExpr::create(osProgName->read8(idx), ConstantExpr::create(ch, Expr::Int8)));
+        ref<Expr> ch = ConstantExpr::create(prog_name[idx], width);
+        value = osProgName->read8(idx);
+        addConstraint(*state, EqExpr::create(value, ch));
       }
+
       // null terminate the string
-      addConstraint(*state, EqExpr::create(osProgName->read8(prog_name.size()), ConstantExpr::create(0, Expr::Int8)));
+      value = osProgName->read8(prog_name.size());
+      addConstraint(*state, EqExpr::create(value, null));
+
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
@@ -1071,21 +1097,31 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         // constrain strings to command line strings, i.e.
         // [0]  must _not_ be '\0'
         // [N + 1] must be '\0'
-        addConstraint(*curr, NeExpr::create(wopArgv_body.second->read8(0), ConstantExpr::create(0, Expr::Int8)));
-        addConstraint(*curr, EqExpr::create(wopArgv_body.second->read8(SymArgsLength), ConstantExpr::create(0, Expr::Int8)));
+        value = wopArgv_body.second->read8(0);
+        addConstraint(*curr, NeExpr::create(value, null));
+
+        value = wopArgv_body.second->read8(SymArgsLength);
+        addConstraint(*curr, EqExpr::create(value, null));
 
         if (SymArgsPrintable) {
+
+          // create more common constant expressions used frequently
+          const ref<ConstantExpr> first_print = ConstantExpr::create('!', width);
+          const ref<ConstantExpr> last_print = ConstantExpr::create('~', width);
+
+          // [0] must be printable
           // [ 1 .. N] must be printable or '\0'
           for (unsigned idx = 0; idx < SymArgsLength; ++idx) {
+            ref<Expr> is_printable;
             ref<Expr> ch = wopArgv_body.second->read8(idx);
-            ref<Expr> gte = UgeExpr::create(ch, ConstantExpr::create(0x20, Expr::Int8));
-            ref<Expr> lte = UleExpr::create(ch, ConstantExpr::create(0x7f, Expr::Int8));
-            ref<Expr> printable = AndExpr::create(gte, lte);
-            if (index == 0) {
-              addConstraint(*curr, printable);
+            ref<Expr> is_gte = UgeExpr::create(ch, first_print);
+            ref<Expr> is_lte = UleExpr::create(ch, last_print);
+            is_printable = AndExpr::create(is_gte, is_lte);
+            if (idx == 0) {
+              addConstraint(*curr, is_printable);
             } else {
-              ref<Expr> null = EqExpr::create(ch, ConstantExpr::create(0, Expr::Int8));
-              addConstraint(*curr, OrExpr::create(printable, null));
+              ref<Expr> is_null = EqExpr::create(ch, null);
+              addConstraint(*curr, OrExpr::create(is_printable, is_null));
             }
           }
         }
@@ -1164,10 +1200,6 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     reverse_copy(test.stdin_buffer.begin(), test.stdin_buffer.end(), baseState->stdin_buffer.begin());
   } else {
     baseState->stdin_buffer = test.stdin_buffer;
-  }
-
-  for (auto value : test.fps_produced) {
-    baseState->fps_produced.push_back(value);
   }
 
   // inject the test case memory objects into the replay state
@@ -1324,16 +1356,14 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       state->ptreeNode = result.second;
     }
 
-//    StackFrame &sf = state->stack.back();
-//    for (auto itr = loops.rbegin(), end = loops.rend(); itr != end; ++itr) {
-//      sf.loopFrames.emplace_back(LoopFrame(*itr));
-//    }
     state->pc = &kf->instructions[entry];
     addedStates.push_back(state);
   }
 
+  unsigned num_timeouts = 1;
   if (interpreterOpts.mode == ExecModeID::igen) {
     searcher = constructUserSearcher(*this);
+    num_timeouts = 2;
   } else {
     searcher = new DFSSearcher();
   }
@@ -1344,7 +1374,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   const unsigned tid_timeout = 1;
   const unsigned tid_heartbeat = 2;
 
-  // parse out the breakat lines
+  // parse out the break-at lines
   break_fns.clear();
   break_lines.clear();
   if (BreakAt.size() > 0) {
@@ -1383,6 +1413,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   if (timeout > 0) timer.set(tid_timeout, timeout);
+  unsigned timeout_counter = 0;
   timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
 
   HaltReason halt = HaltReason::OK;
@@ -1405,8 +1436,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
 
     try {
-      if (!state->trace.empty() && break_lines.find(state->trace.back()) != break_lines.end()) {
-        outs() << "break at " << state->trace.back() << '\n';
+      if (!state->trace.empty() && break_lines.find(state->trace.back().second) != break_lines.end()) {
+        outs() << "break at " << state->trace.back().second << '\n';
 #ifdef _DEBUG
         enable_state_switching = false;
 #endif
@@ -1425,11 +1456,18 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     // check for expired timers
     unsigned expired = timer.expired();
     if (expired == tid_timeout) {
+      timeout_counter += 1;
+      if (timeout_counter == num_timeouts) {
 #ifdef _DEBUG
-      if (enable_state_switching) halt = HaltReason::TimeOut;
+        if (enable_state_switching) halt = HaltReason::TimeOut;
 #else
-      halt = HaltReason::TimeOut;
+        halt = HaltReason::TimeOut;
 #endif
+      } else {
+        inhibitForking = true;
+        timer.set(tid_timeout, 60);
+        outs() << "Timeout reached, forking inhibited" << oendl;
+      }
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
@@ -1697,25 +1735,29 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
           ExecutionState *states[2] = { branches.first, branches.second };
           BasicBlock *dsts[2] = { bi->getSuccessor(0), bi->getSuccessor(1) };
+          bool exceeded_loop = false;
           if (loop != nullptr) {
             ExecutionStates &ls = loopingStates[loop];
-            if (ls.size() > maxStatesInLoop) {
-
-              // exceeded max num of states in this loop
-              // there can be only one...
-              unsigned discard = 0;
-              if (loop->isLoopExiting(src)) {
-                if (!loop->contains(dsts[0])) {
-                  discard = 1;
-                }
-              } else if (theRNG.getBool()){
-                // discard 1
+            exceeded_loop = ls.size() > maxStatesInLoop;
+          }
+          if (inhibitForking || exceeded_loop) {
+            // exceeded max num of states in this loop
+            // there can be only one...
+            unsigned discard = 0;
+            if (loop->isLoopExiting(src)) {
+              if (!loop->contains(dsts[0])) {
                 discard = 1;
               }
-              terminateStateOnDiscard(*states[discard], "loop throttled");
-              states[discard] = nullptr;
+            } else if (theRNG.getBool()){
+              // discard 1
+              discard = 1;
             }
+            terminateStateOnDiscard(*states[discard], "loop throttled");
+            states[discard] = nullptr;
+          } else if (ki) {
+            frequent_forkers[ki->info->assemblyLine] += 1;
           }
+
           if (states[0]) transferToBasicBlock(*states[0], src, dsts[0]);
           if (states[1]) transferToBasicBlock(*states[1], src, dsts[1]);
         }
@@ -2414,8 +2456,8 @@ void LocalExecutor::branch(ExecutionState &state, const std::vector< ref<Expr> >
   Executor::branch(state, conditions, result);
   for (auto &loop : loops) {
     ExecutionStates &ls = loopingStates[loop];
-    for (auto s : result) {
-      ls.insert(s);
+    for (const auto &ns : result) {
+      if (ns != nullptr) ls.insert(ns);
     }
   }
 }
@@ -2448,51 +2490,6 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
     }
   }
   return pr;
-}
-
-bool LocalExecutor::isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
-
-  // if this is a recursive call, then we cannot say if this is an error
-  assert(!state->stack.empty());
-  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
-    if (state->stack[idx].kf == kf) {
-      return true;
-    }
-  }
-
-  const auto &res = loopingStates.find(loop);
-  if (res != loopingStates.end()) {
-    if (res->second.count(state) != 1) {
-      return false;
-    } else {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool LocalExecutor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
-
-  // if this is a recursive call, then we cannot say if this is an error
-  assert(!state->stack.empty());
-  for (unsigned idx = 0, end = state->stack.size() - 1; idx != end; ++idx) {
-    if (state->stack[idx].kf == kf) {
-      return true;
-    }
-  }
-
-  for (auto itr = kf->loops.begin(), end = kf->loops.end(); itr != end; ++itr) {
-    unsigned expected = (*itr == loop) ? 1 : 0;
-    const auto &res = loopingStates.find(*itr);
-    if (res != loopingStates.end()) {
-      if (res->second.count(state) != expected) {
-        return false;
-      }
-    } else if (expected) {
-      return false;
-    }
-  }
-  return true;
 }
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,

@@ -46,6 +46,7 @@ private:
   bool ExecuteReturn42_32(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteReturnMinus1_64(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteNoop(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteReturnNull(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteReturnFirstArg(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteMemset(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteFloor(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
@@ -54,6 +55,9 @@ private:
   bool ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+
+  bool canConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const std::string &str);
+  bool doConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const std::string &str);
 
   LocalExecutor *executor;
   const ModelOptions &opts;
@@ -65,6 +69,10 @@ private:
 
   static const std::vector<handler_descriptor_t> modeled_fns;
   static const std::vector<handler_descriptor_t> output_fns;
+  static const ref<ConstantExpr> expr_true;
+  static const ref<ConstantExpr> expr_false;
+
+
 };
 
 } // namespace

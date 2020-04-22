@@ -65,6 +65,7 @@ namespace {
   cl::list<string> InputFiles(cl::desc("<original input bytecode>"), cl::Positional, cl::OneOrMore);
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> FnPtrPatches("fp-patch", cl::desc("json specification for function pointer patching"), cl::init("fp-patch.json"));
+  cl::opt<string> Sources("src", cl::desc("comma delimited list of program source files"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
   cl::opt<TraceType> TraceT("trace",
     cl::desc("Choose the type of trace (default=marked basic blocks"),
@@ -383,7 +384,7 @@ Module *LinkModule(Module *module, const string &libDir) {
     break;
   }
 
-#if 0 == 1
+#if 0
   if (WithPOSIXRuntime) {
     SmallString<128> Path(LibraryDir);
 
@@ -453,10 +454,13 @@ KModule *PrepareModule(const string &filename,
       errs() << "already prepared: " << module->getModuleIdentifier() << '\n';
     } else {
 
-      set<Function*> module_fns;
-      set<GlobalVariable*> module_globals;
       module = dropUnusedFunctions(module);
-      enumModuleVisibleDefines(module, module_fns, module_globals);
+
+      set<string> sources;
+      if (!Sources.empty()) {
+        boost::split(sources, Sources, [](char c){return c == ',';});
+      }
+
       module = rewriteFunctionPointers(module, rewrites);
       module = LinkModule(module, libDir);
 
@@ -468,7 +472,7 @@ KModule *PrepareModule(const string &filename,
         MOpts.CheckDivZero = CheckDivZero;
         MOpts.CheckOvershift = CheckOvershift;
 
-        kmodule->transform(MOpts, module_fns, module_globals, ttype, mscope);
+        kmodule->transform(MOpts, sources, ttype, mscope);
         externalsAndGlobalsCheck(module, undefined_fns);
         return kmodule;
       }
@@ -657,7 +661,7 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
   }
 }
 
-#if 0 == 1
+#if 0
 
 // RLR TODO: restore type comparison
 

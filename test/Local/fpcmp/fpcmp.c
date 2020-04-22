@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef int bool;
 #define true 1
@@ -8,13 +9,9 @@ typedef int bool;
 
 bool xstrtod (char const *str, char const **ptr, double *result) {
   double val;
-  char *terminator;
   bool ok = true;
 
-  int errno = 0;
-  val = 0.0;
-
-  /* Having a non-zero terminator is an error only when PTR is NULL. */
+  val = atof(str);
 
   *result = val;
   return ok;
@@ -22,17 +19,15 @@ bool xstrtod (char const *str, char const **ptr, double *result) {
 
 int main(int argc, char *argv[]) {
 
-  int result;
+  int result = 0;
   double f;
-  char *bob = "alice";
 
-  xstrtod(*argv, NULL, &f);
-
-  if (f > 2.0) {
-    result = 0;
-  } else {
-    result = 1;
+  for (unsigned idx = 0; idx < argc; ++idx) {
+    if (xstrtod(argv[idx], NULL, &f)) {
+      printf("%u: %f\n", idx, f);
+    } else {
+      printf("%u: not a number\n", idx);
+    }
   }
-  printf("%f\n", f);
   return result;
 }
