@@ -173,16 +173,20 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   DebugInfoFinder finder;
   finder.processModule(*module);
   for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
-    DISubprogram sp(*itr);
-    if (sources.find(sp.getFilename()) != sources.end()) {
-      user_fns.insert(sp.getFunction());
+    DISubprogram di_sp(*itr);
+    if (Function *fn = di_sp.getFunction()) {
+      if (sources.find(di_sp.getFilename()) != sources.end()) {
+        user_fns.insert(fn);
+      }
     }
   }
 
   for (auto itr = finder.global_variable_begin(), end = finder.global_variable_end(); itr != end; ++itr) {
-    DIGlobalVariable gv(*itr);
-    if (sources.find(gv.getFilename()) != sources.end()) {
-      user_gbs.insert(gv.getGlobal());
+    DIGlobalVariable di_gv(*itr);
+    if (GlobalVariable *gv = di_gv.getGlobal()) {
+      if (sources.find(di_gv.getFilename()) != sources.end()) {
+        user_gbs.insert(gv);
+      }
     }
   }
 

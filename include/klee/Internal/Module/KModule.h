@@ -218,7 +218,10 @@ namespace klee {
 
     void getUserGlobals(std::set<std::string> &gbs) {
       gbs.clear();
-      for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) gbs.insert((*itr)->getName());
+      for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) {
+        const llvm::GlobalVariable *gv = *itr;
+        gbs.insert(gv->getName());
+      }
     }
 
     unsigned getFunctionID(llvm::Function *fn) {

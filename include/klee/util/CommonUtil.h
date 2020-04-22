@@ -11,6 +11,7 @@
 typedef std::chrono::system_clock sys_clock;
 
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
+#define __noop()  asm("nop")
 
 namespace llvm {
   class Value;

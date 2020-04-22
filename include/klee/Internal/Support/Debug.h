@@ -13,8 +13,6 @@
 #include <klee/Config/config.h>
 #include <llvm/Support/Debug.h>
 
-#define __noop()  asm("nop")
-
 // We define wrappers around the LLVM DEBUG macros that are conditionalized on
 // whether the LLVM we are building against has the symbols needed by these
 // checks.
