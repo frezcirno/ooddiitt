@@ -124,8 +124,8 @@ void InstructionInfoTable::BuildTable(llvm::Module *m) {
     // initial instructions in a function (correspond to the formal parameters),
     // so we first search forward to find the first instruction with debug info,
     // if any.
-    const char *file;
-    const char *path;
+    const char *file = nullptr;
+    const char *path = nullptr;
     unsigned line = 0;
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
