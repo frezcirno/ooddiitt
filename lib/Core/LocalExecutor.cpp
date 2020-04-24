@@ -1273,8 +1273,7 @@ void LocalExecutor::runMainConcrete(Function *fn,
 
   if (fn->arg_size() == 2) {
 
-    unsigned ptr_width =  Context::get().getPointerWidth();
-    assert(ptr_width == 64 && "64-bit only");
+    assert(Context::get().getPointerWidth() == 64 && "64-bit only");
 
     ref<Expr> eArgC = ConstantExpr::create(args.size(), Expr::Int32);
     bindArgument(kf, 0, *state, eArgC);

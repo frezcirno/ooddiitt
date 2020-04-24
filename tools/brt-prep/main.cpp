@@ -328,9 +328,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 //  assert(userMainFn && "unable to get user main");
   Function *uclibcMainFn = mainModule->getFunction("__uClibc_main");
   assert(uclibcMainFn && "unable to get uclibc main");
-
-  const FunctionType *ft = uclibcMainFn->getFunctionType();
-  assert(ft->getNumParams() == 7);
+  assert(uclibcMainFn->getFunctionType()->getNumParams() == 7);
 
   // modify module for cbert
   modify_clib(mainModule);
