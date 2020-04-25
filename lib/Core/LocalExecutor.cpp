@@ -72,17 +72,17 @@ class Tracer {
   virtual unsigned to_entry(KInstruction *ki);
 };
 
-cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main)"));
-cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main)"));
-cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters"));
-cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads"));
-cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer"));
-cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr"));
-cl::opt<unsigned> LazyAllocOffset("lazy-alloc-offset", cl::init(0), cl::desc("index into lazy allocation to return"));
-cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation"));
-cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer"));
-cl::opt<unsigned> LazyAllocExisting("lazy-alloc-existing", cl::init(2), cl::desc("number of lazy allocations to include existing memory objects of same type"));
-cl::opt<bool> LazyAllocNull("lazy-alloc-null", cl::init(true), cl::desc("do not lazy allocate to a null object"));
+cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main) (default=4)"));
+cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(8), cl::desc("Maximum length of each command line arg (only used when entry-point is main) (default=8)"));
+cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters (default=false)"));
+cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads (default=32)"));
+cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer (default=4)"));
+cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr (default=9)"));
+cl::opt<unsigned> LazyAllocOffset("lazy-alloc-offset", cl::init(0), cl::desc("index into lazy allocation to return (default=0)"));
+cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation (default=0)"));
+cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer (default=4)"));
+cl::opt<unsigned> LazyAllocExisting("lazy-alloc-existing", cl::init(2), cl::desc("number of lazy allocations to include existing memory objects of same type (default=2)"));
+cl::opt<bool> LazyAllocNull("lazy-alloc-null", cl::init(true), cl::desc("do not lazy allocate to a null object (default=true)"));
 cl::opt<string> BreakAt("break-at", cl::desc("break at the given trace line number or function name"));
 
 LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ih) :
