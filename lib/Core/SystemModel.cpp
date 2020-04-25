@@ -480,6 +480,7 @@ bool SystemModel::doConstrainString(ExecutionState &state, const ObjectState *os
   return false;
 }
 
+// this is not currently active.  for coverage purposes, was not effective
 bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
 //  static const vector<string> values = { "0", "-3" , "-2" , "-1" , "-0.5", "-0.1", "0.1" , "0.5", "1" , "2" , "3" };
@@ -533,130 +534,8 @@ bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&
       outs () << ss.str() << oendl;
     }
   }
-
-#if 0
-
-//  static vector<string> values = { "0.0", "-3.0" , "-2.0" , "-1.0" , "-0.5", "-0.1", "0.1" , "0.5", "1.0" , "2.0" , "3.0" };
-  static vector<string> values = { "0", "1", "2" };
-
-  if (executor->getOptions().mode == ExecModeID::igen) {
-
-    // in input generation mode
-    ObjectPair op;
-    if (executor->resolveMO(state, str, op) == LocalExecutor::ResolveResult::OK) {
-      ref<Expr> ch = op.second->read8(0);
-      if (!executor->isUnique(state, ch)) {
-
-        for (auto itr = values.begin(), end = values.end(); itr != end; ++itr) {
-          // skip the first
-          if (itr != values.begin()) {
-
-            ExecutionState *ns = executor->clone(&state);
-            if (ns != nullptr) {
-              ObjectPair op2;
-              if (executor->resolveMO(*ns, str, op2) == LocalExecutor::ResolveResult::OK) {
-                if (doConstrainString(*ns, op2.second, 0, *itr)) {
-                  if (ki) {
-                    executor->frequent_forkers[ki->info->assemblyLine] += 1;
-                  }
-                  ns->restartInstruction();
-                } else {
-                  executor->terminateStateOnDispose(*ns, "unsatisfiable xstrtod");
-                }
-              }
-            }
-          }
-        }
-        if (doConstrainString(state, op.second, 0, values.front())) {
-          state.restartInstruction();
-          return true;
-        }
-      }
-    }
-  }
-#endif
   return false;
 }
-
-#if 0
-bool SystemModel::ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
-
-  static vector<double> values = { -3.0 , -2.0 , -1.0 , -0.5, -0.1, 0.1 , 0.5, 1.0 , 2.0 , 3.0 };
-  ref<ConstantExpr> str = executor->toConstant(state, args[0], "XStrToD");
-  ref<ConstantExpr> ptr = executor->toConstant(state, args[2], "XStrToD");
-  unsigned result = 0;
-
-  if (executor->getOptions().mode == ExecModeID::igen) {
-
-    // in input generation mode
-    ObjectPair op;
-    LocalExecutor::ResolveResult res = executor->resolveMO(state, str, op);
-    if (state.isSymbolic(op.first)) {
-
-      for (auto value : values) {
-
-        ExecutionState *ns = executor->clone(&state);
-        res = executor->resolveMO(*ns, ptr, op);
-        if (res == LocalExecutor::ResolveResult::OK) {
-          const MemoryObject *mo = op.first;
-          const ObjectState *os = op.second;
-          ObjectState *wos = ns->addressSpace.getWriteable(mo, os);
-          ref<Expr> offset = mo->getOffsetExpr(ptr);
-
-          llvm::APFloat f(value);
-          ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
-          wos->write(offset, outparam);
-          ns->fps_produced.push_back(value);
-          executor->bindLocal(ki, *ns, expr_true);
-        }
-      }
-
-      res = executor->resolveMO(state, ptr, op);
-      if (res == LocalExecutor::ResolveResult::OK) {
-        const MemoryObject *mo = op.first;
-        const ObjectState *os = op.second;
-        ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-        ref<Expr> offset = mo->getOffsetExpr(ptr);
-
-        llvm::APFloat f(0.0);
-        ref<ConstantExpr> outparam = ConstantExpr::alloc(f.bitcastToAPInt());
-        wos->write(offset, outparam);
-        state.fps_produced.push_back(f.convertToDouble());
-      }
-      retExpr = expr_true;
-      return true;
-    }
-    state.fps_produced.push_back(APFloat::getInf(APFloat::IEEEdouble).convertToDouble());
-    return false;
-  } else {
-
-    // otherwise, we must be in a replay mode
-    if (!state.fps_produced.empty()) {
-
-      APFloat value(state.fps_produced.front());
-      state.fps_produced.pop_front();
-      if (!value.isInfinity()) {
-
-        // not the flag value, so write back the next value in sequence
-        ObjectPair op;
-        LocalExecutor::ResolveResult res = executor->resolveMO(state, ptr, op);
-        if (res == LocalExecutor::ResolveResult::OK) {
-          const MemoryObject *mo = op.first;
-          const ObjectState *os = op.second;
-          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-          ref<Expr> offset = mo->getOffsetExpr(ptr);
-
-          ref<ConstantExpr> outparam = ConstantExpr::alloc(value.bitcastToAPInt());
-          wos->write(offset, outparam);
-          retExpr = expr_true;
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-#endif
 
 // RLR TODO: other functions to model: memcpy, memcmp, memmove, strlen, strcpy,
 
