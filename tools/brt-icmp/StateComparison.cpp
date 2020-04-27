@@ -459,6 +459,7 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
 
   assert(!checkpoints.empty());
   auto &diffs = checkpoints.back().diffs;
+  assert(diffs.empty());
 
   Function *fn1 = kf1->function;
   Function *fn2 = kf2->function;
@@ -527,40 +528,7 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
     }
   }
 
-  // check output devices
-  string stdout1 = to_data_string(state1->stdout_capture);
-  string stdout2 = to_data_string(state2->stdout_capture);
-  if (stdout1 != stdout2) {
-
-    string out1 = to_char_string(state1->stdout_capture);
-    string out2 = to_char_string(state2->stdout_capture);
-
-    dtl::Diff<char, string> d(out1, out2);
-    d.compose();
-    ostringstream ss;
-    d.printSES(ss);
-    string desc = ss.str();
-    replace(desc.begin(), desc.end(), '\n', ',');
-    diffs.emplace_back(DiffType::delta, "@stdout", desc);
-  }
-
-  string stderr1 = to_data_string(state1->stderr_capture);
-  string stderr2 = to_data_string(state2->stderr_capture);
-  if (stderr1 != stderr2) {
-
-    string out1 = to_char_string(state1->stderr_capture);
-    string out2 = to_char_string(state2->stderr_capture);
-
-    dtl::Diff<char, string> d(out1, out2);
-    d.compose();
-    ostringstream ss;
-    d.printSES(ss);
-    string desc = ss.str();
-    replace(desc.begin(), desc.end(), '\n', ',');
-    diffs.emplace_back(DiffType::delta, "@stderr", desc);
-  }
-
-  // finally, if this is not the final state or both fns returned, then check user global variables
+  // if this is not the final state or both fns returned, then check user global variables
   // if they did not return, no further execution is possible and no further behavior.
   if (!is_final || ((ver1.term_reason == TerminateReason::Return) && (ver2.term_reason == TerminateReason::Return))) {
     for (auto itr = globals.begin(), end = globals.end(); itr != end; ++itr) {
@@ -569,6 +537,45 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
       compareMemoryObjects(entry.mo1, kf1, state1, entry.mo2, kf2, state2, entry.name, entry.type);
     }
   }
+
+  // if we have not found any state differences, then check for output diffs
+  // output diffs tend to coincide with state differences, but reverse is not true.
+  if (diffs.empty()) {
+
+    // check output devices
+    string stdout1 = to_data_string(state1->stdout_capture);
+    string stdout2 = to_data_string(state2->stdout_capture);
+    if (stdout1 != stdout2) {
+
+      string out1 = to_char_string(state1->stdout_capture);
+      string out2 = to_char_string(state2->stdout_capture);
+
+      dtl::Diff<char, string> d(out1, out2);
+      d.compose();
+      ostringstream ss;
+      d.printSES(ss);
+      string desc = ss.str();
+      replace(desc.begin(), desc.end(), '\n', ',');
+      diffs.emplace_back(DiffType::delta, "@stdout", desc);
+    }
+
+    string stderr1 = to_data_string(state1->stderr_capture);
+    string stderr2 = to_data_string(state2->stderr_capture);
+    if (stderr1 != stderr2) {
+
+      string out1 = to_char_string(state1->stderr_capture);
+      string out2 = to_char_string(state2->stderr_capture);
+
+      dtl::Diff<char, string> d(out1, out2);
+      d.compose();
+      ostringstream ss;
+      d.printSES(ss);
+      string desc = ss.str();
+      replace(desc.begin(), desc.end(), '\n', ',');
+      diffs.emplace_back(DiffType::delta, "@stderr", desc);
+    }
+  }
+
 }
 
 void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,

@@ -73,11 +73,11 @@ class Tracer {
 };
 
 cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main) (default=4)"));
-cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(8), cl::desc("Maximum length of each command line arg (only used when entry-point is main) (default=8)"));
+cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main) (default=4)"));
 cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(false), cl::desc("command line args restricted to printable characters (default=false)"));
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads (default=32)"));
 cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer (default=4)"));
-cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(9), cl::desc("Number of characters to lazy initialize i8 ptr (default=9)"));
+cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(4), cl::desc("Number of characters to lazy initialize i8 ptr (default=4)"));
 cl::opt<unsigned> LazyAllocOffset("lazy-alloc-offset", cl::init(0), cl::desc("index into lazy allocation to return (default=0)"));
 cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation (default=0)"));
 cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer (default=4)"));
@@ -526,8 +526,8 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
 
           // calc lazyAllocationCount by type i8* (string, byte buffer) gets more
           unsigned count = LazyAllocCount;
-          if (base_type->isIntegerTy(8) && count < lazyStringLength) {
-            count = lazyStringLength;
+          if (base_type->isIntegerTy(8) && count < lazyStringLength + 1) {
+            count = lazyStringLength + 1;
           }
 
           // finally, try with a new object
