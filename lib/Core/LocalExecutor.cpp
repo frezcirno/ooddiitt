@@ -1249,6 +1249,10 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
     idx++;
   }
 
+  if (kf->isDiffChanged()) {
+    state->distance = 0;
+  }
+
   std::vector<ExecutionState*> init_states = { state };
   assert(!interpreterOpts.progression.empty());
   timeout = interpreterOpts.progression.front().timeout;
@@ -1776,11 +1780,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (tracer != nullptr) {
             tracer->append_return(state.trace, ret_from);
           }
-          if (ret_from->isDiffChanged()) {
-            state.distance = 1;
-          } else if (state.distance != 0) {
-            state.distance += 1;
-          }
         }
 
         if (state.stack.size() > 0 && ret_from->function->hasFnAttribute(Attribute::NoReturn)) {
@@ -1823,6 +1822,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 #endif
         }
 
+        KFunction *kf = kmodule->getKFunction(fn);
         if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
           state.instFaulting = ki;
           unsigned numArgs = cs.arg_size();
@@ -1857,9 +1857,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           return;
         }
 
+        if ((kf != nullptr) && kf->isDiffChanged() && !state.stack.empty() && (state.distance > state.stack.size())) {
+          state.distance = state.stack.size();
+        }
+
         assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);
         if (tracer != nullptr) {
-          tracer->append_call(state.trace, kmodule->getKFunction(fn));
+          tracer->append_call(state.trace, kf);
         }
 
         if (!unconstraintFlags.isStubCallees()) {

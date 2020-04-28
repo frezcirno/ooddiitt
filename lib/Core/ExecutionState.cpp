@@ -99,7 +99,7 @@ ExecutionState::ExecutionState() :
     stdin_offset(0),
     stdin_closed(false),
     eof_counter(0),
-    distance(0),
+    distance(UINT32_MAX),
     reached_modified_fn(false)
 { }
 

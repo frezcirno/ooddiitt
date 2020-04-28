@@ -30,9 +30,11 @@ private:
 //  objects_ty objects;
   ArrayCache *const arrayCache;
 
-  char *deterministicSpace;
-  char *nextFreeSlot;
-  size_t spaceSize;
+  void *deterministicStart;
+  void *deterministicEnd;
+  void *nextFreeSlot;
+
+//  size_t spaceSize;
 
 public:
   MemoryManager(ArrayCache *arrayCache, void *user_baseaddress, size_t size);
@@ -54,7 +56,8 @@ public:
   /*
    * Returns the size used by deterministic allocation in bytes
    */
-  size_t getUsedDeterministicSize();
+  size_t getUsedDeterministicSize() const;
+  size_t getAvailable() const;
 };
 
 } // End klee namespace

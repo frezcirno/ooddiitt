@@ -43,13 +43,14 @@ llvm::cl::opt<unsigned> RedZoneSpace(
 
 /***/
 MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t user_size)
-    : arrayCache(_arrayCache), deterministicSpace(nullptr), nextFreeSlot(nullptr), spaceSize(user_size) {
+    : arrayCache(_arrayCache), deterministicStart(nullptr), deterministicEnd(nullptr), nextFreeSlot(nullptr) {
 
   if (DeterministicAllocation) {
-    if (user_base != nullptr) deterministicSpace = (char*) user_base;
-    else deterministicSpace = (char*) 0x7ff30000000;
-    nextFreeSlot = deterministicSpace;
-    if (spaceSize == 0) spaceSize = 1024 * 1024 * 1024;
+    if (user_base != nullptr) deterministicStart = (char*) user_base;
+    else deterministicStart = (char*) 0x7ff30000000;
+    nextFreeSlot = deterministicStart;
+    if (user_size == 0) user_size = 1024 * 1024 * 1024;
+    deterministicEnd = (void*) ((char*) deterministicStart + user_size);
   }
 }
 
@@ -84,13 +85,13 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   uint64_t address = 0;
   if (DeterministicAllocation) {
 
-    address = llvm::RoundUpToAlignment((uint64_t)nextFreeSlot + alignment - 1, alignment);
+    address = llvm::RoundUpToAlignment((uint64_t) nextFreeSlot + alignment - 1, alignment);
 
     // Handle the case of 0-sized allocations as 1-byte allocations.
     // This way, we make sure we have this allocation between its own red zones
     size_t alloc_size = std::max(size, (uint64_t)1);
-    if ((char *)address + alloc_size < deterministicSpace + spaceSize) {
-      nextFreeSlot = (char *)address + alloc_size + RedZoneSpace;
+    if ((char *) address + alloc_size < deterministicEnd) {
+      nextFreeSlot = (void*) ((char *) address + (alloc_size + RedZoneSpace));
     } else {
       klee_warning_once(0, "Couldn't allocate %" PRIu64
                            " bytes. Not enough deterministic space left.",
@@ -139,8 +140,12 @@ void MemoryManager::markFreed(MemoryObject *mo) {
     free((void *) (mo->address));
 }
 
-size_t MemoryManager::getUsedDeterministicSize() {
-  return nextFreeSlot - deterministicSpace;
+size_t MemoryManager::getUsedDeterministicSize() const {
+  return ((char*) nextFreeSlot) - ((char*) deterministicStart);
+}
+
+size_t MemoryManager::getAvailable() const {
+  return ((char*) deterministicEnd) - ((char*) nextFreeSlot);
 }
 
 

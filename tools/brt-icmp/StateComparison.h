@@ -58,6 +58,7 @@ struct CompareCheckpoint {
 
 std::string to_string(const CompareCheckpoint &checkpoint);
 std::string to_string(const CompareDiff &diff);
+std::string to_string(const std::set<unsigned> &nums);
 
 class StateComparator {
 
@@ -89,15 +90,13 @@ public:
 
   const KInstruction *checkTermination();
   bool isEquivalent();
-  bool beseechOracle() const { return oracle_ids.empty(); }
-  bool beseechOracle(unsigned id) const { return (oracle_ids.find(id) == oracle_ids.end()); }
-  bool reachedChanged() const { return ver1.finalState->reached_modified_fn || ver2.finalState->reached_modified_fn; }
+  bool reachedChanged() const
+    { return ver1.finalState->reached_modified_fn || ver2.finalState == nullptr || ver2.finalState->reached_modified_fn; }
 
   std::deque<CompareCheckpoint> checkpoints;
+  std::set<unsigned> oracle_ids;
 
 private:
-
-  std::set<unsigned> oracle_ids;
 
   bool compareExternalState();
   bool compareInternalState();

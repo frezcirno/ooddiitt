@@ -71,7 +71,6 @@ namespace {
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
   cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"));
-  cl::opt<unsigned> OracleID("oracle-id", cl::desc("oracle id corresponding to regression (default=0)"), cl::init(0));
 }
 
 /***/
@@ -499,7 +498,9 @@ int main(int argc, char **argv, char **envp) {
     }
   }
 
-  bool with_oracle = kmod2->hasOracle() || !true_faults.empty();
+  if (!kmod2->hasOracle()) {
+    klee_warning("%s does not contain an oracle", mod_name2.c_str());
+  }
 
 #ifdef DO_HEAP_PROFILE
   HeapProfilerStart("brt-icmp");
@@ -569,33 +570,12 @@ int main(int argc, char **argv, char **envp) {
         if (ki == nullptr) {
           if (cmp.isEquivalent()) {
             outs() << "equivalent;0;";
-            if (with_oracle) {
-              if (!cmp.beseechOracle(OracleID)) {
-                outs() << '-';
-              } else {
-                outs() << '+';
-              }
-            } else {
-              outs() << '?';
-            }
+            outs() << to_string(cmp.oracle_ids);
             outs() << oendl;
           } else {
             outs() << "divergent;" << cmp.checkpoints.size() << ';';
-            if (with_oracle) {
-              if (version2.term_reason == TerminateReason::MemFault && isTrueFault(true_faults, version2.finalState)) {
-                outs() << '!';
-              } else if (cmp.beseechOracle()) {
-                outs() << '-';
-              } else if (cmp.beseechOracle(OracleID)) {
-                outs() << '+';
-              } else{
-                outs() << '!';
-              }
-            } else {
-              outs() << '?';
-            }
+            outs() << to_string(cmp.oracle_ids);
             outs() << oendl;
-
             for (const auto &cp : cmp.checkpoints) {
               outs().indent(2) << to_string(cp) << oendl;
               for (const auto &diff : cp.diffs) {

@@ -75,6 +75,16 @@ std::string to_string(const CompareCheckpoint &checkpoint) {
   return ss.str();
 }
 
+std::string to_string(const set<unsigned> &nums) {
+
+  ostringstream ss;
+  for (auto itr = nums.begin(), end = nums.end(); itr != end; ++itr) {
+    if (itr != nums.begin()) ss << ',';
+    ss << *itr;
+  }
+  return ss.str();
+}
+
 std::string to_string(const CompareDiff &diff) {
 
   static const char type_designators[] = { 'I', 'D', 'I', 'W', 'F' };
@@ -100,8 +110,10 @@ StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersi
 
   ptr_width = datalayout->getPointerSizeInBits();
   // get a list of oracle ids encountered during the rply execution
-  for (const auto &entry : v2.finalState->o_asserts) {
-    oracle_ids.insert(entry.first);
+  if (v2.finalState != nullptr) {
+    for (const auto &entry : v2.finalState->o_asserts) {
+      oracle_ids.insert(entry.first);
+    }
   }
 }
 
@@ -121,7 +133,9 @@ const KInstruction *StateComparator::checkTermination() {
 
   const KInstruction *result = nullptr;
   if (!(is_valid(ver1.term_reason) && (ver1.term_reason != ver2.term_reason))) {
-    result = ver2.finalState->instFaulting;
+    if (ver2.finalState != nullptr) {
+      result = ver2.finalState->instFaulting;
+    }
   }
   return result;
 }
@@ -271,7 +285,7 @@ bool StateComparator::isEquivalent() {
   if (ver2.finalState == nullptr) {
     checkpoints.emplace_back("@n/a", UINT32_MAX);
     auto &diffs = checkpoints.back().diffs;
-    diffs.emplace_back(DiffType::delta, "@n/a", "incomplete execution");
+    diffs.emplace_back(DiffType::delta, "@ver2", "faulting execution");
   } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
              (ver1.term_reason != ver2.term_reason)) {
 

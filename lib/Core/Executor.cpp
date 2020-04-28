@@ -2869,12 +2869,6 @@ void Executor::executeAlloc(ExecutionState &state,
 
   // size is now a constant
   uint64_t allocSize = cast<ConstantExpr>(size)->getZExtValue(W);
-  if (allocSize > MAX_ALLOCATION_SIZE) {
-
-    klee_warning("failing large allocation");
-    bindLocal(target, state, ConstantExpr::createPointer(0));
-    return;
-  }
   size_t allocAlignment = getAllocationAlignment(target->inst);
   MemoryObject *mo = memory->allocate(allocSize, Type::getInt8PtrTy(kmodule->module->getContext()), kind, target->inst, allocAlignment);
   if (mo == nullptr) {
