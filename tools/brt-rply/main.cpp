@@ -68,6 +68,7 @@ namespace {
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
   cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
+  cl::opt<bool> ShowTrace("show-trace", cl::desc("display replay's trace"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
@@ -533,10 +534,6 @@ int main(int argc, char **argv, char **envp) {
     theInterpreter = nullptr;
     auto elapsed = chrono::duration_cast<chrono::milliseconds>(sys_clock::now() - start_time);
 
-    // only used for verbose output
-    vector<unsigned char> stdout_capture;
-    vector<unsigned char> stderr_capture;
-
     ExecutionState *state = nullptr;
 
     if (ex_states.empty()) {
@@ -550,9 +547,6 @@ int main(int argc, char **argv, char **envp) {
     } else {
       state = ex_states.front().first;
       TerminateReason term_reason = ex_states.front().second;
-
-      state->stdout_capture.get_data(stdout_capture);
-      state->stderr_capture.get_data(stderr_capture);
 
       assert(state->status == StateStatus::Completed);
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
@@ -578,21 +572,32 @@ int main(int argc, char **argv, char **envp) {
           outs() << "#Faulting statement at " << state->instFaulting->info->file << ':' << state->instFaulting->info->line << oendl;
         }
       }
+      if (ShowOutput) {
 
-    }
+        // display captured output
+        vector<unsigned char> stdout_capture;
+        state->stdout_capture.get_data(stdout_capture);
+        if (!stdout_capture.empty()) {
+          outs() << "stdout: " << toDataString(stdout_capture, 64) << '\n';
+          for (auto itr = stdout_capture.begin(), end = stdout_capture.end(); itr != end; ++itr) {
+            outs() << *itr;
+          }
+        }
 
-    if (ShowOutput) {
-      // display captured output
-      if (!stdout_capture.empty()) {
-        outs() << "stdout: " << toDataString(stdout_capture, 64) << '\n';
-        for (auto itr = stdout_capture.begin(), end = stdout_capture.end(); itr != end; ++itr) {
-          outs() << *itr;
+        vector<unsigned char> stderr_capture;
+        state->stderr_capture.get_data(stderr_capture);
+        if (!stderr_capture.empty()) {
+          outs() << "stdout: " << toDataString(stderr_capture, 64) << '\n';
+          for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
+            outs() << *itr;
+          }
         }
       }
-      if (!stderr_capture.empty()) {
-        outs() << "stdout: " << toDataString(stderr_capture, 64) << '\n';
-        for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
-          outs() << *itr;
+
+      if (ShowTrace) {
+        outs() << "trace:" << oendl;
+        for (const auto &entry : state->trace) {
+          outs() << to_string(entry) << oendl;
         }
       }
     }

@@ -571,6 +571,9 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
       d.printSES(ss);
       string desc = ss.str();
       replace(desc.begin(), desc.end(), '\n', ',');
+      if (desc.size() > 80) {
+        desc = desc.substr(0, 80);
+      }
       diffs.emplace_back(DiffType::delta, "@stdout", desc);
     }
 

@@ -577,9 +577,11 @@ int main(int argc, char **argv, char **envp) {
             outs() << to_string(cmp.oracle_ids);
             outs() << oendl;
             for (const auto &cp : cmp.checkpoints) {
-              outs().indent(2) << to_string(cp) << oendl;
-              for (const auto &diff : cp.diffs) {
-                outs().indent(4) << to_string(diff) << oendl;
+              if (!cp.diffs.empty()) {
+                outs().indent(2) << to_string(cp) << oendl;
+                for (const auto &diff : cp.diffs) {
+                  outs().indent(4) << to_string(diff) << oendl;
+                }
               }
             }
           }
