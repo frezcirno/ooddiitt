@@ -414,6 +414,11 @@ protected:
 
   bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
   bool isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
+  void tryPreference(ExecutionState &state, const MemoryObject *mo);
+  bool tryPreferenceValue(ExecutionState &state, char ch, ref<Expr> value);
+  bool tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref<Expr> value);
+
+  bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
 public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ie);
@@ -472,7 +477,7 @@ public:
   unsigned getSymbolicPathStreamID(const ExecutionState &state) override;
 
   void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) override;
-  bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) override;
+  bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res) override;
 
   void getCoveredLines(const ExecutionState &state, std::map<const char*, std::set<unsigned> > &res) override;
 

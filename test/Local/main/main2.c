@@ -4,8 +4,8 @@
 
 int main(int argc, char *argv[]) {
 
-  if (argc > 1) {
-    printf("%s\n\n", argv[1]);
+  if (argc > 0) {
+    *argv[1] = 'b';
   }
-  return 0;
+  return 1;
 }

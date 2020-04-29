@@ -74,7 +74,6 @@ class Tracer {
 
 cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum number of command line arguments (only used when entry-point is main) (default=4)"));
 cl::opt<unsigned> SymArgsLength("sym-args-length", cl::init(4), cl::desc("Maximum length of each command line arg (only used when entry-point is main) (default=4)"));
-cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(true), cl::desc("command line args restricted to printable characters (default=true)"));
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads (default=32)"));
 cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer (default=4)"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(4), cl::desc("Number of characters to lazy initialize i8 ptr (default=4)"));
@@ -1103,29 +1102,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         value = wopArgv_body.second->read8(SymArgsLength);
         addConstraint(*curr, EqExpr::create(value, null));
 
-        if (SymArgsPrintable) {
-
-          // create more common constant expressions used frequently
-          const ref<ConstantExpr> first_print = ConstantExpr::create('!', width);
-          const ref<ConstantExpr> last_print = ConstantExpr::create('~', width);
-
-          // [0] must be printable
-          // [ 1 .. N] must be printable or '\0'
-          for (unsigned idx = 0; idx < SymArgsLength; ++idx) {
-            ref<Expr> is_printable;
-            ref<Expr> ch = wopArgv_body.second->read8(idx);
-            ref<Expr> is_gte = UgeExpr::create(ch, first_print);
-            ref<Expr> is_lte = UleExpr::create(ch, last_print);
-            is_printable = AndExpr::create(is_gte, is_lte);
-            if (idx == 0) {
-              addConstraint(*curr, is_printable);
-            } else {
-              ref<Expr> is_null = EqExpr::create(ch, null);
-              addConstraint(*curr, OrExpr::create(is_printable, is_null));
-            }
-          }
-        }
-
         // and constrain pointer in argv array to point to body
         ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * (index), ptr_width);
         addConstraint(*curr, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
@@ -1148,6 +1124,142 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         curr->arguments.push_back(eArgC);
         curr->arguments.push_back(eArgV);
       }
+
+#if 0
+      // symbolic argc, symbolic argv,
+      assert(fn->getArgumentList().size() == 2);
+
+      init_states.clear();
+      init_states.resize(SymArgsMax + 1);
+
+      // push the module name into the state
+      std::string md_name = kmodule->getModuleIdentifier();
+      // program name requires some post-processing.
+      // strip paths and bc extension
+      std::string prog_name;
+      size_t pos = md_name.rfind('/');
+      if (pos != string::npos) {
+        prog_name = md_name.substr(pos + 1);
+      } else {
+        prog_name = md_name;
+      }
+      if (boost::ends_with(prog_name, ".bc")) {
+        prog_name = prog_name.substr(0, prog_name.size() - 3);
+      }
+
+      // also need to remove a pre, post, or rply prefix so all programs see same prog name
+      if (boost::starts_with(prog_name, "pre-")) {
+        prog_name = prog_name.substr(4);
+      }
+      if (boost::starts_with(prog_name, "post-")) {
+        prog_name = prog_name.substr(5);
+      }
+      if (boost::starts_with(prog_name, "rply-")) {
+        prog_name = prog_name.substr(5);
+      }
+
+      // create some common constant expressions used frequently
+      Expr::Width ch_width = Expr::Int8;
+      const ref<ConstantExpr> null_term = ConstantExpr::create(0, ch_width);
+      const ref<ConstantExpr> null_ptr = ConstantExpr::createPointer(0);
+
+      // create the initial states
+      init_states[0] = state;
+      for (unsigned idx = 1; idx <= SymArgsMax; ++idx) {
+        init_states[idx] = new ExecutionState(*state);
+      }
+
+      for (unsigned array_idx = 0; array_idx <= SymArgsMax; ++array_idx) {
+        ExecutionState *ns = init_states[array_idx];
+
+        WObjectPair wopProgName;
+        if (!allocSymbolic(*ns, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, prog_name.size() + 1)) {
+          klee_error("failed to allocate symbolic argv_array");
+        }
+        MemoryObject *moProgName = wopProgName.first;
+        ObjectState *osProgName = wopProgName.second;
+
+        ref<Expr> value;
+        for (unsigned idx = 0; idx < prog_name.size(); ++idx) {
+          ref<Expr> ch = ConstantExpr::create(prog_name[idx], ch_width);
+          value = osProgName->read8(idx);
+          addConstraint(*ns, EqExpr::create(value, ch));
+        }
+        // null terminate the string
+        value = osProgName->read8(prog_name.size());
+        addConstraint(*ns, EqExpr::create(value, null_term));
+
+        // get an array for the argv pointers
+        WObjectPair wopArgv_array;
+        if (!allocSymbolic(*ns, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgsMax + 2)) {
+          klee_error("failed to allocate symbolic argv_array");
+        }
+
+        // argv[0] -> program name
+        // despite being symbolic, argv[0] always points to program name
+        addConstraint(*ns, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgName->getBaseExpr()));
+
+        // argv[1 .. SymArgs - 1] = symbolic value
+        for (unsigned idx1 = 1; idx1 <= array_idx; ++idx1) {
+
+          WObjectPair wopArgv_body;
+          std::string argName = "argv_" + itostr(idx1);
+          if (!allocSymbolic(*ns, char_type, fn, MemKind::param, argName, wopArgv_body, char_align, SymArgsLength + 1)) {
+            klee_error("failed to allocate symbolic command line arg");
+          }
+
+          // constrain strings to command line strings, i.e.
+          // [0]  must _not_ be '\0'
+          // [N + 1] must be '\0'
+          value = wopArgv_body.second->read8(0);
+          addConstraint(*ns, NeExpr::create(value, null_term));
+
+          value = wopArgv_body.second->read8(SymArgsLength);
+          addConstraint(*ns, EqExpr::create(value, null_term));
+
+          if (SymArgsPrintable) {
+
+            // create more common constant expressions used frequently
+            const ref<ConstantExpr> first_print = ConstantExpr::create('!', ch_width);
+            const ref<ConstantExpr> last_print =  ConstantExpr::create('~', ch_width);
+
+            // [0] must be printable
+            // [ 1 .. N] must be printable or '\0'
+            for (unsigned idx2 = 0; idx2 < SymArgsLength; ++idx2) {
+              ref<Expr> is_printable;
+              ref<Expr> ch = wopArgv_body.second->read8(idx2);
+              ref<Expr> is_gte = UgeExpr::create(ch, first_print);
+              ref<Expr> is_lte = UleExpr::create(ch, last_print);
+              is_printable = AndExpr::create(is_gte, is_lte);
+              if (idx2 == 0) {
+                addConstraint(*ns, is_printable);
+              } else {
+                ref<Expr> is_null = EqExpr::create(ch, null_term);
+                addConstraint(*ns, OrExpr::create(is_printable, is_null));
+              }
+            }
+          }
+
+          // and constrain pointer in argv array to point to body
+          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * idx1, ptr_width);
+          addConstraint(*ns, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
+        }
+
+        // argv[SymArgs] = null
+        for (unsigned idx2 = array_idx + 1; idx2 <= SymArgsMax; ++idx2) {
+          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * idx2, ptr_width);
+          addConstraint(*ns, EqExpr::create(ptr, null_ptr));
+        }
+
+        ref<Expr> eArgC = ConstantExpr::create(array_idx + 1, Expr::Int32);
+        ref<Expr> eArgV = ConstantExpr::createPointer(wopArgv_array.first->address);
+        bindArgument(kf, 0, *ns, eArgC);
+        bindArgument(kf, 1, *ns, eArgV);
+        ns->arguments.clear();
+        ns->arguments.push_back(eArgC);
+        ns->arguments.push_back(eArgV);
+      }
+#endif
 
     } else {
 
@@ -1366,7 +1478,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   unsigned num_timeouts = 1;
   if (interpreterOpts.mode == ExecModeID::igen) {
     searcher = constructUserSearcher(*this);
-    num_timeouts = 2;
+//    num_timeouts = 2;
   } else {
     searcher = new DFSSearcher();
   }
@@ -1582,21 +1694,6 @@ ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<E
       if (!solver->mustBeTrue(state, eq)) {
         addConstraint(state, eq);
       }
-    }
-  }
-  return result;
-}
-
-bool LocalExecutor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
-
-  bool result = false;
-  if (isa<ConstantExpr>(e)) {
-    result = true;
-  } else {
-    ref<ConstantExpr> value;
-    if (solver->getValue(state, e, value)) {
-      ref<Expr> eq = EqExpr::create(e, value);
-      result = solver->mustBeTrue(state, eq);
     }
   }
   return result;
@@ -2274,7 +2371,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
   }
 }
 
-void LocalExecutor::InspectSymbolicSolutions(const ExecutionState *state) {
+void LocalExecutor::InspectSymbolicSolutions(ExecutionState *state) {
 
   std::vector<SymbolicSolution> out;
   bool success = Executor::getSymbolicSolution(*state, out);
@@ -2323,7 +2420,7 @@ unsigned LocalExecutor::countLoadIndirection(const llvm::Type* type) const {
   return counter;
 }
 
-bool LocalExecutor::getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
+bool LocalExecutor::getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) {
 
   if (Executor::getSymbolicSolution(state, res)) {
 

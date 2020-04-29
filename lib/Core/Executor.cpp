@@ -115,8 +115,8 @@ using namespace klee;
 #define MAX_ALLOCATION_SIZE (1<<30)
 
 namespace {
-  cl::opt<bool> DumpStatesOnHalt("dump-states-on-halt", cl::init(false),
-      cl::desc("Dump test cases for all active states on exit (default=on)"));
+  cl::opt<bool> DumpStatesOnHalt("dump-states-on-halt", cl::init(true),
+      cl::desc("Dump test cases for all active states on exit (default=true)"));
   cl::opt<bool> AllowExternalSymCalls("allow-external-sym-calls", cl::init(false),
       cl::desc("Allow calls with symbolic arguments to external functions.  This concretizes the symbolic arguments.  (default=off)"));
 
@@ -278,6 +278,7 @@ namespace {
             cl::init(true));
 
   cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(1000), cl::desc("Number of states within loop body (default=1000"));
+  cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(true), cl::desc("command line args restricted to printable characters (default=true)"));
 
 }
 
@@ -2595,9 +2596,7 @@ void Executor::terminateState(ExecutionState &state) {
 void Executor::terminateStateOnComplete(ExecutionState &state, TerminateReason reason) {
 
   state.status = StateStatus::Completed;
-  if (is_valid(reason)) {
-    interpreterHandler->processTestCase(state, reason);
-  }
+  interpreterHandler->processTestCase(state, reason);
   interpreterHandler->onStateFinalize(state, reason);
   terminateState(state);
 }
@@ -3314,7 +3313,85 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res, L
   }
 }
 
-bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) {
+bool Executor::isUnique(const ExecutionState &state, ref<Expr> &e) const {
+
+  bool result = false;
+  if (isa<ConstantExpr>(e)) {
+    result = true;
+  } else {
+    ref<ConstantExpr> value;
+    if (solver->getValue(state, e, value)) {
+      ref<Expr> eq = EqExpr::create(e, value);
+      result = solver->mustBeTrue(state, eq);
+    }
+  }
+  return result;
+}
+
+
+bool Executor::tryPreferenceValue(ExecutionState &state, char ch, ref<Expr> value) {
+
+  assert(value->getWidth() == Expr::Int8);
+
+  ref<ConstantExpr> ech = ConstantExpr::create(ch, Expr::Int8);
+  ref<Expr> is_ch = EqExpr::create(value, ech);
+  if (solver->mayBeTrue(state, is_ch)) {
+    addConstraint(state, is_ch);
+    return true;
+  }
+  return false;
+}
+
+bool Executor::tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref<Expr> value) {
+
+  assert(ch2 > ch1);
+  assert(value->getWidth() == Expr::Int8);
+
+  ref<ConstantExpr> ech1 = ConstantExpr::create(ch1, Expr::Int8);
+  ref<ConstantExpr> ech2 = ConstantExpr::create(ch2, Expr::Int8);
+  ref<Expr> gte = UgeExpr::create(value, ech1);
+  ref<Expr> lte = UleExpr::create(value, ech2);
+  ref<Expr> in_range = AndExpr::create(gte, lte);
+  if (solver->mayBeTrue(state, in_range)) {
+
+    // now we just need to pick one
+    // try a random one first
+    unsigned range = ch2 - ch1;
+    char ch = (theRNG.getInt32() % range) + ch1;
+    if (!tryPreferenceValue(state, ch, value)) {
+
+      // didn't like our pick, constrain to in-range, and let solver pick
+      addConstraint(state, in_range);
+      ref<ConstantExpr> solvers_value;
+      if (solver->getValue(state, value, solvers_value)) {
+        ref<Expr> equal = EqExpr::create(value, solvers_value);
+        addConstraint(state, equal);
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void Executor::tryPreference(ExecutionState &state, const MemoryObject *mo) {
+
+  if (const ObjectState *os = state.addressSpace.findObject(mo)) {
+    for (unsigned idx = 0, end = mo->size - 1; idx < end; ++idx) {
+      ref<Expr> ch = os->read8(idx);
+      if (!isUnique(state, ch)) {
+        if (!tryPreferenceValue(state, '\0', ch)) {
+          if (!tryPreferenceRange(state, '0', '9', ch)) {
+            if (!tryPreferenceRange(state, 'a', 'z', ch)) {
+              tryPreferenceRange(state, 'A', 'Z', ch);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+bool Executor::getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res) {
 
 
 #if 0 == 1
@@ -3355,6 +3432,10 @@ bool Executor::getSymbolicSolution(const ExecutionState &state, std::vector<Symb
   std::vector< std::vector<unsigned char> > values;
   for (unsigned idx = 0, end = state.symbolics.size(); idx != end; ++idx) {
     const auto &pair = state.symbolics[idx];
+    const MemoryObject *mo = pair.first;
+    if (SymArgsPrintable && boost::starts_with(mo->name, "argv_") && isdigit(mo->name[5])) {
+      tryPreference(state, mo);
+    }
     mos.push_back(pair.first);
     objects.push_back(pair.second);
   }

@@ -554,8 +554,9 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
 
   // if we have not found any state differences, then check for output diffs
   // output diffs tend to coincide with state differences, but reverse is not true.
+#if 0
   if (diffs.empty()) {
-
+#endif
     // check output devices
     string stdout1 = to_data_string(state1->stdout_capture);
     string stdout2 = to_data_string(state2->stdout_capture);
@@ -588,8 +589,9 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
       replace(desc.begin(), desc.end(), '\n', ',');
       diffs.emplace_back(DiffType::delta, "@stderr", desc);
     }
+#if 0
   }
-
+#endif
 }
 
 void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,

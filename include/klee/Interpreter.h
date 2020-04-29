@@ -248,8 +248,8 @@ public:
   virtual void getConstraintLog(const ExecutionState &state, std::string &res, LogType logFormat) = 0;
   void getConstraintLog(const ExecutionState &state, std::string &res) { getConstraintLog(state, res, LogType::STP); }
 
-  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
-  virtual bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs)
+  virtual bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
+  virtual bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs)
     { return getSymbolicSolution(state, res); }
   virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result, const std::set<MemKind> &kinds)
     { return false; }

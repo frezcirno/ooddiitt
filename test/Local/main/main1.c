@@ -2,10 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+void foo() {
+
+}
+
 int main(int argc, char *argv[]) {
 
   if (argc > 1) {
-    printf("%s\n", argv[1]);
+    if (*argv[1] == 'c') {
+      foo();
+    }
   }
   return 0;
 }

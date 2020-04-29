@@ -60,7 +60,7 @@ public:
 
   void setPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated path writer"); }
   void setSymbolicPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated sympath writer"); }
-  bool getSymbolicSolution(const ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) override;
+  bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) override;
   TraceType getTraceType() const override {
     return trace_type;
   }
@@ -148,7 +148,6 @@ protected:
   bool isReadExpr(ref<Expr> e) const;
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
   ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
-  bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 
   void terminateState(ExecutionState &state) override;
   void terminateStateOnMemFault(ExecutionState &state,
@@ -162,7 +161,7 @@ protected:
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
-  void InspectSymbolicSolutions(const ExecutionState *state);
+  void InspectSymbolicSolutions(ExecutionState *state);
   bool isLegalFunction(const llvm::Function *fn) const {
     return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
   }
