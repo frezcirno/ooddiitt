@@ -271,6 +271,11 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
     Json::Value root;
     infile >> root;
 
+    string module_name = fs::path(kmod->getModuleIdentifier()).filename().string();
+    kmod->pre_module = root["pre-module"].asString();
+    kmod->post_module = root["post-module"].asString();
+    kmod->is_pre_module = (kmod->pre_module == module_name);
+
     Json::Value &fns = root["functions"];
     Json::Value &fns_added = fns["added"];
     for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
@@ -307,10 +312,20 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
       kmod->addDiffGlobalChanged(str);
     }
 
-    kmod->pre_module = root["pre-module"].asString();
-    kmod->post_module = root["post-module"].asString();
+    string targeted_key = (kmod->isPreModule() ? "pre_src_lines" : "post_src_lines");
+    Json::Value &tgt_src = root[targeted_key];
+    for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
+      string src_file = src_itr.key().asString();
+      Json::Value &stmt_array = *src_itr;
+      if (stmt_array.isArray()) {
+        set<unsigned> &stmts = kmod->getTargetedSrc(src_file);
+        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+          stmts.insert(stmt_array[idx].asUInt());
+        }
+      }
+    }
   } else {
-    klee_warning("diff file not found");
+    klee_warning("failed opening diff file: %s", filename.c_str());
   }
 }
 
@@ -550,7 +565,7 @@ int main(int argc, char **argv, char **envp) {
 
       assert(state->status == StateStatus::Completed);
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) term_reason << ':' << state->reached_modified_fn << ':' << elapsed.count() << oendf;
+      outs() << (unsigned) term_reason << ':' << state->reached_target << ':' << elapsed.count() << oendf;
 
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {

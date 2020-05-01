@@ -68,11 +68,12 @@ llvm::raw_fd_ostream *InterpreterHandler::openOutputFile(const std::string &file
   return result;
 }
 
-bool InterpreterHandler::openTestCaseFile(std::ofstream &fout, unsigned test_id, string &name) {
+bool InterpreterHandler::openTestCaseFile(std::ofstream &fout, unsigned test_id, const char *ext) {
 
   assert(!fout.is_open());
   assert(!prefix.empty());
-  name = getTestFilename("json", test_id);
+  if (ext == nullptr) ext = "json";
+  string name = getTestFilename(ext, test_id);
   string pathname = getOutputFilename(name);
 
   // note that this will open and add to the end.  file should be empty.

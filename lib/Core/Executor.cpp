@@ -1111,9 +1111,6 @@ void Executor::executeCall(ExecutionState &state,
     KFunction *kf = kmodule->functionMap[f];
     state.pushFrame(state.prevPC, kf);
     state.pc = kf->instructions;
-    if (kf->isDiffAdded() || kf->isDiffRemoved() || kf->isDiffChanged()) {
-      state.reached_modified_fn = true;
-    }
 
     if (statsTracker)
       statsTracker->framePushed(state, &state.stack[state.stack.size()-2]);

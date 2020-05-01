@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import json
+import subprocess
+import re
+
+
+def append_extent(value, lst):
+  if ',' in value:
+    start, length = value.split(',', 1)
+    length = int(length)
+    if length > 0:
+      start = int(start)
+      while length > 1:
+        lst.append(start)
+        start += 1
+        length -= 1
+  else:
+    lst.append(int(value))
+
+def get_line_diffs(pre, post):
+
+  result = ([], [])
+  args = ['git', 'diff', '--unified=0', '--no-index', '--ignore-blank-lines', '--ignore-all-space', pre, post]
+  complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
+  lines = complete.stdout.split('\n')
+
+  pat_header = re.compile(r'@@ -(\S*)\s+\+(\S*) @@')
+  for line in lines:
+    match = pat_header.match(line)
+    if match:
+      append_extent(match[1], result[0])
+      append_extent(match[2], result[1])
+
+  return result
+
+
+def main(args):
+
+  ret_code = 1
+
+  diff_file = os.path.join(args.dir, "brt-out-tmp", "diff.json")
+  diff = {}
+  if os.path.isfile(diff_file):
+    diff = {}
+    with open(diff_file) as infile:
+      diff = json.load(infile)
+
+    if len(diff) > 0:
+      modified = False
+      diff["pre_src_lines"] = {}
+      diff["post_src_lines"] = {}
+      src_file = "main.c"
+      pre_file = os.path.join(args.dir, "pre", src_file)
+      post_file = os.path.join(args.dir, "post", src_file)
+      pr = get_line_diffs(pre_file, post_file)
+      if len(pr[0]) > 0 or len(pr[1]) > 0:
+        diff["pre_src_lines"][src_file] = pr[0]
+        diff["post_src_lines"][src_file] = pr[1]
+        modified = True
+
+      if modified:
+        with open(diff_file, "w") as outfile:
+          json.dump(diff, outfile, indent=2, sort_keys=True)
+          outfile.write("\n")
+
+  return ret_code
+
+
+if __name__ == "__main__":
+
+  parser = argparse.ArgumentParser(description="you have to guess")
+  parser.add_argument("--dir", default='.', help="location of a file")
+  args = parser.parse_args()
+  exit(main(args))

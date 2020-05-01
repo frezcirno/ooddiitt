@@ -374,6 +374,10 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
     Json::Value root;
     infile >> root;
 
+    kmod_pre->pre_module = kmod_post->pre_module = root["pre-module"].asString();
+    kmod_pre->post_module = kmod_post->post_module = root["post-module"].asString();
+    kmod_pre->is_pre_module = true;
+
     Json::Value &fns = root["functions"];
     Json::Value &fns_added = fns["added"];
     for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
@@ -413,8 +417,30 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
       kmod_post->addDiffGlobalChanged(str);
     }
 
-    kmod_pre->pre_module = kmod_post->pre_module = root["pre-module"].asString();
-    kmod_pre->post_module = kmod_post->post_module = root["post-module"].asString();
+    Json::Value &pre_tgt_src = root["pre_src_lines"];
+    for (auto src_itr = pre_tgt_src.begin(), src_end = pre_tgt_src.end(); src_itr != src_end; ++src_itr) {
+      string src_file = src_itr.key().asString();
+      Json::Value &stmt_array = *src_itr;
+      if (stmt_array.isArray()) {
+        set<unsigned> &stmts = kmod_pre->getTargetedSrc(src_file);
+        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+          stmts.insert(stmt_array[idx].asUInt());
+        }
+      }
+    }
+
+    Json::Value &post_tgt_src = root["post_src_lines"];
+    for (auto src_itr = post_tgt_src.begin(), src_end = post_tgt_src.end(); src_itr != src_end; ++src_itr) {
+      string src_file = src_itr.key().asString();
+      Json::Value &stmt_array = *src_itr;
+      if (stmt_array.isArray()) {
+        set<unsigned> &stmts = kmod_post->getTargetedSrc(src_file);
+        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+          stmts.insert(stmt_array[idx].asUInt());
+        }
+      }
+    }
+
   } else {
     klee_error("failed opening diff file: %s", filename.c_str());
   }
@@ -565,28 +591,26 @@ int main(int argc, char **argv, char **envp) {
       StateComparator cmp(test, version1, version2);
       load_blacklists(cmp, BlackLists);
 
-      if (cmp.reachedChanged()) {
-        const KInstruction *ki =  cmp.checkTermination();
-        if (ki == nullptr) {
-          if (cmp.isEquivalent()) {
-            outs() << "equivalent;0;";
-            outs() << to_string(cmp.oracle_ids);
-            outs() << oendl;
-          } else {
-            outs() << "divergent;" << cmp.checkpoints.size() << ';';
-            outs() << to_string(cmp.oracle_ids);
-            outs() << oendl;
-            for (const auto &cp : cmp.checkpoints) {
-              if (!cp.diffs.empty()) {
-                outs().indent(2) << to_string(cp) << oendl;
-                for (const auto &diff : cp.diffs) {
-                  outs().indent(4) << to_string(diff) << oendl;
-                }
+      const KInstruction *ki =  cmp.checkTermination();
+      if (ki == nullptr) {
+        if (cmp.isEquivalent()) {
+          outs() << "equivalent;0;";
+          outs() << to_string(cmp.oracle_ids);
+          outs() << oendl;
+        } else {
+          outs() << "divergent;" << cmp.checkpoints.size() << ';';
+          outs() << to_string(cmp.oracle_ids);
+          outs() << oendl;
+          for (const auto &cp : cmp.checkpoints) {
+            if (!cp.diffs.empty()) {
+              outs().indent(2) << to_string(cp) << oendl;
+              for (const auto &diff : cp.diffs) {
+                outs().indent(4) << to_string(diff) << oendl;
               }
             }
           }
-        } else outs() << "diff (termination)" << " L" << ki->info->assemblyLine <<" (" << ki->info->file << ':' << ki->info->line << ')' << oendl;
-      } else outs() << "discarded (did not reach)\n";
+        }
+      } else outs() << "diff (termination)" << " L" << ki->info->assemblyLine <<" (" << ki->info->file << ':' << ki->info->line << ')' << oendl;
       delete interpreter2;
       delete handler2;
     } else {

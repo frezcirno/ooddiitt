@@ -90,8 +90,6 @@ public:
 
   const KInstruction *checkTermination();
   bool isEquivalent();
-  bool reachedChanged() const
-    { return ver1.finalState->reached_modified_fn || ver2.finalState == nullptr || ver2.finalState->reached_modified_fn; }
 
   std::deque<CompareCheckpoint> checkpoints;
   std::set<unsigned> oracle_ids;

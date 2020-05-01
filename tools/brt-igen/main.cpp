@@ -76,6 +76,7 @@ namespace {
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
+  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -180,15 +181,19 @@ InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const stri
 void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason term_reason) {
 
   Interpreter *i = getInterpreter();
+  assert(i != nullptr);
   assert(!state.isProcessed);
 
-  if (i != nullptr && !NoOutput) {
+
+  if (!NoOutput && (state.reached_target || term_reason == TerminateReason::Timeout)) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
+    const char *ext = nullptr;
+    if (term_reason == TerminateReason::Timeout) ext = "dump";
+
     ofstream fout;
-    string filename;
-    if (openTestCaseFile(fout, testID, filename)) {
+    if (openTestCaseFile(fout, testID, ext)) {
 
       auto stopped_at = sys_clock::now();
 
@@ -528,6 +533,75 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   return result;
 }
 
+void load_diff_info(const string &diff_file, KModule *kmod) {
+
+  string filename = diff_file;
+  if (filename.empty()) {
+    filename = (fs::path(Output)/"diff.json").string();
+  }
+  ifstream infile(filename);
+  if (infile.is_open()) {
+    Json::Value root;
+    infile >> root;
+
+    string module_name = fs::path(kmod->getModuleIdentifier()).filename().string();
+    kmod->pre_module = root["pre-module"].asString();
+    kmod->post_module = root["post-module"].asString();
+    kmod->is_pre_module = (kmod->pre_module == module_name);
+
+    Json::Value &fns = root["functions"];
+    Json::Value &fns_added = fns["added"];
+    for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
+      kmod->addDiffFnAdded(fns_added[idx].asString());
+    }
+    Json::Value &fns_removed = fns["removed"];
+    for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
+      kmod->addDiffFnRemoved(fns_removed[idx].asString());
+    }
+    Json::Value &fns_body = fns["body"];
+    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
+      string str = fns_body[idx].asString();
+      kmod->addDiffFnChangedBody(str);
+    }
+    Json::Value &fns_sig = fns["signature"];
+    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
+      string str = fns_sig[idx].asString();
+      kmod->addDiffFnChangedSig(str);
+    }
+
+    Json::Value &gbs = root["globals"];
+    Json::Value &gbs_added = gbs["added"];
+    for (unsigned idx = 0, end = gbs_added.size(); idx < end; ++idx) {
+      kmod->addDiffGlobalAdded(gbs_added[idx].asString());
+    }
+    Json::Value &gbs_removed = gbs["removed"];
+    for (unsigned idx = 0, end = gbs_removed.size(); idx < end; ++idx) {
+      kmod->addDiffGlobalRemoved(gbs_removed[idx].asString());
+    }
+
+    Json::Value &gbs_type = gbs["changed"];
+    for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
+      string str = gbs_type[idx].asString();
+      kmod->addDiffGlobalChanged(str);
+    }
+
+    string targeted_key = (kmod->isPreModule() ? "pre_src_lines" : "post_src_lines");
+    Json::Value &tgt_src = root[targeted_key];
+    for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
+      string src_file = src_itr.key().asString();
+      Json::Value &stmt_array = *src_itr;
+      if (stmt_array.isArray()) {
+        set<unsigned> &stmts = kmod->getTargetedSrc(src_file);
+        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+          stmts.insert(stmt_array[idx].asUInt());
+        }
+      }
+    }
+  } else {
+    klee_warning("failed opening diff file: %s", filename.c_str());
+  }
+}
+
 Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
@@ -561,6 +635,7 @@ KModule *PrepareModule(const string &filename) {
 
       if (KModule *kmodule = new KModule(module)) {
         kmodule->prepare();
+        load_diff_info(DiffInfo, kmodule);
         return kmodule;
       }
     }

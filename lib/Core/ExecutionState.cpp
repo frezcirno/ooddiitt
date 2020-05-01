@@ -100,7 +100,7 @@ ExecutionState::ExecutionState() :
     stdin_closed(false),
     eof_counter(0),
     distance(UINT32_MAX),
-    reached_modified_fn(false)
+    reached_target(false)
 { }
 
 ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
@@ -155,7 +155,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     eof_counter(state.eof_counter),
     last_ret_value(state.last_ret_value),
     distance(state.distance),
-    reached_modified_fn(state.reached_modified_fn),
+    reached_target(state.reached_target),
     o_asserts(state.o_asserts)
 
 {
@@ -227,7 +227,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     eof_counter(state.eof_counter),
     last_ret_value(state.last_ret_value),
     distance(state.distance),
-    reached_modified_fn(state.reached_modified_fn),
+    reached_target(state.reached_target),
     o_asserts(state.o_asserts)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {

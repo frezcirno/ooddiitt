@@ -40,6 +40,7 @@ namespace klee {
   class InterpreterHandler;
   class InstructionInfoTable;
   struct KInstruction;
+  struct InstructionInfo;
   class KModule;
   template<class T> class ref;
 
@@ -250,6 +251,13 @@ namespace klee {
     bool addDiffGlobalChanged(const std::string &name)
       { if (auto *gv = getGlobalVariable(name)) { diff_gbs_changed.insert(gv); return true; } return false; }
 
+    std::set<unsigned> &getTargetedSrc(std::string name) {
+      return targeted_stmts[name];
+    }
+
+    bool isTargetedSrc(const InstructionInfo *info) const;
+    bool isPreModule() const { return is_pre_module; }
+
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
@@ -264,9 +272,12 @@ namespace klee {
     std::set<llvm::GlobalVariable*> diff_gbs_removed;
     std::set<llvm::GlobalVariable*> diff_gbs_changed;
 
+    std::map<std::string,std::set<unsigned> > targeted_stmts;
+
   public:
     std::string pre_module;
     std::string post_module;
+    bool is_pre_module;
 };
 
 } // End klee namespace

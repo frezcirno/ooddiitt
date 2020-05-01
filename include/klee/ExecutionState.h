@@ -279,7 +279,7 @@ public:
 
   ref<Expr> last_ret_value;
   unsigned distance;
-  bool reached_modified_fn;
+  bool reached_target;
   std::deque<std::pair<unsigned,KInstruction*> >o_asserts;
 
   std::string getFnAlias(std::string fn);

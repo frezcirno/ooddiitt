@@ -83,7 +83,8 @@ KModule::KModule(Module *_module)
     module_types(_module),
     infos(nullptr),
     constantTable(nullptr),
-    module_trace(TraceType::invalid)
+    module_trace(TraceType::invalid),
+    is_pre_module(false)
     {}
 
 KModule::~KModule() {
@@ -499,6 +500,15 @@ Function *KModule::getTargetFunction(Value *value) const {
     }
   }
   return nullptr;
+}
+
+bool KModule::isTargetedSrc(const InstructionInfo *info) const {
+  auto itr = targeted_stmts.find(info->file);
+  if (itr != targeted_stmts.end()) {
+    const std::set<unsigned> &stmts = itr->second;
+    return (stmts.find(info->line) != stmts.end());
+  }
+  return false;
 }
 
 KConstant* KModule::getKConstant(Constant *c) {

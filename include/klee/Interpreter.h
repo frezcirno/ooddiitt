@@ -79,7 +79,7 @@ public:
   llvm::raw_fd_ostream *openOutputFile(const std::string &filename);
   std::string getModuleName() const { return module_name; }
   std::string getFileName() const { return file_name; }
-  bool openTestCaseFile(std::ofstream &fout, unsigned test_id, std::string &name);
+  bool openTestCaseFile(std::ofstream &fout, unsigned test_id, const char *ext = NULL);
 
   llvm::raw_fd_ostream *openOutputAssembly() { return openOutputFile(getModuleName() + ".ll"); }
   llvm::raw_fd_ostream *openOutputBitCode()  { return openOutputFile(getModuleName() + ".bc"); }

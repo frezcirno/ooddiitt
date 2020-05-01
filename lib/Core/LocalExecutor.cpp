@@ -59,6 +59,7 @@ namespace fs=boost::filesystem;
 namespace klee {
 
 extern RNG theRNG;
+struct InstructionInfo;
 
 class bad_expression : public std::runtime_error
 {
@@ -1441,10 +1442,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
   assert(!init_states.empty());
 
-  if (kf->isDiffChanged() || kf->isDiffRemoved() || kf->isDiffAdded()) {
-    for (auto &state : init_states) state->reached_modified_fn = true;
-  }
-
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
@@ -1559,6 +1556,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
 
       executeInstruction(*state, ki);
+      if (kmodule->isTargetedSrc(ki->info)) {
+        state->reached_target = true;
+      }
 
     } catch (bad_expression &e) {
       terminateStateOnDispose(*state, "uninitialized expression");
@@ -1567,6 +1567,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
     processTimers(state, 0);
     updateStates(state);
+
+    assert(addedStates.empty() && removedStates.empty());
 
     // check for expired timers
     unsigned expired = timer.expired();
@@ -1581,7 +1583,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       } else {
         inhibitForking = true;
         timer.set(tid_timeout, 60);
-        outs() << "Timeout reached, forking inhibited" << oendl;
+        outs() << "Timeout reached, concretizing remaining states" << oendl;
+        assert(false);
       }
     } else if (expired == tid_heartbeat) {
       interpreterHandler->resetWatchDogTimer();
@@ -1650,8 +1653,6 @@ ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_sta
     processTimers(state, 0);
     updateStates(state);
   }
-
-//  loopForkCounter.clear();
 
   // libc initializer should not have forked any additional states
   if (states.empty()) {
@@ -2511,8 +2512,11 @@ void LocalExecutor::terminateStateOnMemFault(ExecutionState &state,
     else ss << "->";
     ss << frame.kf->fn_name;
   }
-
-  terminateStateOnComplete(state, TerminateReason::MemFault, ss.str());
+  if (kmodule->isPreModule()) {
+    terminateStateOnDispose(state, ss.str());
+  } else {
+    terminateStateOnComplete(state, TerminateReason::MemFault, ss.str());
+  }
 }
 
 

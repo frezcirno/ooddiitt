@@ -134,10 +134,9 @@ void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason r
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;
     ofstream fout;
-    string filename;
-    if (openTestCaseFile(fout, testID, filename)) {
+    if (openTestCaseFile(fout, testID)) {
 
-      outs() << "writing " << filename << '\n';
+      outs() << "writing " << testID << '\n';
 
       // construct the json object representing the test case
       Json::Value root = Json::objectValue;
