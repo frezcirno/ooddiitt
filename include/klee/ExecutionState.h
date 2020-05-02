@@ -278,7 +278,9 @@ public:
   unsigned eof_counter;
 
   ref<Expr> last_ret_value;
-  unsigned distance;
+  unsigned min_distance;
+  unsigned linear_distance;
+
   bool reached_target;
   std::deque<std::pair<unsigned,KInstruction*> >o_asserts;
 

@@ -1363,7 +1363,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   }
 
   if (kf->isDiffChanged()) {
-    state->distance = 0;
+    state->min_distance = 0;
   }
 
   std::vector<ExecutionState*> init_states = { state };
@@ -1868,8 +1868,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
 
     case Instruction::Ret: {
 
-      if (libc_initializing &&
-          ((state.stack.size() == 0 || !state.stack.back().caller))) {
+      if (libc_initializing && (state.stack.empty() || !state.stack.back().caller)) {
         libc_initializing = false;
       } else {
         assert(!state.stack.empty());
@@ -1955,8 +1954,15 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           return;
         }
 
-        if ((kf != nullptr) && kf->isDiffChanged() && !state.stack.empty() && (state.distance > state.stack.size())) {
-          state.distance = state.stack.size();
+        if (kf != nullptr) {
+          if (kf->isDiffChanged()) {
+            state.linear_distance = 0;
+            if (!state.stack.empty() && (state.min_distance > state.stack.size())) {
+              state.min_distance = state.stack.size();
+            }
+          } else {
+            state.linear_distance += 1;
+          }
         }
 
         assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);

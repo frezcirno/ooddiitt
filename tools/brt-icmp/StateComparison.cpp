@@ -19,7 +19,7 @@ namespace fs=boost::filesystem;
 
 namespace klee {
 
-cl::opt<bool> ReturnsFitLCS("returns-fit-lcs", cl::init(false), cl::desc("align function return checkpoints along longest common subsequence"));
+cl::opt<bool> ReturnsFitLCS("returns-fit-lcs", cl::init(true), cl::desc("align function return checkpoints along longest common subsequence"));
 
 string to_string(const vector<unsigned char> &buffer) {
   ostringstream bytes;
@@ -70,7 +70,13 @@ std::string to_string(const CompareCheckpoint &checkpoint) {
 
   ostringstream ss;
   ss << checkpoint.fn << ';';
-  if (checkpoint.distance != UINT32_MAX) ss << checkpoint.distance;
+  if (checkpoint.min_distance != UINT32_MAX) ss << checkpoint.min_distance;
+  else ss << '+';
+  ss << ';';
+  if (checkpoint.linear_distance != UINT32_MAX) ss << checkpoint.linear_distance;
+  else ss << '+';
+  ss << ';';
+  if (checkpoint.stack_distance != UINT32_MAX) ss << checkpoint.stack_distance;
   else ss << '+';
   return ss.str();
 }
@@ -105,8 +111,8 @@ StateVersion::~StateVersion() {
   }
 }
 
-StateComparator::StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2) :
-  test(t), ver1(v1), ver2(v2), datalayout(ver1.kmodule->targetData) {
+StateComparator::StateComparator(const string &tn, const TestCase &t, StateVersion &v1, StateVersion &v2) :
+  test_name(tn), test(t), ver1(v1), ver2(v2), datalayout(ver1.kmodule->targetData) {
 
   ptr_width = datalayout->getPointerSizeInBits();
   // get a list of oracle ids encountered during the rply execution
@@ -283,7 +289,7 @@ bool StateComparator::diffs_found() const {
 bool StateComparator::isEquivalent() {
 
   if (ver2.finalState == nullptr) {
-    checkpoints.emplace_back("@n/a", UINT32_MAX);
+    checkpoints.emplace_back("@n/a", UINT32_MAX, UINT32_MAX, UINT32_MAX);
     auto &diffs = checkpoints.back().diffs;
     diffs.emplace_back(DiffType::delta, "@ver2", "faulting execution");
   } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
@@ -292,7 +298,7 @@ bool StateComparator::isEquivalent() {
     ExecutionState *state = ver2.finalState;
     string fn = "@unknown";
     if (!state->stack.empty()) fn = ver2.finalState->stack.back().kf->getName();
-    checkpoints.emplace_back(fn, state->stack.size());
+    checkpoints.emplace_back(fn, state->stack.size(), state->linear_distance, calcStackDistance(state));
 
     auto &diffs = checkpoints.back().diffs;
     string element;
@@ -348,7 +354,7 @@ bool StateComparator::compareExternalState() {
   assert(checkpoints.empty());
 
   // external comparison will only have a single checkpoint, at program termination
-  checkpoints.emplace_back("@main", UINT32_MAX);
+  checkpoints.emplace_back("@main", UINT32_MAX, UINT32_MAX, UINT32_MAX);
   auto &diffs = checkpoints.back().diffs;
 
   // each  must have a return value, it must be an int, and they must be equal
@@ -450,11 +456,15 @@ bool StateComparator::compareInternalState() {
       assert(name1 == name2 && "mismatched function names");
 
       if (!(isBlacklisted(itr1->first) || isBlacklisted(itr2->first))) {
-        unsigned distance = min(itr1->second->distance, itr2->second->distance);
-        checkpoints.emplace_back(name1, distance);
+        unsigned min_distance = min(itr1->second->min_distance, itr2->second->min_distance);
+        unsigned linear_distance = min(itr1->second->linear_distance, itr2->second->linear_distance);
+        unsigned stack_distance = min(calcStackDistance(itr1->second), calcStackDistance(itr2->second));
+        checkpoints.emplace_back(name1, min_distance, linear_distance, stack_distance);
         compareInternalState(itr1->first, itr1->second, itr2->first, itr2->second, false);
       }
-      ++itr1; ++itr2; ++counter;
+      ++itr1;
+      ++itr2;
+      ++counter;
     }
   }
 
@@ -462,8 +472,10 @@ bool StateComparator::compareInternalState() {
   KFunction *kf1 = ver1.kmodule->getKFunction(test.entry_fn);
   KFunction *kf2 = ver2.kmodule->getKFunction(test.entry_fn);
 
-  unsigned distance = min(ver1.finalState->distance, ver2.finalState->distance);
-  checkpoints.emplace_back(test.entry_fn, distance);
+  unsigned min_distance = min(ver1.finalState->min_distance, ver2.finalState->min_distance);
+  unsigned linear_distance = min(ver1.finalState->linear_distance, ver2.finalState->linear_distance);
+  unsigned stack_distance = min(calcStackDistance(ver1.finalState), calcStackDistance(ver2.finalState));
+  checkpoints.emplace_back(test.entry_fn, min_distance, linear_distance, stack_distance);
 
   compareInternalState(kf1, ver1.finalState, kf2, ver2.finalState, true);
   return !diffs_found();
@@ -803,6 +815,20 @@ void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
       }
     }
   }
+}
+
+unsigned StateComparator::calcStackDistance(const ExecutionState *state) {
+
+  assert(state != nullptr);
+  unsigned result = 0;
+  for (auto ritr = state->stack.rbegin(), rend = state->stack.rend(); ritr != rend; ++ritr) {
+    const StackFrame &sf = *ritr;
+    if (sf.kf->isDiffChanged()) {
+      break;
+    }
+    result += 1;
+  }
+  return result;
 }
 
 } // end klee namespace

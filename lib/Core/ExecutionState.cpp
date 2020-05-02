@@ -99,7 +99,8 @@ ExecutionState::ExecutionState() :
     stdin_offset(0),
     stdin_closed(false),
     eof_counter(0),
-    distance(UINT32_MAX),
+    min_distance(UINT32_MAX),
+    linear_distance(0),
     reached_target(false)
 { }
 
@@ -154,7 +155,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     stdin_buffer(state.stdin_buffer),
     eof_counter(state.eof_counter),
     last_ret_value(state.last_ret_value),
-    distance(state.distance),
+    min_distance(state.min_distance),
+    linear_distance(state.linear_distance),
     reached_target(state.reached_target),
     o_asserts(state.o_asserts)
 
@@ -226,7 +228,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     stdin_buffer(state.stdin_buffer),
     eof_counter(state.eof_counter),
     last_ret_value(state.last_ret_value),
-    distance(state.distance),
+    min_distance(state.min_distance),
+    linear_distance(state.linear_distance),
     reached_target(state.reached_target),
     o_asserts(state.o_asserts)
 {

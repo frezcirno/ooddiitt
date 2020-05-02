@@ -50,10 +50,13 @@ struct CompareDiff {
 
 struct CompareCheckpoint {
   std::string fn;
-  unsigned distance;
+  unsigned min_distance;
+  unsigned linear_distance;
+  unsigned stack_distance;
   std::deque<CompareDiff> diffs;
 
-  explicit CompareCheckpoint(const std::string &f, unsigned d) : fn(f), distance(d) {}
+  explicit CompareCheckpoint(const std::string &f, unsigned md, unsigned ld, unsigned sd) :
+    fn(f), min_distance(md), linear_distance(ld), stack_distance(sd) {}
 };
 
 std::string to_string(const CompareCheckpoint &checkpoint);
@@ -63,6 +66,7 @@ std::string to_string(const std::set<unsigned> &nums);
 class StateComparator {
 
   const TestCase &test;
+  std::string test_name;
   StateVersion &ver1;
   StateVersion &ver2;
   std::set<std::pair<uint64_t,uint64_t> > visited_ptrs;
@@ -83,7 +87,7 @@ class StateComparator {
   std::set<llvm::Type*> blacklistedTypes;
 
 public:
-  StateComparator(const TestCase &t, StateVersion &v1, StateVersion &v2);
+  StateComparator(const std::string &tn, const TestCase &t, StateVersion &v1, StateVersion &v2);
   void blacklistFunction(const std::string &name);
   void blacklistStructType(const std::string &name);
   bool diffs_found() const;
@@ -132,6 +136,7 @@ private:
 
   bool isBlacklisted(KFunction *fk) { return blacklistedFns.find(fk) != blacklistedFns.end(); }
   bool isBlacklisted(llvm::Type *type) { return blacklistedTypes.find(type) != blacklistedTypes.end(); }
+  unsigned calcStackDistance(const ExecutionState *state);
 
 };
 

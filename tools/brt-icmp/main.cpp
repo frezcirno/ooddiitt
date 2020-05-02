@@ -575,7 +575,8 @@ int main(int argc, char **argv, char **envp) {
         continue;
       }
 
-      outs() << fs::path(test_file).filename().string() << ';' << oflush;
+      string filename = fs::path(test_file).filename().string();
+      outs() << filename << ';' << oflush;
       err_context = test_file.c_str();
 
       // now, lets do it all again with the second module
@@ -588,7 +589,7 @@ int main(int argc, char **argv, char **envp) {
       interpreter2->runFunctionTestCase(test);
       theInterpreter = nullptr;
 
-      StateComparator cmp(test, version1, version2);
+      StateComparator cmp(filename, test, version1, version2);
       load_blacklists(cmp, BlackLists);
 
       const KInstruction *ki =  cmp.checkTermination();
