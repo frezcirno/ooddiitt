@@ -73,10 +73,10 @@ std::string to_string(const CompareCheckpoint &checkpoint) {
   if (checkpoint.min_distance != UINT32_MAX) ss << checkpoint.min_distance;
   else ss << '+';
   ss << ';';
-  if (checkpoint.linear_distance != UINT32_MAX) ss << checkpoint.linear_distance;
+  if (checkpoint.stack_distance != UINT32_MAX) ss << checkpoint.stack_distance;
   else ss << '+';
   ss << ';';
-  if (checkpoint.stack_distance != UINT32_MAX) ss << checkpoint.stack_distance;
+  if (checkpoint.linear_distance != UINT32_MAX) ss << checkpoint.linear_distance;
   else ss << '+';
   return ss.str();
 }

@@ -1961,7 +1961,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               state.min_distance = state.stack.size();
             }
           } else {
-            state.linear_distance += 1;
+            if (kf->isUser()) {
+              state.linear_distance += 1;
+            }
           }
         }
 
