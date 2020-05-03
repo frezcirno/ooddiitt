@@ -293,6 +293,8 @@ bool StateComparator::isEquivalent() {
     auto &diffs = checkpoints.back().diffs;
     diffs.emplace_back(DiffType::delta, "@ver2", "faulting execution");
   } else if ((ver1.term_reason == TerminateReason::Return || ver1.term_reason == TerminateReason::Exit) &&
+//             (ver1.term_reason != TerminateReason::Return) &&
+//             (ver1.term_reason != TerminateReason::Exit) &&
              (ver1.term_reason != ver2.term_reason)) {
 
     ExecutionState *state = ver2.finalState;
@@ -327,20 +329,17 @@ bool StateComparator::isEquivalent() {
         element += ".abort()";
       }
       break;
+    }
 
-      default: {
-        element = "@unknown";
+    if (!element.empty()) {
+      ostringstream ss;
+      ss << to_string(ver2.term_reason);
+      if ((state->moFaulting != nullptr) && (!state->moFaulting->name.empty())) {
+        ss << ':' << state->moFaulting->name;
       }
-      break;
+      if (!state->messages.empty()) ss << ": " << state->messages.back();
+      diffs.emplace_back(DiffType::delta, element, ss.str());
     }
-
-    ostringstream ss;
-    ss << to_string(ver2.term_reason);
-    if ((state->moFaulting != nullptr) && (!state->moFaulting->name.empty())) {
-      ss << ':' << state->moFaulting->name;
-    }
-    if (!state->messages.empty()) ss << ": " << state->messages.back();
-    diffs.emplace_back(DiffType::delta, element, ss.str());
   } else if (test.is_main() && !test.unconstraintFlags.isUnconstrainGlobals()) {
     compareExternalState();
   } else {
