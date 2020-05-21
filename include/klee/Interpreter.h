@@ -153,6 +153,7 @@ public:
     bool verify_constraints;
     std::vector<TestObject> *test_objs;
     TraceType trace;
+    std::map<llvm::Function*,uint64_t> *fn_instr_counters;
 
     InterpreterOptions()
       : MakeConcreteSymbolic(0),
@@ -168,7 +169,8 @@ public:
 #endif
         verify_constraints(false),
         test_objs(nullptr),
-        trace(TraceType::invalid)
+        trace(TraceType::invalid),
+        fn_instr_counters(nullptr)
     {}
   };
 

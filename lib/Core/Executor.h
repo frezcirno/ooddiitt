@@ -224,7 +224,7 @@ protected:
   void initializeGlobalObject(ExecutionState &state, ObjectState *os,
 			      const llvm::Constant *c,
 			      unsigned offset);
-  void initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs);
+  void initializeGlobals(ExecutionState &state);
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);

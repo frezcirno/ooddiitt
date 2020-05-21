@@ -112,7 +112,7 @@ StateVersion::~StateVersion() {
 }
 
 StateComparator::StateComparator(const string &tn, const TestCase &t, StateVersion &v1, StateVersion &v2) :
-  test_name(tn), test(t), ver1(v1), ver2(v2), datalayout(ver1.kmodule->targetData) {
+  test(t), test_name(tn), ver1(v1), ver2(v2), datalayout(ver1.kmodule->targetData) {
 
   ptr_width = datalayout->getPointerSizeInBits();
   // get a list of oracle ids encountered during the rply execution
@@ -329,6 +329,8 @@ bool StateComparator::isEquivalent() {
         element += ".abort()";
       }
       break;
+
+      default: break;
     }
 
     if (!element.empty()) {

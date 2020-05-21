@@ -22,6 +22,8 @@ namespace llvm {
 
 namespace klee {
 
+class KFunction;
+
   /* Stores debug information for a KInstruction */
   struct InstructionInfo {
     unsigned id;

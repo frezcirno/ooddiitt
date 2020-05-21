@@ -69,6 +69,7 @@ namespace {
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
   cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
   cl::opt<bool> ShowTrace("show-trace", cl::desc("display replay's trace"));
+  cl::opt<bool> InstrCounters("instr-counters", cl::desc("update test case file with count of instructions executed per function"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
@@ -231,13 +232,7 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-bool update_test_case(const string &fname, Json::Value &root, TraceDequeT &trace) {
-
-  // add the new trace as a new entity
-  Json::Value &rtrace = root["replayTrace"] = Json::arrayValue;
-  for (const auto &entry : trace) {
-    rtrace.append(to_string(entry));
-  }
+bool update_test_case(const string &fname, Json::Value &root) {
 
   ofstream info;
   info.open(fname);
@@ -533,6 +528,11 @@ int main(int argc, char **argv, char **envp) {
     if (TraceT != TraceType::invalid) {
       IOpts.trace = TraceT;
     }
+
+    if (InstrCounters) {
+      IOpts.fn_instr_counters = new map<Function*,uint64_t>;
+    }
+
     UnconstraintFlagsT flags;
     IOpts.progression.emplace_back(Timeout, flags);
 
@@ -567,6 +567,7 @@ int main(int argc, char **argv, char **envp) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
       outs() << (unsigned) term_reason << ':' << state->reached_target << ':' << elapsed.count() << oendf;
 
+      bool is_dirty = false;
       if (CheckTrace || UpdateTrace) {
         if (IOpts.trace == test.trace_type) {
           TraceCompareResult res = compare_traces(test.trace, state->trace);
@@ -574,7 +575,12 @@ int main(int argc, char **argv, char **envp) {
             outs() << "trace " << (res == TraceCompareResult::differs ? "differs, " : "truncated, ");
             exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
             if (UpdateTrace) {
-              update_test_case(test_file, root, state->trace);
+
+              Json::Value &rtrace = root["replayTrace"] = Json::arrayValue;
+              for (const auto &entry : state->trace) {
+                rtrace.append(to_string(entry));
+              }
+              is_dirty = true;
             }
           }
         } else {
@@ -582,6 +588,22 @@ int main(int argc, char **argv, char **envp) {
           exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
         }
       }
+
+      if (auto *counters = IOpts.fn_instr_counters) {
+        Json::Value &instr = root["instrCounters"] = Json::objectValue;
+        for (const auto &pr : *counters) {
+          string name = pr.first->getName().str();
+          instr[name] = pr.second;
+        }
+        counters->clear();
+        is_dirty = true;
+      }
+
+      if (is_dirty) {
+        is_dirty = false;
+        update_test_case(test_file, root);
+      }
+
       if (Verbose) {
         if (state->instFaulting != nullptr) {
           outs() << "#Faulting statement at " << state->instFaulting->info->file << ':' << state->instFaulting->info->line << oendl;

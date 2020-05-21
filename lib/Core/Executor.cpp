@@ -447,7 +447,7 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
   return mo;
 }
 
-void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> *test_objs) {
+void Executor::initializeGlobals(ExecutionState &state) {
 
   Module *m = kmodule->module;
 
@@ -473,16 +473,6 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
     globalAddresses.insert(std::make_pair(f, addr));
   }
 
-  // construct a map of test objects by name
-  std::map<std::string,const TestObject*> injected_objs;
-  if (test_objs != nullptr) {
-    for (const auto &obj : *test_objs) {
-      if (!obj.name.empty()) {
-        injected_objs[obj.name] = &obj;
-      }
-    }
-  }
-
   // allocate and initialize globals, done in two passes since we may
   // need address of a global in order to initialize some other one.
 
@@ -500,31 +490,17 @@ void Executor::initializeGlobals(ExecutionState &state, std::vector<TestObject> 
     }
     Type *type = gv->getType()->getElementType();
     uint64_t size = kmodule->targetData->getTypeStoreSize(type);
-    MemoryObject *mo = nullptr;
-    auto itr = injected_objs.find(name);
-    if (!kmodule->isUserGlobal(gv) || itr == injected_objs.end()) {
-      mo = memory->allocate(size, type, MemKind::global, gv, align);
-      mo->name = name;
-      mo->type = type;
-      mo->count = 1;
-      ObjectState *os = bindObjectInState(state, mo);
-      if (gv->hasInitializer()) {
-        need_init.insert(gv);
-      } else {
-        os->initializeToRandom();
-      }
-    } else {
-      const TestObject *obj = itr->second;
-      mo = memory->inject((void*) obj->addr, obj->data.size(), type, obj->kind, obj->align);
-      mo->name = name;
-      mo->count = obj->count;
-      mo->created_size = size;
-      ObjectState *os = bindObjectInState(state, mo);
-      for (size_t idx = 0, end = obj->data.size(); idx < end; ++idx) {
-        os->write8(idx, obj->data[idx]);
-      }
-    }
+    MemoryObject *mo = memory->allocate(size, type, MemKind::global, gv, align);
     assert(mo != nullptr && "unexpected memory allocation failure");
+    mo->name = name;
+    mo->type = type;
+    mo->count = 1;
+    ObjectState *os = bindObjectInState(state, mo);
+    if (gv->hasInitializer()) {
+      need_init.insert(gv);
+    } else {
+      os->initializeToRandom();
+    }
     globalObjects.insert(std::make_pair(gv, mo));
     globalAddresses.insert(std::make_pair(gv, mo->getBaseExpr()));
   }

@@ -702,8 +702,7 @@ ObjectState *LocalExecutor::makeSymbolic(ExecutionState &state, const MemoryObje
   return wos;
 }
 
-MemoryObject *LocalExecutor::allocMemory(ExecutionState &state,
-                                         Type *type,
+MemoryObject *LocalExecutor::allocMemory(Type *type,
                                          const Value *allocSite,
                                          MemKind kind,
                                          const string &name,
@@ -793,7 +792,7 @@ bool LocalExecutor::allocSymbolic(ExecutionState &state,
   wop.first = nullptr;
   wop.second = nullptr;
 
-  MemoryObject *mo = allocMemory(state, type, allocSite, kind, name, align, count);
+  MemoryObject *mo = allocMemory(type, allocSite, kind, name, align, count);
   if (mo != nullptr) {
     ObjectState *os = makeSymbolic(state, mo);
     if (os != nullptr) {
@@ -911,7 +910,7 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   baseState->maxLazyDepth = maxLazyDepth;
   baseState->maxStatesInLoop = maxStatesInLoop;
 
-  initializeGlobals(*baseState, interpreterOpts.test_objs);
+  initializeGlobals(*baseState);
   bindModuleConstants();
 
 
@@ -1126,142 +1125,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         curr->arguments.push_back(eArgV);
       }
 
-#if 0
-      // symbolic argc, symbolic argv,
-      assert(fn->getArgumentList().size() == 2);
-
-      init_states.clear();
-      init_states.resize(SymArgsMax + 1);
-
-      // push the module name into the state
-      std::string md_name = kmodule->getModuleIdentifier();
-      // program name requires some post-processing.
-      // strip paths and bc extension
-      std::string prog_name;
-      size_t pos = md_name.rfind('/');
-      if (pos != string::npos) {
-        prog_name = md_name.substr(pos + 1);
-      } else {
-        prog_name = md_name;
-      }
-      if (boost::ends_with(prog_name, ".bc")) {
-        prog_name = prog_name.substr(0, prog_name.size() - 3);
-      }
-
-      // also need to remove a pre, post, or rply prefix so all programs see same prog name
-      if (boost::starts_with(prog_name, "pre-")) {
-        prog_name = prog_name.substr(4);
-      }
-      if (boost::starts_with(prog_name, "post-")) {
-        prog_name = prog_name.substr(5);
-      }
-      if (boost::starts_with(prog_name, "rply-")) {
-        prog_name = prog_name.substr(5);
-      }
-
-      // create some common constant expressions used frequently
-      Expr::Width ch_width = Expr::Int8;
-      const ref<ConstantExpr> null_term = ConstantExpr::create(0, ch_width);
-      const ref<ConstantExpr> null_ptr = ConstantExpr::createPointer(0);
-
-      // create the initial states
-      init_states[0] = state;
-      for (unsigned idx = 1; idx <= SymArgsMax; ++idx) {
-        init_states[idx] = new ExecutionState(*state);
-      }
-
-      for (unsigned array_idx = 0; array_idx <= SymArgsMax; ++array_idx) {
-        ExecutionState *ns = init_states[array_idx];
-
-        WObjectPair wopProgName;
-        if (!allocSymbolic(*ns, char_type, fn, MemKind::param, "#program_name", wopProgName, char_align, prog_name.size() + 1)) {
-          klee_error("failed to allocate symbolic argv_array");
-        }
-        MemoryObject *moProgName = wopProgName.first;
-        ObjectState *osProgName = wopProgName.second;
-
-        ref<Expr> value;
-        for (unsigned idx = 0; idx < prog_name.size(); ++idx) {
-          ref<Expr> ch = ConstantExpr::create(prog_name[idx], ch_width);
-          value = osProgName->read8(idx);
-          addConstraint(*ns, EqExpr::create(value, ch));
-        }
-        // null terminate the string
-        value = osProgName->read8(prog_name.size());
-        addConstraint(*ns, EqExpr::create(value, null_term));
-
-        // get an array for the argv pointers
-        WObjectPair wopArgv_array;
-        if (!allocSymbolic(*ns, str_type, fn, MemKind::param, "argv_array", wopArgv_array, str_align, SymArgsMax + 2)) {
-          klee_error("failed to allocate symbolic argv_array");
-        }
-
-        // argv[0] -> program name
-        // despite being symbolic, argv[0] always points to program name
-        addConstraint(*ns, EqExpr::create(wopArgv_array.second->read(0, ptr_width), moProgName->getBaseExpr()));
-
-        // argv[1 .. SymArgs - 1] = symbolic value
-        for (unsigned idx1 = 1; idx1 <= array_idx; ++idx1) {
-
-          WObjectPair wopArgv_body;
-          std::string argName = "argv_" + itostr(idx1);
-          if (!allocSymbolic(*ns, char_type, fn, MemKind::param, argName, wopArgv_body, char_align, SymArgsLength + 1)) {
-            klee_error("failed to allocate symbolic command line arg");
-          }
-
-          // constrain strings to command line strings, i.e.
-          // [0]  must _not_ be '\0'
-          // [N + 1] must be '\0'
-          value = wopArgv_body.second->read8(0);
-          addConstraint(*ns, NeExpr::create(value, null_term));
-
-          value = wopArgv_body.second->read8(SymArgsLength);
-          addConstraint(*ns, EqExpr::create(value, null_term));
-
-          if (SymArgsPrintable) {
-
-            // create more common constant expressions used frequently
-            const ref<ConstantExpr> first_print = ConstantExpr::create('!', ch_width);
-            const ref<ConstantExpr> last_print =  ConstantExpr::create('~', ch_width);
-
-            // [0] must be printable
-            // [ 1 .. N] must be printable or '\0'
-            for (unsigned idx2 = 0; idx2 < SymArgsLength; ++idx2) {
-              ref<Expr> is_printable;
-              ref<Expr> ch = wopArgv_body.second->read8(idx2);
-              ref<Expr> is_gte = UgeExpr::create(ch, first_print);
-              ref<Expr> is_lte = UleExpr::create(ch, last_print);
-              is_printable = AndExpr::create(is_gte, is_lte);
-              if (idx2 == 0) {
-                addConstraint(*ns, is_printable);
-              } else {
-                ref<Expr> is_null = EqExpr::create(ch, null_term);
-                addConstraint(*ns, OrExpr::create(is_printable, is_null));
-              }
-            }
-          }
-
-          // and constrain pointer in argv array to point to body
-          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * idx1, ptr_width);
-          addConstraint(*ns, EqExpr::create(ptr, wopArgv_body.first->getBaseExpr()));
-        }
-
-        // argv[SymArgs] = null
-        for (unsigned idx2 = array_idx + 1; idx2 <= SymArgsMax; ++idx2) {
-          ref<Expr> ptr = wopArgv_array.second->read((ptr_width / 8) * idx2, ptr_width);
-          addConstraint(*ns, EqExpr::create(ptr, null_ptr));
-        }
-
-        ref<Expr> eArgC = ConstantExpr::create(array_idx + 1, Expr::Int32);
-        ref<Expr> eArgV = ConstantExpr::createPointer(wopArgv_array.first->address);
-        bindArgument(kf, 0, *ns, eArgC);
-        bindArgument(kf, 1, *ns, eArgV);
-        ns->arguments.clear();
-        ns->arguments.push_back(eArgC);
-        ns->arguments.push_back(eArgV);
-      }
-#endif
-
     } else {
 
       unsigned index = 0;
@@ -1331,10 +1194,21 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
       }
 
       case MemKind::global: {
+
         // globals should already be injected, unless it is no longer a global
         auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
         if (pr.first == nullptr) {
           injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
+        } else {
+
+          // write the test case value
+          const MemoryObject *mo = pr.first;
+          const ObjectState *os = pr.second;
+          assert(mo->name == obj.name && os->size == obj.data.size());
+          ObjectState *wos = baseState->addressSpace.getWriteable(mo, os);
+          for (size_t idx = 0, end = obj.data.size(); idx < end; ++idx) {
+            wos->write8(idx, obj.data[idx]);
+          }
         }
         break;
       }
@@ -1790,6 +1664,13 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
 }
 
 void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) {
+
+  if (auto *instr_counters = interpreterOpts.fn_instr_counters) {
+    if (!state.stack.empty()) {
+      (*instr_counters)[state.stack.back().kf->function] += 1;
+    }
+  }
+
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
       // Control flow

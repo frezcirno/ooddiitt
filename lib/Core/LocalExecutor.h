@@ -102,8 +102,7 @@ protected:
   ObjectState *makeSymbolic(ExecutionState &state,
                             const MemoryObject *mo);
 
-  MemoryObject *allocMemory(ExecutionState &state,
-                            llvm::Type *type,
+  MemoryObject *allocMemory(llvm::Type *type,
                             const llvm::Value *allocSite,
                             MemKind kind,
                             const std::string &name,
