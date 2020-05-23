@@ -898,6 +898,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
 
 void LocalExecutor::bindModule(KModule *kmodule) {
 
+  assert(baseState == nullptr);
   Executor::bindModule(kmodule);
 
   specialFunctionHandler->setLocalExecutor(this);
@@ -913,23 +914,28 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   initializeGlobals(*baseState);
   bindModuleConstants();
 
-
   // look for a libc initializer, execute if found to initialize the base state
-  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
-  if (libc_init != nullptr) {
-    KFunction *kf_init = kmodule->functionMap[libc_init];
-    ExecutionState *state = new ExecutionState(*baseState, kf_init, libc_init->getName());
-    if (statsTracker) statsTracker->framePushed(*state, nullptr);
-    ExecutionState *initState = runLibCInitializer(*state, libc_init);
-    if (initState != nullptr) {
-      initState->addressSpace.clearWritten();
-      delete baseState;
-      baseState = initState;
-    }
-  }
-  baseState->last_ret_value = nullptr;
+  baseState = runFnLibCInit(baseState);
   interpreterHandler->onStateInitialize(*baseState);
 }
+
+void LocalExecutor::bindModule(KModule *kmodule, ExecutionState *state, uint64_t mem_reserve) {
+
+  assert(baseState == nullptr);
+
+  memory->reserve(mem_reserve);
+  Executor::bindModule(kmodule);
+
+  specialFunctionHandler->setLocalExecutor(this);
+  sysModel = new SystemModel(this, optsModel);
+  baseState = state;
+
+  reinitializeGlobals(*baseState);
+  bindModuleConstants();
+
+  interpreterHandler->onStateInitialize(*baseState);
+}
+
 
 void LocalExecutor::bindModuleConstants() {
 
@@ -1349,7 +1355,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   unsigned num_timeouts = 1;
   if (interpreterOpts.mode == ExecModeID::igen) {
     searcher = constructUserSearcher(*this);
-//    num_timeouts = 2;
   } else {
     searcher = new DFSSearcher();
   }
@@ -1494,63 +1499,80 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   init_states.clear();
 }
 
-ExecutionState *LocalExecutor::runLibCInitializer(klee::ExecutionState &init_state, llvm::Function *initializer) {
+ExecutionState *LocalExecutor::runFnLibCInit(ExecutionState *_state) {
+
+  assert(state != nullptr);
 
   ExecutionState *result = nullptr;
-  KFunction *kf = kmodule->functionMap[initializer];
-  unsigned entry = kf->basicBlockEntry[&initializer->getEntryBlock()];
-  init_state.pc = &kf->instructions[entry];
-  processTree = new PTree(&init_state);
-  init_state.ptreeNode = processTree->root;
 
-  addedStates.push_back(&init_state);
+  //  Function *libc_init = kmodule->module->getFunction("__uClibc_init");
+  if (KFunction *kf_init = kmodule->getKFunction("__uClibc_init")) {
 
-  searcher = new DFSSearcher();
-  updateStates(nullptr);
-  libc_initializing = true;
+    ExecutionState *init_state = new ExecutionState(*_state, kf_init, kf_init->getName());
+    if (statsTracker)
+      statsTracker->framePushed(*init_state, nullptr);
 
-  while (libc_initializing && !states.empty()) {
+    unsigned entry = kf_init->basicBlockEntry[&kf_init->function->getEntryBlock()];
+    init_state->pc = &kf_init->instructions[entry];
+    processTree = new PTree(init_state);
+    init_state->ptreeNode = processTree->root;
 
-    ExecutionState *state = &searcher->selectState();
-    KInstruction *ki = state->pc;
-    stepInstruction(*state);
+    addedStates.push_back(init_state);
 
-    try {
-      executeInstruction(*state, ki);
-    } catch (bad_expression &e) {
-      outs() << "    * uninitialized expression, restarting execution\n";
-      outs().flush();
-    } catch (solver_failure &e) {
-      outs() << "solver failure\n";
-      outs().flush();
+    searcher = new DFSSearcher();
+    updateStates(nullptr);
+    libc_initializing = true;
+
+    while (libc_initializing && !states.empty()) {
+
+      ExecutionState *state = &searcher->selectState();
+      KInstruction *ki = state->pc;
+      stepInstruction(*state);
+
+      try {
+        executeInstruction(*state, ki);
+      } catch (bad_expression &e) {
+        outs() << "    * uninitialized expression, restarting execution\n";
+        outs().flush();
+      } catch (solver_failure &e) {
+        outs() << "solver failure\n";
+        outs().flush();
+      }
+      processTimers(state, 0);
+      updateStates(state);
     }
-    processTimers(state, 0);
-    updateStates(state);
-  }
 
-  // libc initializer should not have forked any additional states
-  if (states.empty()) {
-    klee_warning("libc initialization failed to yield a valid state");
-  } else {
-    if (states.size() > 1) {
-      klee_warning("libc initialization spawned multiple states");
+    // libc initializer should not have forked any additional states
+    if (states.empty()) {
+      klee_warning("libc initialization failed to yield a valid state");
+    } else {
+      if (states.size() > 1) {
+        klee_warning("libc initialization spawned multiple states");
+      }
+      result = *states.begin();
+      result->popFrame();
+      result->addressSpace.clearWritten();
+      result->last_ret_value = nullptr;
+      states.clear();
     }
-    result = *states.begin();
-    result->popFrame();
-    states.clear();
+    updateStates(nullptr);
+
+    // cleanup
+    delete searcher;
+    searcher = nullptr;
+
+    delete processTree;
+    processTree = nullptr;
+
+    // loop state is no longer valid
+    loopingStates.clear();
+    if (init_state != result) {
+      delete init_state;
+    }
   }
-  updateStates(nullptr);
-
-  // cleanup
-  delete searcher;
-  searcher = nullptr;
-
-  delete processTree;
-  processTree = nullptr;
-
-  // loop state is no longer valid
-  loopingStates.clear();
-
+  if (_state != result) {
+    delete _state;
+  }
   return result;
 }
 
@@ -2483,6 +2505,10 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
     }
   }
   return pr;
+}
+
+uint64_t LocalExecutor::getUsedMemory() const {
+  return memory == nullptr ? 0 : memory->getUsedDeterministicSize();
 }
 
 Interpreter *Interpreter::createLocal(LLVMContext &ctx,

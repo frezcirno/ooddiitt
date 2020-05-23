@@ -522,6 +522,57 @@ void Executor::initializeGlobals(ExecutionState &state) {
   }
 }
 
+void Executor::reinitializeGlobals(ExecutionState &state) {
+
+  Module *m = kmodule->module;
+
+  // represent function globals using the address of the actual llvm function
+  // object. given that we use malloc to allocate memory in states this also
+  // ensures that we won't conflict. we don't need to allocate a memory object
+  // since reading/writing via a function pointer is unsupported anyway.
+  for (Module::iterator i = m->begin(), ie = m->end(); i != ie; ++i) {
+    auto *f = static_cast<Function *>(i);
+
+    ref<ConstantExpr> addr = ConstantExpr::createPointer(0);
+
+    // If the symbol has external weak linkage then it is implicitly
+    // not defined in this module; if it isn't resolvable then it
+    // should be null.
+    if (f->hasExternalWeakLinkage() && !externalDispatcher->resolveSymbol(f->getName())) {
+      addr = Expr::createPointer(0);
+    } else if (!f->isDeclaration()) {
+      addr = Expr::createPointer((uint64_t)f);
+      legalFunctions.insert((uint64_t)f);
+    }
+
+    globalAddresses.insert(std::make_pair(f, addr));
+  }
+
+  // globals are already allocated and initialized.  just need
+  // to find them
+
+  // locate memory objects for all globals
+  for (Module::global_iterator i = m->global_begin(), e = m->global_end(); i != e; ++i) {
+    auto *gv = cast<GlobalVariable>(i);
+    std::string name = gv->getName();
+    auto op = state.addressSpace.findMemoryObjectByName(name);
+    MemoryObject *mo = const_cast<MemoryObject *>(op.first);
+    if (mo != nullptr) {
+      globalObjects.insert(std::make_pair(gv, mo));
+      globalAddresses.insert(std::make_pair(gv, mo->getBaseExpr()));
+    } else {
+      klee_warning("reinit unable to find: %s", name.c_str());
+    }
+  }
+
+  // link aliases to their definitions (if bound)
+  for (Module::alias_iterator i = m->alias_begin(), ie = m->alias_end(); i != ie; ++i) {
+    // Map the alias to its aliasee's address. This works because we have
+    // addresses for everything, even undefined functions.
+    globalAddresses.insert(std::make_pair(static_cast<GlobalAlias *>(i), evalConstant(i->getAliasee())));
+  }
+}
+
 void Executor::branch(ExecutionState &state,
                       const std::vector< ref<Expr> > &conditions,
                       std::vector<ExecutionState*> &result) {

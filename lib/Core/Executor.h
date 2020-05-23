@@ -225,6 +225,7 @@ protected:
 			      const llvm::Constant *c,
 			      unsigned offset);
   void initializeGlobals(ExecutionState &state);
+  void reinitializeGlobals(ExecutionState &state);
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);

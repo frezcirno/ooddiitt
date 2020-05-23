@@ -51,6 +51,7 @@ public:
 //  bool isAllocated(const MemoryObject *mo) const { return objects.find(mo) != objects.end(); }
 //  bool isFreed(const MemoryObject *mo) const { return !isAllocated(mo); }
   ArrayCache *getArrayCache() const { return arrayCache; }
+  bool reserve(size_t size);
   void dump() const;
 
   /*

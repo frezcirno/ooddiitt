@@ -101,7 +101,7 @@ public:
 
   static std::string getRunTimeLibraryPath(const char *argv0);
 
-private:
+protected:
   Interpreter *interpreter;
   boost::filesystem::path outputDirectory;
   bool output_created;
@@ -197,6 +197,7 @@ public:
   /// \return The final module after it has been optimized, checks
   /// inserted, and modified for interpretation.
   virtual void bindModule(KModule *kmodule) = 0;
+  virtual void bindModule(KModule *kmodule, ExecutionState *state, uint64_t mem_reserve) { bindModule(kmodule); };
 
   virtual void getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryObject*> &objects) = 0;
 
@@ -263,6 +264,8 @@ public:
   virtual void log_warning(const std::string &msg) = 0;
   virtual void log_warning(const std::string &msg, ExecutionState &state) = 0;
   virtual void log_warning(const std::string &msg, ExecutionState &state, KInstruction *ki) = 0;
+
+  virtual uint64_t getUsedMemory() const { return 0; }
 };
 
 } // End klee namespace

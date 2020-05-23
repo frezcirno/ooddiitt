@@ -88,6 +88,8 @@ namespace {
 
 }
 
+map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
+
 /***/
 
 class ReplayKleeHandler : public InterpreterHandler {
@@ -103,6 +105,14 @@ public:
   }
 
   ~ReplayKleeHandler() override = default;
+
+  void onStateInitialize(ExecutionState &state) override {
+
+    KModule *kmod = interpreter->getKModule();
+    if (initialized_states.find(kmod) == initialized_states.end()) {
+      initialized_states[kmod] = make_pair(new ExecutionState(state), interpreter->getUsedMemory());
+    }
+  }
 
   void onStateFinalize(ExecutionState &state, TerminateReason reason) override  {
     results.push_back(make_pair(new ExecutionState(state), reason));
@@ -465,7 +475,7 @@ static void PrintStackTraceSignalHandler(void *) {
   sys::PrintStackTrace(stderr);
 }
 
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
@@ -541,7 +551,14 @@ int main(int argc, char **argv, char **envp) {
 
     Interpreter *interpreter = Interpreter::createLocal(*ctx, IOpts, handler);
     handler->setInterpreter(interpreter);
-    interpreter->bindModule(kmod);
+
+    // try to re-use an initialized state, if one is available
+    auto itr = initialized_states.find(kmod);
+    if (itr == initialized_states.end()) {
+      interpreter->bindModule(kmod);
+    } else {
+      interpreter->bindModule(kmod, new ExecutionState(*itr->second.first), itr->second.second);
+    }
 
     theInterpreter = interpreter;
     auto start_time = sys_clock::now();
@@ -655,6 +672,7 @@ int main(int argc, char **argv, char **envp) {
     delete pr.second;
     delete ctx;
   }
+  module_cache.clear();
 
   return exit_code;
 }

@@ -335,6 +335,7 @@ void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm
 
   listOPs.clear();
 
+  listOPs.reserve(objects.size());
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
     const ObjectState *os = it->second;

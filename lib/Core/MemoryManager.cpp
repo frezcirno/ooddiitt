@@ -124,6 +124,18 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
   return res;
 }
 
+bool MemoryManager::reserve(size_t size) {
+
+  if (DeterministicAllocation) {
+    void *addr = ((char *) nextFreeSlot) + size;
+    if (addr < deterministicEnd) {
+      nextFreeSlot = addr;
+      return true;
+    }
+  }
+  return false;
+}
+
 MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment) {
 
   MemoryObject *result = nullptr;

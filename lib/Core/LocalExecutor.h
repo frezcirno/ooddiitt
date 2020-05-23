@@ -47,6 +47,7 @@ public:
   ~LocalExecutor() override;
 
   void bindModule(KModule *kmodule) override;
+  void bindModule(KModule *kmodule, ExecutionState *state, uint64_t mem_reserve) override;
   void bindModuleConstants() override;
   void runFunctionAsMain(llvm::Function *f, int argc, char **argv, char **envp) override;
   void runFunctionUnconstrained(llvm::Function *fn) override;
@@ -56,8 +57,6 @@ public:
                        const std::vector<unsigned char> &stdin_buffer,
                        llvm::Function *at) override;
 
-  ExecutionState *runLibCInitializer(ExecutionState &state, llvm::Function *f);
-
   void setPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated path writer"); }
   void setSymbolicPathWriter(TreeStreamWriter *tsw) override { assert(false && "deprectated sympath writer"); }
   bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs) override;
@@ -66,9 +65,12 @@ public:
   }
 
   const UnconstraintFlagsT *getUnconstraintFlags() override { return &unconstraintFlags; }
+  uint64_t getUsedMemory() const override;
 
 protected:
   void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
+  ExecutionState *runFnLibCInit(ExecutionState *state);
+
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
   }
