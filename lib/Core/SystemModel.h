@@ -23,7 +23,7 @@ struct ModelOptions {
 class SystemModel {
 
   typedef bool handler_t(ExecutionState&,std::vector<ref<Expr> >&args,ref<Expr>&);
-  typedef handler_t SystemModel::* model_handler_t;
+  typedef std::pair<handler_t SystemModel::*,unsigned> model_handler_t;
   typedef std::pair<std::string,model_handler_t> handler_descriptor_t;
 
 public:
@@ -53,11 +53,19 @@ private:
   bool ExecuteRint(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteFabs(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
-  bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
-  bool ExecuteXStrToD(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteMemcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrcmp(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrlen(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrchr(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrspn(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 
+  bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+
+#if 0 == 1
   bool canConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const std::string &str);
   bool doConstrainString(ExecutionState &state, const ObjectState *os, unsigned index, const std::string &str);
+#endif
 
   LocalExecutor *executor;
   const ModelOptions &opts;
@@ -66,12 +74,12 @@ private:
 
   KInstruction *ki;
   llvm::Function *fn;
+  unsigned ctx_id;
 
   static const std::vector<handler_descriptor_t> modeled_fns;
   static const std::vector<handler_descriptor_t> output_fns;
   static const ref<ConstantExpr> expr_true;
   static const ref<ConstantExpr> expr_false;
-
 
 };
 

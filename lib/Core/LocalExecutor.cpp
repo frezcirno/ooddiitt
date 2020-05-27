@@ -896,6 +896,30 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
   }
 }
 
+void LocalExecutor::parseBreakAt() {
+
+  // parse out the break-at lines
+  break_fns.clear();
+  break_lines.clear();
+  if (BreakAt.size() > 0) {
+    vector<string> lines;
+    boost::algorithm::split(lines, BreakAt, boost::algorithm::is_any_of(","), boost::algorithm::token_compress_on);
+    for (const string &line : lines) {
+      if (!line.empty()) {
+        if (isdigit(line.front())) {
+          break_lines.insert(stoul(line));
+        } else if (const Function *fn = kmodule->module->getFunction(line)) {
+          break_fns.insert(fn);
+        } else {
+          ostringstream ss;
+          ss << "break at element " << line << " not found";
+          log_warning(ss);
+        }
+      }
+    }
+  }
+}
+
 void LocalExecutor::bindModule(KModule *kmodule) {
 
   assert(baseState == nullptr);
@@ -913,6 +937,7 @@ void LocalExecutor::bindModule(KModule *kmodule) {
 
   initializeGlobals(*baseState);
   bindModuleConstants();
+  parseBreakAt();
 
   // look for a libc initializer, execute if found to initialize the base state
   baseState = runFnLibCInit(baseState);
@@ -932,10 +957,10 @@ void LocalExecutor::bindModule(KModule *kmodule, ExecutionState *state, uint64_t
 
   reinitializeGlobals(*baseState);
   bindModuleConstants();
+  parseBreakAt();
 
   interpreterHandler->onStateInitialize(*baseState);
 }
-
 
 void LocalExecutor::bindModuleConstants() {
 
@@ -1071,7 +1096,6 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       // null terminate the string
       value = osProgName->read8(prog_name.size());
       addConstraint(*state, EqExpr::create(value, null));
-
 
       // get an array for the argv pointers
       WObjectPair wopArgv_array;
@@ -1364,27 +1388,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   MonotonicTimer timer;
   const unsigned tid_timeout = 1;
   const unsigned tid_heartbeat = 2;
-
-  // parse out the break-at lines
-  break_fns.clear();
-  break_lines.clear();
-  if (BreakAt.size() > 0) {
-    vector<string> lines;
-    boost::algorithm::split(lines, BreakAt, boost::algorithm::is_any_of(","), boost::algorithm::token_compress_on);
-    for (const string &line : lines) {
-      if (!line.empty()) {
-        if (isdigit(line.front())) {
-          break_lines.insert(stoul(line));
-        } else if (const Function *fn = kmodule->module->getFunction(line)) {
-          break_fns.insert(fn);
-        } else {
-          ostringstream ss;
-          ss << "break at element " << line << " not found";
-          log_warning(ss);
-        }
-      }
-    }
-  }
 
   // if trace type is not defined here, then use the default from the module
   trace_type = interpreterOpts.trace;

@@ -326,6 +326,41 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   infos = new InstructionInfoTable();
   infos->BuildTable(module);
 
+  /* Build shadow structures */
+  for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
+
+    Function *fn = static_cast<Function *>(it);
+
+    // insert type for later lookup
+    mapFnTypes[fn->getFunctionType()].insert(fn);
+
+    if (fn->getIntrinsicID() != Intrinsic::not_intrinsic) {
+      addInternalFunction(fn);
+    }
+
+    if (fn->isDeclaration()) continue;
+
+    KFunction *kf = new KFunction(fn, this);
+
+    for (unsigned i=0; i<kf->numInstructions; ++i) {
+      KInstruction *ki = kf->instructions[i];
+      ki->info = &infos->getInfo(ki->inst);
+    }
+
+    functions.push_back(kf);
+    functionMap.insert(make_pair(fn, kf));
+  }
+
+  for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
+    GlobalVariable *v = itr;
+    if (v->hasName()) {
+      string name = v->getName();
+      if (!name.empty()) {
+        mapGlobalVars.insert(make_pair(name, v));
+      }
+    }
+  }
+
   if (!user_fns.empty()) {
     vector<Value*> values;
     values.reserve(user_fns.size());
@@ -454,7 +489,6 @@ void KModule::prepare() {
     functions.push_back(kf);
     functionMap.insert(make_pair(fn, kf));
   }
-
 
   for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;

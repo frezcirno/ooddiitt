@@ -71,6 +71,7 @@ protected:
   void runFn(KFunction *kf, std::vector<ExecutionState*> &initialStates);
   ExecutionState *runFnLibCInit(ExecutionState *state);
 
+  void parseBreakAt();
   std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
     return (fnName + "::" + std::to_string(counter) + "::" + varName);
   }

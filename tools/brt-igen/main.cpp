@@ -74,6 +74,7 @@ namespace {
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
+  cl::opt<bool> AllOutput("all-output", cl::desc("Generate all test files (reaching or not)"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
   cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
@@ -185,7 +186,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
   assert(!state.isProcessed);
 
 
-  if (!NoOutput && (state.reached_target || term_reason == TerminateReason::Timeout)) {
+  if (!NoOutput && (AllOutput || state.reached_target || term_reason == TerminateReason::Timeout)) {
 
     // select the next test id for this function
     unsigned testID = nextTestCaseID++;

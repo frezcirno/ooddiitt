@@ -10,8 +10,18 @@
 
 typedef std::chrono::system_clock sys_clock;
 
+// if not already defined, define some common macros
+#ifndef countof
 #define countof(a) (sizeof(a)/ sizeof(a[0]))
+#endif
+
+#ifndef __noop
 #define __noop()  asm("nop")
+#endif
+
+#ifndef UNUSED
+#define UNUSED(x) {(void)(x);}
+#endif
 
 namespace llvm {
   class Value;

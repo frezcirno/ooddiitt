@@ -938,6 +938,44 @@ void emitDiff(KModule *kmod1, KModule *kmod2,
   }
 }
 
+void emitInfo(const vector<KModule *> &kmods, const string &outDir) {
+
+  fs::path path(outDir);
+  string pathname = (path /= "info.json").string();
+  ofstream out(pathname, ofstream::out);
+  if (out.is_open()) {
+
+    set<string> generated;
+    Json::Value root = Json::objectValue;
+    for (const auto &kmod : kmods) {
+      string md_name = kmod->getModuleIdentifier();
+      auto result = generated.insert(md_name);
+      if (result.second) {
+        Json::Value &module = root[md_name] = Json::objectValue;
+        for (auto itr = kmod->functions.begin(), end = kmod->functions.end(); itr != end; ++itr) {
+          KFunction *kf = *itr;
+          string fn_name = kf->getName();
+          const BasicBlock *fn_entry = &kf->function->getEntryBlock();
+          unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock *>(fn_entry)];
+          KInstruction *kentry = kf->instructions[entry];
+          string src_name = kentry->info->path;
+          module[fn_name] = src_name;
+        }
+      }
+    }
+    string indent;
+    if (IndentJson) indent = "  ";
+
+    // write the constructed json object to file
+    Json::StreamWriterBuilder builder;
+    builder["commentStyle"] = "None";
+    builder["indentation"] = indent;
+    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+    writer->write(root, &out);
+    out << '\n';
+  }
+}
+
 int main(int argc, char **argv, char **envp) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -987,6 +1025,8 @@ int main(int argc, char **argv, char **envp) {
     }
     emitDiff(kmods[0], kmods[1], undefined_fns, assume_eq, Output);
   }
+
+  emitInfo(kmods, Output);
 
   for (auto kmod : kmods) {
     LLVMContext *ctx = kmod->getContextPtr();
