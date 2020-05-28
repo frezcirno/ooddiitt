@@ -355,7 +355,7 @@ KModule *PrepareModule(const string &filename) {
   return nullptr;
 }
 
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();

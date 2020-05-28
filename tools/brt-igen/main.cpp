@@ -103,14 +103,14 @@ namespace {
 
   cl::opt<bool>
   WithPOSIXRuntime("posix-runtime",
-		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
-		cl::init(false));
+                cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
+                cl::init(false));
 
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
                        cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
-				                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
-				                "Used for testing."),
+                                                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
+                                                "Used for testing."),
                        cl::init(0));
   cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
@@ -421,7 +421,7 @@ static int initEnv(Module *mainModule) {
   args.push_back(argcPtr);
   args.push_back(argvPtr);
   Instruction* initEnvCall = CallInst::Create(initEnvFn, args,
-					      "", firstInst);
+                                              "", firstInst);
   Value *argc = new LoadInst(argcPtr, "newArgc", firstInst);
   Value *argv = new LoadInst(argvPtr, "newArgv", firstInst);
 
@@ -644,7 +644,7 @@ KModule *PrepareModule(const string &filename) {
   return nullptr;
 }
 
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();

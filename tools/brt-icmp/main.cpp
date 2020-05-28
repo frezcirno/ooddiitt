@@ -75,6 +75,8 @@ namespace {
 
 /***/
 
+map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
+
 class ICmpKleeHandler : public InterpreterHandler {
 private:
   string indentation;
@@ -89,6 +91,12 @@ public:
   void onStateInitialize(ExecutionState &state) override {
     ver.initialState = new ExecutionState(state);
     getInterpreter()->getGlobalVariableMap(ver.global_map);
+
+    // save a copy of the uclibc initialized state
+    KModule *kmod = interpreter->getKModule();
+    if (initialized_states.find(kmod) == initialized_states.end()) {
+      initialized_states[kmod] = make_pair(new ExecutionState(state), interpreter->getUsedMemory());
+    }
   }
 
   void onStateFinalize(ExecutionState &state, TerminateReason reason) override {
@@ -464,7 +472,7 @@ static void PrintStackTraceSignalHandler(void *) {
   sys::PrintStackTrace(stderr);
 }
 
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
@@ -563,7 +571,14 @@ int main(int argc, char **argv, char **envp) {
     auto *handler1 = new ICmpKleeHandler(version1);
     Interpreter *interpreter1 = Interpreter::createLocal(*ctx1, IOpts, handler1);
     handler1->setInterpreter(interpreter1);
-    interpreter1->bindModule(kmod1);
+
+    // try to re-use an initialized state, if one is available
+    auto itr = initialized_states.find(kmod1);
+    if (itr == initialized_states.end()) {
+      interpreter1->bindModule(kmod1);
+    } else {
+      interpreter1->bindModule(kmod1, new ExecutionState(*itr->second.first), itr->second.second);
+    }
 
     theInterpreter = interpreter1;
     interpreter1->runFunctionTestCase(test);
@@ -583,7 +598,14 @@ int main(int argc, char **argv, char **envp) {
       auto *handler2 = new ICmpKleeHandler(version2);
       Interpreter *interpreter2 = Interpreter::createLocal(*ctx2, IOpts, handler2);
       handler2->setInterpreter(interpreter2);
-      interpreter2->bindModule(kmod2);
+
+      // try to re-use an initialized state, if one is available
+      auto itr = initialized_states.find(kmod2);
+      if (itr == initialized_states.end()) {
+        interpreter2->bindModule(kmod2);
+      } else {
+        interpreter2->bindModule(kmod2, new ExecutionState(*itr->second.first), itr->second.second);
+      }
 
       theInterpreter = interpreter2;
       interpreter2->runFunctionTestCase(test);

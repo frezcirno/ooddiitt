@@ -106,8 +106,8 @@ namespace {
 #if 0 == 1
   cl::opt<bool>
   WithPOSIXRuntime("posix-runtime",
-		cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
-		cl::init(false));
+                cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
+                cl::init(false));
 #endif
 
   cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
@@ -230,7 +230,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 }
 #else
 static void replaceOrRenameFunction(llvm::Module *module,
-		const char *old_name, const char *new_name)
+                const char *old_name, const char *new_name)
 {
   Function *f, *f2;
   f = module->getFunction(new_name);
@@ -976,7 +976,7 @@ void emitInfo(const vector<KModule *> &kmods, const string &outDir) {
   }
 }
 
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
