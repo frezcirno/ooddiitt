@@ -30,6 +30,11 @@ void changed_arg_ptr(bob_t *bob) {
 int main(int argc, char *argv[]) {
 
   int exit_code = 1;
+  removed_fn();
+  changed_sig_fn(1);
+  bob_t bob;
+  changed_arg_ptr(&bob);
+
   if (argc != 2) {
     printf("usage: %s arg\n", argv[0]);
   } else {

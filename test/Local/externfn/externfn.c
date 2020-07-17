@@ -1,33 +1,26 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void bar() {
+int foo(const char *arg1);
 
+const char const_string[] = "1234";
+extern const char extconst_string[];
+
+int bar(const char *arg1) {
+  (void) extconst_string;
+  return 0;
 }
 
-void foo00() {
-  bar();
-}
+int main(int argc, char *argv[]) {
 
-void foo01(int num) {
-  printf("Hello %d\n", num);
-}
+  char string[] = "0";
 
-int foo02() {
-
-  int result = 0;
-  int ch = getchar();
-  if (ch == 'a') {
-    printf("Got a letter a!\n");
-    result = 1;
-  } else {
-    printf("Didn't get my letter?\n");
+  bar(string);
+  int val = foo(string);
+  if (val > 0) {
+    printf("positive\n");
+  } else if (*string != '0') {
+    printf("negative\n");
   }
-  return result;
-}
-
-int nobar();
-
-int foo03() {
-  return nobar();
+  return 0;
 }

@@ -11,6 +11,7 @@
 #include "klee/Internal/Module/KModule.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "Passes.h"
+#include "MDBuilder.h"
 
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
@@ -113,9 +114,9 @@ static Function *getStubFunctionForCtorList(Module *m,
   vector<LLVM_TYPE_Q Type*> nullary;
 
   Function *fn = Function::Create(FunctionType::get(Type::getVoidTy(m->getContext()),
-						    nullary, false),
-				  GlobalVariable::InternalLinkage,
-				  name,
+                                                    nullary, false),
+                                  GlobalVariable::InternalLinkage,
+                                  name,
                               m);
   BasicBlock *bb = BasicBlock::Create(m->getContext(), "entry", fn);
 
@@ -134,7 +135,7 @@ static Function *getStubFunctionForCtorList(Module *m,
           fp = ce->getOperand(0);
 
         if (Function *f = dyn_cast<Function>(fp)) {
-	  CallInst::Create(f, "", bb);
+          CallInst::Create(f, "", bb);
         } else {
           assert(0 && "unable to get function pointer from ctor initializer list");
         }
@@ -158,19 +159,19 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
 
     if (ctors)
     CallInst::Create(getStubFunctionForCtorList(m, ctors, "klee.ctor_stub"),
-		     "", static_cast<Instruction *>(mainFn->begin()->begin()));
+                     "", static_cast<Instruction *>(mainFn->begin()->begin()));
     if (dtors) {
       Function *dtorStub = getStubFunctionForCtorList(m, dtors, "klee.dtor_stub");
       for (Function::iterator it = mainFn->begin(), ie = mainFn->end();
            it != ie; ++it) {
         if (isa<ReturnInst>(it->getTerminator()))
-	  CallInst::Create(dtorStub, "", it->getTerminator());
+          CallInst::Create(dtorStub, "", it->getTerminator());
       }
     }
   }
 }
 
-void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string> &sources, TraceType ttrace, MarkScope mscope) {
+void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
   assert(module != nullptr);
 
@@ -179,9 +180,14 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
     DISubprogram di_sp(*itr);
     if (Function *fn = di_sp.getFunction()) {
-      string filename = fs::path(di_sp.getFilename()).filename().string();
-      if (sources.find(filename) != sources.end()) {
-        user_fns.insert(fn);
+      string pathname = di_sp.getFilename();
+
+      // functions from libc are never user fns
+      if (!boost::starts_with(pathname, "libc/")) {
+        string filename = fs::path(pathname).filename().string();
+        if ((opts.sources.empty() && !fn->isDeclaration()) || opts.sources.find(filename) != opts.sources.end()) {
+          user_fns.insert(fn);
+        }
       }
     }
   }
@@ -194,9 +200,16 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   for (auto itr = finder.global_variable_begin(), end = finder.global_variable_end(); itr != end; ++itr) {
     DIGlobalVariable di_gv(*itr);
     if (GlobalVariable *gv = di_gv.getGlobal()) {
-      string filename = fs::path(di_gv.getFilename()).filename().string();
-      if (sources.find(filename) != sources.end()) {
-        user_gbs.insert(gv);
+      string pathname = di_gv.getFilename();
+
+      // globals from libc are never user globals
+      if (!boost::starts_with(pathname, "libc/")) {
+
+        string gv_name = gv->getName().str();
+        string filename = fs::path(pathname).filename().string();
+        if ((opts.sources.empty() && !gv->isDeclaration()) || opts.sources.find(filename) != opts.sources.end()) {
+          user_gbs.insert(gv);
+        }
       }
     }
   }
@@ -204,7 +217,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
   set<Function*> fns_to_mark;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
-    if (mscope == MarkScope::all || user_fns.find(fn) != user_fns.end()) {
+    if (opts.mscope == MarkScope::all || user_fns.find(fn) != user_fns.end()) {
       fns_to_mark.insert(fn);
     }
   }
@@ -328,7 +341,6 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
 
   /* Build shadow structures */
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
-
     Function *fn = static_cast<Function *>(it);
 
     // insert type for later lookup
@@ -338,15 +350,24 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
       addInternalFunction(fn);
     }
 
+    // store clang info for constant function arguments (both internal and external)
+    if (auto fn_info = opts.ClangInfo->getFn(fn->getName())) {
+      for (unsigned idx = 0; idx < fn_info->arg_size(); ++idx) {
+        if (fn_info->getArg(idx).isConst()) {
+          fn_const_params[fn].insert(idx);
+        }
+      }
+    }
+
     if (fn->isDeclaration()) continue;
 
-    KFunction *kf = new KFunction(fn, this);
+    KFunction *kf =
+        new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
 
     for (unsigned i=0; i<kf->numInstructions; ++i) {
       KInstruction *ki = kf->instructions[i];
       ki->info = &infos->getInfo(ki->inst);
     }
-
     functions.push_back(kf);
     functionMap.insert(make_pair(fn, kf));
   }
@@ -361,37 +382,32 @@ void KModule::transform(const Interpreter::ModuleOptions &opts, const set<string
     }
   }
 
+  MDBuilder md_builder(ctx);
+
   if (!user_fns.empty()) {
-    vector<Value*> values;
-    values.reserve(user_fns.size());
-    for (auto fn : user_fns) {
-      values.push_back((Value *) fn);
-      user_fns.insert(fn);
-    }
-    MDNode *Node = MDNode::get(ctx, values);
     NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-fns");
-    NMD->addOperand(Node);
+    MDNode *node = md_builder.create(user_fns);
+    NMD->addOperand(node);
   }
 
   if (!user_gbs.empty()) {
-    vector<Value*> values;
-    values.reserve(user_gbs.size());
-    for (auto gb : user_gbs) {
-      values.push_back((Value*) gb);
-      user_gbs.insert(gb);
-    }
-    MDNode *Node = MDNode::get(ctx, values);
     NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.usr-gbs");
-    NMD->addOperand(Node);
+    MDNode *node = md_builder.create(user_gbs);
+    NMD->addOperand(node);
   }
 
-  if (ttrace != TraceType::invalid) {
-    Type *int_type = Type::getInt32Ty(ctx);
-    vector<Value*> values;
-    values.push_back(ConstantInt::get(int_type, (unsigned) ttrace));
-    MDNode *Node = MDNode::get(ctx, values);
+  if (opts.ttype != TraceType::invalid) {
     NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.trace-type");
-    NMD->addOperand(Node);
+    MDNode *node = md_builder.create((unsigned) opts.ttype);
+    NMD->addOperand(node);
+  }
+
+  if (!fn_const_params.empty()) {
+    NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.fn-const-args");
+    for (auto &itr : fn_const_params) {
+      MDNode *node = md_builder.create(itr.first, itr.second);
+      NMD->addOperand(node);
+    }
   }
 }
 
@@ -414,12 +430,14 @@ void KModule::prepare() {
       for (auto bb_itr = bb->begin(), bb_end = bb->end(); bb_itr != bb_end; ++bb_itr) {
         Instruction *inst = bb_itr;
         if (MDNode *node = inst->getMetadata(mdkind_fnID)) {
-          string str = cast<MDString>(node->getOperand(0))->getString();
-          if (!str.empty()) mapFnMarkers[fn] = std::stoi(str);
+          if (ConstantInt *vi = dyn_cast<ConstantInt>(node->getOperand(0))) {
+            mapFnMarkers[fn] = vi->getZExtValue();
+          }
         }
         if (MDNode *node = inst->getMetadata(mdkind_bbID)) {
-          string str = cast<MDString>(node->getOperand(0))->getString();
-          if (!str.empty()) mapBBMarkers[bb] = std::stoi(str);
+          if (ConstantInt *vi = dyn_cast<ConstantInt>(node->getOperand(0))) {
+            mapBBMarkers[bb] = vi->getZExtValue();
+          }
         }
       }
     }
@@ -428,11 +446,13 @@ void KModule::prepare() {
   // read out the user defined functions from metadata
   auto node = module->getNamedMetadata("brt-klee.usr-fns");
   if (node != nullptr && node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-      Value *v = md->getOperand(idx);
-      if (Function *fn = dyn_cast<Function>(v)) {
-        user_fns.insert(fn);
+    if (auto md = node->getOperand(0)) {
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        if (Value *v = md->getOperand(idx)) {
+          if (Function *fn = dyn_cast<Function>(v)) {
+            user_fns.insert(fn);
+          }
+        }
       }
     }
   }
@@ -440,11 +460,13 @@ void KModule::prepare() {
   // and now the globals
   node = module->getNamedMetadata("brt-klee.usr-gbs");
   if (node != nullptr && node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
-      Value *v = md->getOperand(idx);
-      if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
-        user_gbs.insert(gb);
+    if (auto md = node->getOperand(0)) {
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        if (Value *v = md->getOperand(idx)) {
+          if (GlobalVariable *gb = dyn_cast<GlobalVariable>(v)) {
+            user_gbs.insert(gb);
+          }
+        }
       }
     }
   }
@@ -452,10 +474,28 @@ void KModule::prepare() {
   // check to see if a default trace type is set in the module
   node = module->getNamedMetadata("brt-klee.trace-type");
   if (node != nullptr && node->getNumOperands() > 0) {
-    auto md = node->getOperand(0);
-    Value *v = md->getOperand(0);
-    if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
-      module_trace = (TraceType) i->getZExtValue();
+    if (auto md = node->getOperand(0)) {
+      if (Value *v = md->getOperand(0)) {
+        if (ConstantInt *i = dyn_cast<ConstantInt>(v)) {
+          module_trace = (TraceType)i->getZExtValue();
+        }
+      }
+    }
+  }
+
+  // finally, read out the map of function const arguments.
+  node = module->getNamedMetadata("brt-klee.fn-const-args");
+  if (node != nullptr) {
+    for (unsigned fn_idx = 0, fn_end = node->getNumOperands(); fn_idx < fn_end; ++fn_idx) {
+      if (auto md = node->getOperand(fn_idx)) {
+        if (Function *fn = dyn_cast<Function>(md->getOperand((0)))) {
+          auto &s = fn_const_params[fn];
+          for (unsigned arg_idx = 1, arg_end = md->getNumOperands(); arg_idx < arg_end; ++arg_idx) {
+            ConstantInt *i = dyn_cast<ConstantInt>(md->getOperand(arg_idx));
+            s.insert(i->getZExtValue());
+          }
+        }
+      }
     }
   }
 
@@ -479,7 +519,7 @@ void KModule::prepare() {
 
     if (fn->isDeclaration()) continue;
 
-    KFunction *kf = new KFunction(fn, this);
+    KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
 
     for (unsigned i=0; i<kf->numInstructions; ++i) {
       KInstruction *ki = kf->instructions[i];
@@ -609,7 +649,7 @@ static int getOperandNum(Value *v,
   }
 }
 
-KFunction::KFunction(llvm::Function *_function, KModule *km)
+KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
   : function(_function),
     numArgs((unsigned) function->arg_size()),
     numInstructions(0),
@@ -622,7 +662,7 @@ KFunction::KFunction(llvm::Function *_function, KModule *km)
     diff_body(false),
     diff_sig(false) {
 
-  is_user = km->isUserFunction(function);
+  is_user = user_fn;
   fnID = km->getFunctionID(function);
 
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {

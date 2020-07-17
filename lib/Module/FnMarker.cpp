@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Passes.h"
-
+#include "MDBuilder.h"
 #include <set>
 
 using namespace llvm;
@@ -28,6 +28,7 @@ bool FnMarkerPass::doInitialization(llvm::Module &module) {
 bool FnMarkerPass::runOnFunction(Function &fn) {
 
   LLVMContext &ctx = fn.getContext();
+  MDBuilder md_builder(ctx);
   if (fns.find(&fn) != fns.end()) {
 
     unsigned next_bbID = 1;
@@ -36,11 +37,11 @@ bool FnMarkerPass::runOnFunction(Function &fn) {
       BasicBlock &bb = *b;
       if (!bb.empty()) {
         Instruction &inst = bb.front();
-        MDNode *md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_bbID)));
+        MDNode *md = md_builder.create(next_bbID);
         inst.setMetadata(mdkind_bbID, md);
         mapBB[&bb] = next_bbID;
 
-        md = MDNode::get(ctx, MDString::get(ctx, std::to_string(next_fnID)));
+        md = md_builder.create(next_fnID);
         inst.setMetadata(mdkind_fnID, md);
         if (next_bbID == 1) {
           mapFn[&fn] = next_fnID;
@@ -54,7 +55,6 @@ bool FnMarkerPass::runOnFunction(Function &fn) {
 }
 
 bool FnMarkerPass::doFinalization(llvm::Module &module) {
-
 
   return false;
 }

@@ -9,6 +9,7 @@
 
 #include "klee/Internal/Module/InstructionInfoTable.h"
 #include "klee/Config/Version.h"
+#include "MDBuilder.h"
 
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Function.h"
@@ -110,6 +111,7 @@ bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, s
 void InstructionInfoTable::BuildTable(llvm::Module *m) {
 
   llvm::LLVMContext &ctx = m->getContext();
+  MDBuilder md_builder(ctx);
   unsigned int mdkline = m->getMDKindID("klee.assemblyLine");
   unsigned id = 0;
 
@@ -148,7 +150,7 @@ void InstructionInfoTable::BuildTable(llvm::Module *m) {
         path = internString(tmp_path);
       }
 
-      MDNode *N = MDNode::get(ctx, MDString::get(ctx, std::to_string(assemblyLine)));
+      MDNode *N = md_builder.create(assemblyLine);
       instr->setMetadata(mdkline, N);
       infos.insert(std::make_pair(instr, InstructionInfo(id++, file, path, line, assemblyLine)));
     }
@@ -192,8 +194,9 @@ void InstructionInfoTable::LoadTable(llvm::Module *m) {
       }
       unsigned assemblyLine = 0;
       if (MDNode *node = instr->getMetadata(mdkline)) {
-        std::string str = cast<MDString>(node->getOperand(0))->getString();
-        assemblyLine = std::stoi(str);
+        if (ConstantInt *vi = dyn_cast<ConstantInt>(node->getOperand(0))) {
+         assemblyLine = vi->getZExtValue();
+        }
       }
       infos.insert(std::make_pair(instr, InstructionInfo(id++, file, path, line, assemblyLine)));
     }

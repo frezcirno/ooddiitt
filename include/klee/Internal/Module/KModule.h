@@ -76,7 +76,7 @@ namespace klee {
     bool diff_body;
     bool diff_sig;
 
-    explicit KFunction(llvm::Function*, KModule *);
+    explicit KFunction(llvm::Function*, bool user_fn, KModule *);
     ~KFunction();
 
     static unsigned getArgRegister(unsigned index) { return index; }
@@ -152,6 +152,7 @@ namespace klee {
 
     // Functions which are part of KLEE runtime
     std::set<const llvm::Function*> internalFunctions;
+    std::map<llvm::Function*,std::set<unsigned>> fn_const_params;
 
   public:
     explicit KModule(llvm::Module *_module);
@@ -163,17 +164,31 @@ namespace klee {
       { std::string result; if (module) result = module->getModuleIdentifier(); return result; }
     llvm::LLVMContext *getContextPtr() const
       { llvm::LLVMContext *result = nullptr; if (module) result = &module->getContext(); return result; }
-    llvm::Function *getFunction(const std::string &fn) const
-      { llvm::Function *result = nullptr; if (module) result = module->getFunction(fn); return result; }
+    llvm::Function *getFunction(const std::string &fn) const {
+      llvm::Function *result = nullptr;
+      if (module)
+        result = module->getFunction(fn);
+      return result;
+    }
+
+    bool isConstFnArg(llvm::Function *fn, unsigned idx) {
+      auto itr = fn_const_params.find(fn);
+      if (itr != fn_const_params.end()) {
+        return itr->second.find(idx) != itr->second.end();
+      }
+    }
+
+    bool isConstFnArg(const std::string &fn_name, unsigned idx) {
+      if (llvm::Function *fn = module->getFunction(fn_name)) {
+        return isConstFnArg(fn, idx);
+      }
+      return false;
+    }
 
     /// Initialize local data structures.
     //
     void prepare();
-    void transform(const Interpreter::ModuleOptions &opts,
-                   const std::set<std::string> &sources,
-                   TraceType ttrace = TraceType::invalid,
-                   MarkScope mscope = MarkScope::invalid);
-
+    void transform(const Interpreter::ModuleOptions &opts);
     bool hasOracle() { return getKFunction("__o_assert_fail") != nullptr; }
 
     /// Return an id for the given constant, creating a new one if necessary.
@@ -192,10 +207,6 @@ namespace klee {
       if (itr != mapFnTypes.end()) {
         fns.insert(itr->second.begin(), itr->second.end());
       }
-    }
-
-    bool isUserFunction(const llvm::Function* fn) const {
-      return user_fns.find(fn) != user_fns.end();
     }
 
     void getUserFunctions(std::set<const llvm::Function*> &fns) const {

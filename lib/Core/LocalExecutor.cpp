@@ -1186,6 +1186,10 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
+  UNUSED(f);
+  UNUSED(argc);
+  UNUSED(argv);
+  UNUSED(envp);
   assert(false && "deprecated runFunctionAsMain (see runFunctionUnconstrained)");
 }
 
@@ -1234,7 +1238,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
           // write the test case value
           const MemoryObject *mo = pr.first;
           const ObjectState *os = pr.second;
-          assert(mo->name == obj.name && os->size == obj.data.size());
+          assert(mo->name == obj.name && os->getVisibleSize() == obj.data.size());
           ObjectState *wos = baseState->addressSpace.getWriteable(mo, os);
           for (size_t idx = 0, end = obj.data.size(); idx < end; ++idx) {
             wos->write8(idx, obj.data[idx]);
@@ -1504,7 +1508,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
 ExecutionState *LocalExecutor::runFnLibCInit(ExecutionState *_state) {
 
-  assert(state != nullptr);
+  assert(_state != nullptr);
 
   ExecutionState *result = nullptr;
 

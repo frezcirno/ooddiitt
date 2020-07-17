@@ -21,6 +21,7 @@
 #include <map>
 #include <set>
 #include <klee/Internal/Support/ErrorHandling.h>
+#include <klee/Internal/Module/ClangInfo.h>
 
 struct KTest;
 
@@ -120,11 +121,18 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
+    ClangProgInfo *ClangInfo;
+    TraceType ttype;
+    MarkScope mscope;
+    std::set<std::string> sources;
 
     ModuleOptions()
       : Optimize(false),
         CheckDivZero(false),
-        CheckOvershift(false)
+        CheckOvershift(false),
+        ClangInfo(nullptr),
+        ttype(TraceType::invalid),
+        mscope(MarkScope::invalid)
       {}
   };
 

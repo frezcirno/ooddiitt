@@ -1,0 +1,28 @@
+{
+    "functions": {
+        "foo": {
+            "args": [
+                {
+                    "isConst": true
+                }
+            ]
+        },
+        "bar": {
+            "args": [
+                {
+                    "isConst": true
+                }
+            ]
+        },
+        "main": {
+            "args": [
+                {
+                    "isConst": false
+                },
+                {
+                    "isConst": false
+                }
+            ]
+        }
+    }
+}

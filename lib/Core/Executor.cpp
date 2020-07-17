@@ -166,12 +166,12 @@ namespace {
   cl::opt<bool>
   SimplifySymIndices("simplify-sym-indices",
                      cl::init(false),
-		     cl::desc("Simplify symbolic accesses using equalities from other constraints (default=off)"));
+                     cl::desc("Simplify symbolic accesses using equalities from other constraints (default=off)"));
 
   cl::opt<bool>
   EqualitySubstitution("equality-substitution",
-		       cl::init(true),
-		       cl::desc("Simplify equality expressions before querying the solver (default=on)."));
+                       cl::init(true),
+                       cl::desc("Simplify equality expressions before querying the solver (default=on)."));
 
   cl::opt<unsigned>
   MaxSymArraySize("max-sym-array-size",
@@ -179,19 +179,19 @@ namespace {
 
   cl::opt<bool>
   SuppressExternalWarnings("suppress-external-warnings",
-			   cl::init(false),
-			   cl::desc("Suppress warnings about calling external functions."));
+                           cl::init(false),
+                           cl::desc("Suppress warnings about calling external functions."));
 
   cl::opt<bool>
   AllExternalWarnings("all-external-warnings",
-		      cl::init(false),
-		      cl::desc("Issue an warning everytime an external call is made,"
-			       "as opposed to once per function (default=off)"));
+                      cl::init(false),
+                      cl::desc("Issue an warning everytime an external call is made,"
+                               "as opposed to once per function (default=off)"));
 
   cl::opt<bool>
   OnlyOutputStatesCoveringNew("only-output-states-covering-new",
                               cl::init(false),
-			      cl::desc("Only output test cases covering new code (default=off)."));
+                              cl::desc("Only output test cases covering new code (default=off)."));
 
   cl::opt<bool>
   EmitAllErrors("emit-all-errors",
@@ -205,57 +205,57 @@ namespace {
 
   cl::opt<bool>
   AlwaysOutputSeeds("always-output-seeds",
-		    cl::init(true));
+                    cl::init(true));
 
   cl::opt<bool>
   OnlyReplaySeeds("only-replay-seeds",
-		  cl::init(false),
+                  cl::init(false),
                   cl::desc("Discard states that do not have a seed (default=off)."));
 
   cl::opt<bool>
   OnlySeed("only-seed",
-	   cl::init(false),
+           cl::init(false),
            cl::desc("Stop execution after seeding is done without doing regular search (default=off)."));
 
   cl::opt<bool>
   AllowSeedExtension("allow-seed-extension",
-		     cl::init(false),
+                     cl::init(false),
                      cl::desc("Allow extra (unbound) values to become symbolic during seeding (default=false)."));
 
   cl::opt<bool>
   ZeroSeedExtension("zero-seed-extension",
-		    cl::init(false),
-		    cl::desc("(default=off)"));
+                    cl::init(false),
+                    cl::desc("(default=off)"));
 
   cl::opt<bool>
   AllowSeedTruncation("allow-seed-truncation",
-		      cl::init(false),
+                      cl::init(false),
                       cl::desc("Allow smaller buffers than in seeds (default=off)."));
 
   cl::opt<bool>
   NamedSeedMatching("named-seed-matching",
-		    cl::init(false),
+                    cl::init(false),
                     cl::desc("Use names to match symbolic objects to inputs (default=off)."));
 
   cl::opt<double>
   MaxStaticForkPct("max-static-fork-pct",
-		   cl::init(1.),
-		   cl::desc("(default=1.0)"));
+                   cl::init(1.),
+                   cl::desc("(default=1.0)"));
 
   cl::opt<double>
   MaxStaticSolvePct("max-static-solve-pct",
-		    cl::init(1.),
-		    cl::desc("(default=1.0)"));
+                    cl::init(1.),
+                    cl::desc("(default=1.0)"));
 
   cl::opt<double>
   MaxStaticCPForkPct("max-static-cpfork-pct",
-		     cl::init(1.),
-		     cl::desc("(default=1.0)"));
+                     cl::init(1.),
+                     cl::desc("(default=1.0)"));
 
   cl::opt<double>
   MaxStaticCPSolvePct("max-static-cpsolve-pct",
-		      cl::init(1.),
-		      cl::desc("(default=1.0)"));
+                      cl::init(1.),
+                      cl::desc("(default=1.0)"));
 
   cl::opt<double>
   MaxInstructionTime("max-instruction-time",
@@ -1019,7 +1019,7 @@ void Executor::executeGetValue(ExecutionState &state,
 void Executor::printDebugInstructions(ExecutionState &state) {
   // check do not print
   if (DebugPrintInstructions.size() == 0)
-	  return;
+          return;
 
   llvm::raw_ostream *stream = 0;
   if (optionIsSet(DebugPrintInstructions, STDERR_ALL) ||
@@ -1341,7 +1341,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
       // before poping the stack frame, notify the handler
       KFunction *callee = state.stack.back().kf;
-      if (kmodule->isUserFunction(callee->function)) {
+      if (callee != nullptr && callee->isUser()) {
         interpreterHandler->onStateUserFunctionReturn(state);
       }
 
@@ -2757,7 +2757,7 @@ void Executor::callExternalFunction(ExecutionState &state,
     for (unsigned i=0; i<arguments.size(); i++) {
       os << arguments[i];
       if (i != arguments.size()-1)
-	os << ", ";
+        os << ", ";
     }
     os << ")";
 
@@ -3172,9 +3172,9 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
 /***/
 
 void Executor::runFunctionAsMain(Function *f,
-				 int argc,
-				 char **argv,
-				 char **envp) {
+                                 int argc,
+                                 char **argv,
+                                 char **envp) {
   std::vector<ref<Expr> > arguments;
 
 #ifdef NEVER
@@ -3436,7 +3436,7 @@ bool Executor::getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSo
       bool mustBeTrue;
       // Attempt to bound byte to constraints held in cexPreferences
       bool success = solver->mustBeTrue(tmp, Expr::createIsZero(*pi),
-					mustBeTrue);
+                                        mustBeTrue);
       // If it isn't possible to constrain this particular byte in the desired
       // way (normally this would mean that the byte can't be constrained to
       // be between 0 and 127 without making the entire constraint list UNSAT)
