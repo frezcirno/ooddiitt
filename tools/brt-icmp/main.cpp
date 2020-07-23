@@ -66,7 +66,7 @@ namespace {
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
-  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
+  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
   cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
@@ -338,7 +338,8 @@ void expand_test_files(const string &prefix, deque<string> &files) {
       }
     } else if (entry.parent_path().empty()) {
       // only filename given, try the output directory
-      worklist.push_back((Output/entry).string());
+      string new_str = (Output / entry).string();
+      if (new_str != str) worklist.push_back(new_str);
     } else {
       errs() << "Entry not found: " << str << '\n';
     }
@@ -425,28 +426,40 @@ void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_po
       kmod_post->addDiffGlobalChanged(str);
     }
 
+    // collect map of sets of targeted c-source statements
     Json::Value &pre_tgt_src = root["pre_src_lines"];
-    for (auto src_itr = pre_tgt_src.begin(), src_end = pre_tgt_src.end(); src_itr != src_end; ++src_itr) {
-      string src_file = src_itr.key().asString();
-      Json::Value &stmt_array = *src_itr;
-      if (stmt_array.isArray()) {
-        set<unsigned> &stmts = kmod_pre->getTargetedSrc(src_file);
-        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-          stmts.insert(stmt_array[idx].asUInt());
+    if (!pre_tgt_src.empty()) {
+
+      map<string, set<unsigned>> targeted_stmts;
+      for (auto src_itr = pre_tgt_src.begin(), src_end = pre_tgt_src.end(); src_itr != src_end; ++src_itr) {
+        string src_file = src_itr.key().asString();
+        Json::Value &stmt_array = *src_itr;
+        if (stmt_array.isArray()) {
+          set<unsigned> &stmts = targeted_stmts[src_file];
+          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+            stmts.insert(stmt_array[idx].asUInt());
+          }
         }
       }
+      kmod_pre->setTargetStmts(targeted_stmts);
     }
 
+    // collect map of sets of targeted c-source statements
     Json::Value &post_tgt_src = root["post_src_lines"];
-    for (auto src_itr = post_tgt_src.begin(), src_end = post_tgt_src.end(); src_itr != src_end; ++src_itr) {
-      string src_file = src_itr.key().asString();
-      Json::Value &stmt_array = *src_itr;
-      if (stmt_array.isArray()) {
-        set<unsigned> &stmts = kmod_post->getTargetedSrc(src_file);
-        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-          stmts.insert(stmt_array[idx].asUInt());
+    if (!post_tgt_src.empty()) {
+
+      map<string, set<unsigned>> targeted_stmts;
+      for (auto src_itr = post_tgt_src.begin(), src_end = post_tgt_src.end(); src_itr != src_end; ++src_itr) {
+        string src_file = src_itr.key().asString();
+        Json::Value &stmt_array = *src_itr;
+        if (stmt_array.isArray()) {
+          set<unsigned> &stmts = targeted_stmts[src_file];
+          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+            stmts.insert(stmt_array[idx].asUInt());
+          }
         }
       }
+      kmod_post->setTargetStmts(targeted_stmts);
     }
 
   } else {
@@ -510,7 +523,7 @@ int main(int argc, char *argv[]) {
   if (kmod2 == nullptr) {
     klee_error("failed to load %s", mod_name2.c_str());
   }
-  load_diff_info(DiffInfo, kmod1, kmod2);
+  if (!DiffInfo.empty()) load_diff_info(DiffInfo, kmod1, kmod2);
 
   LLVMContext *ctx1 = nullptr;
   LLVMContext *ctx2 = nullptr;

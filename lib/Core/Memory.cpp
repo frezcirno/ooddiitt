@@ -102,8 +102,7 @@ ObjectState::ObjectState(const MemoryObject *mo)
     updates(0, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    visible_size(mo->created_size),
-    readOnly(false) {
+    visible_size(mo->created_size) {
   mo->refCount++;
   if (!UseConstantArrays) {
     static unsigned id = 0;
@@ -127,8 +126,7 @@ ObjectState::ObjectState(const MemoryObject *mo, const Array *array)
     updates(array, 0),
     writtenMask(nullptr),
     symboliclyWritten(false),
-    visible_size(mo->created_size),
-    readOnly(false) {
+    visible_size(mo->created_size) {
   mo->refCount++;
   makeSymbolic();
   memset(concreteStore, 0, mo->size);
@@ -147,9 +145,8 @@ ObjectState::ObjectState(const ObjectState &os)
     writtenMask(os.writtenMask ? new BitArray(*os.writtenMask, os.object->size) : nullptr),
     symboliclyWritten(os.symboliclyWritten),
     visible_size(os.visible_size),
-    types(os.types),
-    readOnly(os.readOnly) {
-  assert(!os.readOnly && "no need to copy read only object?");
+    types(os.types) {
+  assert(!object->isReadOnly() && "no need to copy read only object?");
   if (object)
     object->refCount++;
 

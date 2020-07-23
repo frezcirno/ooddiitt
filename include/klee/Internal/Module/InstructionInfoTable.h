@@ -43,8 +43,7 @@ class KFunction;
         file(_file),
         path(_path),
         line(_line),
-        assemblyLine(_assemblyLine) {
-    }
+        assemblyLine(_assemblyLine) { }
   };
 
   class InstructionInfoTable {

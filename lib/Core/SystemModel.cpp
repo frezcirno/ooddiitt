@@ -450,7 +450,7 @@ bool SystemModel::ExecuteMemset(ExecutionState &state, std::vector<ref<Expr>> &a
     if (!(eptr.isNull() || evalue.isNull() || ecount.isNull())) {
 
       uint64_t ptr = eptr->getZExtValue();
-      uint8_t value = evalue->getZExtValue(Expr::Int8);
+      uint8_t value = (uint8_t) evalue->getZExtValue();
       uint64_t count = ecount->getZExtValue();
       ObjectPair op;
 

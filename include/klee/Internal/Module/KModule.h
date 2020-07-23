@@ -145,6 +145,7 @@ namespace klee {
     void addInternalFunction(const llvm::Function *fn) { internalFunctions.insert(fn); }
     bool isInternalFunction(const llvm::Function *fn) const
       { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
+    bool isDefinedFunction(llvm::Function *fn) { return getKFunction(fn) != nullptr; }
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
 
@@ -176,6 +177,7 @@ namespace klee {
       if (itr != fn_const_params.end()) {
         return itr->second.find(idx) != itr->second.end();
       }
+      return false;
     }
 
     bool isConstFnArg(const std::string &fn_name, unsigned idx) {
@@ -259,14 +261,15 @@ namespace klee {
       { if (auto *gv = getGlobalVariable(name)) { diff_gbs_added.insert(gv); return true; } return false; }
     bool addDiffGlobalRemoved(const std::string &name)
       { if (auto *gv = getGlobalVariable(name)) { diff_gbs_removed.insert(gv); return true; } return false; }
-    bool addDiffGlobalChanged(const std::string &name)
-      { if (auto *gv = getGlobalVariable(name)) { diff_gbs_changed.insert(gv); return true; } return false; }
-
-    std::set<unsigned> &getTargetedSrc(std::string name) {
-      return targeted_stmts[name];
+    bool addDiffGlobalChanged(const std::string &name) {
+      if (auto *gv = getGlobalVariable(name)) {
+        diff_gbs_changed.insert(gv);
+        return true;
+      }
+      return false;
     }
 
-    bool isTargetedSrc(const InstructionInfo *info) const;
+    void setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts);
     bool isPreModule() const { return is_pre_module; }
 
   private:

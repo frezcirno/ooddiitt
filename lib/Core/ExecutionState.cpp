@@ -52,6 +52,9 @@ StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
 StackFrame::StackFrame(const StackFrame &s)
   : caller(s.caller),
     kf(s.kf),
+#ifdef _DEBUG
+    fn_name(kf->fn_name),
+#endif // _DEBUG
     callPathNode(s.callPathNode),
     allocas(s.allocas),
     numRegs(s.numRegs),
@@ -470,8 +473,7 @@ bool ExecutionState::merge(const ExecutionState &b) {
     const MemoryObject *mo = *it;
     const ObjectState *os = addressSpace.findObject(mo);
     const ObjectState *otherOS = b.addressSpace.findObject(mo);
-    assert(os && !os->readOnly &&
-           "objects mutated but not writable in merging state");
+    assert(os && !mo->isReadOnly() && "objects mutated but not writable in merging state");
     assert(otherOS);
 
     ObjectState *wos = addressSpace.getWriteable(mo, os);

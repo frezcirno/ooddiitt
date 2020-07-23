@@ -19,14 +19,16 @@
 
 using namespace klee;
 
-KTestObject *SeedInfo::getNextInput(const MemoryObject *mo,
-                                   bool byName) {
+KTestObject *SeedInfo::getNextInput(const MemoryObject *mo, bool byName) {
+  UNUSED(mo);
+  UNUSED(byName);
   assert(false);
+  return nullptr;
 }
 
-void SeedInfo::patchSeed(const ExecutionState &state,
-                         ref<Expr> condition,
-                         TimingSolver *solver) {
+void SeedInfo::patchSeed(const ExecutionState &state, ref<Expr> condition, TimingSolver *solver) {
+  UNUSED(state);
+  UNUSED(condition);
+  UNUSED(solver);
   assert(false);
-
 }

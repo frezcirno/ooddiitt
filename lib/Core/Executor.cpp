@@ -443,7 +443,7 @@ MemoryObject * Executor::addExternalObject(ExecutionState &state,
   for(unsigned i = 0; i < size; i++) {
     os->write8(i, ((uint8_t *) addr)[i]);
   }
-  if (isReadOnly) os->setReadOnly(true);
+  if (isReadOnly) mo->setReadOnly();
   return mo;
 }
 
@@ -467,9 +467,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
       addr = Expr::createPointer(0);
     } else if (!f->isDeclaration())  {
       addr = Expr::createPointer((uint64_t) f);
-      legalFunctions.insert((uint64_t) f);
     }
-
     globalAddresses.insert(std::make_pair(f, addr));
   }
 
@@ -500,6 +498,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
       need_init.insert(gv);
     } else {
       os->initializeToRandom();
+      if (gv->isConstant()) mo->setReadOnly();
     }
     globalObjects.insert(std::make_pair(gv, mo));
     globalAddresses.insert(std::make_pair(gv, mo->getBaseExpr()));
@@ -519,6 +518,7 @@ void Executor::initializeGlobals(ExecutionState &state) {
     const ObjectState *os = state.addressSpace.findObject(mo);
     ObjectState *wos = state.addressSpace.getWriteable(mo, os);
     initializeGlobalObject(state, wos, gv->getInitializer(), 0);
+    if (gv->isConstant()) mo->setReadOnly();
   }
 }
 
@@ -542,9 +542,7 @@ void Executor::reinitializeGlobals(ExecutionState &state) {
       addr = Expr::createPointer(0);
     } else if (!f->isDeclaration()) {
       addr = Expr::createPointer((uint64_t)f);
-      legalFunctions.insert((uint64_t)f);
     }
-
     globalAddresses.insert(std::make_pair(f, addr));
   }
 
@@ -560,6 +558,7 @@ void Executor::reinitializeGlobals(ExecutionState &state) {
     if (mo != nullptr) {
       globalObjects.insert(std::make_pair(gv, mo));
       globalAddresses.insert(std::make_pair(gv, mo->getBaseExpr()));
+      if (gv->isConstant()) mo->setReadOnly();
     } else {
       klee_warning("reinit unable to find: %s", name.c_str());
     }
@@ -1581,6 +1580,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     } else {
 
       assert(false && "should be intercepted by local executor");
+#if 0 == 1
       ref<Expr> v = eval(ki, 0, state).value;
 
       ExecutionState *free = &state;
@@ -1597,7 +1597,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         StatePair res = fork(*free, EqExpr::create(v, value), true);
         if (res.first) {
           uint64_t addr = value->getZExtValue();
-          if (legalFunctions.count(addr)) {
+          if (isDefinedFunction(addr)) {
             f = (Function*) addr;
 
             // Don't give warning on unique resolution
@@ -1618,6 +1618,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         first = false;
         free = res.second;
       } while (free);
+#endif
     }
     break;
   }
@@ -2181,12 +2182,15 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
       // Ordered comparisons return false if either operand is NaN.  Unordered
       // comparisons return true if either operand is NaN.
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
     case FCmpInst::FCMP_UEQ:
       if (CmpRes == APFloat::cmpUnordered) {
         Result = true;
         break;
       }
-      [[gnu::fallthrough]];
+      //[[gnu::fallthrough]];
     case FCmpInst::FCMP_OEQ:
       Result = CmpRes == APFloat::cmpEqual;
       break;
@@ -2196,7 +2200,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
-      [[gnu::fallthrough]];
+      //[[gnu::fallthrough]];
     case FCmpInst::FCMP_OGT:
       Result = CmpRes == APFloat::cmpGreaterThan;
       break;
@@ -2206,7 +2210,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
-      [[gnu::fallthrough]];
+      //[[gnu::fallthrough]];
     case FCmpInst::FCMP_OGE:
       Result = CmpRes == APFloat::cmpGreaterThan || CmpRes == APFloat::cmpEqual;
       break;
@@ -2216,7 +2220,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
-      [[gnu::fallthrough]];
+      //[[gnu::fallthrough]];
     case FCmpInst::FCMP_OLT:
       Result = CmpRes == APFloat::cmpLessThan;
       break;
@@ -2226,7 +2230,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
         Result = true;
         break;
       }
-      [[gnu::fallthrough]];
+      //[[gnu::fallthrough]];
+#pragma GCC diagnostic pop
     case FCmpInst::FCMP_OLE:
       Result = CmpRes == APFloat::cmpLessThan || CmpRes == APFloat::cmpEqual;
       break;
@@ -3026,7 +3031,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
     if (inBounds) {
       if (isWrite) {
-        if (os->readOnly) {
+        if (mo->isReadOnly()) {
           terminateStateOnComplete(state, TerminateReason::ROFault, "memory error: object read only");
         } else {
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
@@ -3069,7 +3074,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     // bound can be 0 on failure or overlapped
     if (bound) {
       if (isWrite) {
-        if (os->readOnly) {
+        if (mo->isReadOnly()) {
           terminateStateOnComplete(*bound, TerminateReason::ROFault, "memory error: object read only");
         } else {
           ObjectState *wos = bound->addressSpace.getWriteable(mo, os);
@@ -3171,13 +3176,17 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
 
 /***/
 
-void Executor::runFunctionAsMain(Function *f,
-                                 int argc,
-                                 char **argv,
+void Executor::runFunctionAsMain(Function *f, int argc, char **argv,
                                  char **envp) {
-  std::vector<ref<Expr> > arguments;
+
+  UNUSED(f);
+  UNUSED(argc);
+  UNUSED(argv);
+  UNUSED(envp);
 
 #ifdef NEVER
+  std::vector<ref<Expr> > arguments;
+
 
   // force deterministic initialization of memory objects
   srand(1);
@@ -3521,8 +3530,6 @@ void Executor::doImpliedValueConcretization(ExecutionState &state,
         // in other cases we would like to concretize the outstanding
         // reads, but we have no facility for that yet)
       } else {
-        assert(!os->readOnly &&
-               "not possible? read only object with static read?");
         ObjectState *wos = state.addressSpace.getWriteable(mo, os);
         wos->write(CE, it->second);
       }

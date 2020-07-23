@@ -25,6 +25,12 @@ namespace klee {
 typedef std::pair<MemoryObject*,ObjectState*> WObjectPair;
 typedef std::set<ExecutionState*> ExecutionStates;
 
+
+struct ReplayFnRec {
+  const MemoryObject *ret_value;
+  std::map<unsigned,const MemoryObject*> param_values;
+};
+
 class LocalExecutor : public Executor {
 
   friend class SpecialFunctionHandler;
@@ -72,8 +78,11 @@ protected:
   ExecutionState *runFnLibCInit(ExecutionState *state);
 
   void parseBreakAt();
-  std::string fullName(std::string fnName, unsigned counter, std::string varName) const {
-    return (fnName + "::" + std::to_string(counter) + "::" + varName);
+  std::string toSymbolName(const std::string &fn_name, unsigned counter, const std::string &var_name) const {
+    return (fn_name + ':' + std::to_string(counter) + ':' + var_name);
+  }
+  std::string toSymbolName(const std::string &fn_name, unsigned counter, unsigned arg_num) const {
+    return toSymbolName(fn_name, counter, std::to_string(arg_num));
   }
 
   void executeInstruction(ExecutionState &state, KInstruction *ki) override;
@@ -144,6 +153,11 @@ protected:
 
   void unconstrainGlobals(ExecutionState &state, llvm::Function *fn);
   void newUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  void restoreUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  void unconstrainCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
+  void unconstrainFnArg(ExecutionState &state, llvm::Type *type, ref<Expr> &ptr, const std::string &name);
+  void replayCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
+  void addReplayValue(const std::string &name, const MemoryObject *mo);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) const;
@@ -164,9 +178,6 @@ protected:
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(ExecutionState *state);
-  bool isLegalFunction(const llvm::Function *fn) const {
-    return legalFunctions.find((uint64_t) fn) != legalFunctions.end();
-  }
   void checkMemoryUsage() override;
 
   void branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) override;
@@ -190,6 +201,7 @@ protected:
   TraceType trace_type;
   MemoryObject *moStdInBuff;
   ProgramTracer *tracer;
+  std::map<llvm::Function *, std::map<unsigned, ReplayFnRec>> replay_stub_data;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

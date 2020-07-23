@@ -31,8 +31,9 @@ namespace klee {
   /// KInstruction - Intermediate instruction representation used
   /// during execution.
   struct KInstruction {
-    llvm::Instruction *inst;    
+    llvm::Instruction *inst;
     const InstructionInfo *info;
+    bool is_targeted;
 
     /// Value numbers for each operand. -1 is an invalid value,
     /// otherwise negative numbers are indices (negated and offset by

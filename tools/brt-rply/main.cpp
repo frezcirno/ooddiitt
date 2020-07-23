@@ -63,7 +63,7 @@ namespace {
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"));
+  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
   cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
   cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
@@ -72,7 +72,7 @@ namespace {
   cl::opt<bool> InstrCounters("instr-counters", cl::desc("update test case file with count of instructions executed per function"));
   cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
   cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
-  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
+  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
   cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
   cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10));
   cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
@@ -317,17 +317,23 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
       kmod->addDiffGlobalChanged(str);
     }
 
+    // collect map of sets of targeted c-source statements
     string targeted_key = (kmod->isPreModule() ? "pre_src_lines" : "post_src_lines");
     Json::Value &tgt_src = root[targeted_key];
-    for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
-      string src_file = src_itr.key().asString();
-      Json::Value &stmt_array = *src_itr;
-      if (stmt_array.isArray()) {
-        set<unsigned> &stmts = kmod->getTargetedSrc(src_file);
-        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-          stmts.insert(stmt_array[idx].asUInt());
+    if (!tgt_src.empty()) {
+
+      map<string, set<unsigned>> targeted_stmts;
+      for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
+        string src_file = src_itr.key().asString();
+        Json::Value &stmt_array = *src_itr;
+        if (stmt_array.isArray()) {
+          set<unsigned> &stmts = targeted_stmts[src_file];
+          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+            stmts.insert(stmt_array[idx].asUInt());
+          }
         }
       }
+      kmod->setTargetStmts(targeted_stmts);
     }
   } else {
     klee_warning("failed opening diff file: %s", filename.c_str());
@@ -394,7 +400,7 @@ KModule *PrepareModule(const string &filename) {
       } else {
         if (KModule *kmodule = new KModule(module)) {
           kmodule->prepare();
-          load_diff_info(DiffInfo, kmodule);
+          if (!DiffInfo.empty()) load_diff_info(DiffInfo, kmodule);
           module_cache.insert(make_pair(filename, kmodule));
           return kmodule;
         }
@@ -439,7 +445,8 @@ void expand_test_files(const string &prefix, deque<string> &files) {
       }
     } else if (entry.parent_path().empty()) {
       // only filename given, try the output directory
-      worklist.push_back((Output/entry).string());
+      string new_str = (Output / entry).string();
+      if (new_str != str) worklist.push_back(new_str);
     } else {
       errs() << "Entry not found: " << str << '\n';
     }

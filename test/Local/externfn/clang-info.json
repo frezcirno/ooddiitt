@@ -4,6 +4,9 @@
             "args": [
                 {
                     "isConst": true
+                },
+                {
+                    "isConst": false
                 }
             ]
         },

@@ -38,9 +38,9 @@ const ObjectState *AddressSpace::findObject(const MemoryObject *mo) const {
 
 ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
                                         const ObjectState *os) {
-  assert(!os->readOnly);
-
-  if (cowKey==os->copyOnWriteOwner) {
+  if (mo->isReadOnly()) {
+    return nullptr;
+  } else if (cowKey==os->copyOnWriteOwner) {
     return const_cast<ObjectState*>(os);
   } else {
     ObjectState *n = new ObjectState(*os);
@@ -364,7 +364,7 @@ bool AddressSpace::getNamedWrittenMemObjs(std::map<std::string,ObjectPair> &objs
     const MemoryObject *mo = itr->first;
     const ObjectState *os = itr->second;
     std::string name = mo->name;
-    if (!name.empty() && kinds.find(mo->kind) != kinds.end() && !os->readOnly && os->isWritten()) {
+    if (!name.empty() && kinds.find(mo->kind) != kinds.end() && !mo->isReadOnly() && os->isWritten()) {
       objs[name] = *itr;
     }
   }
@@ -376,7 +376,7 @@ void AddressSpace::clearWritten() {
   for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first;
     const ObjectState *os = it->second;
-    if (!os->readOnly && os->isWritten()) {
+    if (!mo->isReadOnly() && os->isWritten()) {
       if (ObjectState *wos = getWriteable(mo, os)) {
         wos->clearWritten();
       }

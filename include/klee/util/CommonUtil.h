@@ -108,6 +108,7 @@ enum class MarkScope {
 
 #define UNCONSTRAIN_GLOBAL_FLAG (0)
 #define UNCONSTRAIN_STUB_FLAG   (2)
+#define UNCONSTRAIN_EXTERN_FLAG (3)
 
 class UnconstraintFlagsT : public std::bitset<8> {
 
@@ -116,9 +117,11 @@ public:
   explicit UnconstraintFlagsT(std::string s) : std::bitset<8>(s) { }
   bool isStubCallees() const          { return test(UNCONSTRAIN_STUB_FLAG); }
   bool isUnconstrainGlobals() const   { return test(UNCONSTRAIN_GLOBAL_FLAG); }
+  bool isUnconstrainExterns() const   { return test(UNCONSTRAIN_EXTERN_FLAG); }
 
   void setStubCallees(bool b = true)          { set(UNCONSTRAIN_STUB_FLAG, b); }
   void setUnconstrainGlobals(bool b = true)   { set(UNCONSTRAIN_GLOBAL_FLAG, b); }
+  void setUnconstrainExterns(bool b = true)   { set(UNCONSTRAIN_EXTERN_FLAG, b); }
 };
 
 typedef std::pair<const char*,unsigned> TraceEntryT;

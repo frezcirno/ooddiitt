@@ -150,10 +150,6 @@ protected:
   /// globals that have no representative object (i.e. functions).
   std::map<const llvm::GlobalValue*, ref<ConstantExpr> > globalAddresses;
 
-  /// The set of legal function addresses, used to validate function
-  /// pointers. We use the actual Function* address as the function address.
-  std::set<uint64_t> legalFunctions;
-
   /// When non-null the bindings that will be used for calls to
   /// klee_make_symbolic in order replay.
   const struct KTest *replayKTest;
@@ -202,10 +198,8 @@ protected:
   std::map<const llvm::Loop *,std::set<ExecutionState*> > loopingStates;
   unsigned maxStatesInLoop;
 
-  llvm::Function* getTargetFunction(llvm::Value *calledVal, ExecutionState &state);
-
-//  void printFileLine(ExecutionState &state, KInstruction *ki,
-//                     llvm::raw_ostream &file);
+  llvm::Function *getTargetFunction(llvm::Value *calledVal,
+                                    ExecutionState &state);
 
   virtual void executeInstruction(ExecutionState &state, KInstruction *ki);
 
@@ -222,8 +216,8 @@ protected:
                                   bool isReadOnly = false);
 
   void initializeGlobalObject(ExecutionState &state, ObjectState *os,
-			      const llvm::Constant *c,
-			      unsigned offset);
+                              const llvm::Constant *c,
+                              unsigned offset);
   void initializeGlobals(ExecutionState &state);
   void reinitializeGlobals(ExecutionState &state);
 

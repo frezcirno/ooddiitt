@@ -50,8 +50,8 @@ public:
   unsigned created_size;
   size_t align;
   mutable std::string name;
-
   MemKind kind;
+  bool read_only;
   const llvm::Type *type;
 #ifdef _DEBUG
   std::string type_desc;
@@ -90,6 +90,7 @@ public:
       created_size(0),
       name("hack"),
       kind(MemKind::invalid),
+      read_only(false),
       type(nullptr),
       count(0),
       parent(NULL),
@@ -107,6 +108,7 @@ public:
       align(_align),
       name(""),
       kind(_kind),
+      read_only(false),
       type(_type),
 #ifdef _DEBUG
       type_desc(to_string(_type)),
@@ -127,6 +129,9 @@ public:
   bool isOutput() const { return kind == MemKind::output; }
   bool isLazy() const   { return kind == MemKind::lazy; }
   bool isLocal() const  { return (kind == MemKind::param) || (kind == MemKind::alloca_l); }
+  bool isReadOnly() const { return read_only; }
+
+  void setReadOnly(bool b = true) { read_only = b; }
 
   ~MemoryObject();
 
@@ -202,7 +207,6 @@ public:
   bool symboliclyWritten;
   unsigned visible_size;
   std::set<const llvm::Type*> types;
-  bool readOnly;
 
 public:
 
@@ -219,8 +223,6 @@ public:
   ~ObjectState();
 
   const MemoryObject *getObject() const { return object; }
-
-  void setReadOnly(bool ro) { readOnly = ro; }
 
   // make contents all concrete and zero
   void initializeToZero();

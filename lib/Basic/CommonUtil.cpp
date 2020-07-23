@@ -165,7 +165,8 @@ std::string to_string(UnconstraintFlagsT flags) {
 
   const static std::vector< std::pair<unsigned,const std::string> > flag2name =  {
       std::make_pair(UNCONSTRAIN_GLOBAL_FLAG, "globals"),
-      std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs")
+      std::make_pair(UNCONSTRAIN_STUB_FLAG, "stubs"),
+      std::make_pair(UNCONSTRAIN_EXTERN_FLAG, "externs")
   };
 
   std::ostringstream ss;

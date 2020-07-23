@@ -70,14 +70,14 @@ namespace {
   cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
   cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
   cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
-  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (default=g:60)"));
+  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (default=e:60)"));
   cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
   cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
   cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
   cl::opt<bool> AllOutput("all-output", cl::desc("Generate all test files (reaching or not)"), cl::init(false));
   cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
   cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<string> DiffInfo("diff-info", cl::desc("json formated diff file"));
+  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
   cl::opt<TraceType> TraceT("trace",
                             cl::desc("Choose the type of trace (default=marked basic blocks"),
                             cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -478,6 +478,8 @@ static void interrupt_handle_watchdog() {
 volatile bool reset_watchdog_timer = false;
 
 static void handle_usr1_signal(int signal, siginfo_t *dont_care, void *dont_care_either) {
+  UNUSED(dont_care);
+  UNUSED(dont_care_either);
   if (signal == SIGUSR1) {
     reset_watchdog_timer = true;
     errs() << "WATCHDOG: " << currentISO8601TimeUTC() << ": rxed reset signal\n";
@@ -490,7 +492,7 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
   if (str.empty()) {
     // default progression
     UnconstraintFlagsT flags;
-    flags.setUnconstrainGlobals();
+    flags.setUnconstrainExterns();
     progression.emplace_back(60, flags);
     result = true;
   } else {
@@ -518,6 +520,8 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
             timeout *= (60 * 60);
           }
           done = true;
+        } else if (*itr == 'e') {
+          flags.set(UNCONSTRAIN_EXTERN_FLAG);
         } else if (*itr == 'g') {
           flags.set(UNCONSTRAIN_GLOBAL_FLAG);
         } else if (*itr == 's') {
@@ -537,7 +541,7 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
 void load_diff_info(const string &diff_file, KModule *kmod) {
 
   string filename = diff_file;
-  if (filename.empty()) {
+  if (filename == "default") {
     filename = (fs::path(Output)/"diff.json").string();
   }
   ifstream infile(filename);
@@ -586,17 +590,23 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
       kmod->addDiffGlobalChanged(str);
     }
 
+    // collect map of sets of targeted c-source statements
     string targeted_key = (kmod->isPreModule() ? "pre_src_lines" : "post_src_lines");
     Json::Value &tgt_src = root[targeted_key];
-    for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
-      string src_file = src_itr.key().asString();
-      Json::Value &stmt_array = *src_itr;
-      if (stmt_array.isArray()) {
-        set<unsigned> &stmts = kmod->getTargetedSrc(src_file);
-        for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-          stmts.insert(stmt_array[idx].asUInt());
+    if (!tgt_src.empty()) {
+
+      map<string, set<unsigned>> targeted_stmts;
+      for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
+        string src_file = src_itr.key().asString();
+        Json::Value &stmt_array = *src_itr;
+        if (stmt_array.isArray()) {
+          set<unsigned> &stmts = targeted_stmts[src_file];
+          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
+            stmts.insert(stmt_array[idx].asUInt());
+          }
         }
       }
+      kmod->setTargetStmts(targeted_stmts);
     }
   } else {
     klee_warning("failed opening diff file: %s", filename.c_str());
@@ -636,7 +646,7 @@ KModule *PrepareModule(const string &filename) {
 
       if (KModule *kmodule = new KModule(module)) {
         kmodule->prepare();
-        load_diff_info(DiffInfo, kmodule);
+        if (!DiffInfo.empty()) load_diff_info(DiffInfo, kmodule);
         return kmodule;
       }
     }

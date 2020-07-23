@@ -361,8 +361,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
     if (fn->isDeclaration()) continue;
 
-    KFunction *kf =
-        new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+    KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
 
     for (unsigned i=0; i<kf->numInstructions; ++i) {
       KInstruction *ki = kf->instructions[i];
@@ -557,6 +556,25 @@ void KModule::prepare() {
   }
 }
 
+void KModule::setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts) {
+
+  for (auto itr = functions.begin(), end = functions.end(); itr != end; ++itr) {
+    KFunction *kf = *itr;
+    for (unsigned idx = 0, end = kf->numInstructions; idx < end; ++idx) {
+      KInstruction *ki = kf->instructions[idx];
+      bool is_targeted = false;
+      auto itr = stmts.find(ki->info->file);
+      if (itr != stmts.end()) {
+        const set<unsigned> &lines = itr->second;
+        if (lines.find(ki->info->line) != lines.end()) {
+          is_targeted = true;
+        }
+      }
+      ki->is_targeted = is_targeted;
+    }
+  }
+}
+
 Function *KModule::getTargetFunction(Value *value) const {
 
   Constant *c = dyn_cast<Constant>(value);
@@ -574,15 +592,6 @@ Function *KModule::getTargetFunction(Value *value) const {
     }
   }
   return nullptr;
-}
-
-bool KModule::isTargetedSrc(const InstructionInfo *info) const {
-  auto itr = targeted_stmts.find(info->file);
-  if (itr != targeted_stmts.end()) {
-    const std::set<unsigned> &stmts = itr->second;
-    return (stmts.find(info->line) != stmts.end());
-  }
-  return false;
 }
 
 KConstant* KModule::getKConstant(Constant *c) {
@@ -700,6 +709,7 @@ KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
       Instruction *inst = static_cast<Instruction *>(it);
       ki->inst = inst;
       ki->dest = registerMap[inst];
+      ki->is_targeted = true;
 
       if (isa<CallInst>(it) || isa<InvokeInst>(it)) {
         CallSite cs(inst);

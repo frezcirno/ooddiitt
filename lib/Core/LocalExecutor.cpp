@@ -348,7 +348,7 @@ void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function
         ObjectState *wos = state.addressSpace.getWriteable(mo, os);
 
         WObjectPair wop;
-        duplicateSymbolic(state, mo, v, fullName(fnName, counter, varName), wop);
+        duplicateSymbolic(state, mo, v, toSymbolName(fnName, counter, varName), wop);
 
         for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
           wos->write(idx, wop.second->read8(idx));
@@ -356,6 +356,12 @@ void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function
       }
     }
   }
+}
+
+void LocalExecutor::restoreUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
+  UNUSED(state);
+  UNUSED(fn);
+  UNUSED(counter);
 }
 
 bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> address, const Type *type, KInstruction *target) {
@@ -585,7 +591,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
   const MemoryObject *mo = op.first;
   const ObjectState *os = op.second;
 
-  if (os->readOnly) {
+  if (mo->isReadOnly()) {
     terminateStateOnMemFault(state, target, address, mo, "memory error: object read only");
   }
 
@@ -1203,6 +1209,9 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   KFunction *kf = kmodule->functionMap[fn];
   if (kf == nullptr) return;
 
+  // restore original unconstraintflags
+  unconstraintFlags = test.unconstraintFlags;
+
   // reverse the stdin data.  then we can pop data from end
   size_t stdin_size = test.stdin_buffer.size();
   if (stdin_size > 1) {
@@ -1224,6 +1233,13 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
       case MemKind::param:
       case MemKind::lazy: {
         injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
+        break;
+      }
+
+      case MemKind::output: {
+        // output from a symbolic stub.  index for replay
+        MemoryObject *mo = injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
+        addReplayValue(obj.name, mo);
         break;
       }
 
@@ -1442,7 +1458,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
 
       executeInstruction(*state, ki);
-      if (kmodule->isTargetedSrc(ki->info)) {
+      if (ki->is_targeted) {
         state->reached_target = true;
       }
 
@@ -1817,108 +1833,182 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Call: {
 
       const CallSite cs(i);
-      Function *fn = getTargetFunction(cs.getCalledValue(), state);
-      if (fn != nullptr) {
-        string fn_name = fn->getName();
-        interpreterHandler->incCallCounter(fn);
+      Value *fp = cs.getCalledValue();
 
-        if (break_fns.find(fn) != break_fns.end()) {
-          outs() << "break at " << fn->getName() << '\n';
+      if (isa<InlineAsm>(fp)) {
+        terminateStateOnComplete(state, TerminateReason::UnhandledInst, "inline assembly is unsupported");
+        return;
+      }
+      Function *fn = getTargetFunction(fp, state);
+
+      if (fn == nullptr) {
+        // function pointer
+        // if concrete or (symbolic and unique), lookup function
+        ref<Expr> addr = eval(ki, 0, state).value;
+        addr = toUnique(state, addr);
+        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(addr)) {
+          Function *ptr = (Function *) CE->getZExtValue();
+          if (kmodule->isDefinedFunction(ptr)) {
+            fn = ptr;
+          }
+        } else {
+          // else fork states with unique values and restart instruction
+          // RLR TODO:
+          // for all funcs with compatible sig, if addr could be func constrain and restart
+        }
+      }
+
+      // if fn is still null, then we have no callee
+      if (fn == nullptr) {
+        stringstream ss;
+        ss << "undefined callee: " << fn->getName().str();
+        terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
+        return;
+      }
+
+      string fn_name = fn->getName();
+
+      // check for debugging break
+      if (break_fns.find(fn) != break_fns.end()) {
+        outs() << "break at " << fn_name << '\n';
 #ifdef _DEBUG
-          enable_state_switching = false;
+        enable_state_switching = false;
 #endif
+      }
+
+      interpreterHandler->incCallCounter(fn);
+
+      // check for a snapshot
+      if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
+        state.instFaulting = ki;
+        unsigned numArgs = cs.arg_size();
+
+        // evaluate arguments
+        state.arguments.reserve(numArgs);
+        for (unsigned idx = 0; idx < numArgs; ++idx) {
+          ref<Expr> e = eval(ki, idx + 1, state).value;
+          state.arguments.push_back(toUnique(state, e));
         }
 
-        KFunction *kf = kmodule->getKFunction(fn);
-        if (interpreterOpts.mode == ExecModeID::irec && interpreterOpts.userSnapshot == fn) {
-          state.instFaulting = ki;
-          unsigned numArgs = cs.arg_size();
+        interpreterHandler->processTestCase(state, TerminateReason::Snapshot);
+        terminateStateOnComplete(state, TerminateReason::Snapshot);
+        return;
+      }
 
-          // evaluate arguments
-          state.arguments.reserve(numArgs);
-          for (unsigned idx = 0; idx < numArgs; ++idx) {
-            ref<Expr> e = eval(ki, idx + 1, state).value;
-            state.arguments.push_back(toUnique(state, e));
+      // invoke external model of functions
+      // these can override defined functions
+      if (sysModel != nullptr) {
+        ref<Expr> retExpr;
+        if (sysModel->Execute(state, fn, ki, cs, retExpr)) {
+          // the system model handled the call
+          if (!retExpr.isNull()) {
+            // and return a result
+            bindLocal(ki, state, retExpr);
           }
-
-          interpreterHandler->processTestCase(state, TerminateReason::Snapshot);
-          terminateStateOnComplete(state, TerminateReason::Snapshot);
           return;
         }
+      }
 
-        // invoke model of posix functions
-        if (sysModel != nullptr) {
-          ref<Expr> retExpr;
-          if (sysModel->Execute(state, fn, ki, cs, retExpr)) {
-            // the system model handled the call
-            if (!retExpr.isNull()) {
-              // and return a result
-              bindLocal(ki, state, retExpr);
-            }
-            return;
-          }
-        }
+      // if a KFunction is associated with fn, then this call is to a defined function
+      KFunction *kf = kmodule->getKFunction(fn);
 
-        if (libc_initializing || kmodule->isInternalFunction(fn)) {
-          Executor::executeInstruction(state, ki);
-          return;
-        }
-
+      // update stats and trace
+      if (!libc_initializing) {
         if (kf != nullptr) {
           if (kf->isDiffChanged()) {
             state.linear_distance = 0;
             if (!state.stack.empty() && (state.min_distance > state.stack.size())) {
               state.min_distance = state.stack.size();
             }
-          } else {
-            if (kf->isUser()) {
-              state.linear_distance += 1;
+          } else if (kf->isUser()) {
+            state.linear_distance += 1;
+          }
+
+          if (tracer != nullptr) {
+            tracer->append_call(state.trace, kf);
+          }
+        } else {
+          state.linear_distance += 1;
+        }
+      }
+
+      bool should_stub = (kf == nullptr && unconstraintFlags.isUnconstrainExterns()) || unconstraintFlags.isStubCallees();
+      bool is_internal = kmodule->isInternalFunction(fn);
+      if (libc_initializing || is_internal || !should_stub) {
+
+        // if kf is null here and not an internal fn, we're not in kansas anymore...
+        if (kf == nullptr && !is_internal) {
+          stringstream ss;
+          ss << "external callee: " << fn_name;
+          terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
+          return;
+        }
+
+        // make the call
+        // evaluate arguments
+        unsigned num_args = cs.arg_size();
+        std::vector<ref<Expr>> arguments;
+        arguments.reserve(num_args);
+
+        for (unsigned idx = 0; idx < num_args; ++idx) {
+          arguments.push_back(eval(ki, idx + 1, state).value);
+        }
+
+        const FunctionType *fn_type = dyn_cast<FunctionType>(cast<PointerType>(fn->getType())->getElementType());
+        const FunctionType *fp_type = dyn_cast<FunctionType>(cast<PointerType>(fp->getType())->getElementType());
+
+        // special case the call with a bitcast case
+        if (fn_type && fp_type && fn_type != fp_type) {
+
+          // correct for bitcasts
+          unsigned idx = 0;
+          for (auto itr = arguments.begin(), end = arguments.end(); itr != end; ++itr) {
+            Expr::Width w_fp = (*itr)->getWidth();
+            if (idx < fn_type->getNumParams()) {
+              Expr::Width w_fn = getWidthForLLVMType(fn_type->getParamType(idx));
+              if (w_fp != w_fn) {
+                bool isSExt = cs.paramHasAttr(idx + 1, llvm::Attribute::SExt);
+                arguments[idx] = isSExt ? SExtExpr::create(arguments[idx], w_fn) : ZExtExpr::create(arguments[idx], w_fn);
+              }
             }
+            ++idx;
           }
         }
+        executeCall(state, ki, fn, arguments);
+      } else if (fn->hasFnAttribute(Attribute::NoReturn)) {
+        // no need to stub a noreturn fn.
+        terminateStateOnComplete(state, TerminateReason::Exit);
+        return;
+      } else {
+        unsigned counter = state.callTargetCounter[fn]++;
+        ref<Expr> ret_value;
 
-        assert(fn->getIntrinsicID() == Intrinsic::not_intrinsic);
-        if (tracer != nullptr) {
-          tracer->append_call(state.trace, kf);
-        }
+        if (doConcreteInterpretation) {
 
-        if (!unconstraintFlags.isStubCallees()) {
-          // we're performing the function call, if possible
-          if (isLegalFunction(fn)) {
-            Executor::executeInstruction(state, ki);
-          } else {
-            // direct callee with no body.  not good...
-            stringstream ss;
-            ss << "undefined callee: " << fn_name;
-            terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
+          // inject the replay values
+          // if kf is null, then this is an external.  do not unconstrain globals
+          if (kf != nullptr) {
+            restoreUnconstrainedGlobalValues(state, fn, counter);
           }
+          replayCall(state, ki, fn, counter, ret_value);
 
         } else {
-          // inject an unconstraining stub
-          assert(false && "should not happen in brt mode");
+          // use an unconstraining stub
+          // if kf is null, then this is an external.  do not unconstrain globals
+          if (kf != nullptr) {
+            newUnconstrainedGlobalValues(state, fn, counter);
+          }
+          unconstrainCall(state, ki, fn, counter, ret_value);
         }
+        if (!ret_value.isNull()) bindLocal(ki, state, ret_value);
+      }
 
-      } else {
-
-        // this is an indirect call (i.e. a through a function pointer)
-        // try to convert function pointer to a constant value
-        ref<Expr> callee = eval(ki, 0, state).value;
-        callee = toUnique(state, callee);
-
-        // evaluate arguments
-        unsigned numArgs = cs.arg_size();
-        std::vector< ref<Expr> > arguments;
-        arguments.reserve(numArgs);
-
-        for (unsigned j=0; j<numArgs; ++j) {
-          ref<Expr> arg = eval(ki, j + 1, state).value;
-          arguments.push_back(arg);
-        }
+#if 0
 
         vector<Function*> targets;
         if (ConstantExpr *CE = dyn_cast<ConstantExpr>(callee)) {
           Function *fn = (Function*) CE->getZExtValue();
-          if (isLegalFunction(fn)) {
+          if (isDefinedFunction(fn)) {
             targets.push_back(fn);
           }
         } else {
@@ -1927,7 +2017,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           set<const Function*> fns;
           kmodule->getFnsOfType(fnType, fns);
           for (auto fn : fns) {
-            if (isLegalFunction(fn)) {
+            if (isDefinedFunction(fn)) {
               targets.push_back(const_cast<Function*>(fn));
             }
           }
@@ -1947,31 +2037,9 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         }
       }
 
+#endif
+
 #if 0 == 1
-
-      // if not stubbing callees and target is in the module
-      if (!unconstraintFlags.isStubCallees() && isInModule) {
-        if (noReturn) {
-          terminateStateOnExit(state);
-        } else {
-          Executor::executeInstruction(state, ki);
-        }
-        return;
-      }
-
-      // either stubbed callees or target is not in the module
-      if (noReturn) {
-        terminateStateOnExit(state);
-        return;
-      }
-
-      // we will be substituting an unconstraining stub subfunction.
-      ostringstream ss;
-      ss << "stubbing function " << fnName;
-      log_warning(ss, state, ki);
-
-      // hence, this is a function in this module
-      unsigned counter = state.callTargetCounter[fnName]++;
 
       // consider the arguments pushed for the call, rather than
       // args expected by the target
@@ -2030,11 +2098,6 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             }
           }
         }
-      }
-
-      // unconstrain global variables
-      if (isInModule && unconstraintFlags.isUnconstrainGlobals()) {
-        newUnconstrainedGlobalValues(state, fn, counter);
       }
 
       // now get the return type
@@ -2287,6 +2350,89 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     default:
       Executor::executeInstruction(state, ki);
       break;
+  }
+}
+
+void LocalExecutor::unconstrainCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
+                                    ref<Expr> &ret_value) {
+
+  // first get the return value
+  CallSite cs(ki->inst);
+  string fn_name = fn->getName().str();
+  Type *ret_type = cs.getType();
+  if (!ret_type->isVoidTy()) {
+
+    WObjectPair wop;
+    allocSymbolic(state, ret_type, fn, MemKind::output, toSymbolName(fn_name, counter, 0), wop);
+    Expr::Width width = kmodule->targetData->getTypeStoreSizeInBits(ret_type);
+    ret_value = wop.second->read(0, width);
+  }
+
+  // then consider possible output parameters
+  if (fn->isVarArg()) return;
+
+  unsigned idx = 0;
+  unsigned edx = cs.arg_size();
+  for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end && idx < edx; ++itr, ++idx) {
+    Argument *arg = itr;
+    if (arg->getType()->isPointerTy() && (!kmodule->isConstFnArg(fn, idx))) {
+      const Value *v = cs.getArgument(idx);
+      Type *type = v->getType();
+      if (type->isPointerTy()) {
+        ref<Expr> ptr = eval(ki, idx + 1, state).value;
+        unconstrainFnArg(state, type, ptr, toSymbolName(fn_name, counter, idx + 1));
+      }
+    }
+  }
+}
+
+void LocalExecutor::unconstrainFnArg(ExecutionState &state, Type *type, ref<Expr> &ptr, const string &name) {
+  outs() << "unconstrain " << name << '\n';
+}
+
+void LocalExecutor::replayCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
+                               ref<Expr> &ret_value) {
+
+  CallSite cs(ki->inst);
+  Type *ret_type = cs.getType();
+  if (!ret_type->isVoidTy()) {
+
+    // lookup and read the return value
+    ReplayFnRec &replay_rec = replay_stub_data[fn][counter];
+    if (const MemoryObject *mo = replay_rec.ret_value) {
+      const ObjectState *os = state.addressSpace.findObject(mo);
+      Expr::Width w_data = os->visible_size * 8;
+      ret_value = os->read(0, w_data);
+
+      // adjust for bit-casts
+      Expr::Width w_type = kmodule->targetData->getTypeStoreSizeInBits(ret_type);
+      if (w_data != w_type) {
+        bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
+        ret_value = isSExt ? SExtExpr::create(ret_value, w_type) : ZExtExpr::create(ret_value, w_type);
+      }
+    }
+  }
+}
+
+void LocalExecutor::addReplayValue(const std::string &name, const MemoryObject *mo) {
+
+  vector<string> elements;
+  boost::split(elements, name, boost::is_any_of(":"));
+  if (elements.size() == 3 && !elements[0].empty() && !elements[1].empty() && !elements[2].empty()) {
+    if (Function *fn = kmodule->getFunction(elements[0])) {
+      unsigned count = std::stoul(elements[1]);
+      ReplayFnRec &replay_rec = replay_stub_data[fn][count];
+      if (isdigit(elements[2].front())) {
+        unsigned arg_idx = std::stoul(elements[2]);
+        if (arg_idx == 0) {
+          replay_rec.ret_value = mo;
+        } else {
+          replay_rec.param_values[arg_idx - 1] = mo;
+        }
+      } else {
+        // RLR TODO: global variables
+      }
+    }
   }
 }
 

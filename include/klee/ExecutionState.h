@@ -119,6 +119,9 @@ struct LoopFrame {
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
+#ifdef _DEBUG
+  std::string fn_name;
+#endif  // _DEBUG
   CallPathNode *callPathNode;
   std::set<const MemoryObject *> allocas;
   size_t numRegs;
@@ -249,7 +252,7 @@ public:
   /// @brief Set of used array names for this state.  Used to avoid collisions.
   std::set<std::string> arrayNames;
 
-  std::map<std::string, unsigned> callTargetCounter;
+  std::map<llvm::Function*,unsigned> callTargetCounter;
 
   std::string name;
   bool isProcessed;
