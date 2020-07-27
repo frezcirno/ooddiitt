@@ -194,16 +194,16 @@ cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
  -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/pse-tools" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
- -DCMAKE_CXX_FLAGS="-fno-rtti" \
+ -DCMAKE_CXX_FLAGS="-fno-rtti -Wno-class-memaccess -Wno-deprecated-copy -Wno-unused-variable -Wno-unused-but-set-variable" \
  -DENABLE_TCMALLOC=ON \
  -DENABLE_KLEE_ASSERTS=OFF \
  -DENABLE_SOLVER_STP=ON \
  -DENABLE_SOLVER_Z3=ON \
  -DENABLE_POSIX_RUNTIME=OFF \
- -DENABLE_KLEE_UCLIBC=ON \
- -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DENABLE_UNIT_TESTS=OFF \
  -DENABLE_SYSTEM_TESTS=OFF \
+ -DENABLE_KLEE_UCLIBC=ON \
+ -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DUSE_CXX11=ON \
  -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
  ..
