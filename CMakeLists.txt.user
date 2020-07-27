@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.12.4, 2020-07-22T17:20:25. -->
+<!-- Written by QtCreator 4.12.4, 2020-07-27T12:27:40. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -85,7 +85,7 @@
    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">{90d30de4-2306-40c8-830b-990ae6950699}</value>
    <value type="int" key="ProjectExplorer.Target.ActiveBuildConfiguration">0</value>
    <value type="int" key="ProjectExplorer.Target.ActiveDeployConfiguration">0</value>
-   <value type="int" key="ProjectExplorer.Target.ActiveRunConfiguration">2</value>
+   <value type="int" key="ProjectExplorer.Target.ActiveRunConfiguration">3</value>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.BuildConfiguration.0">
     <valuelist type="QVariantList" key="CMake.Configuration">
      <value type="QString">CMAKE_BUILD_TYPE:STRING=Debug</value>
@@ -94,9 +94,24 @@
      <value type="QString">CMAKE_C_COMPILER:STRING=%{Compiler:Executable:C}</value>
      <value type="QString">CMAKE_PREFIX_PATH:STRING=%{Qt:QT_INSTALL_PREFIX}</value>
      <value type="QString">ENABLE_DOXYGEN:BOOL=OFF</value>
-     <value type="QString">ENABLE_KLEE_ASSERTS:BOOL=ON</value>
+     <value type="QString">unset ENABLE_KLEE_ASSERTS</value>
+     <value type="QString">ENABLE_KLEE_UCLIBC:BOOL=ON</value>
+     <value type="QString">ENABLE_SOLVER_STP:BOOL=ON</value>
+     <value type="QString">ENABLE_SOLVER_Z3:BOOL=ON</value>
+     <value type="QString">ENABLE_SYSTEM_TESTS:BOOL=OFF</value>
+     <value type="QString">unset ENABLE_TCMALLO</value>
+     <value type="QString">ENABLE_TCMALLOC:BOOL=ON</value>
+     <value type="QString">ENABLE_UNIT_TESTS:BOOL=OFF</value>
+     <value type="QString">unset KLEE_ENABLE_TIMESTAMP</value>
      <value type="QString">KLEE_RUNTIME_ALWAYS_REBUILD:BOOL=OFF</value>
+     <value type="QString">KLEE_UCLIBC_PATH:PATH=/home/rrutledge/projects/arktos/pse-tools/klee-uclibc</value>
+     <value type="QString">unset LLVMCC</value>
+     <value type="QString">LLVMCXX:FILEPATH=/usr/local/stow/llvm-3.4/bin/clang-3.4</value>
+     <value type="QString">LLVM_CONFIG_BINARY:FILEPATH=/usr/local/stow/llvm-3.4/bin/llvm-config</value>
      <value type="QString">QT_QMAKE_EXECUTABLE:STRING=%{Qt:qmakeExecutable}</value>
+     <value type="QString">unset USE_CMAKE_FIND_PACKAGE_LLVM</value>
+     <value type="QString">USE_CXX11:BOOL=ON</value>
+     <value type="QString">unset ref</value>
     </valuelist>
     <value type="int" key="EnableQmlDebugging">2</value>
     <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-build-debug</value>
@@ -483,7 +498,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-rply</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-rply</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-rply</value>
-    <value type="QString" key="RunConfiguration.Arguments">test0000000000.json</value>
+    <value type="QString" key="RunConfiguration.Arguments"></value>
     <value type="bool" key="RunConfiguration.Arguments.multi">false</value>
     <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>

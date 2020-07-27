@@ -151,12 +151,13 @@ protected:
                          std::string name,
                          WObjectPair &wop);
 
-  void unconstrainGlobals(ExecutionState &state, llvm::Function *fn);
-  void newUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
-  void restoreUnconstrainedGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
-  void unconstrainCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
-  void unconstrainFnArg(ExecutionState &state, llvm::Type *type, ref<Expr> &ptr, const std::string &name);
-  void replayCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
+  void unconstrainGlobalVariables(ExecutionState &state, llvm::Function *fn);
+  void unconstrainGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  void replayGlobalValues(ExecutionState &state, llvm::Function *fn, unsigned counter);
+  void unconstrainFnCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
+  void unconstrainFnArg(ExecutionState &state, KInstruction *ki, llvm::Type *type, ref<Expr> &ptr, const std::string &name);
+  void replayFnCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
+  void replayFnArg(ExecutionState &state, const MemoryObject *src, const ref<ConstantExpr> &ptr);
   void addReplayValue(const std::string &name, const MemoryObject *mo);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;

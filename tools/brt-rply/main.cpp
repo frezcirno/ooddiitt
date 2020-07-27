@@ -65,8 +65,6 @@ namespace {
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
   cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<bool> CheckTrace("check-trace", cl::desc("compare executed trace to test case"), cl::init(false));
-  cl::opt<bool> UpdateTrace("update-trace", cl::desc("update test case trace, if differs from replay"));
   cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
   cl::opt<bool> ShowTrace("show-trace", cl::desc("display replay's trace"));
   cl::opt<bool> InstrCounters("instr-counters", cl::desc("update test case file with count of instructions executed per function"));
@@ -242,29 +240,6 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-bool update_test_case(const string &fname, Json::Value &root) {
-
-  ofstream info;
-  info.open(fname);
-  if (info.is_open()) {
-
-    string indentation;
-    if (IndentJson)
-      indentation = "  ";
-
-    Json::StreamWriterBuilder builder;
-    builder["commentStyle"] = "None";
-    builder["indentation"] = indentation;
-    unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-    writer->write(root, &info);
-    info << endl;
-  } else {
-    errs() << "error writing test case\n";
-    return false;
-  }
-  return true;
-}
-
 void load_diff_info(const string &diff_file, KModule *kmod) {
 
   string filename = diff_file;
@@ -340,26 +315,6 @@ void load_diff_info(const string &diff_file, KModule *kmod) {
   }
 }
 
-enum class TraceCompareResult { ok, truncated, differs };
-
-TraceCompareResult compare_traces(const vector<string> &t_trace, const TraceDequeT &s_trace) {
-
-  vector<string> tmp;
-  tmp.reserve(s_trace.size());
-  for (const auto &entry : s_trace) {
-    tmp.push_back(to_string(entry));
-  }
-
-  if (boost::starts_with(t_trace, tmp)) {
-    if (t_trace.size() == tmp.size()) {
-      return TraceCompareResult::ok;
-    } else {
-      return TraceCompareResult::truncated;
-    }
-  }
-  return TraceCompareResult::differs;
-}
-
 Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
@@ -422,7 +377,6 @@ void expand_test_files(const string &prefix, deque<string> &files) {
     ReplayTests.push_back(Output);
   }
   deque<string> worklist(ReplayTests.begin(), ReplayTests.end());
-  string annotated_prefix = prefix + '-';
 
   while (!worklist.empty()) {
     string str = worklist.front();
@@ -438,7 +392,7 @@ void expand_test_files(const string &prefix, deque<string> &files) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) &&
            (pfile.extension().string() == ".json") &&
-           (boost::starts_with(pfile.filename().string(), annotated_prefix))) {
+           (boost::starts_with(pfile.filename().string(), prefix))) {
 
           files.push_back(pfile.string());
         }
@@ -591,55 +545,19 @@ int main(int argc, char *argv[]) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
       outs() << (unsigned) term_reason << ':' << state->reached_target << ':' << elapsed.count() << oendf;
 
-      bool is_dirty = false;
-      if (CheckTrace || UpdateTrace) {
-        if (IOpts.trace == test.trace_type) {
-          TraceCompareResult res = compare_traces(test.trace, state->trace);
-          if ((res == TraceCompareResult::truncated)  || (res == TraceCompareResult::differs)) {
-            outs() << "trace " << (res == TraceCompareResult::differs ? "differs, " : "truncated, ");
-            exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
-            if (UpdateTrace) {
-
-              Json::Value &rtrace = root["replayTrace"] = Json::arrayValue;
-              for (const auto &entry : state->trace) {
-                rtrace.append(to_string(entry));
-              }
-              is_dirty = true;
-            }
-          }
-        } else {
-          errs() << "incomparable trace types, ";
-          exit_code = max(exit_code, EXIT_TRACE_CONFLICT);
-        }
-      }
-
-      if (auto *counters = IOpts.fn_instr_counters) {
-        Json::Value &instr = root["instrCounters"] = Json::objectValue;
-        for (const auto &pr : *counters) {
-          string name = pr.first->getName().str();
-          instr[name] = pr.second;
-        }
-        counters->clear();
-        is_dirty = true;
-      }
-
-      if (is_dirty) {
-        is_dirty = false;
-        update_test_case(test_file, root);
-      }
-
       if (Verbose) {
         if (state->instFaulting != nullptr) {
           outs() << "#Faulting statement at " << state->instFaulting->info->file << ':' << state->instFaulting->info->line << oendl;
         }
       }
+
       if (ShowOutput) {
 
         // display captured output
         vector<unsigned char> stdout_capture;
         state->stdout_capture.get_data(stdout_capture);
         if (!stdout_capture.empty()) {
-          outs() << "stdout: " << toDataString(stdout_capture, 64) << '\n';
+          outs() << "#stdout: " << toDataString(stdout_capture, 64) << '\n';
           for (auto itr = stdout_capture.begin(), end = stdout_capture.end(); itr != end; ++itr) {
             outs() << *itr;
           }
@@ -648,7 +566,7 @@ int main(int argc, char *argv[]) {
         vector<unsigned char> stderr_capture;
         state->stderr_capture.get_data(stderr_capture);
         if (!stderr_capture.empty()) {
-          outs() << "stdout: " << toDataString(stderr_capture, 64) << '\n';
+          outs() << "#stderr: " << toDataString(stderr_capture, 64) << '\n';
           for (auto itr = stderr_capture.begin(), end = stderr_capture.end(); itr != end; ++itr) {
             outs() << *itr;
           }
@@ -656,10 +574,18 @@ int main(int argc, char *argv[]) {
       }
 
       if (ShowTrace) {
-        outs() << "trace:" << oendl;
+        outs() << "#trace:" << oendl;
         for (const auto &entry : state->trace) {
           outs() << to_string(entry) << oendl;
         }
+      }
+
+      if (auto *counters = IOpts.fn_instr_counters) {
+        outs() << "#instr counters:" << oendl;
+        for (const auto &pr : *counters) {
+          outs() <<  pr.first->getName() << ':' << pr.second;
+        }
+        counters->clear();
       }
     }
 

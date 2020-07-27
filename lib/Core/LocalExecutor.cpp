@@ -323,7 +323,7 @@ bool LocalExecutor::isReadExpr(ref<Expr> e) const {
   }
 }
 
-void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
+void LocalExecutor::unconstrainGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
 
   Module *m = kmodule->module;
   for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
@@ -358,7 +358,7 @@ void LocalExecutor::newUnconstrainedGlobalValues(ExecutionState &state, Function
   }
 }
 
-void LocalExecutor::restoreUnconstrainedGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
+void LocalExecutor::replayGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
   UNUSED(state);
   UNUSED(fn);
   UNUSED(counter);
@@ -871,7 +871,7 @@ bool LocalExecutor::isMainEntry(const llvm::Function *fn) const {
   return false;
 }
 
-void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
+void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *fn) {
 
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
@@ -881,6 +881,7 @@ void LocalExecutor::unconstrainGlobals(ExecutionState &state, Function *fn) {
       string gv_name = v->getName().str();
       auto pos = gv_name.find('.');
       // if dot in first position or the prefix does not equal the function name, continue to next variable
+      // if gv name begins with foo.bar then bar is a static local variable to the function foo.
       if (pos == 0) continue;
       if (pos != string::npos && (fn_name != gv_name.substr(0, pos))) continue;
 
@@ -1040,7 +1041,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
     // unconstrain global state
     if (unconstraintFlags.isUnconstrainGlobals()) {
-      unconstrainGlobals(*state, fn);
+      unconstrainGlobalVariables(*state, fn);
     }
 
     // create parameter values
@@ -1853,8 +1854,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           }
         } else {
           // else fork states with unique values and restart instruction
-          // RLR TODO:
-          // for all funcs with compatible sig, if addr could be func constrain and restart
+          if (auto fn_type = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType())) {
+            set<const Function *> fns;
+            kmodule->getFnsOfType(fn_type, fns);
+
+            // restart this instruction with addr bound to each possible function address;
+            state.restartInstruction();
+            ExecutionState *next = &state;
+            for (auto fn : fns) {
+              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) fn));
+              StatePair sp = fork(*next, eq, true);
+              next = sp.second;
+            }
+          }
+          return;
         }
       }
 
@@ -1988,169 +2001,21 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           // inject the replay values
           // if kf is null, then this is an external.  do not unconstrain globals
           if (kf != nullptr) {
-            restoreUnconstrainedGlobalValues(state, fn, counter);
+            replayGlobalValues(state, fn, counter);
           }
-          replayCall(state, ki, fn, counter, ret_value);
+          replayFnCall(state, ki, fn, counter, ret_value);
 
         } else {
           // use an unconstraining stub
           // if kf is null, then this is an external.  do not unconstrain globals
           if (kf != nullptr) {
-            newUnconstrainedGlobalValues(state, fn, counter);
+            unconstrainGlobalValues(state, fn, counter);
           }
-          unconstrainCall(state, ki, fn, counter, ret_value);
+          unconstrainFnCall(state, ki, fn, counter, ret_value);
         }
         if (!ret_value.isNull()) bindLocal(ki, state, ret_value);
       }
 
-#if 0
-
-        vector<Function*> targets;
-        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(callee)) {
-          Function *fn = (Function*) CE->getZExtValue();
-          if (isDefinedFunction(fn)) {
-            targets.push_back(fn);
-          }
-        } else {
-          // enumerate all potential fn targets
-          const FunctionType *fnType = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType());
-          set<const Function*> fns;
-          kmodule->getFnsOfType(fnType, fns);
-          for (auto fn : fns) {
-            if (isDefinedFunction(fn)) {
-              targets.push_back(const_cast<Function*>(fn));
-            }
-          }
-        }
-
-        unsigned num_targets = targets.size();
-        if (num_targets == 0) {
-          terminateStateOnComplete(state, TerminateReason::MemFault, "legal indirect callee not found");
-        } else if (num_targets == 1) {
-          if (tracer != nullptr) {
-            tracer->append_call(state.trace, kmodule->getKFunction(targets.front()));
-          }
-          executeCall(state, ki, targets.front(), arguments);
-        } else {
-          // RLR TODO: general case, need to fork on multiple potential targets
-          klee_error("general case of unconstrained fnptrs not implemented yet");
-        }
-      }
-
-#endif
-
-#if 0 == 1
-
-      // consider the arguments pushed for the call, rather than
-      // args expected by the target
-      unsigned numArgs = cs.arg_size();
-      if (fn == nullptr || !fn->isVarArg()) {
-        for (unsigned index = 0; index < numArgs; ++index) {
-          const Value *v = cs.getArgument(index);
-          Type *argType = v->getType();
-
-          if ((countLoadIndirection(argType) > 0) /* && !progInfo->isConstParam(fnName, index) */) {
-
-            ref<Expr> exp_addr = eval(ki, index + 1, state).value;
-            ObjectPair op;
-
-            // find the referenced memory object
-            if (resolveMO(state, exp_addr, op) == ResolveResult::OK) {
-              const MemoryObject *orgMO = op.first;
-              const ObjectState *orgOS = op.second;
-
-              ref<Expr> e = orgOS->getBoundsCheckPointer(exp_addr);
-              if (solver->mayBeTrue(state, e)) {
-                addConstraint(state, e);
-
-                ref<ConstantExpr> address = ensureUnique(state, exp_addr);
-                ObjectState *argOS = state.addressSpace.getWriteable(orgMO, orgOS);
-                Type *eleType = argType->getPointerElementType();
-                unsigned eleSize;
-
-                // reconsider LazyAllocCount for fallback size here...
-                if (eleType->isSized()) {
-                  eleSize = (unsigned) kmodule->targetData->getTypeStoreSize(eleType);
-                } else {
-                  eleSize = lazyAllocationCount;
-                }
-                unsigned offset = (unsigned) (address->getZExtValue() - orgMO->address);
-                unsigned count = (orgOS->visible_size - offset) / eleSize;
-
-                // unconstrain from address to end of the memory block
-                WObjectPair wop;
-                if (!allocSymbolic(state,
-                                   eleType,
-                                   v,
-                                   MemKind::output,
-                                   fullName(fnName, counter, std::to_string(index + 1)),
-                                   wop,
-                                   0,
-                                   count)) {
-                  klee_error("failed to allocate ptr argument");
-                }
-
-                ObjectState *newOS = wop.second;
-                for (unsigned idx = 0, end = count * eleSize; idx < end; ++idx) {
-                  argOS->write8(offset + idx, newOS->read8(idx));
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // now get the return type
-      Type *ty = cs->getType();
-      if (!ty->isVoidTy()) {
-
-        WObjectPair wop;
-        if (!allocSymbolic(state, ty, i, MemKind::output, fullName(fnName, counter, "0"), wop)) {
-          klee_error("failed to allocate called function parameter");
-        }
-        Expr::Width width = kmodule->targetData->getTypeStoreSizeInBits(ty);
-        ref<Expr> retExpr = wop.second->read(0, width);
-        bindLocal(ki, state, retExpr);
-
-        // need return value lazy init to occur here, otherwise, the allocation
-        // gets the wrong name.
-        if (ty->isPointerTy()) {
-
-          // two possible returns for a pointer type, nullptr and a valid object
-          ref<ConstantExpr> null = Expr::createPointer(0);
-          ref<Expr> eqNull = EqExpr::create(retExpr, null);
-          StatePair sp = fork(state, eqNull, true);
-
-          // in the true case, ptr is null, so nothing further to do
-          // in the false case, allocate new memory for the ptr and
-          // constrain the ptr to point to it.
-          if (sp.second != nullptr) {
-
-            // RLR TODO: this is only returning new objects.
-            // should it also return existing objects?
-
-            Type *base_type = ty->getPointerElementType();
-
-            // LazyAllocCount needs to be expanded for string and buffer types.
-            unsigned count = LazyAllocCount;
-            if (base_type->isIntegerTy(8) && count < lazyStringLength) {
-              count = lazyStringLength;
-            }
-            // finally, try with a new object
-            WObjectPair wop;
-            allocSymbolic(*sp.second, base_type, i, MemKind::lazy, fullName(fnName, counter, "*0"), wop, 0, count);
-            ref<ConstantExpr> ptr = wop.first->getOffsetIntoExpr(LazyAllocOffset * (wop.first->size / count));
-            ref<Expr> eq = EqExpr::create(retExpr, ptr);
-            addConstraint(*sp.second, eq);
-
-            // insure strings are null-terminated
-            if (base_type->isIntegerTy(8)) {
-              addConstraint(*sp.second, EqExpr::create(wop.second->read8(count - 1), ConstantExpr::create(0, Expr::Int8)));
-            }
-          }
-        }
-      }
-#endif
       break;
     }
 
@@ -2353,8 +2218,8 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
   }
 }
 
-void LocalExecutor::unconstrainCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
-                                    ref<Expr> &ret_value) {
+void LocalExecutor::unconstrainFnCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
+                                      ref<Expr> &ret_value) {
 
   // first get the return value
   CallSite cs(ki->inst);
@@ -2378,27 +2243,67 @@ void LocalExecutor::unconstrainCall(ExecutionState &state, KInstruction *ki, llv
     if (arg->getType()->isPointerTy() && (!kmodule->isConstFnArg(fn, idx))) {
       const Value *v = cs.getArgument(idx);
       Type *type = v->getType();
-      if (type->isPointerTy()) {
+      if (auto pt = dyn_cast<PointerType>(type)) {
         ref<Expr> ptr = eval(ki, idx + 1, state).value;
-        unconstrainFnArg(state, type, ptr, toSymbolName(fn_name, counter, idx + 1));
+        unconstrainFnArg(state, ki, pt->getPointerElementType(), ptr, toSymbolName(fn_name, counter, idx + 1));
       }
     }
   }
 }
 
-void LocalExecutor::unconstrainFnArg(ExecutionState &state, Type *type, ref<Expr> &ptr, const string &name) {
-  outs() << "unconstrain " << name << '\n';
+void LocalExecutor::unconstrainFnArg(ExecutionState &state, KInstruction *ki, Type *type, ref<Expr> &ptr, const string &name) {
+
+
+  if (interpreterOpts.verbose) {
+    outs() << "unconstraining: " << name << oendl;
+  }
+
+  // find the referenced memory object
+  ObjectPair op;
+  if (resolveMO(state, ptr, op) == ResolveResult::OK) {
+    const MemoryObject *mo = op.first;
+
+    if (mo->isReadOnly()) {
+      outs() << "RLR: what to do with readonly output param\n";
+    }
+
+    const ObjectState *os = op.second;
+    ref<Expr> bc = os->getBoundsCheckPointer(ptr);
+    if (solver->mayBeTrue(state, bc)) {
+      if (!solver->mustBeTrue(state, bc)) {
+        addConstraint(state, bc);
+      }
+
+      // since we'll be writing to this ptr, need to concretize the written address
+      ref<ConstantExpr> addr = ensureUnique(state, ptr);
+      uint64_t offset = addr->getZExtValue() - mo->address;
+      uint64_t size = kmodule->targetData->getTypeStoreSize(type);
+      uint64_t count = (os->visible_size - offset) / size;
+
+      // get a writable copy of memory object state
+      if (ObjectState *wos = state.addressSpace.getWriteable(mo, os)) {
+
+        // allocate a new symbolic
+        WObjectPair wop;
+        allocSymbolic(state, type, ki->inst, MemKind::output, name, wop, 0, count);
+        for (unsigned idx = 0, end = count * size; idx < end; ++idx) {
+          wos->write8(offset + idx, wop.second->read8(idx));
+        }
+      }
+    }
+  }
 }
 
-void LocalExecutor::replayCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
-                               ref<Expr> &ret_value) {
+void LocalExecutor::replayFnCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter,
+                                 ref<Expr> &ret_value) {
 
   CallSite cs(ki->inst);
+  ReplayFnRec &replay_rec = replay_stub_data[fn][counter];
+
   Type *ret_type = cs.getType();
   if (!ret_type->isVoidTy()) {
 
     // lookup and read the return value
-    ReplayFnRec &replay_rec = replay_stub_data[fn][counter];
     if (const MemoryObject *mo = replay_rec.ret_value) {
       const ObjectState *os = state.addressSpace.findObject(mo);
       Expr::Width w_data = os->visible_size * 8;
@@ -2409,6 +2314,57 @@ void LocalExecutor::replayCall(ExecutionState &state, KInstruction *ki, llvm::Fu
       if (w_data != w_type) {
         bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
         ret_value = isSExt ? SExtExpr::create(ret_value, w_type) : ZExtExpr::create(ret_value, w_type);
+      }
+    }
+  }
+
+  if (fn->isVarArg()) return;
+
+  unsigned idx = 0;
+  unsigned edx = cs.arg_size();
+  for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end && idx < edx; ++itr, ++idx) {
+    Argument *arg = itr;
+    if (arg->getType()->isPointerTy() && (!kmodule->isConstFnArg(fn, idx))) {
+      const Value *v = cs.getArgument(idx);
+      if (v->getType()->isPointerTy()) {
+
+        // both arguments are pointer types and non-constant
+        // check for a replay record
+        auto lookup = replay_rec.param_values.find(idx);
+        if (lookup != replay_rec.param_values.end()) {
+          const MemoryObject *mo = lookup->second;
+
+          // found a replay value.  get the actual pointer value
+          ref<ConstantExpr> ptr = dyn_cast<ConstantExpr>(eval(ki, idx + 1, state).value);
+          if (!ptr.isNull()) {
+            replayFnArg(state, mo, ptr);
+          }
+        }
+      }
+    }
+  }
+}
+
+void LocalExecutor::replayFnArg(ExecutionState &state, const MemoryObject *src_mo, const ref<ConstantExpr> &ptr) {
+
+  if (const ObjectState *src_os = state.addressSpace.findObject(src_mo)) {
+
+    // find the referenced memory object
+    ObjectPair op;
+    if (resolveMO(state, ptr, op) == ResolveResult::OK) {
+      const MemoryObject *mo = op.first;
+
+      if (mo->isReadOnly()) {
+        outs() << "RLR: what to do with readonly output param\n";
+      }
+
+      // get a writable copy of memory object state
+      if (ObjectState *wos = state.addressSpace.getWriteable(mo, op.second)) {
+
+        uint64_t offset = ptr->getZExtValue() - mo->address;
+        for (unsigned idx = 0, end = src_os->visible_size; idx < end; ++idx) {
+          wos->write8(offset + idx, src_os->read8(idx));
+        }
       }
     }
   }

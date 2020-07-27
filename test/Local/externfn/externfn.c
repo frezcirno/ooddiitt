@@ -16,11 +16,13 @@ int main(int argc, char *argv[]) {
   char string[] = "0";
 
   bar(string);
-  int val = foo(string, string);
-  if (val > 0) {
-    printf("positive\n");
-  } else if (*string != '0') {
-    printf("negative\n");
+  for (unsigned counter = 0; counter < 3; ++counter) {
+    int val = foo(string, string);
+    if (val > 0) {
+      printf("positive\n");
+    } else if (*string != '0') {
+      printf("negative\n");
+    }
   }
   return 0;
 }
