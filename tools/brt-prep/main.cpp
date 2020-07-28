@@ -62,28 +62,30 @@ namespace alg = boost::algorithm;
 namespace fs = boost::filesystem;
 
 namespace {
+cl::OptionCategory BrtCategory("specific brt options");
+cl::list<string> InputFiles(cl::desc("<original input bytecode>"), cl::Positional, cl::OneOrMore);
+cl::opt<string> FnPtrPatches("fp-patch", cl::desc("json specification for function pointer patching"), cl::cat(BrtCategory));
+cl::opt<string> ClangInfo("clang-info", cl::desc("analysis info json file from C source"), cl::cat(BrtCategory));
+cl::opt<string> Sources("src", cl::desc("comma delimited list of program source files"), cl::cat(BrtCategory));
+cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
+cl::opt<TraceType> TraceT("trace",
+  cl::desc("Choose the type of trace (default=basic blocks"),
+  cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+             clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+             clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+             clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+             clEnumValEnd),
+  cl::init(TraceType::bblocks),
+  cl::cat(BrtCategory));
 
-  cl::list<string> InputFiles(cl::desc("<original input bytecode>"), cl::Positional, cl::OneOrMore);
-  cl::opt<string> FnPtrPatches("fp-patch", cl::desc("json specification for function pointer patching"), cl::init("fp-patch.json"));
-  cl::opt<string> ClangInfo("clang-info", cl::desc("analysis info from C source"), cl::init("clang-info.json"));
-  cl::opt<string> Sources("src", cl::desc("comma delimited list of program source files"));
-  cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<TraceType> TraceT("trace",
-    cl::desc("Choose the type of trace (default=marked basic blocks"),
-    cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
-               clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
-               clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
-               clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
-               clEnumValEnd),
-    cl::init(TraceType::bblocks));
-
-  cl::opt<MarkScope> MarkS("mark",
-    cl::desc("Choose the scope for function marking (default=module"),
-    cl::values(clEnumValN(MarkScope::none, "none", "do not mark functions"),
-    clEnumValN(MarkScope::module, "module", "add IR markers to module functions"),
-    clEnumValN(MarkScope::all, "all", "add IR markers to all functions"),
-    clEnumValEnd),
-    cl::init(MarkScope::module));
+cl::opt<MarkScope> MarkS("mark",
+  cl::desc("Choose the scope for function marking (default=module"),
+  cl::values(clEnumValN(MarkScope::none, "none", "do not mark functions"),
+             clEnumValN(MarkScope::module, "module", "add IR markers to module functions"),
+             clEnumValN(MarkScope::all, "all", "add IR markers to all functions"),
+             clEnumValEnd),
+  cl::init(MarkScope::module),
+  cl::cat(BrtCategory));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -93,14 +95,14 @@ namespace {
     NoLibc, KleeLibc, UcLibc
   };
 
-  cl::opt<LibcType> Libc("libc",
-   cl::desc("Choose libc version (none by default)."),
+cl::opt<LibcType> Libc("libc",
+   cl::desc("Choose libc version (default=uclibc)"),
    cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
-     clEnumValN(KleeLibc, "klee", "Link in klee libc"),
-     clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
-     clEnumValEnd),
-   cl::init(UcLibc));
-
+              clEnumValN(KleeLibc, "klee", "Link in klee libc"),
+              clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
+              clEnumValEnd),
+   cl::init(UcLibc),
+   cl::cat(BrtCategory));
 
 #if 0 == 1
   cl::opt<bool>
@@ -109,12 +111,12 @@ namespace {
                 cl::init(false));
 #endif
 
-  cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::init(false));
-  cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::init(false));
-  cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::init(false));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
-  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
+cl::opt<bool> OptimizeModule("optimize", cl::desc("Optimize before execution"), cl::cat(BrtCategory));
+cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for division-by-zero"), cl::cat(BrtCategory));
+cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::cat(BrtCategory));
+cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 
@@ -209,11 +211,11 @@ void externalsAndGlobalsCheck(const Module *m) {
 
   // report anything found
   if (!undefined_fns.empty())
-    emitGlobalValueWarning(undefined_fns, "Undefined function");
+    emitGlobalValueWarning(undefined_fns, "undefined function");
   if (!undefined_gbs.empty())
-    emitGlobalValueWarning(undefined_gbs, "Undefined global");
+    emitGlobalValueWarning(undefined_gbs, "undefined global");
   if (!inline_assm_fns.empty())
-    emitGlobalValueWarning(inline_assm_fns, "Inline assembly in function");
+    emitGlobalValueWarning(inline_assm_fns, "inline assembly in function");
 }
 
 #ifndef SUPPORT_KLEE_UCLIBC
@@ -569,6 +571,7 @@ int main(int argc, char *argv[]) {
   int exit_code = 0;
   for (const string &input_file : InputFiles) {
 
+    outs() << "preparing module: " << input_file << oendl;
     if (KModule *kmod = PrepareModule(input_file, indirect_rewrites, clang_info, libDir, TraceT, MarkS)) {
       if (!SaveModule(kmod, Output)) {
         exit_code = 1;

@@ -375,9 +375,10 @@ void getModuleNames(const string &dir, string &name1, string &name2) {
 void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_post) {
 
   string filename = diff_file;
-  if (filename.empty()) {
-    filename = (fs::path(Output)/"diff.json").string();
+  if (!fs::exists(fs::path(filename))) {
+    filename = (fs::path(Output)/filename).string();
   }
+
   ifstream infile(filename);
   if (infile.is_open()) {
     Json::Value root;

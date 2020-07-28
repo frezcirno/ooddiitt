@@ -61,13 +61,14 @@ namespace alg = boost::algorithm;
 namespace fs = boost::filesystem;
 
 namespace {
-  cl::opt<string> InputFile1(cl::desc("<original bytecode>"), cl::Positional);
-  cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional);
-  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<string> AssumeEq("assume-equiv", cl::desc("assume the following functions are equivalent (useful for some library routines"));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
+cl::OptionCategory BrtCategory("specific brt options");
+cl::opt<string> InputFile1(cl::desc("<original bytecode>"), cl::Positional);
+cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional);
+cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
+cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
+cl::opt<string> AssumeEq("assume-equiv", cl::desc("assume the following functions are equivalent (useful for some library routines"), cl::cat(BrtCategory));
+cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 //===----------------------------------------------------------------------===//

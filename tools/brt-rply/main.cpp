@@ -58,32 +58,30 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace {
-  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
-  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
-  cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"));
-  cl::opt<bool> ShowTrace("show-trace", cl::desc("display replay's trace"));
-  cl::opt<bool> InstrCounters("instr-counters", cl::desc("update test case file with count of instructions executed per function"));
-  cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"));
-  cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"));
-  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
-  cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
-  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10));
-  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
-  cl::opt<TraceType> TraceT("trace",
-                            cl::desc("Choose the type of trace (default=marked basic blocks"),
-                            cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
-                                       clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
-                                       clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
-                                       clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
-                                       clEnumValN(TraceType::calls, "calls", "trace execution by function call/return"),
-                                       clEnumValEnd),
-                            cl::init(TraceType::invalid));
-
+cl::OptionCategory BrtCategory("specific brt options");
+cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
+cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"), cl::cat(BrtCategory));
+cl::opt<bool> ShowOutput("show-output", cl::desc("display replay's stdout and stderr"), cl::cat(BrtCategory));
+cl::opt<bool> ShowTrace("show-trace", cl::desc("display replay's trace"), cl::cat(BrtCategory));
+cl::opt<bool> InstrCounters("instr-counters", cl::desc("update test case file with count of instructions executed per function"), cl::cat(BrtCategory));
+cl::opt<bool> Verbose("verbose", cl::desc("Display additional information about replay"), cl::cat(BrtCategory));
+cl::opt<string> ModuleName("module", cl::desc("override module specified by test case"), cl::cat(BrtCategory));
+cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"), cl::cat(BrtCategory));
+cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
+cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10), cl::cat(BrtCategory));
+cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
+cl::opt<TraceType> TraceT("trace",
+  cl::desc("Choose the type of trace (default=marked basic blocks"),
+  cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+             clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+             clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+             clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+             clEnumValN(TraceType::calls, "calls", "trace execution by function call/return"),
+             clEnumValEnd),
+  cl::init(TraceType::invalid),
+  cl::cat(BrtCategory));
 }
 
 map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
@@ -92,14 +90,12 @@ map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
 
 class ReplayKleeHandler : public InterpreterHandler {
 private:
-  string indentation;
   vector<pair<ExecutionState*,TerminateReason> > &results;
 
 public:
   ReplayKleeHandler(vector<pair<ExecutionState*,TerminateReason> > &_results, const string &_md_name)
-    : InterpreterHandler(Output, _md_name), indentation(""), results(_results) {
+    : InterpreterHandler(Output, _md_name), results(_results) {
     assert(results.empty());
-    if (IndentJson) indentation = "  ";
   }
 
   ~ReplayKleeHandler() override = default;
@@ -243,9 +239,10 @@ void load_test_case(Json::Value &root, TestCase &test) {
 void load_diff_info(const string &diff_file, KModule *kmod) {
 
   string filename = diff_file;
-  if (filename.empty()) {
-    filename = (fs::path(Output)/"diff.json").string();
+  if (!fs::exists(fs::path(filename))) {
+    filename = (fs::path(Output)/filename).string();
   }
+
   ifstream infile(filename);
   if (infile.is_open()) {
     Json::Value root;

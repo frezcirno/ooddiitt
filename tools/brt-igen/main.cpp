@@ -65,28 +65,28 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace {
-
-  cl::opt<string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
-  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entrypoint"));
-  cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"));
-  cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (default=e:60)"));
-  cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
-  cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"), cl::init(false));
-  cl::opt<bool> AllOutput("all-output", cl::desc("Generate all test files (reaching or not)"), cl::init(false));
-  cl::opt<bool> VerifyConstraints("verify-constraints", cl::init(false), cl::desc("Perform additional constraint verification"));
-  cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"));
-  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
-  cl::opt<TraceType> TraceT("trace",
-                            cl::desc("Choose the type of trace (default=marked basic blocks"),
-                            cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
-                                       clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
-                                       clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
-                                       clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
-                                       clEnumValEnd),
-                            cl::init(TraceType::invalid));
-
+cl::OptionCategory BrtCategory("specific brt options");
+cl::opt<string> InputFile(cl::desc("<input bytecode>"), cl::Positional, cl::init("-"));
+cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
+cl::opt<string> EntryPoint("entry-point", cl::desc("Start local symbolic execution at entry-point"), cl::cat(BrtCategory));
+cl::opt<string> UserMain("user-main", cl::desc("Consider the function with the given name as the main point"), cl::init("main"), cl::cat(BrtCategory));
+cl::opt<string> Progression("progression", cl::desc("progressive phases of unconstraint (default=e:60)"), cl::cat(BrtCategory));
+cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+cl::list<string> InputArgv(cl::ConsumeAfter, cl::desc("<program arguments>..."));
+cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
+cl::opt<bool> AllOutput("all-output", cl::desc("Generate all test files (reaching or not)"));
+cl::opt<bool> VerifyConstraints("verify-constraints", cl::desc("Perform additional constraint verification"), cl::cat(BrtCategory));
+cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
+cl::opt<string> DiffInfo("diff", cl::desc("json formatted diff file"), cl::cat(BrtCategory));
+cl::opt<TraceType> TraceT("trace",
+  cl::desc("Choose the type of trace (default=marked basic blocks"),
+  cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
+             clEnumValN(TraceType::bblocks, "bblk", "trace execution by basic block"),
+             clEnumValN(TraceType::statements, "stmt", "trace execution by source statement"),
+             clEnumValN(TraceType::assembly, "assm", "trace execution by assembly line"),
+             clEnumValEnd),
+  cl::init(TraceType::invalid),
+  cl::cat(BrtCategory));
 
 #if 0 == 1
   cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
@@ -98,23 +98,22 @@ namespace {
   cl::opt<bool> WritePaths("write-paths", cl::desc("Write .path files for each test case"));
   cl::opt<bool> WriteSymPaths("write-sym-paths", cl::desc("Write .sym.path files for each test case"));
   cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
+
+cl::opt<bool> WithPOSIXRuntime("posix-runtime",
+  cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options")
+  );
+cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
+  cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
+           "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
+           "Used for testing."),
+  cl::init(0));
+
 #endif
-  cl::opt<bool> UnconstrainConstGlobals("unconstrain-const-globals", cl::desc("include constants in global unconstrained state"), cl::init(false));
-
-  cl::opt<bool>
-  WithPOSIXRuntime("posix-runtime",
-                cl::desc("Link with POSIX runtime.  Options that can be passed as arguments to the programs are: --sym-arg <max-len>  --sym-args <min-argvs> <max-argvs> <max-len> + file model options"),
-                cl::init(false));
-
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
-                       cl::desc("Probabilistic rate at which to make concrete reads symbolic, "
-                                                "i.e. approximately 1 in n concrete reads will be made symbolic (0=off, 1=all).  "
-                                                "Used for testing."),
-                       cl::init(0));
-  cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0));
-  cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
-  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
+cl::opt<bool> UnconstrainConstGlobals("unconstrain-const-globals", cl::desc("include constants in global unconstrained state"), cl::cat(BrtCategory));
+cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0), cl::cat(BrtCategory));
+cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
+cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 /***/
@@ -184,7 +183,6 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
   Interpreter *i = getInterpreter();
   assert(i != nullptr);
   assert(!state.isProcessed);
-
 
   if (!NoOutput && (AllOutput || state.reached_target || term_reason == TerminateReason::Timeout)) {
 
@@ -541,9 +539,10 @@ bool parseUnconstraintProgression(vector<Interpreter::ProgressionDesc> &progress
 void load_diff_info(const string &diff_file, KModule *kmod) {
 
   string filename = diff_file;
-  if (filename == "default") {
-    filename = (fs::path(Output)/"diff.json").string();
+  if (!fs::exists(fs::path(filename))) {
+    filename = (fs::path(Output)/filename).string();
   }
+
   ifstream infile(filename);
   if (infile.is_open()) {
     Json::Value root;
@@ -766,24 +765,25 @@ int main(int argc, char *argv[]) {
   KModule *kmod = PrepareModule(InputFile);
   LLVMContext *ctx = kmod->getContextPtr();
 
+#if 0 == 1
   if (WithPOSIXRuntime) {
-//    SmallString<128> Path(LibraryDir);
-//
-//    string posixLib = "libkleeRuntimePOSIX";
-//    Module::PointerSize width = mainModule->getPointerSize();
-//    if (width == Module::PointerSize::Pointer32) {
-//      posixLib += "-32";
-//    } else if (width == Module::PointerSize::Pointer64) {
-//      posixLib += "-64";
-//    }
-//    posixLib += ".bca";
-//
-//    llvm::sys::path::append(Path, posixLib);
-//    outs() << "NOTE: Using model: " << Path.c_str() << '\n';
-//    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
-//    assert(mainModule && "unable to link with simple model");
-  }
+    SmallString<128> Path(LibraryDir);
 
+    string posixLib = "libkleeRuntimePOSIX";
+    Module::PointerSize width = mainModule->getPointerSize();
+    if (width == Module::PointerSize::Pointer32) {
+      posixLib += "-32";
+    } else if (width == Module::PointerSize::Pointer64) {
+      posixLib += "-64";
+    }
+    posixLib += ".bca";
+
+    llvm::sys::path::append(Path, posixLib);
+    outs() << "NOTE: Using model: " << Path.c_str() << '\n';
+    mainModule = klee::linkWithLibrary(mainModule, Path.c_str());
+    assert(mainModule && "unable to link with simple model");
+  }
+#endif
   // Get the desired main function.  klee_main initializes uClibc
   // locale and other data and then calls main.
   Function *mainFn = kmod->getFunction(UserMain);
@@ -797,7 +797,6 @@ int main(int argc, char *argv[]) {
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
-  IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
   if (!parseUnconstraintProgression(IOpts.progression, Progression)) {
     klee_error("failed to parse unconstraint progression: %s", Progression.c_str());
   }
