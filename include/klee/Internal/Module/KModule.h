@@ -69,6 +69,8 @@ namespace klee {
     KLoop kloop;
     std::set<const llvm::Loop*> loops;
 
+    std::string src_location;
+
     bool is_user;
     unsigned fnID;
     bool diff_added;
@@ -123,15 +125,16 @@ namespace klee {
     std::map<llvm::Function*, KFunction*> functionMap;
     ModuleTypes module_types;
 
-    KFunction *getKFunction(llvm::Function *fn)
+    KFunction *getKFunction(llvm::Function *fn) const
       { auto itr = functionMap.find(fn); if (itr != functionMap.end()) return itr->second; return nullptr; }
 
-    KFunction *getKFunction(const std::string &name)
+    KFunction *getKFunction(const std::string &name) const
       { if (auto *fn = module->getFunction(name)) if (auto *kf = getKFunction(fn)) return kf; return nullptr; }
 
     // Functions which escape (may be called indirectly)
     // XXX change to KFunction
-    std::set<llvm::Function*> escapingFunctions;
+    std::set<llvm::Function *> escapingFunctions;
+    std::set<const llvm::Function *> externalFunctions;
 
     InstructionInfoTable *infos;
 
@@ -221,6 +224,18 @@ namespace klee {
       for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert((*itr)->getName());
     }
 
+    void getUserSources(std::set<std::string> &srcs) const;
+
+    void getExternalFunctions(std::set<const llvm::Function*> &fns) const {
+      fns.clear();
+      for (auto itr = externalFunctions.begin(), end = externalFunctions.end(); itr != end; ++itr) fns.insert(*itr);
+    }
+
+    void getExternalFunctions(std::set<std::string> &fns) const {
+      fns.clear();
+      for (auto itr = externalFunctions.begin(), end = externalFunctions.end(); itr != end; ++itr) fns.insert((*itr)->getName());
+    }
+
     bool isUserGlobal(const llvm::GlobalVariable* gb) const {
       return user_gbs.find(gb) != user_gbs.end();
     }
@@ -270,7 +285,8 @@ namespace klee {
     }
 
     void setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts);
-    bool isPreModule() const { return is_pre_module; }
+    bool isPrevModule() const { return is_prev_module; }
+    bool isPostModule() const { return !is_prev_module; }
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
@@ -289,9 +305,9 @@ namespace klee {
     std::map<std::string,std::set<unsigned> > targeted_stmts;
 
   public:
-    std::string pre_module;
+    std::string prev_module;
     std::string post_module;
-    bool is_pre_module;
+    bool is_prev_module;
 };
 
 } // End klee namespace

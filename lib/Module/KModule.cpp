@@ -85,7 +85,7 @@ KModule::KModule(Module *_module)
     infos(nullptr),
     constantTable(nullptr),
     module_trace(TraceType::invalid),
-    is_pre_module(false)
+    is_prev_module(false)
     {}
 
 KModule::~KModule() {
@@ -183,7 +183,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
       string pathname = di_sp.getFilename();
 
       // functions from libc are never user fns
-      if (!boost::starts_with(pathname, "libc/")) {
+      if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
         string filename = fs::path(pathname).filename().string();
         if ((opts.sources.empty() && !fn->isDeclaration()) || opts.sources.find(filename) != opts.sources.end()) {
           user_fns.insert(fn);
@@ -203,7 +203,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
       string pathname = di_gv.getFilename();
 
       // globals from libc are never user globals
-      if (!boost::starts_with(pathname, "libc/")) {
+      if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
 
         string gv_name = gv->getName().str();
         string filename = fs::path(pathname).filename().string();
@@ -339,6 +339,8 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
   infos = new InstructionInfoTable();
   infos->BuildTable(module);
 
+  set<const llvm::Value *> potential_externs;
+
   /* Build shadow structures */
   for (auto it = module->begin(), ie = module->end(); it != ie; ++it) {
     Function *fn = static_cast<Function *>(it);
@@ -359,16 +361,32 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
       }
     }
 
-    if (fn->isDeclaration()) continue;
+    if (fn->isDeclaration()) {
+      // this could be an external function
+      if (!fn->use_empty() && fn->getIntrinsicID() == Intrinsic::not_intrinsic) {
+        potential_externs.insert(fn);
+      }
+    } else {
 
-    KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+      KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
 
-    for (unsigned i=0; i<kf->numInstructions; ++i) {
-      KInstruction *ki = kf->instructions[i];
-      ki->info = &infos->getInfo(ki->inst);
+      for (unsigned i = 0; i < kf->numInstructions; ++i) {
+        KInstruction *ki = kf->instructions[i];
+        ki->info = &infos->getInfo(ki->inst);
+        if (i == 0) {
+          kf->src_location = ki->info->path;
+        }
+      }
+      functions.push_back(kf);
+      functionMap.insert(make_pair(fn, kf));
     }
-    functions.push_back(kf);
-    functionMap.insert(make_pair(fn, kf));
+  }
+
+  filterHandledFunctions(potential_externs);
+  for (const Value *v : potential_externs) {
+    if (const Function *fn = dyn_cast<const Function>(v)) {
+      externalFunctions.insert(fn);
+    }
   }
 
   for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
@@ -407,6 +425,12 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
       MDNode *node = md_builder.create(itr.first, itr.second);
       NMD->addOperand(node);
     }
+  }
+
+  if (!externalFunctions.empty()) {
+    NamedMDNode *NMD = module->getOrInsertNamedMetadata("brt-klee.external-fns");
+    MDNode *node = md_builder.create(externalFunctions);
+    NMD->addOperand(node);
   }
 }
 
@@ -482,6 +506,20 @@ void KModule::prepare() {
     }
   }
 
+  // read out the external functions from metadata
+  node = module->getNamedMetadata("brt-klee.external-fns");
+  if (node != nullptr && node->getNumOperands() > 0) {
+    if (auto md = node->getOperand(0)) {
+      for (unsigned idx = 0, end = md->getNumOperands(); idx < end; ++idx) {
+        if (Value *v = md->getOperand(idx)) {
+          if (Function *fn = dyn_cast<Function>(v)) {
+            externalFunctions.insert(fn);
+          }
+        }
+      }
+    }
+  }
+
   // finally, read out the map of function const arguments.
   node = module->getNamedMetadata("brt-klee.fn-const-args");
   if (node != nullptr) {
@@ -516,17 +554,23 @@ void KModule::prepare() {
       addInternalFunction(fn);
     }
 
-    if (fn->isDeclaration()) continue;
+    if (fn->isDeclaration()) {
 
-    KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+    } else {
 
-    for (unsigned i=0; i<kf->numInstructions; ++i) {
-      KInstruction *ki = kf->instructions[i];
-      ki->info = &infos->getInfo(ki->inst);
+      KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+
+      for (unsigned i = 0; i < kf->numInstructions; ++i) {
+        KInstruction *ki = kf->instructions[i];
+        ki->info = &infos->getInfo(ki->inst);
+        if (i == 0) {
+          kf->src_location = ki->info->path;
+        }
+      }
+
+      functions.push_back(kf);
+      functionMap.insert(make_pair(fn, kf));
     }
-
-    functions.push_back(kf);
-    functionMap.insert(make_pair(fn, kf));
   }
 
   for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
@@ -556,6 +600,19 @@ void KModule::prepare() {
   }
 }
 
+void KModule::getUserSources(std::set<std::string> &srcs) const {
+
+  srcs.clear();
+  for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) {
+    Function *fn = (Function *) *itr;
+    if (KFunction *kf = getKFunction(fn)) {
+      if (!kf->src_location.empty()) {
+        srcs.insert(kf->src_location);
+      }
+    }
+  }
+}
+
 void KModule::setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts) {
 
   for (auto itr = functions.begin(), end = functions.end(); itr != end; ++itr) {
@@ -563,9 +620,9 @@ void KModule::setTargetStmts(const std::map<std::string, std::set<unsigned>> &st
     for (unsigned idx = 0, end = kf->numInstructions; idx < end; ++idx) {
       KInstruction *ki = kf->instructions[idx];
       bool is_targeted = false;
-      auto itr = stmts.find(ki->info->file);
-      if (itr != stmts.end()) {
-        const set<unsigned> &lines = itr->second;
+      auto fnd = stmts.find(ki->info->file);
+      if (fnd != stmts.end()) {
+        const set<unsigned> &lines = fnd->second;
         if (lines.find(ki->info->line) != lines.end()) {
           is_targeted = true;
         }
@@ -627,8 +684,6 @@ pair<unsigned,unsigned> KModule::getMarker(const llvm::Function *fn, const llvm:
   }
   return make_pair(fnID, bbID);
 }
-
-
 
 /***/
 

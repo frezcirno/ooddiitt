@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import json
+import subprocess
+import re
+
+
+def append_extent(value, lst):
+  if ',' in value:
+    start, length = value.split(',', 1)
+    length = int(length)
+    if length > 0:
+      start = int(start)
+      while length > 1:
+        lst.append(start)
+        start += 1
+        length -= 1
+  else:
+    lst.append(int(value))
+
+
+def get_line_diffs(prev, post):
+
+  result = ([], [])
+  args = ['git', 'diff', '--unified=0', '--no-index', '--ignore-blank-lines', '--ignore-all-space', prev, post]
+  complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
+  lines = complete.stdout.split('\n')
+
+  pat_header = re.compile(r'@@ -(\S*)\s+\+(\S*) @@')
+  for line in lines:
+    match = pat_header.match(line)
+    if match:
+      append_extent(match[1], result[0])
+      append_extent(match[2], result[1])
+
+  return result
+
+
+def get_bc_diffs(prev, post):
+#  args = ['git', 'diff', '--unified=0', '--no-index', '--ignore-blank-lines', '--ignore-all-space', prev, post]
+  args = ['brt-diff', prev, post]
+  complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
+  return complete.returncode == 0
+
+
+def main(args):
+
+  ret_code = 1
+  diff_file = os.path.join(args.dir, "diff.json")
+  if get_bc_diffs(os.path.join(args.dir, args.modules[0]), os.path.join(args.dir, args.modules[1])):
+    with open(diff_file) as infile:
+      diff = json.load(infile)
+
+  if len(diff) == 0:
+    print("Failed to load/generate diff")
+    return ret_code
+
+  prev_srcs = diff['prev-module']['sources']
+  post_srcs = diff['post-module']['sources']
+  if (len(prev_srcs) != 1 or len(post_srcs) != 1):
+    print("Source files have to be matched")
+    return ret_code
+
+  prev_src = list(prev_srcs.keys())[0]
+  post_src = list(post_srcs.keys())[0]
+  pr = get_line_diffs(prev_src, post_src)
+  prev_srcs[prev_src]["lines"] = pr[0]
+  post_srcs[post_src]["lines"] = pr[1]
+
+  with open(diff_file, "w") as outfile:
+    json.dump(diff, outfile, indent=2, sort_keys=True)
+    outfile.write("\n")
+    ret_code = 0
+
+  return ret_code
+
+
+if __name__ == "__main__":
+
+  parser = argparse.ArgumentParser(description="constructs diff.json file describing difference between two programs")
+  parser.add_argument('modules', metavar='module.bc', nargs=2, type=str, help='prepared bitcode modules')
+  parser.add_argument('-d', '--dir', required=True, help='directory containing module files')
+  args = parser.parse_args()
+  exit(main(args))

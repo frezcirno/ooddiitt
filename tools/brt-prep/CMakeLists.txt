@@ -6,7 +6,8 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_executable(brt-prep main.cpp jsoncpp.cpp)
+
+add_executable(brt-prep main.cpp)
 
 if (${LLVM_PACKAGE_VERSION} VERSION_LESS "3.4")
   message(FATAL_ERROR "brt-prep requires at least LLVM version 3.4")
@@ -14,6 +15,7 @@ endif()
 
 set(KLEE_LIBS
   kleeCore
+  kleeJson
 )
 
 target_link_libraries(brt-prep ${KLEE_LIBS} ${Boost_LIBRARIES})

@@ -152,7 +152,7 @@ void diffFns(KModule *kmod1,
              Json::Value &removed,
              set<string> &sig,
              set<string> &body,
-             set<string> &common) {
+             set<string> &commons) {
 
   set<string> fn_names1;
   set<string> fn_names2;
@@ -196,7 +196,7 @@ void diffFns(KModule *kmod1,
     } else if ((assume_eq.find(fn_name) == assume_eq.end()) && (calcFnHash(fn1) != calcFnHash(fn2))) {
       body.insert(fn_name);
     } else {
-      common.insert(fn_name);
+      commons.insert(fn_name);
     }
   }
 }
@@ -338,12 +338,28 @@ void constructCallGraph(KModule *kmod,
   }
 }
 
+void collectEntryFns(const map<string, unsigned> &src, const set<string> &sigs, map<string, unsigned> &entry_points) {
+
+  // potential entry points are common functions reaching a changed function
+  for (auto itr = src.begin(), end = src.end(); itr != end; ++itr) {
+    // cannot enter at a changed sig
+    if (sigs.find(itr->first) == sigs.end()) {
+
+      // update entry point list.  if not present insert, else update to minimum
+      const auto &ins = entry_points.insert(make_pair(itr->first, itr->second));
+      if (!ins.second) {
+        ins.first->second = std::min(ins.first->second, itr->second);
+      }
+    }
+  }
+}
+
 void entryFns(KModule *kmod1,
               KModule *kmod2,
               const set<string> &commons,
               const set<string> &sigs,
               const set<string> &bodies,
-              map<string,pair<unsigned,set<Function*>>> &entry_points) {
+              map<string, unsigned> &entry_points) {
 
   set<string> changes;
   changes.insert(bodies.begin(), bodies.end());
@@ -362,16 +378,11 @@ void entryFns(KModule *kmod1,
   map<string,unsigned> map2;
   reachesFns(kmod2, callee_graph2, commons, changes, map2);
 
-  // potential entries are those that reach any changed function and functions whose bodies (only) have changed.
-  for (auto itr1 = map1.begin(), end1 = map1.end(); itr1 != end1; ++itr1) {
-    // cannot enter at a changed sig
-    if (sigs.find(itr1->first) == sigs.end()) {
-      auto itr2 = map2.find(itr1->first);
-      if (itr2 != map2.end()) {
-        entry_points.insert(make_pair(itr1->first, make_pair(std::min(itr1->second, itr2->second), set<Function*>{})));
-      }
-    }
-  }
+  // potential entry points are common functions reaching a changed function
+  collectEntryFns(map1, sigs, entry_points);
+
+  // though they have common entry points, may need to update distance
+  collectEntryFns(map2, sigs, entry_points);
 }
 
 void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, const string &outDir) {
@@ -394,7 +405,7 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
       fns_equivalent.append(name);
     }
 
-    set<string> added, removed, sigs, bodies, commons;
+    set<string> sigs, bodies, commons;
     diffFns(kmod1, kmod2, assume_eq, fns_added, fns_removed, sigs, bodies, commons);
     for (const auto &fn : sigs) fns_changed_sig.append(fn);
     for (const auto &fn : bodies) fns_changed_body.append(fn);
@@ -404,29 +415,46 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     Json::Value &gbs_added = globals["added"] = Json::arrayValue;
     Json::Value &gbs_removed = globals["removed"] = Json::arrayValue;
     Json::Value &gbs_changed = globals["changed"] = Json::arrayValue;
+
     diffGbs(kmod1, kmod2, gbs_added, gbs_removed, gbs_changed);
 
-    root["pre-module"] = kmod1->getModuleIdentifier();
-    root["post-module"] = kmod2->getModuleIdentifier();
-
-    Json::Value &fns_entries = functions["entryPoints"] = Json::objectValue;
-    map<string,pair<unsigned,set<Function*>>> entry_points;
+    // now, record the program entry points reaching changed functions
+    Json::Value &fns_entries = root["entryPoints"] = Json::arrayValue;
+    map<string, unsigned> entry_points;
     entryFns(kmod1, kmod2, commons, sigs, bodies, entry_points);
     for (const auto &pr : entry_points) {
-      Json::Value &fn_entry = fns_entries[pr.first] = Json::objectValue;
-      fn_entry["distance"] = pr.second.first;
-      if (!pr.second.second.empty()) {
+      Json::Value &entry = fns_entries.append(Json::objectValue);
+      entry["function"] = pr.first;
+      entry["distance"] = pr.second;
+    }
 
-        // RLR TODO: this looks wrong
-        set<string> names;
-        for (const auto &fn : pr.second.second) {
-          names.insert(fn->getName().str());
-        }
-        Json::Value &undef_fns = fn_entry["undefinedFns"] = Json::arrayValue;
-        for (const auto &name : names) {
-          undef_fns.append(name);
-        }
-      }
+    Json::Value &prev_node = root["prev-module"] = Json::objectValue;
+    prev_node["name"] = kmod1->getModuleIdentifier();
+    Json::Value &prev_ext = prev_node["external"] = Json::arrayValue;
+    set<string> names;
+    kmod1->getExternalFunctions(names);
+    for (auto name : names) {
+      prev_ext.append(name);
+    }
+
+    Json::Value &prev_srcs = prev_node["sources"] = Json::objectValue;
+    kmod1->getUserSources(names);
+    for (auto name : names) {
+      prev_srcs[name] = Json::objectValue;
+    }
+
+    Json::Value &post_node = root["post-module"] = Json::objectValue;
+    post_node["name"] = kmod2->getModuleIdentifier();
+    Json::Value &post_ext = post_node["external"] = Json::arrayValue;
+    kmod2->getExternalFunctions(names);
+    for (auto name : names) {
+      post_ext.append(name);
+    }
+
+    Json::Value &post_srcs = post_node["sources"] = Json::objectValue;
+    kmod2->getUserSources(names);
+    for (auto name : names) {
+      post_srcs[name] = Json::objectValue;
     }
 
     string indent;

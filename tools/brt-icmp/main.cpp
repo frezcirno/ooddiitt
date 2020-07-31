@@ -40,6 +40,7 @@
 #include "json/json.h"
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 #include "StateComparison.h"
 
 //#define DO_HEAP_PROFILE 1
@@ -56,21 +57,19 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace {
-  cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
-  cl::opt<string> PreModule("pre", cl::desc("<pre-bytecode>"));
-  cl::opt<string> PostModule("post", cl::desc("<post-bytecode2>"));
-  cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::init(true));
-  cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
-  cl::opt<bool> NoOutput("no-output", cl::desc("Don't generate test files"));
-  cl::opt<bool> WarnAllExternals("warn-all-externals", cl::desc("Give initial warning for all externals."));
-  cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
-  cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"));
-  cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"));
-  cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"));
-  cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"));
-  cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12));
-  cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"));
-  cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"));
+cl::OptionCategory BrtCategory("specific brt options");
+cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
+cl::opt<string> PreModule("prev", cl::desc("<prev-bytecode>"), cl::cat(BrtCategory));
+cl::opt<string> PostModule("post", cl::desc("<post-bytecode2>"), cl::cat(BrtCategory));
+cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
+cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
+cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
+cl::opt<string> DiffInfo("diff", cl::desc("json formatted diff file"), cl::cat(BrtCategory));
+cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"), cl::cat(BrtCategory));
+cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12), cl::cat(BrtCategory));
+cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
+cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"), cl::cat(BrtCategory));
 }
 
 /***/
@@ -79,13 +78,11 @@ map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
 
 class ICmpKleeHandler : public InterpreterHandler {
 private:
-  string indentation;
+//  string indentation;
   StateVersion &ver;
 
 public:
-  explicit ICmpKleeHandler(StateVersion &_ver) : InterpreterHandler(Output, _ver.kmodule->getModuleIdentifier()), ver(_ver) {
-    if (IndentJson) indentation = "  ";
-  }
+  explicit ICmpKleeHandler(StateVersion &_ver) : InterpreterHandler(Output, _ver.kmodule->getModuleIdentifier()), ver(_ver) { }
   ~ICmpKleeHandler() override = default;
 
   void onStateInitialize(ExecutionState &state) override {
@@ -315,7 +312,6 @@ void expand_test_files(const string &prefix, deque<string> &files) {
     ReplayTests.push_back(Output);
   }
   deque<string> worklist(ReplayTests.begin(), ReplayTests.end());
-  string annotated_prefix = prefix + '-';
 
   while (!worklist.empty()) {
     string str = worklist.front();
@@ -331,7 +327,7 @@ void expand_test_files(const string &prefix, deque<string> &files) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) &&
             (pfile.extension().string() == ".json") &&
-            (boost::starts_with(pfile.filename().string(), annotated_prefix))) {
+            (boost::starts_with(pfile.filename().string(), prefix))) {
 
           files.push_back(pfile.string());
         }
@@ -347,125 +343,70 @@ void expand_test_files(const string &prefix, deque<string> &files) {
   sort(files.begin(), files.end());
 }
 
-void getModuleNames(const string &dir, string &name1, string &name2) {
+pair<string, string> getModuleNames(Json::Value &diff_root, const string &dir) {
 
-  name1 = PreModule;
-  name2 = PostModule;
+  static const char *key_prev_name = "prev-module";
+  static const char *key_post_name = "post-module";
+  pair<string, string> result = make_pair(PreModule, PostModule);
 
-  if (name1.empty() || name2.empty()) {
+  // only lookup value if command line arg is defaulted (i.e. empty)
+  // look in the diff file first
+  if (result.first.empty()) {
+    if (diff_root.isObject() && diff_root.isMember(key_prev_name)) {
+      result.first = diff_root[key_prev_name].asString();
+    }
+  }
+
+  if (result.second.empty()) {
+    if (diff_root.isObject() && diff_root.isMember(key_post_name)) {
+      result.first = diff_root[key_post_name].asString();
+    }
+  }
+
+  // if that does not work, then search the output directory for prefixed module files
+  if (result.first.empty() || result.second.empty()) {
+
+    string prev_name;
+    string post_name;
+
     if (fs::is_directory(dir)) {
       for (fs::directory_iterator itr{dir}, end{}; itr != end; ++itr) {
         fs::path pfile(itr->path());
         if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".bc")) {
 
           string filename = pfile.filename().string();
-          if (boost::starts_with(filename, "pre-")) {
-            name1 = (fs::path(dir) / filename).string();
+          if (boost::starts_with(filename, "prev-")) {
+            prev_name = (fs::path(dir) / filename).string();
           } else if (boost::starts_with(filename, "rply-")) {
-            name2 = (fs::path(dir) / filename).string();
-          } else if (name2.empty() && boost::starts_with(filename, "post-")) {
-            name2 = (fs::path(dir) / filename).string();
+            post_name = (fs::path(dir) / filename).string();
+          } else if (post_name.empty() && boost::starts_with(filename, "post-")) {
+            post_name = (fs::path(dir) / filename).string();
           }
         }
       }
     }
+    if (result.first.empty()) result.first = prev_name;
+    if (result.second.empty()) result.second = post_name;
   }
+  return result;
 }
 
-void load_diff_info(const string &diff_file, KModule *kmod_pre, KModule *kmod_post) {
+bool getDiffInfo(const string &diff_file, Json::Value &root) {
 
+  bool result = false;
   string filename = diff_file;
   if (!fs::exists(fs::path(filename))) {
-    filename = (fs::path(Output)/filename).string();
+    filename = (fs::path(Output) / filename).string();
   }
 
   ifstream infile(filename);
   if (infile.is_open()) {
-    Json::Value root;
     infile >> root;
-
-    kmod_pre->pre_module = kmod_post->pre_module = root["pre-module"].asString();
-    kmod_pre->post_module = kmod_post->post_module = root["post-module"].asString();
-    kmod_pre->is_pre_module = true;
-
-    Json::Value &fns = root["functions"];
-    Json::Value &fns_added = fns["added"];
-    for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
-      kmod_post->addDiffFnAdded(fns_added[idx].asString());
-    }
-    Json::Value &fns_removed = fns["removed"];
-    for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
-      kmod_pre->addDiffFnRemoved(fns_removed[idx].asString());
-    }
-    Json::Value &fns_body = fns["body"];
-    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
-      string str = fns_body[idx].asString();
-      kmod_pre->addDiffFnChangedBody(str);
-      kmod_post->addDiffFnChangedBody(str);
-    }
-    Json::Value &fns_sig = fns["signature"];
-    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
-      string str = fns_sig[idx].asString();
-      kmod_pre->addDiffFnChangedSig(str);
-      kmod_post->addDiffFnChangedSig(str);
-    }
-
-    Json::Value &gbs = root["globals"];
-    Json::Value &gbs_added = gbs["added"];
-    for (unsigned idx = 0, end = gbs_added.size(); idx < end; ++idx) {
-      kmod_post->addDiffGlobalAdded(gbs_added[idx].asString());
-    }
-    Json::Value &gbs_removed = gbs["removed"];
-    for (unsigned idx = 0, end = gbs_removed.size(); idx < end; ++idx) {
-      kmod_pre->addDiffGlobalRemoved(gbs_removed[idx].asString());
-    }
-
-    Json::Value &gbs_type = gbs["changed"];
-    for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
-      string str = gbs_type[idx].asString();
-      kmod_pre->addDiffGlobalChanged(str);
-      kmod_post->addDiffGlobalChanged(str);
-    }
-
-    // collect map of sets of targeted c-source statements
-    Json::Value &pre_tgt_src = root["pre_src_lines"];
-    if (!pre_tgt_src.empty()) {
-
-      map<string, set<unsigned>> targeted_stmts;
-      for (auto src_itr = pre_tgt_src.begin(), src_end = pre_tgt_src.end(); src_itr != src_end; ++src_itr) {
-        string src_file = src_itr.key().asString();
-        Json::Value &stmt_array = *src_itr;
-        if (stmt_array.isArray()) {
-          set<unsigned> &stmts = targeted_stmts[src_file];
-          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-            stmts.insert(stmt_array[idx].asUInt());
-          }
-        }
-      }
-      kmod_pre->setTargetStmts(targeted_stmts);
-    }
-
-    // collect map of sets of targeted c-source statements
-    Json::Value &post_tgt_src = root["post_src_lines"];
-    if (!post_tgt_src.empty()) {
-
-      map<string, set<unsigned>> targeted_stmts;
-      for (auto src_itr = post_tgt_src.begin(), src_end = post_tgt_src.end(); src_itr != src_end; ++src_itr) {
-        string src_file = src_itr.key().asString();
-        Json::Value &stmt_array = *src_itr;
-        if (stmt_array.isArray()) {
-          set<unsigned> &stmts = targeted_stmts[src_file];
-          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-            stmts.insert(stmt_array[idx].asUInt());
-          }
-        }
-      }
-      kmod_post->setTargetStmts(targeted_stmts);
-    }
-
+    result = true;
   } else {
     klee_error("failed opening diff file: %s", filename.c_str());
   }
+  return result;
 }
 
 bool isTrueFault(const vector<Function *> &true_faults, const ExecutionState *state) {
@@ -500,31 +441,36 @@ int main(int argc, char *argv[]) {
 
   exit_code = 0;
 
-  // if pre and post module are empty (default) then try to automatically find
-  // pre and post modules in the output directory
-  string mod_name1;
-  string mod_name2;
-  getModuleNames(Output, mod_name1, mod_name2);
-  if (mod_name1.empty()) {
-    errs() << "Failed to find pre-module\n";
+  Json::Value diff_root;
+  getDiffInfo(DiffInfo, diff_root);
+
+  // if prev and post module are empty (default) then try to automatically find
+  // prev and post modules in the output directory
+  pair<string,string> mod_names = getModuleNames(diff_root, Output);
+  if (mod_names.first.empty()) {
+    errs() << "Failed to find prev-module\n";
     exit(1);
   }
-  if (mod_name2.empty()) {
+  if (mod_names.second.empty()) {
     errs() << "Failed to find post-module\n";
     exit(1);
   }
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
-  KModule *kmod1 = PrepareModule(mod_name1);
+  KModule *kmod1 = PrepareModule(mod_names.first);
   if (kmod1 == nullptr) {
-    klee_error("failed to load %s", mod_name1.c_str());
+    klee_error("failed to load %s", mod_names.first.c_str());
   }
-  KModule *kmod2 = PrepareModule(mod_name2);
+  KModule *kmod2 = PrepareModule(mod_names.second);
   if (kmod2 == nullptr) {
-    klee_error("failed to load %s", mod_name2.c_str());
+    klee_error("failed to load %s", mod_names.second.c_str());
   }
-  if (!DiffInfo.empty()) load_diff_info(DiffInfo, kmod1, kmod2);
+
+  if (!diff_root.isNull()) {
+    applyDiffInfo(diff_root, kmod1);
+    applyDiffInfo(diff_root, kmod2);
+  }
 
   LLVMContext *ctx1 = nullptr;
   LLVMContext *ctx2 = nullptr;
@@ -547,7 +493,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (!kmod2->hasOracle()) {
-    klee_warning("%s does not contain an oracle", mod_name2.c_str());
+    klee_warning("%s does not contain an oracle", kmod2->getModuleIdentifier().c_str());
   }
 
 #ifdef DO_HEAP_PROFILE

@@ -42,7 +42,7 @@
 #include "json/json.h"
 #include "klee/TestCase.h"
 #include "klee/util/CommonUtil.h"
-
+#include "klee/util/JsonUtil.h"
 
 //#define DO_HEAP_PROFILE 1
 
@@ -236,80 +236,22 @@ void load_test_case(Json::Value &root, TestCase &test) {
   }
 }
 
-void load_diff_info(const string &diff_file, KModule *kmod) {
+bool getDiffInfo(const string &diff_file, Json::Value &root) {
 
+  bool result = false;
   string filename = diff_file;
   if (!fs::exists(fs::path(filename))) {
-    filename = (fs::path(Output)/filename).string();
+    filename = (fs::path(Output) / filename).string();
   }
 
   ifstream infile(filename);
   if (infile.is_open()) {
-    Json::Value root;
     infile >> root;
-
-    string module_name = fs::path(kmod->getModuleIdentifier()).filename().string();
-    kmod->pre_module = root["pre-module"].asString();
-    kmod->post_module = root["post-module"].asString();
-    kmod->is_pre_module = (kmod->pre_module == module_name);
-
-    Json::Value &fns = root["functions"];
-    Json::Value &fns_added = fns["added"];
-    for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
-      kmod->addDiffFnAdded(fns_added[idx].asString());
-    }
-    Json::Value &fns_removed = fns["removed"];
-    for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
-      kmod->addDiffFnRemoved(fns_removed[idx].asString());
-    }
-    Json::Value &fns_body = fns["body"];
-    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
-      string str = fns_body[idx].asString();
-      kmod->addDiffFnChangedBody(str);
-    }
-    Json::Value &fns_sig = fns["signature"];
-    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
-      string str = fns_sig[idx].asString();
-      kmod->addDiffFnChangedSig(str);
-    }
-
-    Json::Value &gbs = root["globals"];
-    Json::Value &gbs_added = gbs["added"];
-    for (unsigned idx = 0, end = gbs_added.size(); idx < end; ++idx) {
-      kmod->addDiffGlobalAdded(gbs_added[idx].asString());
-    }
-    Json::Value &gbs_removed = gbs["removed"];
-    for (unsigned idx = 0, end = gbs_removed.size(); idx < end; ++idx) {
-      kmod->addDiffGlobalRemoved(gbs_removed[idx].asString());
-    }
-
-    Json::Value &gbs_type = gbs["changed"];
-    for (unsigned idx = 0, end = gbs_type.size(); idx < end; ++idx) {
-      string str = gbs_type[idx].asString();
-      kmod->addDiffGlobalChanged(str);
-    }
-
-    // collect map of sets of targeted c-source statements
-    string targeted_key = (kmod->isPreModule() ? "pre_src_lines" : "post_src_lines");
-    Json::Value &tgt_src = root[targeted_key];
-    if (!tgt_src.empty()) {
-
-      map<string, set<unsigned>> targeted_stmts;
-      for (auto src_itr = tgt_src.begin(), src_end = tgt_src.end(); src_itr != src_end; ++src_itr) {
-        string src_file = src_itr.key().asString();
-        Json::Value &stmt_array = *src_itr;
-        if (stmt_array.isArray()) {
-          set<unsigned> &stmts = targeted_stmts[src_file];
-          for (unsigned idx = 0, end = stmt_array.size(); idx < end; ++idx) {
-            stmts.insert(stmt_array[idx].asUInt());
-          }
-        }
-      }
-      kmod->setTargetStmts(targeted_stmts);
-    }
+    result = true;
   } else {
-    klee_warning("failed opening diff file: %s", filename.c_str());
+    klee_error("failed opening diff file: %s", filename.c_str());
   }
+  return result;
 }
 
 Module *LoadModule(const string &filename) {
@@ -340,7 +282,7 @@ Module *LoadModule(const string &filename) {
 
 map<string,KModule*> module_cache;
 
-KModule *PrepareModule(const string &filename) {
+KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
 
   auto itr = module_cache.find(filename);
   if (itr != module_cache.end()) {
@@ -352,7 +294,7 @@ KModule *PrepareModule(const string &filename) {
       } else {
         if (KModule *kmodule = new KModule(module)) {
           kmodule->prepare();
-          if (!DiffInfo.empty()) load_diff_info(DiffInfo, kmodule);
+          if (!diff_root.isNull()) applyDiffInfo(diff_root, kmodule);
           module_cache.insert(make_pair(filename, kmodule));
           return kmodule;
         }
@@ -455,6 +397,9 @@ int main(int argc, char *argv[]) {
   HeapProfilerStart("brt-rply");
 #endif
 
+  Json::Value diff_root;
+  if (!DiffInfo.empty()) getDiffInfo(DiffInfo, diff_root);
+
   deque<string> test_files;
   expand_test_files(Prefix, test_files);
 
@@ -482,7 +427,7 @@ int main(int argc, char *argv[]) {
       getModuleName(Output, module_name);
     }
 
-    KModule *kmod = PrepareModule(module_name);
+    KModule *kmod = PrepareModule(module_name, diff_root);
     LLVMContext *ctx = kmod->getContextPtr();
 
     // Common setup

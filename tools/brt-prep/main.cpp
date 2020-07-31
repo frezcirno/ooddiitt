@@ -223,9 +223,7 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   klee_error("invalid libc, no uclibc support!\n");
 }
 #else
-static void replaceOrRenameFunction(llvm::Module *module,
-                const char *old_name, const char *new_name)
-{
+static void replaceOrRenameFunction(llvm::Module *module, const char *old_name, const char *new_name) {
   Function *f, *f2;
   f = module->getFunction(new_name);
   f2 = module->getFunction(old_name);

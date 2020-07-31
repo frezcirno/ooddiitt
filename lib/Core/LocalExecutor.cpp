@@ -1070,7 +1070,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
       }
 
       // also need to remove a pre, post, or rply prefix so all programs see same prog name
-      if (boost::starts_with(prog_name, "pre-")) {
+      if (boost::starts_with(prog_name, "prev-")) {
         prog_name = prog_name.substr(4);
       }
       if (boost::starts_with(prog_name, "post-")) {
@@ -2532,7 +2532,7 @@ void LocalExecutor::terminateStateOnMemFault(ExecutionState &state,
     else ss << "->";
     ss << frame.kf->fn_name;
   }
-  if (kmodule->isPreModule()) {
+  if (kmodule->isPrevModule()) {
     terminateStateOnDispose(state, ss.str());
   } else {
     terminateStateOnComplete(state, TerminateReason::MemFault, ss.str());
