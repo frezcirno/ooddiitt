@@ -1,9 +1,19 @@
+//===-----------------------------------------------------------*- C++ -*-===//
+//
+//                     The KLEE Symbolic Virtual Machine
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
 
-#ifndef KLEE_COMMONUTIL_H
-#define KLEE_COMMONUTIL_H
+#pragma once
 
 #include <chrono>
 #include <bitset>
+#include <list>
+#include <string>
+#include <set>
 #include <llvm/IR/Type.h>
 #include <llvm/ADT/Hashing.h>
 #include <llvm/Support/raw_ostream.h>
@@ -134,6 +144,7 @@ std::string to_string(const llvm::Type *type);
 
 void fromDataString(std::vector<unsigned char> &data, const std::string &str);
 std::string toDataString(const std::vector<unsigned char> &data, unsigned max = UINT32_MAX);
+void expandTestFiles(const std::string &file, const std::string &dir, const std::string &prefix, std::deque<std::string> &files);
 
 void filterHandledFunctions(std::set<const llvm::Value*> &fns);
 void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
@@ -160,5 +171,4 @@ void ShowMemStats();
 
 } // namespace klee
 
-#endif // KLEE_COMMONUTIL_H
 

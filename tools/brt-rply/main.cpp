@@ -157,85 +157,6 @@ static void interrupt_handle() {
   }
 }
 
-void load_test_case(Json::Value &root, TestCase &test) {
-
-  // complete test case from json structure
-  test.arg_c = root["argC"].asInt();
-  test.arg_v = root["argV"].asString();
-
-  test.module_name = root["module"].asString();
-  test.file_name = root["file"].asString();
-  test.entry_fn = root["entryFn"].asString();
-  test.klee_version = root["kleeRevision"].asString();
-  test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
-  test.lazy_string_length = root["lazyStringLength"].asUInt();
-  test.max_lazy_depth = root["maxLazyDepth"].asUInt();
-  test.max_loop_forks = root["maxLoopForks"].asUInt();
-  test.max_loop_iter = root["maxLoopIteration"].asUInt();
-  test.message = root["message"].asString();
-  test.path_condition_vars = root["pathConditionVars"].asString();
-  test.term_reason = (TerminateReason) root["termination"].asUInt();
-  test.test_id = root["testID"].asUInt();
-  test.start = to_time_point(root["timeStarted"].asString());
-  test.stop = to_time_point(root["timeStopped"].asString());
-  fromDataString(test.stdin_buffer, root["stdin"].asString());
-  test.unconstraintFlags = UnconstraintFlagsT(root["unconstraintFlags"].asString());
-
-  Json::Value &args = root["arguments"];
-  if (args.isArray()) {
-    test.arguments.reserve(args.size());
-    for (unsigned idx = 0, end = args.size(); idx < end; ++idx) {
-      string value = args[idx].asString();
-      vector<unsigned char> bytes;
-      fromDataString(bytes, value);
-      uint64_t v = 0;
-      switch (bytes.size()) {
-      case 1:
-        v = *((uint8_t*) bytes.data());
-        break;
-      case 2:
-        v = *((uint16_t*) bytes.data());
-        break;
-      case 4:
-        v = *((uint32_t*) bytes.data());
-        break;
-      case 8:
-        v = *((uint64_t*) bytes.data());
-        break;
-      default:
-        assert(false && "unsupported data width");
-        break;
-      }
-      test.arguments.push_back(v);
-    }
-  }
-
-  test.trace_type = (TraceType) root["traceType"].asUInt();
-  Json::Value &trace = root["trace"];
-  if (trace.isArray()) {
-    test.trace.reserve(trace.size());
-    for (unsigned idx = 0, end = trace.size(); idx < end; ++idx) {
-      test.trace.push_back(trace[idx].asString());
-    }
-  }
-
-  Json::Value &objs = root["objects"];
-  if (objs.isArray()) {
-    test.objects.reserve(objs.size());
-    for (unsigned idx = 0, end = objs.size(); idx < end; ++idx) {
-      Json::Value &obj = objs[idx];
-      string addr = obj["addr"].asString();
-      unsigned count = obj["count"].asUInt();
-      string data = obj["data"].asString();
-      size_t align = obj["align"].asInt64();
-      MemKind kind = (MemKind) obj["kind"].asUInt();
-      string name = obj["name"].asString();
-      string type = obj["type"].asString();
-      test.objects.emplace_back(TestObject(addr, count, data, align, kind, name, type));
-    }
-  }
-}
-
 bool getDiffInfo(const string &diff_file, Json::Value &root) {
 
   bool result = false;
@@ -309,64 +230,6 @@ KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
 #define EXIT_STATUS_CONFLICT  2
 #define EXIT_TRACE_CONFLICT   3
 
-void expand_test_files(const string &prefix, deque<string> &files) {
-
-  // if tests are not specified, then default to all tests in the output directory
-  if (ReplayTests.empty()) {
-    ReplayTests.push_back(Output);
-  }
-  deque<string> worklist(ReplayTests.begin(), ReplayTests.end());
-
-  while (!worklist.empty()) {
-    string str = worklist.front();
-    worklist.pop_front();
-    fs::path entry(str);
-    boost::system::error_code ec;
-    fs::file_status s = fs::status(entry, ec);
-    if (fs::is_regular_file(s)) {
-      files.push_back(str);
-    } else if (fs::is_directory(s)) {
-      for (fs::directory_iterator itr{entry}, end{}; itr != end; ++itr) {
-        // add regular files of the form test*.json
-        fs::path pfile(itr->path());
-        if (fs::is_regular_file(pfile) &&
-           (pfile.extension().string() == ".json") &&
-           (boost::starts_with(pfile.filename().string(), prefix))) {
-
-          files.push_back(pfile.string());
-        }
-      }
-    } else if (entry.parent_path().empty()) {
-      // only filename given, try the output directory
-      string new_str = (Output / entry).string();
-      if (new_str != str) worklist.push_back(new_str);
-    } else {
-      errs() << "Entry not found: " << str << '\n';
-    }
-  }
-  sort(files.begin(), files.end());
-}
-
-void getModuleName(const string &dir, string &name) {
-
-  // if cmd line arg does not end in .bc, this could be a prefix
-  // look for a matching bitcode file in the output directory
-  if (!boost::ends_with(name, ".bc")) {
-    string prefix = name + '-';
-    for (fs::directory_iterator itr{dir}, end{}; itr != end; ++itr) {
-      fs::path pfile(itr->path());
-      if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".bc")) {
-        string filename = pfile.filename().string();
-        if (boost::starts_with(filename, prefix)) {
-          name = pfile.string();
-          break;
-        }
-      }
-    }
-  }
-}
-
-
 static const char *err_context = nullptr;
 static void PrintStackTraceSignalHandler(void *) {
   if (err_context != nullptr) {
@@ -401,7 +264,12 @@ int main(int argc, char *argv[]) {
   if (!DiffInfo.empty()) getDiffInfo(DiffInfo, diff_root);
 
   deque<string> test_files;
-  expand_test_files(Prefix, test_files);
+  if (ReplayTests.empty()) {
+    expandTestFiles(Output, Output, Prefix, test_files);
+  } else {
+    for (auto file : ReplayTests) expandTestFiles(file, Output, Prefix, test_files);
+  }
+  sort(test_files.begin(), test_files.end());
 
   for (const string &test_file : test_files) {
 
@@ -411,7 +279,8 @@ int main(int argc, char *argv[]) {
     info.open(test_file);
     if (info.is_open()) {
       info >> root;
-      load_test_case(root, test);
+
+      loadTestCase(root, test);
     }
     if (!test.is_ready()) {
       klee_error("failed to load test case '%s'", test_file.c_str());
@@ -424,7 +293,7 @@ int main(int argc, char *argv[]) {
     if (module_name.empty()) {
       module_name = test.file_name;
     } else {
-      getModuleName(Output, module_name);
+      translateDifftoModule(root, module_name);
     }
 
     KModule *kmod = PrepareModule(module_name, diff_root);

@@ -1,17 +1,28 @@
-
+//===-----------------------------------------------------------*- C++ -*-===//
+//
+//                     The KLEE Symbolic Virtual Machine
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
 
 #include <string>
 #include <sstream>
 #include <iomanip>
 #include <set>
-#include "klee/util/CommonUtil.h"
-#include "../Core/SpecialFunctionHandler.h"
-#include "../Core/SystemModel.h"
-#include <llvm/IR/Function.h>
-#include <llvm/IR/GlobalVariable.h>
 #include <zconf.h>
 
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
+
+#include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
+
+#include "klee/util/CommonUtil.h"
+#include "../Core/SpecialFunctionHandler.h"
+#include "../Core/SystemModel.h"
+#include "klee/Internal/Support/ErrorHandling.h"
 
 
 namespace llvm {
@@ -223,6 +234,39 @@ void HashAccumulator::add(const std::string &str) {
   }
 }
 
+void expandTestFiles(const string &file, const string &dir, const string &prefix, deque<string> &files) {
+
+  // if tests are not specified, then default to all tests in the output directory
+  deque<string> worklist;
+  worklist.push_back(file);
+
+  while (!worklist.empty()) {
+    string str = worklist.front();
+    worklist.pop_front();
+    fs::path entry(str);
+    boost::system::error_code ec;
+    fs::file_status s = fs::status(entry, ec);
+    if (fs::is_regular_file(s)) {
+      files.push_back(str);
+    } else if (fs::is_directory(s)) {
+      for (fs::directory_iterator itr{entry}, end{}; itr != end; ++itr) {
+        // add regular files of the form test*.json
+        fs::path pfile(itr->path());
+        if (fs::is_regular_file(pfile) && (pfile.extension().string() == ".json") &&
+            (boost::starts_with(pfile.filename().string(), prefix))) {
+
+          files.push_back(pfile.string());
+        }
+      }
+    } else if (entry.parent_path().empty()) {
+      // only filename given, try the output directory
+      string new_str = (dir / entry).string();
+      if (new_str != str) worklist.push_back(new_str);
+    } else {
+      klee_error("Test file not found: %s", str.c_str());
+    }
+  }
+}
 
 #ifdef _DEBUG
 

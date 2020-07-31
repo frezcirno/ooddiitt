@@ -555,22 +555,6 @@ bool getDiffInfo(const string &diff_file, Json::Value &root) {
   return result;
 }
 
-bool getDiffTarget(Json::Value &diff_root, const string &mod, unsigned idx, string &module_file, string &entry_point) {
-
-  string member_name = mod + "-module";
-  if (diff_root.isMember(member_name)) {
-    module_file = diff_root[member_name]["name"].asString();
-
-    Json::Value &entries = diff_root["entryPoints"];
-    if (entries.isArray() && idx < entries.size()) {
-      Json::Value &entry = entries[idx];
-      entry_point = entry["function"].asString();
-      return true;
-    }
-  }
-  return false;
-}
-
 Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
@@ -726,30 +710,7 @@ int main(int argc, char *argv[]) {
   // select the module file and entry point
   string module_file = InputFile;
   string entry_point = EntryPoint;
-
-  if (!diff_root.isNull()) {
-    if (module_file.find(":") != string::npos) {
-      vector<string> elements;
-      boost::split(elements, module_file, boost::is_any_of(":"));
-      if (elements.size() == 2) {
-        unsigned idx = std::stoul(elements[1]);
-        if (idx < diff_root["entryPoints"].size()) {
-          if (getDiffTarget(diff_root, elements[0], idx, module_file, entry_point)) {
-            if (!EntryPoint.empty()) {
-              klee_error("cannot specify entry point with diff target parameter: %s", EntryPoint.c_str());
-            }
-          } else {
-            klee_error("unable to find target in diff file: %s", elements[0].c_str());
-          }
-        } else {
-          klee_error("index out-of-range in diff file: %u", idx);
-        }
-      } else {
-        klee_error("invalid diff target specification: %s", module_file.c_str());
-      }
-    }
-  }
-
+  translateDifftoModule(diff_root, module_file, entry_point);
 
   // Load the bytecode and verify that its been prepped
   KModule *kmod = PrepareModule(module_file, diff_root);

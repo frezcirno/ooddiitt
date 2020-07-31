@@ -1,4 +1,4 @@
-//===-- main.cpp ------------------------------------------------*- C++ -*-===//
+//===-----------------------------------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
 //
@@ -7,13 +7,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #pragma once
 
+#include <string>
 #include <json/json.h>
 
 namespace klee {
 class KModule;
-}
+class TestCase;
 
-void applyDiffInfo(Json::Value &root, klee::KModule *kmod);
+bool applyDiffInfo(Json::Value &root, KModule *kmod);
+bool loadTestCase(Json::Value &root, TestCase &test);
+bool translateDifftoModule(Json::Value &root, std::string &module_name);
+bool translateDifftoModule(Json::Value &root, std::string &module_name, std::string &entry_point);
+
+} // end klee namespace

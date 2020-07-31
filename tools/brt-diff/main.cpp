@@ -62,8 +62,9 @@ namespace fs = boost::filesystem;
 
 namespace {
 cl::OptionCategory BrtCategory("specific brt options");
-cl::opt<string> InputFile1(cl::desc("<original bytecode>"), cl::Positional);
-cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional);
+cl::opt<string> InputFile1(cl::desc("<original bytecode>"), cl::Positional, cl::Required);
+cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional, cl::Required);
+cl::opt<string> InputFile3(cl::desc("<oracle bytecode>"), cl::Positional);
 cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
 cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
 cl::opt<string> AssumeEq("assume-equiv", cl::desc("assume the following functions are equivalent (useful for some library routines"), cl::cat(BrtCategory));
@@ -385,7 +386,10 @@ void entryFns(KModule *kmod1,
   collectEntryFns(map2, sigs, entry_points);
 }
 
-void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, const string &outDir) {
+void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const set<string> &assume_eq, const string &outDir) {
+
+  // kmod3 is optional
+  assert(kmod1 && kmod2);
 
   fs::path path(outDir);
   string pathname = (path /= "diff.json").string();
@@ -455,6 +459,22 @@ void emitDiff(KModule *kmod1, KModule *kmod2, const set<string> &assume_eq, cons
     kmod2->getUserSources(names);
     for (auto name : names) {
       post_srcs[name] = Json::objectValue;
+    }
+
+    if (kmod3 != nullptr) {
+      Json::Value &orcl_node = root["orcl-module"] = Json::objectValue;
+      orcl_node["name"] = kmod3->getModuleIdentifier();
+      Json::Value &orcl_ext = orcl_node["external"] = Json::arrayValue;
+      kmod3->getExternalFunctions(names);
+      for (auto name : names) {
+        orcl_ext.append(name);
+      }
+
+      Json::Value &orcl_srcs = orcl_node["sources"] = Json::objectValue;
+      kmod3->getUserSources(names);
+      for (auto name : names) {
+        orcl_srcs[name] = Json::objectValue;
+      }
     }
 
     string indent;
@@ -531,11 +551,23 @@ int main(int argc, char *argv[]) {
     KModule *kmod2 = PrepareModule(InputFile2);
     if (kmod2 != nullptr) {
 
+      // third kmod is optional, and presumed to be a post-instrumented oracle
+      KModule *kmod3 = nullptr;
+      if (!InputFile3.empty()) {
+        kmod3 = PrepareModule(InputFile3);
+      }
+
       set<string> assume_eq;
       if (!AssumeEq.empty()) {
         boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
       }
-      emitDiff(kmod1, kmod2, assume_eq, Output);
+      emitDiff(kmod1, kmod2, kmod3, assume_eq, Output);
+
+      if (kmod3 != nullptr) {
+        LLVMContext *ctx = kmod3->getContextPtr();
+        delete kmod3;
+        delete ctx;
+      }
 
       LLVMContext *ctx = kmod2->getContextPtr();
       delete kmod2;
