@@ -23,8 +23,7 @@
 namespace klee {
 
 typedef std::pair<MemoryObject*,ObjectState*> WObjectPair;
-typedef std::set<ExecutionState*> ExecutionStates;
-
+typedef std::set_ex<ExecutionState*> ExecutionStates;
 
 struct ReplayFnRec {
   const MemoryObject *ret_value;
@@ -173,7 +172,7 @@ protected:
                                 const MemoryObject *mo,
                                 const std::string &comment);
 
-  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set<MemKind> &kinds) override;
+  bool getConcreteSolution(ExecutionState &state, std::vector<SymbolicSolution> &result, const std::set_ex<MemKind> &kinds) override;
 
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
@@ -195,8 +194,8 @@ protected:
   bool libc_initializing;
   bool enable_state_switching;
 
-  std::set<const llvm::Function*> break_fns;
-  std::set<unsigned> break_lines;
+  std::set_ex<const llvm::Function*> break_fns;
+  std::set_ex<unsigned> break_lines;
   ModelOptions optsModel;
   SystemModel *sysModel;
   TraceType trace_type;

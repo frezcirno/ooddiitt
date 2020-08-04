@@ -45,7 +45,7 @@ namespace klee {
   template<class T> class ref;
 
   typedef std::pair<const llvm::BasicBlock*,const llvm::BasicBlock*> CFGEdge;
-  typedef std::set<const llvm::BasicBlock*> BasicBlocks;
+  typedef std::set_ex<const llvm::BasicBlock*> BasicBlocks;
   typedef llvm::LoopInfoBase<llvm::BasicBlock, llvm::Loop> KLoop;
 
   struct KFunction {
@@ -67,7 +67,7 @@ namespace klee {
     // loop analysis
     llvm::DominatorTree domTree;
     KLoop kloop;
-    std::set<const llvm::Loop*> loops;
+    std::set_ex<const llvm::Loop*> loops;
 
     std::string src_location;
 
@@ -86,7 +86,7 @@ namespace klee {
       { const auto *loop = kloop.getLoopFor(bb); return (loop && loop->getHeader() == bb); }
     void getSuccessorBBs(const llvm::BasicBlock *bb, BasicBlocks &successors) const;
     void getPredecessorBBs(const llvm::BasicBlock *bb, BasicBlocks &predecessors) const;
-    bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const;
+    bool reachesAnyOf(const llvm::BasicBlock *bb, const std::set_ex<const llvm::BasicBlock*> &blocks) const;
     bool isUser() const {return is_user; }
     bool isDiffAdded() const        {return diff_added; }
     bool isDiffRemoved() const      {return diff_removed; }
@@ -133,8 +133,8 @@ namespace klee {
 
     // Functions which escape (may be called indirectly)
     // XXX change to KFunction
-    std::set<llvm::Function *> escapingFunctions;
-    std::set<const llvm::Function *> externalFunctions;
+    std::set_ex<llvm::Function *> escapingFunctions;
+    std::set_ex<const llvm::Function *> externalFunctions;
 
     InstructionInfoTable *infos;
 
@@ -147,7 +147,7 @@ namespace klee {
     // Mark function as part of the KLEE runtime
     void addInternalFunction(const llvm::Function *fn) { internalFunctions.insert(fn); }
     bool isInternalFunction(const llvm::Function *fn) const
-      { return (fn != nullptr) && (internalFunctions.find(fn) != internalFunctions.end()); }
+    { return (fn != nullptr) && (internalFunctions.contains(fn)); }
     bool isDefinedFunction(llvm::Function *fn) { return getKFunction(fn) != nullptr; }
 
     llvm::Function *getTargetFunction(llvm::Value *value) const;
@@ -155,8 +155,8 @@ namespace klee {
   private:
 
     // Functions which are part of KLEE runtime
-    std::set<const llvm::Function*> internalFunctions;
-    std::map<llvm::Function*,std::set<unsigned>> fn_const_params;
+    std::set_ex<const llvm::Function*> internalFunctions;
+    std::map<llvm::Function*,std::set_ex<unsigned>> fn_const_params;
 
   public:
     explicit KModule(llvm::Module *_module);
@@ -168,17 +168,13 @@ namespace klee {
       { std::string result; if (module) result = module->getModuleIdentifier(); return result; }
     llvm::LLVMContext *getContextPtr() const
       { llvm::LLVMContext *result = nullptr; if (module) result = &module->getContext(); return result; }
-    llvm::Function *getFunction(const std::string &fn) const {
-      llvm::Function *result = nullptr;
-      if (module)
-        result = module->getFunction(fn);
-      return result;
-    }
+    llvm::Function *getFunction(const std::string &fn) const
+      { llvm::Function *result = nullptr; if (module) result = module->getFunction(fn); return result; }
 
     bool isConstFnArg(llvm::Function *fn, unsigned idx) {
       auto itr = fn_const_params.find(fn);
       if (itr != fn_const_params.end()) {
-        return itr->second.find(idx) != itr->second.end();
+        return itr->second.contains(idx);
       }
       return false;
     }
@@ -200,52 +196,50 @@ namespace klee {
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
     std::pair<unsigned,unsigned> getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb);
-    void getMarkedFns(std::set<const llvm::Function*> &fns) {
+    void getMarkedFns(std::set_ex<const llvm::Function*> &fns) {
       fns.clear();
-      for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) {
-        fns.insert(itr->first);
-      }
+      for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) fns.insert(itr->first);
     }
 
-    void getFnsOfType(const llvm::FunctionType *ft, std::set<const llvm::Function*> &fns) {
+    void getFnsOfType(const llvm::FunctionType *ft, std::set_ex<const llvm::Function*> &fns) {
       auto itr = mapFnTypes.find(ft);
       if (itr != mapFnTypes.end()) {
         fns.insert(itr->second.begin(), itr->second.end());
       }
     }
 
-    void getUserFunctions(std::set<const llvm::Function*> &fns) const {
+    void getUserFunctions(std::set_ex<const llvm::Function*> &fns) const {
       fns.clear();
       for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert(*itr);
     }
 
-    void getUserFunctions(std::set<std::string> &fns) const {
+    void getUserFunctions(std::set_ex<std::string> &fns) const {
       fns.clear();
       for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) fns.insert((*itr)->getName());
     }
 
-    void getUserSources(std::set<std::string> &srcs) const;
+    void getUserSources(std::set_ex<std::string> &srcs) const;
 
-    void getExternalFunctions(std::set<const llvm::Function*> &fns) const {
+    void getExternalFunctions(std::set_ex<const llvm::Function*> &fns) const {
       fns.clear();
       for (auto itr = externalFunctions.begin(), end = externalFunctions.end(); itr != end; ++itr) fns.insert(*itr);
     }
 
-    void getExternalFunctions(std::set<std::string> &fns) const {
+    void getExternalFunctions(std::set_ex<std::string> &fns) const {
       fns.clear();
       for (auto itr = externalFunctions.begin(), end = externalFunctions.end(); itr != end; ++itr) fns.insert((*itr)->getName());
     }
 
     bool isUserGlobal(const llvm::GlobalVariable* gb) const {
-      return user_gbs.find(gb) != user_gbs.end();
+      return user_gbs.contains(gb);
     }
 
-    void getUserGlobals(std::set<const llvm::GlobalVariable*> &gbs) const {
+    void getUserGlobals(std::set_ex<const llvm::GlobalVariable*> &gbs) const {
       gbs.clear();
       for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) gbs.insert(*itr);
     }
 
-    void getUserGlobals(std::set<std::string> &gbs) {
+    void getUserGlobals(std::set_ex<std::string> &gbs) {
       gbs.clear();
       for (auto itr = user_gbs.begin(), end = user_gbs.end(); itr != end; ++itr) {
         const llvm::GlobalVariable *gv = *itr;
@@ -284,25 +278,25 @@ namespace klee {
       return false;
     }
 
-    void setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts);
+    void setTargetStmts(const std::map<std::string, std::set_ex<unsigned>> &stmts);
     bool isPrevModule() const { return is_prev_module; }
     bool isPostModule() const { return !is_prev_module; }
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
-    std::map<const llvm::FunctionType*,std::set<const llvm::Function*> >mapFnTypes;
+    std::map<const llvm::FunctionType*,std::set_ex<const llvm::Function*> >mapFnTypes;
     std::map<std::string,llvm::Type*> mapTypeDescs;
-    std::set<const llvm::Function*> user_fns;
-    std::set<const llvm::GlobalVariable*> user_gbs;
+    std::set_ex<const llvm::Function*> user_fns;
+    std::set_ex<const llvm::GlobalVariable*> user_gbs;
     std::map<std::string,llvm::GlobalVariable*> mapGlobalVars;
     TraceType module_trace;
 
-    std::set<llvm::GlobalVariable*> diff_gbs_added;
-    std::set<llvm::GlobalVariable*> diff_gbs_removed;
-    std::set<llvm::GlobalVariable*> diff_gbs_changed;
+    std::set_ex<llvm::GlobalVariable*> diff_gbs_added;
+    std::set_ex<llvm::GlobalVariable*> diff_gbs_removed;
+    std::set_ex<llvm::GlobalVariable*> diff_gbs_changed;
 
-    std::map<std::string,std::set<unsigned> > targeted_stmts;
+    std::map<std::string,std::set_ex<unsigned> > targeted_stmts;
 
   public:
     std::string prev_module;

@@ -195,7 +195,7 @@ protected:
   llvm::raw_string_ostream debugLogBuffer;
 
   std::map<unsigned, unsigned> frequent_forkers;
-  std::map<const llvm::Loop *,std::set<ExecutionState*> > loopingStates;
+  std::map<const llvm::Loop *,std::set_ex<const ExecutionState*>> loopingStates;
   unsigned maxStatesInLoop;
 
   llvm::Function *getTargetFunction(llvm::Value *calledVal,
@@ -407,8 +407,8 @@ protected:
   void printDebugInstructions(ExecutionState &state);
   void doDumpStates();
 
-  bool isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
-  bool isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop);
+  bool isOnlyInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const;
+  bool isInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const;
   void tryPreference(ExecutionState &state, const MemoryObject *mo);
   bool tryPreferenceValue(ExecutionState &state, char ch, ref<Expr> value);
   bool tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref<Expr> value);

@@ -26,8 +26,11 @@ def get_line_diffs(prev, post):
   result = ([], [])
   args = ['git', 'diff', '--unified=0', '--no-index', '--ignore-blank-lines', '--ignore-all-space', prev, post]
   complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
-  lines = complete.stdout.split('\n')
+  if len(complete.stderr) != 0:
+    print("git diff failed: ", complete.stderr, "\n", sep='')
+    exit(1)
 
+  lines = complete.stdout.split('\n')
   pat_header = re.compile(r'@@ -(\S*)\s+\+(\S*) @@')
   for line in lines:
     match = pat_header.match(line)
@@ -38,9 +41,10 @@ def get_line_diffs(prev, post):
   return result
 
 
-def get_bc_diffs(prev, post):
-#  args = ['git', 'diff', '--unified=0', '--no-index', '--ignore-blank-lines', '--ignore-all-space', prev, post]
-  args = ['brt-diff', prev, post]
+def get_bc_diffs(dir, prev, post, orcl):
+  args = ['brt-diff', '-output', dir, os.path.join(dir, prev), os.path.join(dir, post)]
+  if orcl is not None:
+    args.append(os.path.join(dir, orcl))
   complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
   return complete.returncode == 0
 
@@ -48,8 +52,21 @@ def get_bc_diffs(prev, post):
 def main(args):
 
   ret_code = 1
+  if len(args.modules) < 2:
+    print("Must specify at least a prev and post version")
+    return ret_code
+
+  prev_module = args.modules[0]
+  post_module = args.modules[1]
+  orcl_module = None
+
+  if len(args.modules) > 2:
+    orcl_module = args.modules[2]
+    if len(args.modules) > 3:
+      print("Extra module arguments ignored")  
+
   diff_file = os.path.join(args.dir, "diff.json")
-  if get_bc_diffs(os.path.join(args.dir, args.modules[0]), os.path.join(args.dir, args.modules[1])):
+  if get_bc_diffs(args.dir, prev_module, post_module, orcl_module):
     with open(diff_file) as infile:
       diff = json.load(infile)
 
@@ -59,18 +76,36 @@ def main(args):
 
   prev_srcs = diff['prev-module']['sources']
   post_srcs = diff['post-module']['sources']
-  if (len(prev_srcs) != 1 or len(post_srcs) != 1):
-    print("Source files have to be matched")
+  if len(prev_srcs) != len(post_srcs):
+    print("prev/post differ in number of source files")
     return ret_code
 
-  prev_src = list(prev_srcs.keys())[0]
-  post_src = list(post_srcs.keys())[0]
-  pr = get_line_diffs(prev_src, post_src)
-  prev_srcs[prev_src]["lines"] = pr[0]
-  post_srcs[post_src]["lines"] = pr[1]
+  # match source files by name
+  prev_map = {}
+  for src in prev_srcs:
+    prev_map[os.path.basename(src)] = src
+  post_map = {}
+  for src in post_srcs:
+    post_map[os.path.basename(src)] = src
+
+  for fname, prev_src in prev_map.items():
+    if fname not in post_map:
+      print("matching post src file not found:", fname)  
+    else:
+      post_src = post_map[fname]
+
+      pr = get_line_diffs(prev_src, post_src)
+      prev_srcs[prev_src]["lines"] = pr[0]
+      post_srcs[post_src]["lines"] = pr[1]
+
+  _indent=None
+  _sort_keys=False
+  if args.indent:
+    _indent=2
+    _sort_keys=True
 
   with open(diff_file, "w") as outfile:
-    json.dump(diff, outfile, indent=2, sort_keys=True)
+    json.dump(diff, outfile, indent=_indent, sort_keys=_sort_keys)
     outfile.write("\n")
     ret_code = 0
 
@@ -80,7 +115,8 @@ def main(args):
 if __name__ == "__main__":
 
   parser = argparse.ArgumentParser(description="constructs diff.json file describing difference between two programs")
-  parser.add_argument('modules', metavar='module.bc', nargs=2, type=str, help='prepared bitcode modules')
+  parser.add_argument('modules', metavar='module.bc', nargs='+', type=str, help='prepared bitcode modules')
   parser.add_argument('-d', '--dir', required=True, help='directory containing module files')
+  parser.add_argument('--indent', default=False, action='store_true', help='pretty print json output')
   args = parser.parse_args()
   exit(main(args))

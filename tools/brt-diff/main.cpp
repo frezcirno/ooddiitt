@@ -67,7 +67,6 @@ cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional, cl::R
 cl::opt<string> InputFile3(cl::desc("<oracle bytecode>"), cl::Positional);
 cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
 cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
-cl::opt<string> AssumeEq("assume-equiv", cl::desc("assume the following functions are equivalent (useful for some library routines"), cl::cat(BrtCategory));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
@@ -85,7 +84,7 @@ uint64_t calcFnHash(Function *fn) {
 
   HashAccumulator hash;
   vector<const BasicBlock*> worklist;
-  set<const BasicBlock*> visited;
+  set<const BasicBlock *> visited;
 
   if (!fn->empty()) {
     const BasicBlock *entry = &fn->getEntryBlock();
@@ -100,6 +99,19 @@ uint64_t calcFnHash(Function *fn) {
       for (auto &inst : *bb) {
         // add the instruction to the hash
         hash.add((uint64_t) inst.getOpcode());
+
+        // call instruction to assert_fail needs special handling
+        // one of the args contains a source line number that is expected
+        // to change without effecting behavior
+        if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
+          if (Function *fn = ci->getCalledFunction()) {
+            if (fn->getName() == "__assert_fail") {
+              hash.add(fn->getName());
+              continue;
+            }
+          }
+        }
+
         for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {
           Value *v = inst.getOperand(idx);
           if (auto c = dyn_cast<Constant>(v)) {
@@ -148,31 +160,30 @@ uint64_t calcFnHash(Function *fn) {
 
 void diffFns(KModule *kmod1,
              KModule *kmod2,
-             const set<string> &assume_eq,
              Json::Value &added,
              Json::Value &removed,
-             set<string> &sig,
-             set<string> &body,
-             set<string> &commons) {
+             set_ex<string> &sig,
+             set_ex<string> &body,
+             set_ex<string> &commons) {
 
-  set<string> fn_names1;
-  set<string> fn_names2;
+  set_ex<string> fn_names1;
+  set_ex<string> fn_names2;
 
   kmod1->getUserFunctions(fn_names1);
   kmod2->getUserFunctions(fn_names2);
 
   // find the functions that have been added (in 2 but not in 1)
-  set<string> fns_added;
+  set_ex<string> fns_added;
   set_difference(fn_names2.begin(), fn_names2.end(), fn_names1.begin(), fn_names1.end(), inserter(fns_added, fns_added.end()));
   for (auto fn : fns_added) added.append(fn);
 
   // find the functions that have been removed (in 1 but not in 2)
-  set<string> fns_removed;
+  set_ex<string> fns_removed;
   set_difference(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_removed, fns_removed.end()));
   for (auto fn : fns_removed) removed.append(fn);
 
   // those that are in both will need further checks
-  set<string> fns_both;
+  set_ex<string> fns_both;
   set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_both, fns_both.end()));
 
   Module *mod1 = kmod1->module;
@@ -191,10 +202,12 @@ void diffFns(KModule *kmod1,
     Function *fn1 = pr.first;
     Function *fn2 = pr.second;
     string fn_name = fn1->getName();
+    string fn_name2 = fn2->getName();
 
+    // RLR TODO: remove debug
     if (!ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
       sig.insert(fn_name);
-    } else if ((assume_eq.find(fn_name) == assume_eq.end()) && (calcFnHash(fn1) != calcFnHash(fn2))) {
+    } else if (calcFnHash(fn1) != calcFnHash(fn2)) {
       body.insert(fn_name);
     } else {
       commons.insert(fn_name);
@@ -204,24 +217,24 @@ void diffFns(KModule *kmod1,
 
 void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &removed, Json::Value &changed) {
 
-  set<string> gb_names1;
-  set<string> gb_names2;
+  set_ex<string> gb_names1;
+  set_ex<string> gb_names2;
 
   kmod1->getUserGlobals(gb_names1);
   kmod2->getUserGlobals(gb_names2);
 
   // find the globals that have been added (in 2 but not in 1)
-  set<string> gbs_added;
+  set_ex<string> gbs_added;
   set_difference(gb_names2.begin(), gb_names2.end(), gb_names1.begin(), gb_names1.end(), inserter(gbs_added, gbs_added.end()));
   for (auto gb : gbs_added) added.append(gb);
 
   // find the globals that have been removed (in 1 but not in 2)
-  set<string> gbs_removed;
+  set_ex<string> gbs_removed;
   set_difference(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_removed, gbs_removed.end()));
   for (auto gb : gbs_removed) removed.append(gb);
 
   // those that are in both will need further checks
-  set<string> gbs_both;
+  set_ex<string> gbs_both;
   set_intersection(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_both, gbs_both.end()));
 
   Module *mod1 = kmod1->module;
@@ -386,7 +399,7 @@ void entryFns(KModule *kmod1,
   collectEntryFns(map2, sigs, entry_points);
 }
 
-void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const set<string> &assume_eq, const string &outDir) {
+void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outDir) {
 
   // kmod3 is optional
   assert(kmod1 && kmod2);
@@ -403,14 +416,9 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const set<string> 
     Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
     Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
     Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
-    Json::Value &fns_equivalent = functions["equivalent"] = Json::arrayValue;
 
-    for (const auto &name : assume_eq) {
-      fns_equivalent.append(name);
-    }
-
-    set<string> sigs, bodies, commons;
-    diffFns(kmod1, kmod2, assume_eq, fns_added, fns_removed, sigs, bodies, commons);
+    set_ex<string> sigs, bodies, commons;
+    diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
     for (const auto &fn : sigs) fns_changed_sig.append(fn);
     for (const auto &fn : bodies) fns_changed_body.append(fn);
 
@@ -435,7 +443,7 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const set<string> 
     Json::Value &prev_node = root["prev-module"] = Json::objectValue;
     prev_node["name"] = kmod1->getModuleIdentifier();
     Json::Value &prev_ext = prev_node["external"] = Json::arrayValue;
-    set<string> names;
+    set_ex<string> names;
     kmod1->getExternalFunctions(names);
     for (auto name : names) {
       prev_ext.append(name);
@@ -557,11 +565,7 @@ int main(int argc, char *argv[]) {
         kmod3 = PrepareModule(InputFile3);
       }
 
-      set<string> assume_eq;
-      if (!AssumeEq.empty()) {
-        boost::split(assume_eq, AssumeEq, boost::is_any_of(","));
-      }
-      emitDiff(kmod1, kmod2, kmod3, assume_eq, Output);
+      emitDiff(kmod1, kmod2, kmod3, Output);
 
       if (kmod3 != nullptr) {
         LLVMContext *ctx = kmod3->getContextPtr();

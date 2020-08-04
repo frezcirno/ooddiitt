@@ -181,7 +181,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason r
       root["stdin"] = toDataString(state.stdin_buffer);
 
       vector<ConcreteSolution> out;
-      set<MemKind> memKinds;
+      set_ex<MemKind> memKinds;
       memKinds.insert(MemKind::external);
       if (!is_main) {
         memKinds.insert(MemKind::param);

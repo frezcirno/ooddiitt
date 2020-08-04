@@ -124,7 +124,7 @@ public:
     ClangProgInfo *ClangInfo;
     TraceType ttype;
     MarkScope mscope;
-    std::set<std::string> sources;
+    std::set_ex<std::string> sources;
 
     ModuleOptions()
       : Optimize(false),
@@ -262,8 +262,13 @@ public:
   virtual bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res) = 0;
   virtual bool getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSolution> &res, std::vector<ExprSolution> &exprs)
     { return getSymbolicSolution(state, res); }
-  virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result, const std::set<MemKind> &kinds)
-    { return false; }
+  virtual bool getConcreteSolution(ExecutionState &state, std::vector<ConcreteSolution> &result,
+                                   const std::set_ex<MemKind> &kinds) {
+    UNUSED(state);
+    UNUSED(result);
+    UNUSED(kinds);
+    return false;
+  }
 
   virtual void getCoveredLines(const ExecutionState &state, std::map<const char*, std::set<unsigned> > &res) = 0;
   virtual KModule *getKModule() const { return nullptr; }

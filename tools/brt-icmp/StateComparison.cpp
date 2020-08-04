@@ -419,7 +419,7 @@ bool StateComparator::compareInternalState() {
 
   // get the set of global variables to compare.  These are only
   // user globals (i.e. not stdlib) in both modules and of equivalent types
-  set<const GlobalVariable*> gbs1;
+  set_ex<const GlobalVariable*> gbs1;
   ver1.kmodule->getUserGlobals(gbs1);
   for (const GlobalVariable *gv1 : gbs1) {
 

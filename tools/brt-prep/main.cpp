@@ -484,12 +484,6 @@ KModule *PrepareModule(const string &filename,
     } else {
 
       module = dropUnusedFunctions(module);
-
-      set<string> sources;
-      if (!Sources.empty()) {
-        boost::split(sources, Sources, [](char c){return c == ',';});
-      }
-
       module = rewriteFunctionPointers(module, rewrites);
       module = LinkModule(module, libDir);
 

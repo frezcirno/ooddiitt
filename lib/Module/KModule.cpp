@@ -180,13 +180,15 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
   for (auto itr = finder.subprogram_begin(), end = finder.subprogram_end(); itr != end; ++itr) {
     DISubprogram di_sp(*itr);
     if (Function *fn = di_sp.getFunction()) {
-      string pathname = di_sp.getFilename();
+      if (!fn->isDeclaration()) {
+        string pathname = di_sp.getFilename();
 
-      // functions from libc are never user fns
-      if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
-        string filename = fs::path(pathname).filename().string();
-        if ((opts.sources.empty() && !fn->isDeclaration()) || opts.sources.find(filename) != opts.sources.end()) {
-          user_fns.insert(fn);
+        // functions from libc are never user fns
+        if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
+          string filename = fs::path(pathname).filename().string();
+          if (opts.sources.empty() || opts.sources.contains(filename)) {
+            user_fns.insert(fn);
+          }
         }
       }
     }
@@ -207,7 +209,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
         string gv_name = gv->getName().str();
         string filename = fs::path(pathname).filename().string();
-        if ((opts.sources.empty() && !gv->isDeclaration()) || opts.sources.find(filename) != opts.sources.end()) {
+        if ((opts.sources.empty() && !gv->isDeclaration()) || opts.sources.contains(filename)) {
           user_gbs.insert(gv);
         }
       }
@@ -217,7 +219,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
   set<Function*> fns_to_mark;
   for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
     Function *fn = itr;
-    if (opts.mscope == MarkScope::all || user_fns.find(fn) != user_fns.end()) {
+    if (opts.mscope == MarkScope::all || user_fns.contains(fn)) {
       fns_to_mark.insert(fn);
     }
   }
@@ -368,7 +370,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
       }
     } else {
 
-      KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+      KFunction *kf = new KFunction(fn, user_fns.contains(fn), this);
 
       for (unsigned i = 0; i < kf->numInstructions; ++i) {
         KInstruction *ki = kf->instructions[i];
@@ -558,7 +560,7 @@ void KModule::prepare() {
 
     } else {
 
-      KFunction *kf = new KFunction(fn, user_fns.find(fn) != user_fns.end(), this);
+      KFunction *kf = new KFunction(fn, user_fns.contains(fn), this);
 
       for (unsigned i = 0; i < kf->numInstructions; ++i) {
         KInstruction *ki = kf->instructions[i];
@@ -600,7 +602,7 @@ void KModule::prepare() {
   }
 }
 
-void KModule::getUserSources(std::set<std::string> &srcs) const {
+void KModule::getUserSources(std::set_ex<std::string> &srcs) const {
 
   srcs.clear();
   for (auto itr = user_fns.begin(), end = user_fns.end(); itr != end; ++itr) {
@@ -613,7 +615,7 @@ void KModule::getUserSources(std::set<std::string> &srcs) const {
   }
 }
 
-void KModule::setTargetStmts(const std::map<std::string, std::set<unsigned>> &stmts) {
+void KModule::setTargetStmts(const std::map<std::string, std::set_ex<unsigned>> &stmts) {
 
   for (auto itr = functions.begin(), end = functions.end(); itr != end; ++itr) {
     KFunction *kf = *itr;
@@ -622,8 +624,8 @@ void KModule::setTargetStmts(const std::map<std::string, std::set<unsigned>> &st
       bool is_targeted = false;
       auto fnd = stmts.find(ki->info->file);
       if (fnd != stmts.end()) {
-        const set<unsigned> &lines = fnd->second;
-        if (lines.find(ki->info->line) != lines.end()) {
+        const std::set_ex<unsigned> &lines = fnd->second;
+        if (lines.contains(ki->info->line)) {
           is_targeted = true;
         }
       }
@@ -810,10 +812,10 @@ KFunction::~KFunction() {
   delete[] instructions;
 }
 
-bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const llvm::BasicBlock*> &blocks) const {
+bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set_ex<const llvm::BasicBlock*> &blocks) const {
 
   // setup for BFS traversal of CFG
-  std::set<const llvm::BasicBlock*> visited;
+  std::set_ex<const llvm::BasicBlock*> visited;
   std::deque<const llvm::BasicBlock*> worklist;
   worklist.push_front(bb);
 
@@ -823,14 +825,14 @@ bool KFunction::reachesAnyOf(const llvm::BasicBlock *bb, const std::set<const ll
     worklist.pop_front();
 
     visited.insert(current);
-    if (blocks.count(current) > 0) {
+    if (blocks.contains(current)) {
       return true;
     }
 
     BasicBlocks succs;
     getSuccessorBBs(current, succs);
     for (auto succ : succs) {
-      if (visited.count(succ) == 0) {
+      if (!visited.contains(succ)) {
         worklist.push_back(succ);
       }
     }

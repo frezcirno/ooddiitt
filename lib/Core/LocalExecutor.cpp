@@ -1451,7 +1451,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
 
     try {
-      if (!state->trace.empty() && break_lines.find(state->trace.back().second) != break_lines.end()) {
+      if (!state->trace.empty() && break_lines.contains(state->trace.back().second)) {
         outs() << "break at " << state->trace.back().second << '\n';
 #ifdef _DEBUG
         enable_state_switching = false;
@@ -1765,7 +1765,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           BasicBlock *dsts[2] = { bi->getSuccessor(0), bi->getSuccessor(1) };
           bool exceeded_loop = false;
           if (loop != nullptr) {
-            ExecutionStates &ls = loopingStates[loop];
+            auto &ls = loopingStates[loop];
             exceeded_loop = ls.size() > maxStatesInLoop;
           }
           if (inhibitForking || exceeded_loop) {
@@ -1855,17 +1855,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         } else {
           // else fork states with unique values and restart instruction
           if (auto fn_type = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType())) {
-            set<const Function *> fns;
+            set_ex<const Function *> fns;
             kmodule->getFnsOfType(fn_type, fns);
 
             // restart this instruction with addr bound to each possible function address;
+            unsigned counter = 0;
             state.restartInstruction();
             ExecutionState *next = &state;
-            for (auto fn : fns) {
-              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) fn));
+            for (auto called : fns) {
+              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) called));
               StatePair sp = fork(*next, eq, true);
+              if (sp.first != nullptr) counter += 1;
               next = sp.second;
             }
+            if (counter > 1) klee_warning("unconstrained function pointer, forking state for each valid target: %u", counter);
           }
           return;
         }
@@ -1882,7 +1885,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
       string fn_name = fn->getName();
 
       // check for debugging break
-      if (break_fns.find(fn) != break_fns.end()) {
+      if (break_fns.contains(fn)) {
         outs() << "break at " << fn_name << '\n';
 #ifdef _DEBUG
         enable_state_switching = false;
@@ -2542,11 +2545,11 @@ void LocalExecutor::terminateStateOnMemFault(ExecutionState &state,
 
 bool LocalExecutor::getConcreteSolution(ExecutionState &state,
                                         std::vector<SymbolicSolution> &result,
-                                        const std::set<MemKind> &kinds) {
+                                        const std::set_ex<MemKind> &kinds) {
 
   // need the set of MemoryObjects representing user globals.
-  set<const MemoryObject*> global_user_mos;
-  set<const llvm::GlobalVariable*> gbs;
+  set_ex<const MemoryObject*> global_user_mos;
+  set_ex<const llvm::GlobalVariable*> gbs;
   kmodule->getUserGlobals(gbs);
   for (auto &gb : gbs) {
     MemoryObject *mo = globalObjects.find(gb)->second;
@@ -2558,16 +2561,15 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state,
     // copy out all memory objects
   for (auto itr = state.addressSpace.objects.begin(), end = state.addressSpace.objects.end(); itr != end; ++itr) {
     const MemoryObject *mo = itr->first;
-    if (kinds.find(mo->kind) != kinds.end()) {
+    if (kinds.contains(mo->kind)) {
 
       // only include the user globals
-      if ((mo->kind == MemKind::global) && (global_user_mos.find(mo) == global_user_mos.end())) {
-        continue;
+      if (mo->kind != MemKind::global || global_user_mos.contains(mo)) {
+        const ObjectState *os = itr->second;
+        result.emplace_back(make_pair(mo, vector<unsigned char>{}));
+        vector<unsigned char> &value = result.back().second;
+        os->readConcrete(value);
       }
-      const ObjectState *os = itr->second;
-      result.emplace_back(make_pair(mo, vector<unsigned char>{}));
-      vector<unsigned char> &value = result.back().second;
-      os->readConcrete(value);
     }
   }
   return true;
@@ -2579,7 +2581,7 @@ void LocalExecutor::branch(ExecutionState &state, const std::vector< ref<Expr> >
   state.getAllLoops(loops);
   Executor::branch(state, conditions, result);
   for (auto &loop : loops) {
-    ExecutionStates &ls = loopingStates[loop];
+    auto &ls = loopingStates[loop];
     for (const auto &ns : result) {
       if (ns != nullptr) ls.insert(ns);
     }
@@ -2605,7 +2607,7 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
   current.getAllLoops(loops);
   StatePair pr = Executor::fork(current, condition, isInternal);
   for (auto &loop : loops) {
-    ExecutionStates &ls = loopingStates[loop];
+    auto &ls = loopingStates[loop];
     if (pr.first != nullptr) {
       ls.insert(pr.first);
     }

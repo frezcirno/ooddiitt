@@ -24,7 +24,6 @@
 #include "../Core/SystemModel.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 
-
 namespace llvm {
 RawOStreamOperator oflush = RawOStreamOperator::base_flush;
 RawOStreamOperator oendl = RawOStreamOperator::base_endl;

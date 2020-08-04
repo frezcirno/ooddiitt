@@ -72,7 +72,7 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
     Json::Value &module = root[targeted_key];
     Json::Value &srcs = module["sources"];
 
-    map<string, set<unsigned>> targeted_stmts;
+    map<string, set_ex<unsigned>> targeted_stmts;
     for (auto src_itr = srcs.begin(), src_end = srcs.end(); src_itr != src_end; ++src_itr) {
       fs::path path(src_itr.key().asString());
       string src_name = path.filename().string();
@@ -80,7 +80,7 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
       if (src_entry.isObject()) {
         Json::Value &line_array = src_entry["lines"];
         if (line_array.isArray()) {
-          set<unsigned> &stmts = targeted_stmts[src_name];
+          set_ex<unsigned> &stmts = targeted_stmts[src_name];
           for (unsigned idx = 0, end = line_array.size(); idx < end; ++idx) {
             stmts.insert(line_array[idx].asUInt());
           }

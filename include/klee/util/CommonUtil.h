@@ -33,6 +33,32 @@ typedef std::chrono::system_clock sys_clock;
 #define UNUSED(x) {(void)(x);}
 #endif
 
+//-------------------------------------------------------
+// because the usual set containment idium is so unreadable.
+
+namespace std {
+
+template <class TInputIterator, class T> inline bool contains(TInputIterator first, TInputIterator last, const T &value) {
+  return std::find(first, last, value) != last;
+}
+
+template <class TContainer, class T> inline bool contains(const TContainer &container, const T &value) {
+  return contains(std::begin(container), std::end(container), value);
+}
+
+template <class T> inline bool contains(const std::set<T> &container, const T &value) {
+  return container.find(value) != container.end();
+}
+
+template <typename T> struct set_ex : std::set<T> {
+  using std::set<T>::set;
+  bool contains(const T &value) const { return (this->find(value) != this->end()); }
+};
+
+
+} // end std namespace
+//-------------------------------------------------------
+
 namespace llvm {
   class Value;
 
@@ -158,8 +184,13 @@ class HashAccumulator {
   uint64_t hash;
 public:
   HashAccumulator() : hash(0x89f88ec5e917b55e) {}
-  void add(uint64_t val) { hash = llvm::hashing::detail::hash_16_bytes(hash, val); }
-  void add(double val)   { assert(sizeof(uint64_t) == sizeof(double)); hash = llvm::hashing::detail::hash_16_bytes(hash, (uint64_t) val); }
+  void add(uint64_t val) {
+    hash = llvm::hashing::detail::hash_16_bytes(hash, val);
+  }
+  void add(double val) {
+    assert(sizeof(uint64_t) == sizeof(double));
+    hash = llvm::hashing::detail::hash_16_bytes(hash, (uint64_t) val);
+  }
   void add(const std::string &str);
   uint64_t get() const { return hash; }
 };

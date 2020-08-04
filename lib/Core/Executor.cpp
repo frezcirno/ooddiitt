@@ -1427,7 +1427,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       bool exceeded_loop = false;
       const Loop *loop = state.getTopMostLoop();
       if (loop != nullptr) {
-        std::set<ExecutionState*> &ls = loopingStates[loop];
+        std::set_ex<const ExecutionState*> &ls = loopingStates[loop];
         exceeded_loop = ls.size() > maxStatesInLoop;
       }
 
@@ -3626,7 +3626,7 @@ void Executor::getGlobalVariableMap(std::map<const llvm::GlobalVariable*,MemoryO
   }
 }
 
-bool Executor::isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
+bool Executor::isInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const {
 
   // if this is a recursive call, then we cannot say if this is an error
   assert(!state->stack.empty());
@@ -3647,7 +3647,7 @@ bool Executor::isInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *
   return false;
 }
 
-bool Executor::isOnlyInLoop(ExecutionState *state, KFunction *kf, const llvm::Loop *loop) {
+bool Executor::isOnlyInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const {
 
   // if this is a recursive call, then we cannot say if this is an error
   assert(!state->stack.empty());
