@@ -113,7 +113,8 @@ cl::opt<unsigned> MakeConcreteSymbolic("make-concrete-symbolic",
 cl::opt<bool> UnconstrainConstGlobals("unconstrain-const-globals", cl::desc("include constants in global unconstrained state"), cl::cat(BrtCategory));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0), cl::cat(BrtCategory));
-cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"));
+cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"), cl::cat(BrtCategory));
+cl::opt<unsigned> Job("job", cl::desc("appended to test case prefix"), cl::init(UINT_MAX), cl::cat(BrtCategory));
 cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
@@ -746,7 +747,13 @@ int main(int argc, char *argv[]) {
   args.push_back(module_file);
   args.insert(args.end(), InputArgv.begin(), InputArgv.end());
 
-  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier(), Prefix);
+  string prefix = Prefix;
+  if (Job != UINT_MAX) {
+    ostringstream ss;
+    ss << prefix << '-' << std::setfill('0') << std::setw(5) << Job;
+    prefix = ss.str();
+  }
+  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier(), prefix);
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;

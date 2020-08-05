@@ -197,6 +197,7 @@ bool translateDifftoModule(Json::Value &root, string &module_name, string &entry
   if (elements.size() > 1) {
     if (translateDifftoModule(root, elements[0])) {
 
+      module_name = elements[0];
       unsigned idx = std::stoul(elements[1]);
       Json::Value &entries = root["entryPoints"];
       if (entries.isArray() && idx < entries.size()) {

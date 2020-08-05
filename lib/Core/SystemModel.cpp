@@ -592,7 +592,7 @@ bool SystemModel::ExecuteStrcmp(ExecutionState &state, std::vector<ref<Expr>> &a
             int ch2 = ech2->getZExtValue(Expr::Int8);
             int diff = ch1 - ch2;
             if (diff != 0) {
-              retExpr = ConstantExpr::create(diff, Expr::Int32);
+              retExpr = SubExpr::create(ConstantExpr::create(ch1, Expr::Int32), ConstantExpr::create(ch2, Expr::Int32));
               return true;
             } else if (ch1 == 0 && (ctx_id == CTX_STRCMP || ctx_id == CTX_STRNCMP)) {
               // diff is zero, so ch1 == ch2 and null terminator

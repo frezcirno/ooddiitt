@@ -35,7 +35,7 @@ InterpreterHandler::InterpreterHandler(const std::string &od, const std::string 
 }
 
 InterpreterHandler::InterpreterHandler(const std::string &od, const std::string &_md_name, const std::string &_prefix) :
-  InterpreterHandler(od, _md_name) { prefix = _prefix; }
+  InterpreterHandler(od, _md_name) { prefix = _prefix + "-"; }
 
 std::string InterpreterHandler::getTestFilename(const std::string &ext, unsigned id) {
   std::ostringstream filename;

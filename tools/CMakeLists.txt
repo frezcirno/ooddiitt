@@ -16,4 +16,4 @@ add_subdirectory(brt-rcrd)
 
 install(PROGRAMS scripts/brt-dis DESTINATION bin)
 install(PROGRAMS scripts/brt-gen-diff DESTINATION bin)
-install(PROGRAMS scripts/brt-verify-trace DESTINATION bin)
+install(PROGRAMS scripts/brt-vrfy DESTINATION bin)
