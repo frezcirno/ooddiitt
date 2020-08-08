@@ -60,16 +60,14 @@ namespace {
 cl::OptionCategory BrtCategory("specific brt options");
 cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
 cl::opt<string> PrevModule("prev", cl::desc("<prev-bytecode> (default=@prev)"), cl::init("@prev"), cl::cat(BrtCategory));
-cl::opt<string> PostModule("post", cl::desc("<post-bytecode> (default=@post)"), cl::init("@post"), cl::cat(BrtCategory));
+cl::opt<string> PostModule("post", cl::desc("<post-bytecode> (default=@post)"), cl::init("@orcl,post"), cl::cat(BrtCategory));
 cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
 cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
 cl::opt<string> DiffInfo("diff", cl::desc("json formatted diff file"), cl::cat(BrtCategory));
-cl::opt<string> BlackLists("cmp-blacklists", cl::desc("functions and type of skip value comparison"), cl::init("blacklists.json"), cl::cat(BrtCategory));
 cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12), cl::cat(BrtCategory));
 cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
-cl::opt<string> TrueFaults("true-faults", cl::desc("list of functions with true faults in post-module"), cl::cat(BrtCategory));
 }
 
 /***/
@@ -159,29 +157,6 @@ static void interrupt_handle() {
   }
 }
 
-void load_blacklists(StateComparator &cmp, string filename) {
-
-  if (!filename.empty()) {
-    ifstream infile(filename);
-    if (infile.is_open()) {
-      Json::Value root;
-      infile >> root;
-
-      Json::Value &functions = root["functions"];
-      for (unsigned idx = 0, end = functions.size(); idx < end; ++idx) {
-        string fn = functions[idx].asString();
-        cmp.blacklistFunction(fn);
-      }
-
-      Json::Value &types = root["types"];
-      for (unsigned idx = 0, end = types.size(); idx < end; ++idx) {
-        string type = types[idx].asString();
-        cmp.blacklistStructType(type);
-      }
-    }
-  }
-}
-
 Module *LoadModule(const string &filename) {
 
   // Load the bytecode...
@@ -244,16 +219,6 @@ bool getDiffInfo(const string &diff_file, Json::Value &root) {
   return result;
 }
 
-bool isTrueFault(const vector<Function *> &true_faults, const ExecutionState *state) {
-
-  if (const KInstruction *ki = state->instFaulting) {
-    if (find(true_faults.begin(), true_faults.end(), ki->inst->getParent()->getParent()) != true_faults.end()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static const char *err_context = nullptr;
 static void PrintStackTraceSignalHandler(void *) {
   if (err_context != nullptr) {
@@ -312,18 +277,6 @@ int main(int argc, char *argv[]) {
     for (auto file : ReplayTests) expandTestFiles(file, Output, Prefix, test_files);
   }
   sort(test_files.begin(), test_files.end());
-
-  vector<Function *>true_faults;
-  if (!TrueFaults.empty()) {
-    vector<string> entries;
-    boost::split(entries, TrueFaults, [](char c){return c == ',';});
-    true_faults.reserve(entries.size());
-    for (const auto &entry : entries) {
-      if (Function *fn = kmod2->getFunction(entry)) {
-        true_faults.push_back(fn);
-      }
-    }
-  }
 
   if (!kmod2->hasOracle()) {
     klee_warning("%s does not contain an oracle", kmod2->getModuleIdentifier().c_str());
@@ -405,7 +358,6 @@ int main(int argc, char *argv[]) {
       theInterpreter = nullptr;
 
       StateComparator cmp(filename, test, version1, version2);
-      load_blacklists(cmp, BlackLists);
 
       const KInstruction *ki =  cmp.checkTermination();
       if (ki == nullptr) {

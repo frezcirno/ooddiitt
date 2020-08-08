@@ -121,6 +121,21 @@ StateComparator::StateComparator(const string &tn, const TestCase &t, StateVersi
       oracle_ids.insert(entry.first);
     }
   }
+
+  // never compare on return for some functions
+  blacklistFunction("xrealloc");
+  blacklistFunction("x2nrealloc");
+  blacklistFunction("_brt_oracle");
+
+  // and never compare some types (due to type-abuse by stdlib)
+  blacklistStructType("_IO_FILE");
+  blacklistStructType("__STDIO_FILE_STRUCT");
+  blacklistStructType("__mbstate_t");
+  blacklistStructType("__locale_mmap_t");
+  blacklistStructType("__codeset_8_bit_t");
+  blacklistStructType("ppfs_t");
+  blacklistStructType("printf_info");
+  blacklistStructType("scan_cookie");
 }
 
 void StateComparator::blacklistFunction(const string &name) {

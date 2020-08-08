@@ -65,6 +65,7 @@ def main(args):
     if len(args.modules) > 3:
       print("Extra module arguments ignored")  
 
+  diff = {}
   diff_file = os.path.join(args.dir, "diff.json")
   if get_bc_diffs(args.dir, prev_module, post_module, orcl_module):
     with open(diff_file) as infile:

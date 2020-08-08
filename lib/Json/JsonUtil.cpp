@@ -180,10 +180,15 @@ bool loadTestCase(Json::Value &root, TestCase &test) {
 bool translateDifftoModule(Json::Value &root, string &module_name) {
 
   if (!root.isNull() && (module_name.front() == '@')) {
-    string name = module_name.substr(1) + "-module";
-    if (root.isMember(name)) {
-      module_name = root[name]["name"].asString();
-      return true;
+
+    vector<string> names;
+    boost::split(names, module_name.substr(1), [](char c){return c == ',';});
+    for (auto str : names) {
+      string name = str + "-module";
+      if (root.isMember(name)) {
+        module_name = root[name]["name"].asString();
+        return true;
+      }
     }
     klee_error("unable to find target in diff file: %s", module_name.c_str());
   }
