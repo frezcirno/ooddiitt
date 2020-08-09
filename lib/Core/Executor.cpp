@@ -299,7 +299,8 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
                             ? std::min(MaxCoreSolverTime, MaxInstructionTime)
                             : std::max(MaxCoreSolverTime, MaxInstructionTime)),
       debugInstFile(0), debugLogBuffer(debugBufferString),
-      maxStatesInLoop(MaxLoopStates)
+      maxStatesInLoop(MaxLoopStates),
+      maxMemInUse(0)
 {
 
   if (coreSolverTimeout) UseForkedCoreSolver = true;
@@ -2401,34 +2402,36 @@ void Executor::bindModuleConstants() {
 }
 
 void Executor::checkMemoryUsage() {
-  if (!MaxMemory)
-    return;
-  if ((stats::instructions % 0xFFF) == 0) {
-    unsigned mbs = memory->getUsedDeterministicSize() >> 20;
 
-    if (mbs > MaxMemory) {
-      if (mbs > MaxMemory + 100) {
-        // just guess at how many to kill
-        unsigned numStates = states.size();
-
-        unsigned toKill = std::max(1U, numStates - numStates * MaxMemory / mbs);
-        klee_warning("killing %d states (over memory cap)", toKill);
-        std::vector<ExecutionState *> arr(states.begin(), states.end());
-        for (unsigned i = 0, N = arr.size(); N && i < toKill; ++i, --N) {
-          unsigned idx = rand() % N;
-          // Make two pulls to try and not hit a state that
-          // covered new code.
-          if (arr[idx]->coveredNew)
-            idx = rand() % N;
-
-          std::swap(arr[idx], arr[N - 1]);
-          terminateStateOnDiscard(*arr[N - 1], "Memory limit exceeded.");
-        }
-      }
-      atMemoryLimit = true;
-    } else {
-      atMemoryLimit = false;
+  unsigned heap_size = (unsigned) (util::GetTotalMallocUsage() >> 20);
+  if (heap_size > maxMemInUse) {
+    maxMemInUse = heap_size;
+    if (maxMemInUse > MaxMemory) {
+      klee_warning("dynamic heap exceeded memory cap");
     }
+  }
+
+  unsigned mbs = memory->getUsedDeterministicSize() >> 20;
+  if (mbs > MaxMemory) {
+    // just guess at how many to kill
+    unsigned numStates = states.size();
+
+    unsigned toKill = std::max(1U, numStates - numStates * MaxMemory / mbs);
+    klee_warning("killing %d states (over memory cap)", toKill);
+    std::vector<ExecutionState *> arr(states.begin(), states.end());
+    for (unsigned i = 0, N = arr.size(); N && i < toKill; ++i, --N) {
+      unsigned idx = rand() % N;
+      // Make two pulls to try and not hit a state that
+      // covered new code.
+      if (arr[idx]->coveredNew)
+        idx = rand() % N;
+
+      std::swap(arr[idx], arr[N - 1]);
+      terminateStateOnDiscard(*arr[N - 1], "Memory limit exceeded.");
+    }
+    atMemoryLimit = true;
+  } else {
+    atMemoryLimit = false;
   }
 }
 

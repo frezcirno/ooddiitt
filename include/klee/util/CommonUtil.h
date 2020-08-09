@@ -197,6 +197,7 @@ public:
 
 #ifdef _DEBUG
 bool EnableMemDebuggingChecks();
+void DisableMemDebuggingChecks();
 void ShowMemStats();
 #endif // _DEBUG
 

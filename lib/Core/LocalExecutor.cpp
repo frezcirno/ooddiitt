@@ -150,6 +150,8 @@ LocalExecutor::~LocalExecutor() {
     delete baseState;
     baseState = nullptr;
   }
+
+  outs() << "# " << kmodule->getModuleIdentifier() << ", maxMemInUse: " << maxMemInUse << '\n';
 }
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
@@ -1434,6 +1436,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   HaltReason halt = HaltReason::OK;
   enable_state_switching = true;
 
+  unsigned mem_chk_freq_counter = 0;
+
   ExecutionState *state = nullptr;
   while (!states.empty() && !haltExecution && halt == HaltReason::OK) {
 
@@ -1493,13 +1497,13 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       interpreterHandler->resetWatchDogTimer();
       timer.set(tid_heartbeat, HEARTBEAT_INTERVAL);
     }
-    if (!doConcreteInterpretation) checkMemoryUsage();
+    if (mem_chk_freq_counter++ % 0xfff) checkMemoryUsage();
   }
 
   if (!states.empty()) {
     klee_warning("terminating %lu incomplete states", states.size());
-    for (ExecutionState *state : states) {
-      terminateStateOnDiscard(*state, "flushing states on halt");
+    for (ExecutionState *s : states) {
+      terminateStateOnDiscard(*s, "flushing states on halt");
     }
   }
   updateStates(nullptr);
@@ -1517,8 +1521,8 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   processTree = nullptr;
 
   // clean up our initial states
-  for (auto state : init_states) {
-    delete state;
+  for (auto s : init_states) {
+    delete s;
   }
   init_states.clear();
 }
@@ -1598,10 +1602,6 @@ ExecutionState *LocalExecutor::runFnLibCInit(ExecutionState *_state) {
     delete _state;
   }
   return result;
-}
-
-void LocalExecutor::checkMemoryUsage() {
-  Executor::checkMemoryUsage();
 }
 
 ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {

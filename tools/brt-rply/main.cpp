@@ -275,12 +275,12 @@ int main(int argc, char *argv[]) {
 
     TestCase test;
     ifstream info;
-    Json::Value root;  // needed here if we intend to update later
+    Json::Value test_root;  // needed here if we intend to update later
     info.open(test_file);
     if (info.is_open()) {
-      info >> root;
+      info >> test_root;
 
-      loadTestCase(root, test);
+      loadTestCase(test_root, test);
     }
     if (!test.is_ready()) {
       klee_error("failed to load test case '%s'", test_file.c_str());
@@ -293,7 +293,7 @@ int main(int argc, char *argv[]) {
     if (module_name.empty()) {
       module_name = test.file_name;
     } else {
-      translateDifftoModule(root, module_name);
+      translateDifftoModule(diff_root, module_name);
     }
 
     KModule *kmod = PrepareModule(module_name, diff_root);

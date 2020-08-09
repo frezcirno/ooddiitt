@@ -59,8 +59,8 @@ enum class LogType
 enum class ExecModeID {
   none, // undefined
   prep,
-  igen, // interpreter should execute module for cbert input generation
-  rply, // interpreter should execute module for cbert replay
+  igen, // interpreter should execute module for cart input generation
+  rply, // interpreter should execute module for cart replay
   irec  // record snapshot at a function entry
 };
 

@@ -271,6 +271,7 @@ void expandTestFiles(const string &file, const string &dir, const string &prefix
 
 #include <gperftools/tcmalloc.h>
 #include <gperftools/malloc_hook.h>
+#include <gperftools/malloc_extension_c.h>
 #include <malloc.h>
 #include <string.h>
 
@@ -278,11 +279,14 @@ void expandTestFiles(const string &file, const string &dir, const string &prefix
 #define MEM_FREEDD  (0xCD)
 
 int64_t allocation_counter;
+size_t max_allocation_size;
 
 static void DebugNewHook(const void *ptr, size_t size) {
 
   allocation_counter += 1;
-//  memset((void*) ptr, MEM_ALLOCD, size);
+  max_allocation_size = std::max(size, max_allocation_size);
+
+  //  memset((void*) ptr, MEM_ALLOCD, size);
 }
 
 static void DebugDeleteHook(const void *ptr) {
@@ -293,7 +297,7 @@ static void DebugDeleteHook(const void *ptr) {
 //  }
 }
 
-static void DisableMemDebuggingChecks() {
+void DisableMemDebuggingChecks() {
 
   MallocHook::RemoveNewHook(DebugNewHook);
   MallocHook::RemoveDeleteHook(DebugDeleteHook);
@@ -301,7 +305,7 @@ static void DisableMemDebuggingChecks() {
 
 bool EnableMemDebuggingChecks() {
 
-  atexit(DisableMemDebuggingChecks);
+//  atexit(DisableMemDebuggingChecks);
   return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
 }
 

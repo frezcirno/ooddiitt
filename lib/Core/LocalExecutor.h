@@ -178,7 +178,6 @@ protected:
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
   void InspectSymbolicSolutions(ExecutionState *state);
-  void checkMemoryUsage() override;
 
   void branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) override;
   ExecutionState *clone(ExecutionState *es) override;

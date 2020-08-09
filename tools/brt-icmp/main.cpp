@@ -66,7 +66,10 @@ cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
 cl::opt<string> DiffInfo("diff", cl::desc("json formatted diff file"), cl::cat(BrtCategory));
-cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(12), cl::cat(BrtCategory));
+cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10), cl::cat(BrtCategory));
+cl::opt<unsigned> MaxFnSnapshots("max-fn-snapshots",
+                                 cl::desc("maximum number of snapshots taken returning from any single function (default=500"),
+                                 cl::init(500), cl::cat(BrtCategory));
 cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
@@ -76,8 +79,8 @@ map<KModule*,pair<ExecutionState*,uint64_t> > initialized_states;
 
 class ICmpKleeHandler : public InterpreterHandler {
 private:
-//  string indentation;
   StateVersion &ver;
+  map<KFunction *, unsigned> snapshot_counters;
 
 public:
   explicit ICmpKleeHandler(StateVersion &_ver) : InterpreterHandler(Output, _ver.kmodule->getModuleIdentifier()), ver(_ver) { }
@@ -88,9 +91,9 @@ public:
     getInterpreter()->getGlobalVariableMap(ver.global_map);
 
     // save a copy of the uclibc initialized state
-    KModule *kmod = interpreter->getKModule();
-    if (initialized_states.find(kmod) == initialized_states.end()) {
-      initialized_states[kmod] = make_pair(new ExecutionState(state), interpreter->getUsedMemory());
+    // only add if not already cached.  find first to avoid creating new state if not to be saved.
+    if (initialized_states.find(ver.kmodule) == initialized_states.end()) {
+      initialized_states.insert(make_pair(ver.kmodule, make_pair(new ExecutionState(state), interpreter->getUsedMemory())));
     }
   }
 
@@ -107,7 +110,10 @@ public:
     assert(!state.stack.empty());
     KFunction *returning = state.stack.back().kf;
     if (!(returning->isDiffAdded() || returning->isDiffRemoved())) {
-      ver.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
+      unsigned &counter = snapshot_counters[returning];
+      if (MaxFnSnapshots == 0 || counter++ < MaxFnSnapshots) {
+        ver.fn_returns.emplace_back(make_pair(returning, new ExecutionState(state)));
+      }
     }
   }
 };
@@ -229,6 +235,10 @@ static void PrintStackTraceSignalHandler(void *) {
 
 int main(int argc, char *argv[]) {
 
+#ifdef _DEBUG
+  EnableMemDebuggingChecks();
+#endif // _DEBUG
+
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
@@ -265,10 +275,8 @@ int main(int argc, char *argv[]) {
     applyDiffInfo(diff_root, kmod2);
   }
 
-  LLVMContext *ctx1 = nullptr;
-  LLVMContext *ctx2 = nullptr;
-  ctx1 = kmod1->getContextPtr();
-  ctx2 = kmod2->getContextPtr();
+  LLVMContext *ctx1 = kmod1->getContextPtr();
+  LLVMContext *ctx2 = kmod2->getContextPtr();
 
   deque<string> test_files;
   if (ReplayTests.empty()) {
@@ -306,8 +314,8 @@ int main(int argc, char *argv[]) {
     IOpts.mode = ExecModeID::rply;
     IOpts.user_mem_base = (void *) 0x90000000000;
     IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-    IOpts.trace = test.trace_type;
     IOpts.test_objs = &test.objects;
+    IOpts.trace = test.trace_type;
     UnconstraintFlagsT flags;
     IOpts.progression.emplace_back(Timeout, flags);
 
@@ -319,22 +327,18 @@ int main(int argc, char *argv[]) {
     handler1->setInterpreter(interpreter1);
 
     // try to re-use an initialized state, if one is available
-    auto itr = initialized_states.find(kmod1);
-    if (itr == initialized_states.end()) {
+    auto itr1 = initialized_states.find(kmod1);
+    if (itr1 == initialized_states.end()) {
       interpreter1->bindModule(kmod1);
     } else {
-      interpreter1->bindModule(kmod1, new ExecutionState(*itr->second.first), itr->second.second);
+      interpreter1->bindModule(kmod1, new ExecutionState(*itr1->second.first), itr1->second.second);
     }
 
     theInterpreter = interpreter1;
     interpreter1->runFunctionTestCase(test);
     theInterpreter = nullptr;
 
-    if (version1.finalState != nullptr) {
-
-      if (version1.finalState->status != StateStatus::Completed) {
-        continue;
-      }
+    if (version1.finalState != nullptr && version1.finalState->status == StateStatus::Completed) {
 
       string filename = fs::path(test_file).filename().string();
       outs() << filename << ';' << oflush;
@@ -346,11 +350,11 @@ int main(int argc, char *argv[]) {
       handler2->setInterpreter(interpreter2);
 
       // try to re-use an initialized state, if one is available
-      auto itr = initialized_states.find(kmod2);
-      if (itr == initialized_states.end()) {
+      auto itr2 = initialized_states.find(kmod2);
+      if (itr2 == initialized_states.end()) {
         interpreter2->bindModule(kmod2);
       } else {
-        interpreter2->bindModule(kmod2, new ExecutionState(*itr->second.first), itr->second.second);
+        interpreter2->bindModule(kmod2, new ExecutionState(*itr2->second.first), itr2->second.second);
       }
 
       theInterpreter = interpreter2;
@@ -358,7 +362,6 @@ int main(int argc, char *argv[]) {
       theInterpreter = nullptr;
 
       StateComparator cmp(filename, test, version1, version2);
-
       const KInstruction *ki =  cmp.checkTermination();
       if (ki == nullptr) {
         if (cmp.isEquivalent()) {
@@ -406,6 +409,10 @@ int main(int argc, char *argv[]) {
   HeapProfilerDump("going home");
   HeapProfilerStop();
 #endif
+
+#ifdef _DEBUG
+  DisableMemDebuggingChecks();
+#endif // _DEBUG
 
   return exit_code;
 }

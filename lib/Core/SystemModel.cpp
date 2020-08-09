@@ -671,7 +671,7 @@ bool SystemModel::ExecuteStrchr(ExecutionState &state, std::vector<ref<Expr>> &a
     }
     if (!(es.isNull() || evalue.isNull() || emaxlen.isNull())) {
       uint64_t s = es->getZExtValue();
-      uint8_t value = evalue->getZExtValue(Expr::Int8);
+      uint8_t value = (uint8_t) evalue->getZExtValue(Expr::Int32);
       uint64_t maxlen = emaxlen->getZExtValue();
       ObjectPair op;
 

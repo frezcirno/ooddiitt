@@ -197,6 +197,7 @@ protected:
   std::map<unsigned, unsigned> frequent_forkers;
   std::map<const llvm::Loop *,std::set_ex<const ExecutionState*>> loopingStates;
   unsigned maxStatesInLoop;
+  unsigned maxMemInUse;
 
   llvm::Function *getTargetFunction(llvm::Value *calledVal,
                                     ExecutionState &state);
