@@ -150,8 +150,6 @@ LocalExecutor::~LocalExecutor() {
     delete baseState;
     baseState = nullptr;
   }
-
-  outs() << "# " << kmodule->getModuleIdentifier() << ", maxMemInUse: " << maxMemInUse << '\n';
 }
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
