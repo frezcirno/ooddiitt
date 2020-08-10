@@ -182,12 +182,12 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
     if (Function *fn = di_sp.getFunction()) {
       if (!fn->isDeclaration()) {
         string pathname = di_sp.getFilename();
-
-        // functions from libc are never user fns
-        if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
-          string filename = fs::path(pathname).filename().string();
+        string filename = fs::path(pathname).filename().string();
+        string vname = fn->getName().str();
+        if (!isPossibleLibrarySource(pathname, filename, vname)) {
           if (opts.sources.empty() || opts.sources.contains(filename)) {
             user_fns.insert(fn);
+            outs() << "User function: " << vname << oendl;
           }
         }
       }
@@ -202,15 +202,15 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
   for (auto itr = finder.global_variable_begin(), end = finder.global_variable_end(); itr != end; ++itr) {
     DIGlobalVariable di_gv(*itr);
     if (GlobalVariable *gv = di_gv.getGlobal()) {
-      string pathname = di_gv.getFilename();
-
-      // globals from libc are never user globals
-      if (!(boost::starts_with(pathname, "libc/") || boost::starts_with(pathname, "./include"))) {
-
-        string gv_name = gv->getName().str();
+      if (!gv->isDeclaration()) {
+        string pathname = di_gv.getFilename();
         string filename = fs::path(pathname).filename().string();
-        if ((opts.sources.empty() && !gv->isDeclaration()) || opts.sources.contains(filename)) {
-          user_gbs.insert(gv);
+        string vname = gv->getName().str();
+        if (!isPossibleLibrarySource(pathname, filename, vname)) {
+          if (opts.sources.empty() || opts.sources.contains(filename)) {
+            user_gbs.insert(gv);
+            outs() << "User global variable: " << vname << oendl;
+          }
         }
       }
     }

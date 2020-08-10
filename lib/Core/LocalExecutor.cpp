@@ -323,41 +323,6 @@ bool LocalExecutor::isReadExpr(ref<Expr> e) const {
   }
 }
 
-void LocalExecutor::unconstrainGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
-
-  Module *m = kmodule->module;
-  for (Module::const_global_iterator itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
-    const GlobalVariable *v = static_cast<const GlobalVariable *>(itr);
-    MemoryObject *mo = globalObjects.find(v)->second;
-
-    std::string varName = mo->name;
-    if ((!varName.empty()) && (varName.at(0) != '.') /* && progInfo->isGlobalInput(state.name, varName) */) {
-
-      std::string fnName = "unknown";
-      bool unconstrain = false;
-      if (fn != nullptr) {
-        fnName = fn->getName().str();
-        unconstrain = /* progInfo->isReachableOutput(fnName, varName) */ true;
-      } else {
-        fnName = "still_unknown";
-        unconstrain = true;
-      }
-
-      if (unconstrain) {
-        const ObjectState *os = state.addressSpace.findObject(mo);
-        ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-
-        WObjectPair wop;
-        duplicateSymbolic(state, mo, v, toSymbolName(fnName, counter, varName), wop);
-
-        for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
-          wos->write(idx, wop.second->read8(idx));
-        }
-      }
-    }
-  }
-}
-
 void LocalExecutor::replayGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
   UNUSED(state);
   UNUSED(fn);
@@ -455,12 +420,8 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
   return true;
 }
 
-void LocalExecutor::expandLazyAllocation(ExecutionState &state,
-                                         ref<Expr> addr,
-                                         const llvm::Type *type,
-                                         KInstruction *target,
-                                         const std::string &name,
-                                         bool allow_null) {
+void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, const llvm::Type *type, KInstruction *target,
+                                         const std::string &name, bool allow_null) {
 
   assert(type->isPointerTy());
 
@@ -562,9 +523,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state,
     }
 
   } else if (base_type->isFunctionTy()) {
-    // just say NO to function pointers
-    ref<Expr> eqNull = EqExpr::create(addr, Expr::createPointer(0));
-    addConstraintOrTerminate(state, eqNull);
+
     // do not touch state again, in case of termination
   } else {
     ostringstream ss;
@@ -876,8 +835,9 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
-    if (v->hasName() && !(v->isConstant() || v->hasHiddenVisibility()) && kmodule->isUserGlobal(v)) {
+    if (kmodule->isUserGlobal(v) && !v->isConstant() && !v->hasHiddenVisibility()) {
 
+      assert(v->hasName());
       string gv_name = v->getName().str();
       auto pos = gv_name.find('.');
       // if dot in first position or the prefix does not equal the function name, continue to next variable
@@ -892,12 +852,35 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
           outs() << "unconstraining: " << gv_name << '\n';
         }
 
-        // global may already have a value in this state. if so unlink it.
-        const ObjectState *os = state.addressSpace.findObject(mo);
-        if (os != nullptr) {
-          state.addressSpace.unbindObject(mo);
-        }
+        // replace existing concrete value with symbolic one.
         makeSymbolic(state, mo);
+      }
+    }
+  }
+}
+
+void LocalExecutor::unconstrainGlobalValues(ExecutionState &state, Function *fn, unsigned counter) {
+
+  string fn_name = fn->getName();
+  for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
+    GlobalVariable *v = itr;
+    if (kmodule->isUserGlobal(v) && !v->isConstant() && !v->hasHiddenVisibility()) {
+      assert(v->hasName());
+      string gv_name = v->getName().str();
+
+      // any gv with dot in name should be skipped
+      if (gv_name.find('.') == string::npos) {
+        if (MemoryObject *mo = globalObjects.find(v)->second) {
+
+          const ObjectState *os = state.addressSpace.findObject(mo);
+          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+
+          WObjectPair wop;
+          duplicateSymbolic(state, mo, v, toSymbolName(fn_name, counter, gv_name), wop);
+          for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
+            wos->write(idx, wop.second->read8(idx));
+          }
+        }
       }
     }
   }
@@ -1397,6 +1380,14 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     addedStates.push_back(state);
   }
 
+  // RLR TODO: debug
+  if (interpreterOpts.verify_constraints) {
+    for (ExecutionState *state : init_states) {
+      std::vector<SymbolicSolution> s;
+      Executor::getSymbolicSolution(*state, s);
+    }
+  }
+
   unsigned num_timeouts = 1;
   if (interpreterOpts.mode == ExecModeID::igen) {
     searcher = constructUserSearcher(*this);
@@ -1461,6 +1452,13 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
 
       executeInstruction(*state, ki);
+
+      // RLR TODO: debug
+      if (interpreterOpts.verify_constraints) {
+        std::vector<SymbolicSolution> s;
+        Executor::getSymbolicSolution(*state, s);
+      }
+
       if (ki->is_targeted) {
         state->reached_target = true;
       }
@@ -1851,31 +1849,49 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             fn = ptr;
           }
         } else {
-          // else fork states with unique values and restart instruction
           if (auto fn_type = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType())) {
-            set_ex<const Function *> fns;
-            kmodule->getFnsOfType(fn_type, fns);
+            // else fork states with unique values and restart instruction
+            vector<const Function *> matching_fns;
+            kmodule->getFnsOfType(fn_type, matching_fns);
 
-            // restart this instruction with addr bound to each possible function address;
-            unsigned counter = 0;
-            state.restartInstruction();
-            ExecutionState *next = &state;
-            for (auto called : fns) {
-              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) called));
-              StatePair sp = fork(*next, eq, true);
-              if (sp.first != nullptr) counter += 1;
-              next = sp.second;
+            const Function *first_match = nullptr;
+            for (auto match : matching_fns) {
+              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) match));
+              if (solver->mayBeTrue(state, eq)) {
+
+                // save the first for constraint of state
+                // others get a state clone
+                if (first_match == nullptr) {
+                  first_match = match;
+                } else {
+                  ExecutionState *new_state = clone(&state);
+                  addConstraint(*new_state, eq);
+                  new_state->restartInstruction();
+                }
+              }
             }
-            if (counter > 1) klee_warning("unconstrained function pointer, forking state for each valid target: %u", counter);
+
+            // make sure we found at least one candidate
+            if (first_match == nullptr) {
+              stringstream ss;
+              ss << "no matching function type for function pointer: " << ki->info->assemblyLine;
+              terminateStateOnComplete(state, TerminateReason::InvalidCall, ss.str());
+            } else {
+
+              // finally, bind the incoming state to the first value
+              ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) first_match));
+              addConstraint(state, eq);
+              state.restartInstruction();
+            }
+            return;
           }
-          return;
         }
       }
 
       // if fn is still null, then we have no callee
       if (fn == nullptr) {
         stringstream ss;
-        ss << "undefined callee: " << fn->getName().str();
+        ss << "undefined callee at line: " << ki->info->assemblyLine;
         terminateStateOnComplete(state, TerminateReason::ExternFn, ss.str());
         return;
       }

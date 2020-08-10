@@ -201,10 +201,14 @@ namespace klee {
       for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) fns.insert(itr->first);
     }
 
-    void getFnsOfType(const llvm::FunctionType *ft, std::set_ex<const llvm::Function*> &fns) {
-      auto itr = mapFnTypes.find(ft);
-      if (itr != mapFnTypes.end()) {
-        fns.insert(itr->second.begin(), itr->second.end());
+    void getFnsOfType(const llvm::FunctionType *ft, std::vector<const llvm::Function *> &fns) {
+      auto fnd = mapFnTypes.find(ft);
+      if (fnd != mapFnTypes.end()) {
+        auto &matching = fnd->second;
+        fns.reserve(matching.size());
+        for (auto fn : matching) {
+          fns.push_back(fn);
+        }
       }
     }
 
@@ -219,6 +223,14 @@ namespace klee {
     }
 
     void getUserSources(std::set_ex<std::string> &srcs) const;
+
+    bool isPossibleLibrarySource(const std::string &pname, const std::string &fname, const std::string &vname) const {
+
+      UNUSED(vname);
+      if (boost::starts_with(pname, "libc/") || boost::starts_with(pname, "./include")) return true;
+      if (fname == "locale_data.c") return true;
+      return false;
+    }
 
     void getExternalFunctions(std::set_ex<const llvm::Function*> &fns) const {
       fns.clear();
