@@ -138,19 +138,22 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
 
 LocalExecutor::~LocalExecutor() {
 
-  if (sysModel != nullptr) {
-    delete sysModel;
-    sysModel = nullptr;
-  }
-
   if (statsTracker) {
     statsTracker->done();
   }
-
   if (baseState != nullptr) {
     delete baseState;
     baseState = nullptr;
   }
+}
+
+void LocalExecutor::shutdown() {
+
+  if (sysModel != nullptr) {
+    delete sysModel;
+    sysModel = nullptr;
+  }
+  Executor::shutdown();
 }
 
 bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e) {
@@ -1191,6 +1194,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
     runFn(kf, init_states);
   }
   outs() << name << ": generated " << interpreterHandler->getNumTestCases() << " test case(s)\n";
+  shutdown();
 }
 
 void LocalExecutor::runFunctionAsMain(Function *f, int argc, char **argv, char **envp) {
@@ -1296,6 +1300,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
   assert(!interpreterOpts.progression.empty());
   timeout = interpreterOpts.progression.front().timeout;
   runFn(kf, init_states);
+  shutdown();
 }
 
 void LocalExecutor::runMainConcrete(Function *fn,
@@ -1362,6 +1367,7 @@ void LocalExecutor::runMainConcrete(Function *fn,
       runFn(kf, init_states);
     }
   }
+  shutdown();
 }
 
 void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_states) {

@@ -375,17 +375,44 @@ void Executor::bindModule(KModule *kmod) {
 }
 
 Executor::~Executor() {
-  delete memory;
-  delete externalDispatcher;
-  delete processTree;
-  delete specialFunctionHandler;
-  delete statsTracker;
-  delete solver;
-  while(!timers.empty()) {
+
+  if (memory != nullptr) {
+    delete memory;
+    memory = nullptr;
+  }
+  if (processTree != nullptr) {
+    delete processTree;
+    processTree = nullptr;
+  }
+  if (statsTracker != nullptr) {
+    delete statsTracker;
+    statsTracker = nullptr;
+  }
+  if (debugInstFile != nullptr) {
+    delete debugInstFile;
+    debugInstFile = nullptr;
+  }
+}
+
+void Executor::shutdown() {
+
+  if (externalDispatcher != nullptr) {
+    delete externalDispatcher;
+    externalDispatcher = nullptr;
+  }
+  if (specialFunctionHandler != nullptr) {
+    delete specialFunctionHandler;
+    specialFunctionHandler = nullptr;
+  }
+  if (solver != nullptr) {
+    delete solver;
+    solver = nullptr;
+  }
+  while (!timers.empty()) {
     delete timers.back();
     timers.pop_back();
   }
-  delete debugInstFile;
+  Interpreter::shutdown();
 }
 
 /***/

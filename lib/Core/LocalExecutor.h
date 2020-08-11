@@ -51,6 +51,7 @@ public:
 
   ~LocalExecutor() override;
 
+  void shutdown() override;
   void bindModule(KModule *kmodule) override;
   void bindModule(KModule *kmodule, ExecutionState *state, uint64_t mem_reserve) override;
   void bindModuleConstants() override;

@@ -185,11 +185,12 @@ public:
 
 protected:
   const InterpreterOptions interpreterOpts;
+  bool is_shutdown;
 
-  Interpreter(const InterpreterOptions &_interpreterOpts) : interpreterOpts(_interpreterOpts) {};
+  Interpreter(const InterpreterOptions &_interpreterOpts) : interpreterOpts(_interpreterOpts), is_shutdown(false) {};
 
 public:
-  virtual ~Interpreter() {};
+  virtual ~Interpreter() { if (!is_shutdown) shutdown(); };
 
   static Interpreter *create(llvm::LLVMContext &ctx,
                              const InterpreterOptions &_interpreterOpts,
@@ -200,6 +201,9 @@ public:
                                   InterpreterHandler *ih);
 
   const InterpreterOptions &getOptions() const { return interpreterOpts; }
+
+  // frees resources required for executing the module
+  virtual void shutdown() { is_shutdown = true; }
 
   /// Register the module to be executed.
   ///

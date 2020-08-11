@@ -420,6 +420,8 @@ public:
   Executor(llvm::LLVMContext &ctx, const InterpreterOptions &opts, InterpreterHandler *ie);
   ~Executor() override;
 
+  void shutdown() override;
+
   const InterpreterHandler& getHandler() {
     return *interpreterHandler;
   }
