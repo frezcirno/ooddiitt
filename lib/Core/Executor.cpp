@@ -684,6 +684,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   bool isSeeding = false;
   ExecutionState *trueState = nullptr;
   ExecutionState *falseState = nullptr;
+  bool is_symbolic = false;
 
   if (!isSeeding && !isa<ConstantExpr>(condition) &&
       (MaxStaticForkPct!=1. || MaxStaticSolvePct != 1. ||
@@ -725,85 +726,49 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
     current.pc = current.prevPC;
     terminateStateOnDispose(current, "Query timed out (fork).");
   } else if (res==Solver::True) {
-    if (!isInternal) {
-      if (pathWriter) {
-        current.pathOS << "1";
-      }
-    }
     trueState = &current;
   } else if (res==Solver::False) {
-    if (!isInternal) {
-      if (pathWriter) {
-        current.pathOS << "0";
-      }
-    }
     falseState = &current;
-  } else if (inhibitForking) {
-
-    // only one state survives
-    if (theRNG.getBool()) {
-      trueState = &current;
-      if (pathWriter) {
-        if (!isInternal) {
-          trueState->pathOS << "1";
-        }
-      }
-      if (symPathWriter) {
-        if (!isInternal) {
-          trueState->symPathOS << "1";
-        }
-      }
-      addConstraint(*trueState, condition);
-    } else {
-      falseState = &current;
-      if (pathWriter) {
-        if (!isInternal) {
-          falseState->pathOS << "0";
-        }
-      }
-      if (symPathWriter) {
-        if (!isInternal) {
-          falseState->symPathOS << "0";
-        }
-      }
-      addConstraint(*falseState, Expr::createIsZero(condition));
-    }
-
   } else {
 
-    TimerStatIncrementer timer(stats::forkTime);
-    trueState = &current;
+    if (inhibitForking) {
 
-    ++stats::forks;
+      // only one state survives
+      if (theRNG.getBool()) {
+        trueState = &current;
+        addConstraint(*trueState, condition);
+      } else {
+        falseState = &current;
+        addConstraint(*falseState, Expr::createIsZero(condition));
+      }
+    } else {
 
-    falseState = trueState->branch();
-    addedStates.push_back(falseState);
+      TimerStatIncrementer timer(stats::forkTime);
+      ++stats::forks;
 
-    current.ptreeNode->data = nullptr;
-    std::pair<PTree::Node *, PTree::Node *> res = processTree->split(current.ptreeNode, falseState, trueState);
-    falseState->ptreeNode = res.first;
-    trueState->ptreeNode = res.second;
+      trueState = &current;
+      falseState = clone(trueState);
 
-    if (pathWriter) {
       // Need to update the pathOS.id field of falseState, otherwise the same id
       // is used for both falseState and trueState.
-      falseState->pathOS = pathWriter->open(current.pathOS);
-      if (!isInternal) {
-        trueState->pathOS << "1";
-        falseState->pathOS << "0";
-      }
-    }
-    if (symPathWriter) {
-      falseState->symPathOS = symPathWriter->open(current.symPathOS);
-      if (!isInternal) {
-        trueState->symPathOS << "1";
-        falseState->symPathOS << "0";
-      }
-    }
+      if (pathWriter != nullptr) falseState->pathOS = pathWriter->open(current.pathOS);
+      if (symPathWriter != nullptr) falseState->symPathOS = symPathWriter->open(current.symPathOS);
 
-    addConstraint(*trueState, condition);
-    addConstraint(*falseState, Expr::createIsZero(condition));
+      addConstraint(*trueState, condition);
+      addConstraint(*falseState, Expr::createIsZero(condition));
+    }
   }
+  if (!isInternal) {
+    if (trueState != nullptr) {
+      if (pathWriter != nullptr) trueState->pathOS << "1";
+      if (symPathWriter != nullptr && is_symbolic) trueState->symPathOS << "1";
+    }
+    if (falseState != nullptr) {
+      if (pathWriter != nullptr) falseState->pathOS << "0";
+      if (symPathWriter != nullptr && is_symbolic) falseState->symPathOS << "0";
+    }
+  }
+
   return StatePair(trueState, falseState);
 }
 
@@ -815,8 +780,7 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
   }
 
   if (interpreterOpts.verify_constraints) {
-    std::vector<SymbolicSolution> s;
-    getSymbolicSolution(state, s);
+    // RLR TODO: how to verify?
   }
 
   state.addConstraint(condition);
@@ -825,8 +789,7 @@ void Executor::addConstraint(ExecutionState &state, ref<Expr> condition) {
   }
 
   if (interpreterOpts.verify_constraints) {
-    std::vector<SymbolicSolution> s;
-    getSymbolicSolution(state, s);
+    // RLR TODO: how to verify?
   }
 }
 

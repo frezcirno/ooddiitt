@@ -158,6 +158,7 @@ protected:
   void replayFnCall(ExecutionState &state, KInstruction *ki, llvm::Function *fn, unsigned counter, ref<Expr> &ret_value);
   void replayFnArg(ExecutionState &state, const MemoryObject *src, const ref<ConstantExpr> &ptr);
   void addReplayValue(const std::string &name, const MemoryObject *mo);
+  void loadFnPtrMap(const TestCase *test);
 
   unsigned countLoadIndirection(const llvm::Type* type) const;
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) const;
@@ -177,7 +178,7 @@ protected:
   const Cell& eval(KInstruction *ki, unsigned index, ExecutionState &state) const override;
   bool addConstraintOrTerminate(ExecutionState &state, ref<Expr> e);
   bool isMainEntry(const llvm::Function *fn) const;
-  void InspectSymbolicSolutions(ExecutionState *state);
+//  void inspectSymbolicSolutions(ExecutionState *state);
 
   void branch(ExecutionState &state, const std::vector< ref<Expr> > &conditions, std::vector<ExecutionState*> &result) override;
   ExecutionState *clone(ExecutionState *es) override;
@@ -201,6 +202,7 @@ protected:
   MemoryObject *moStdInBuff;
   ProgramTracer *tracer;
   std::map<llvm::Function *, std::map<unsigned, ReplayFnRec>> replay_stub_data;
+  std::map<uint64_t, llvm::Function *> replay_fn_ptrs;
 
   // behavior conditioned by exec mode
   bool doSaveFault;

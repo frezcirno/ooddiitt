@@ -201,13 +201,13 @@ namespace klee {
       for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) fns.insert(itr->first);
     }
 
-    void getFnsOfType(const llvm::FunctionType *ft, std::vector<const llvm::Function *> &fns) {
-      auto fnd = mapFnTypes.find(ft);
+    void getUserFnsOfType(const llvm::FunctionType *ft, std::vector<const llvm::Function *> &fns) {
+      const auto &fnd = mapFnTypes.find(ft);
       if (fnd != mapFnTypes.end()) {
         auto &matching = fnd->second;
         fns.reserve(matching.size());
         for (auto fn : matching) {
-          fns.push_back(fn);
+          if (user_fns.contains(fn)) fns.push_back(fn);
         }
       }
     }

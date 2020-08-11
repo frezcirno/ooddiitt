@@ -204,7 +204,6 @@ void diffFns(KModule *kmod1,
     string fn_name = fn1->getName();
     string fn_name2 = fn2->getName();
 
-    // RLR TODO: remove debug
     if (!ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
       sig.insert(fn_name);
     } else if (calcFnHash(fn1) != calcFnHash(fn2)) {

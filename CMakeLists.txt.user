@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.12.4, 2020-08-10T12:24:47. -->
+<!-- Written by QtCreator 4.12.4, 2020-08-10T20:52:44. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -418,7 +418,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-igen</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-igen</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-igen</value>
-    <value type="QString" key="RunConfiguration.Arguments">-verify-constraints -entry-point=foo1 brt-out-tmp/fnptr.bc
+    <value type="QString" key="RunConfiguration.Arguments">-entry-point=foo brt-out-tmp/fnptr.bc
 </value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
     <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
@@ -429,7 +429,7 @@
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseTerminal">false</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">%{sourceDir}/test/Local/fnptr</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/tmp/fnptr</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-build-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.3">
@@ -495,7 +495,8 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-rply</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-rply</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-rply</value>
-    <value type="QString" key="RunConfiguration.Arguments">-show-args -silent -diff=brt-out/diff.json -output=brt-out -module=@post brt-out/test-00002-0000000491.json</value>
+    <value type="QString" key="RunConfiguration.Arguments">test-0000000000.json
+</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
     <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
@@ -505,7 +506,7 @@
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseTerminal">false</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/cart/experiments/coreutils/regressions/08</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/tmp/fnptr</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-build-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.4">

@@ -41,6 +41,7 @@ class TreeStreamWriter;
 class MemoryObject;
 class KModule;
 struct KInstruction;
+class TestCase;
 
 typedef std::pair<const MemoryObject*,std::vector<unsigned char> > SymbolicSolution;
 typedef std::pair<ref<Expr>,ref<ConstantExpr> > ExprSolution;
@@ -159,7 +160,7 @@ public:
     size_t user_mem_size;
     bool verbose;
     bool verify_constraints;
-    std::vector<TestObject> *test_objs;
+    TestCase *test_case;
     TraceType trace;
     std::map<llvm::Function*,uint64_t> *fn_instr_counters;
 
@@ -176,7 +177,7 @@ public:
         verbose(false),
 #endif
         verify_constraints(false),
-        test_objs(nullptr),
+        test_case(nullptr),
         trace(TraceType::invalid),
         fn_instr_counters(nullptr)
     {}

@@ -80,6 +80,7 @@ public:
   std::vector<std::string> trace;
   std::vector<TestObject> objects;
   std::vector<unsigned char> stdin_buffer;
+  std::map<uint64_t, std::string> bound_fn_ptrs;
 
   bool is_main() const {
     for (const auto &obj : objects) {

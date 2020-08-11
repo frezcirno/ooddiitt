@@ -327,6 +327,11 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
         }
       }
 
+      Json::Value &fn_ptrs = root["boundFnPtrs"] = Json::objectValue;
+      for (auto &itr : state.bound_fnptrs) {
+        fn_ptrs[itr.second] = (uint64_t) itr.first;
+      }
+
       // write the constructed json object to file
       Json::StreamWriterBuilder builder;
       builder["commentStyle"] = "None";

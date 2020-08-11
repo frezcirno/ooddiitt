@@ -18,8 +18,8 @@ namespace klee {
 
 llvm::cl::opt<bool>
 UseFastCexSolver("use-fast-cex-solver",
-		 llvm::cl::init(false),
-		 llvm::cl::desc("(default=off)"));
+                 llvm::cl::init(false),
+                 llvm::cl::desc("(default=off)"));
 
 llvm::cl::opt<bool>
 UseCexCache("use-cex-cache",
@@ -38,7 +38,7 @@ UseIndependentSolver("use-independent-solver",
 
 llvm::cl::opt<bool>
 DebugValidateSolver("debug-validate-solver",
-		             llvm::cl::init(false));
+                             llvm::cl::init(false));
 
 llvm::cl::opt<int>
 MinQueryTimeToLog("min-query-time-to-log",
@@ -78,7 +78,7 @@ llvm::cl::list<QueryLoggingSolverType> queryLoggingOptions(
         clEnumValN(SOLVER_KQUERY,"solver:kquery","All queries reaching the solver in .kquery (KQuery) format"),
         clEnumValN(SOLVER_SMTLIB,"solver:smt2","All queries reaching the solver in .smt2 (SMT-LIBv2) format"),
         clEnumValEnd
-	),
+        ),
     llvm::cl::CommaSeparated
 );
 
@@ -120,7 +120,7 @@ llvm::cl::opt<klee::MetaSMTBackendType> MetaSMTBackend(
 #define STP_IS_DEFAULT_STR " (default)"
 #define METASMT_IS_DEFAULT_STR ""
 #define Z3_IS_DEFAULT_STR ""
-#define DEFAULT_CORE_SOLVER Z3_SOLVER
+#define DEFAULT_CORE_SOLVER STP_SOLVER
 #elif ENABLE_Z3
 #define STP_IS_DEFAULT_STR ""
 #define METASMT_IS_DEFAULT_STR ""

@@ -172,6 +172,16 @@ bool loadTestCase(Json::Value &root, TestCase &test) {
         test.objects.emplace_back(TestObject(addr, count, data, align, kind, name, type));
       }
     }
+
+    Json::Value &fn_ptrs = root["boundFnPtrs"];
+    if (fn_ptrs.isObject()) {
+      for (auto itr = fn_ptrs.begin(), end = fn_ptrs.end(); itr != end; ++itr) {
+        string fn_name = itr.key().asString();
+        uint64_t val = itr->asUInt64();
+        test.bound_fn_ptrs.insert(make_pair(val, fn_name));
+      }
+    }
+
     return true;
   }
   return false;

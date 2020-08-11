@@ -121,6 +121,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       doLocalCoverage = false;
       doConcreteInterpretation = true;
       doModelStdOutput = false;
+      assert(opts.test_case != nullptr);
       break;
     case ExecModeID::irec:
       doSaveFault = false;
@@ -524,6 +525,7 @@ void LocalExecutor::expandLazyAllocation(ExecutionState &state, ref<Expr> addr, 
 
   } else if (base_type->isFunctionTy()) {
 
+    // unconstrained fn ptrs will expand when invoked
     // do not touch state again, in case of termination
   } else {
     ostringstream ss;
@@ -929,6 +931,8 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   bindModuleConstants();
   parseBreakAt();
 
+  loadFnPtrMap(interpreterOpts.test_case);
+
   // look for a libc initializer, execute if found to initialize the base state
   baseState = runFnLibCInit(baseState);
   interpreterHandler->onStateInitialize(*baseState);
@@ -949,6 +953,7 @@ void LocalExecutor::bindModule(KModule *kmodule, ExecutionState *state, uint64_t
   bindModuleConstants();
   parseBreakAt();
 
+  loadFnPtrMap(interpreterOpts.test_case);
   interpreterHandler->onStateInitialize(*baseState);
 }
 
@@ -968,6 +973,19 @@ void LocalExecutor::bindModuleConstants() {
 
     for (unsigned i = 0; i < kf->numInstructions; ++i) {
       bindInstructionConstants(kf->instructions[i]);
+    }
+  }
+}
+
+void LocalExecutor::loadFnPtrMap(const TestCase *test) {
+
+  if (test != nullptr) {
+    for (auto &itr : test->bound_fn_ptrs) {
+      uint64_t value = itr.first;
+      string fn_name = itr.second;
+      if (Function *fn = kmodule->getFunction(fn_name)) {
+        replay_fn_ptrs.insert(make_pair(value, fn));
+      }
     }
   }
 }
@@ -1380,14 +1398,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     addedStates.push_back(state);
   }
 
-  // RLR TODO: debug
-  if (interpreterOpts.verify_constraints) {
-    for (ExecutionState *state : init_states) {
-      std::vector<SymbolicSolution> s;
-      Executor::getSymbolicSolution(*state, s);
-    }
-  }
-
   unsigned num_timeouts = 1;
   if (interpreterOpts.mode == ExecModeID::igen) {
     searcher = constructUserSearcher(*this);
@@ -1452,12 +1462,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
       }
 
       executeInstruction(*state, ki);
-
-      // RLR TODO: debug
-      if (interpreterOpts.verify_constraints) {
-        std::vector<SymbolicSolution> s;
-        Executor::getSymbolicSolution(*state, s);
-      }
 
       if (ki->is_targeted) {
         state->reached_target = true;
@@ -1836,6 +1840,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
         terminateStateOnComplete(state, TerminateReason::UnhandledInst, "inline assembly is unsupported");
         return;
       }
+
       Function *fn = getTargetFunction(fp, state);
 
       if (fn == nullptr) {
@@ -1847,12 +1852,20 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           Function *ptr = (Function *) CE->getZExtValue();
           if (kmodule->isDefinedFunction(ptr)) {
             fn = ptr;
+          } else if (doConcreteInterpretation) {
+
+            // if not in this function, then could be from unconstrained ptr
+            const auto &fnd = replay_fn_ptrs.find(CE->getZExtValue());
+            if (fnd != replay_fn_ptrs.end()) {
+              fn = (Function*) fnd->second;
+            }
           }
+
         } else {
           if (auto fn_type = dyn_cast<FunctionType>(cast<PointerType>(cs.getCalledValue()->getType())->getElementType())) {
             // else fork states with unique values and restart instruction
             vector<const Function *> matching_fns;
-            kmodule->getFnsOfType(fn_type, matching_fns);
+            kmodule->getUserFnsOfType(fn_type, matching_fns);
 
             const Function *first_match = nullptr;
             for (auto match : matching_fns) {
@@ -1866,6 +1879,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
                 } else {
                   ExecutionState *new_state = clone(&state);
                   addConstraint(*new_state, eq);
+                  new_state->bound_fnptrs.insert(make_pair(match, match->getName().str()));
                   new_state->restartInstruction();
                 }
               }
@@ -1881,6 +1895,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
               // finally, bind the incoming state to the first value
               ref<Expr> eq = EqExpr::create(addr, Expr::createPointer((uint64_t) first_match));
               addConstraint(state, eq);
+              state.bound_fnptrs.insert(make_pair(first_match, first_match->getName().str()));
               state.restartInstruction();
             }
             return;
@@ -2409,7 +2424,11 @@ void LocalExecutor::addReplayValue(const std::string &name, const MemoryObject *
   }
 }
 
-void LocalExecutor::InspectSymbolicSolutions(ExecutionState *state) {
+#if 0
+
+// not safe.  getting a symbolic solution more than once can pollute
+// the assignment cache
+void LocalExecutor::inspectSymbolicSolutions(ExecutionState *state) {
 
   std::vector<SymbolicSolution> out;
   bool success = Executor::getSymbolicSolution(*state, out);
@@ -2437,6 +2456,7 @@ void LocalExecutor::InspectSymbolicSolutions(ExecutionState *state) {
     }
   }
 }
+#endif
 
 const Cell& LocalExecutor::eval(KInstruction *ki, unsigned index, ExecutionState &state) const {
 

@@ -267,7 +267,7 @@ public:
   const KInstruction *instFaulting;
   uint64_t addrFaulting;
   const MemoryObject *moFaulting;
-  std::deque<std::pair<const char *,unsigned> >trace;
+  std::deque<std::pair<const char *,unsigned>> trace;
   std::vector<ref<Expr> > arguments;
   unsigned allBranchCounter;
   unsigned unconBranchCounter;
@@ -285,7 +285,8 @@ public:
   unsigned linear_distance;
 
   bool reached_target;
-  std::deque<std::pair<unsigned,KInstruction*> >o_asserts;
+  std::deque<std::pair<unsigned, KInstruction *>> o_asserts;
+  std::map<const llvm::Function *, std::string> bound_fnptrs;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

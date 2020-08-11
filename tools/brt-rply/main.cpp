@@ -304,7 +304,7 @@ int main(int argc, char *argv[]) {
     IOpts.mode = ExecModeID::rply;
     IOpts.user_mem_base = (void *) 0x90000000000;
     IOpts.user_mem_size = (0xa0000000000 - 0x90000000000);
-    IOpts.test_objs = &test.objects;
+    IOpts.test_case = &test;
     IOpts.verbose = Verbose;
     IOpts.trace = test.trace_type;
     if (TraceT != TraceType::invalid) {
