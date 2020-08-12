@@ -113,6 +113,7 @@ cmake -G "Ninja" \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DBUILD_SHARED_LIBS=OFF \
  -DTUNE_NATIVE:BOOL=ON \
+ -DNO_BOOST=ON \
  ..
 
 ninja
@@ -196,7 +197,7 @@ cmake -G "Ninja" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti -Wno-class-memaccess -Wno-deprecated-copy -Wno-unused-variable -Wno-unused-but-set-variable" \
  -DENABLE_TCMALLOC=ON \
- -DENABLE_KLEE_ASSERTS=OFF \
+ -DENABLE_KLEE_ASSERTS=ON \
  -DENABLE_SOLVER_STP=ON \
  -DENABLE_SOLVER_Z3=ON \
  -DENABLE_POSIX_RUNTIME=OFF \
