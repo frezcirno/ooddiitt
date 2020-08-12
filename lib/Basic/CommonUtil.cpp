@@ -23,6 +23,7 @@
 #include "../Core/SpecialFunctionHandler.h"
 #include "../Core/SystemModel.h"
 #include "klee/Internal/Support/ErrorHandling.h"
+#include "klee/Internal/ADT/RNG.h"
 
 namespace llvm {
 RawOStreamOperator oflush = RawOStreamOperator::base_flush;
@@ -265,6 +266,25 @@ void expandTestFiles(const string &file, const string &dir, const string &prefix
       klee_error("Test file not found: %s", str.c_str());
     }
   }
+}
+
+extern RNG theRNG;
+
+BagOfNumbers::BagOfNumbers(unsigned size) {
+  for (unsigned idx = 0; idx < size; ++idx) {
+    numbers.push_back(idx);
+  }
+}
+
+unsigned BagOfNumbers::draw() {
+
+  unsigned result = 0;
+  if (!numbers.empty()) {
+    unsigned idx = theRNG.getInt32() % numbers.size();
+    result = numbers.at(idx);
+    numbers.erase(numbers.begin() + idx);
+  }
+  return result;
 }
 
 #ifdef _DEBUG

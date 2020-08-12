@@ -180,6 +180,16 @@ std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
 void show_args(int argc, char *argv[]);
 
+class BagOfNumbers {
+  std::deque<unsigned> numbers;
+
+public:
+  BagOfNumbers(unsigned size);
+  unsigned draw();
+  unsigned size() const { return numbers.size(); }
+  bool empty() const { return numbers.empty(); }
+};
+
 class HashAccumulator {
   uint64_t hash;
 public:

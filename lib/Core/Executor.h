@@ -410,9 +410,26 @@ protected:
 
   bool isOnlyInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const;
   bool isInLoop(const ExecutionState *state, const KFunction *kf, const llvm::Loop *loop) const;
-  void tryPreference(ExecutionState &state, const MemoryObject *mo);
+  void tryCmdPreference(ExecutionState &state, const MemoryObject *mo);
+  void tryStrPreference(ExecutionState &state, const MemoryObject *mo);
   bool tryPreferenceValue(ExecutionState &state, char ch, ref<Expr> value);
   bool tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref<Expr> value);
+
+  bool mustBeInRange(ExecutionState &state, unsigned char ch1, unsigned char ch2, ref<Expr> value) const;
+  bool mustBeDigit(ExecutionState &state, ref<Expr> value) const { return mustBeInRange(state, '0', '9', value); }
+  bool mustBeLowerLetter(ExecutionState &state, ref<Expr> value) const { return mustBeInRange(state, 'a', 'z', value); }
+  bool mustBeUpperLetter(ExecutionState &state, ref<Expr> value) const { return mustBeInRange(state, 'A', 'Z', value); }
+  bool mustBeLetter(ExecutionState &state, ref<Expr> value) const {
+    return mustBeLowerLetter(state, value) || mustBeUpperLetter(state, value);
+  }
+
+  bool tryInRangeValue(ExecutionState &state, unsigned char ch1, unsigned char ch2, ref<Expr> value);
+  bool tryDigitValue(ExecutionState &state, ref<Expr> value) { return tryInRangeValue(state, '0', '9', value); }
+  bool tryLowerLetterValue(ExecutionState &state, ref<Expr> value) { return tryInRangeValue(state, 'a', 'z', value); }
+  bool tryUpperLetterValue(ExecutionState &state, ref<Expr> value) { return tryInRangeValue(state, 'A', 'Z', value); }
+  bool tryLetterValue(ExecutionState &state, ref<Expr> value) {
+    return tryLowerLetterValue(state, value) || tryUpperLetterValue(state, value);
+  }
 
   bool isUnique(const ExecutionState &state, ref<Expr> &e) const;
 

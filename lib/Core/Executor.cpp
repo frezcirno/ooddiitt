@@ -3373,10 +3373,8 @@ bool Executor::tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref
   assert(ch2 > ch1);
   assert(value->getWidth() == Expr::Int8);
 
-  ref<ConstantExpr> ech1 = ConstantExpr::create(ch1, Expr::Int8);
-  ref<ConstantExpr> ech2 = ConstantExpr::create(ch2, Expr::Int8);
-  ref<Expr> gte = UgeExpr::create(value, ech1);
-  ref<Expr> lte = UleExpr::create(value, ech2);
+  ref<Expr> gte = UgeExpr::create(value, ConstantExpr::create(ch1, Expr::Int8));
+  ref<Expr> lte = UleExpr::create(value, ConstantExpr::create(ch2, Expr::Int8));
   ref<Expr> in_range = AndExpr::create(gte, lte);
   if (solver->mayBeTrue(state, in_range)) {
 
@@ -3399,7 +3397,7 @@ bool Executor::tryPreferenceRange(ExecutionState &state, char ch1, char ch2, ref
   return false;
 }
 
-void Executor::tryPreference(ExecutionState &state, const MemoryObject *mo) {
+void Executor::tryCmdPreference(ExecutionState &state, const MemoryObject *mo) {
 
   if (const ObjectState *os = state.addressSpace.findObject(mo)) {
     for (unsigned idx = 0, end = mo->size - 1; idx < end; ++idx) {
@@ -3410,6 +3408,58 @@ void Executor::tryPreference(ExecutionState &state, const MemoryObject *mo) {
             if (!tryPreferenceRange(state, 'a', 'z', ch)) {
               tryPreferenceRange(state, 'A', 'Z', ch);
             }
+          }
+        }
+      }
+    }
+  }
+}
+
+bool Executor::mustBeInRange(ExecutionState &state, unsigned char ch1, unsigned char ch2, ref<Expr> value) const {
+
+  // if this is a constant, we can just calculate the result
+  if (auto *CE = dyn_cast<ConstantExpr>(value)) {
+    uint64_t tmp = CE->getZExtValue();
+    return (ch1 <= tmp && tmp <= ch2);
+  }
+
+  // otherwise, we must consult the solver
+  ref<Expr> gte = UgeExpr::create(value, ConstantExpr::create(ch1, Expr::Int8));
+  ref<Expr> lte = UleExpr::create(value, ConstantExpr::create(ch2, Expr::Int8));
+  ref<Expr> in_range = AndExpr::create(gte, lte);
+  return solver->mustBeTrue(state, in_range);
+}
+
+bool Executor::tryInRangeValue(ExecutionState &state, unsigned char ch1, unsigned char ch2, ref<Expr> value) {
+
+  assert(ch2 > ch1);
+  BagOfNumbers bag(ch2 - ch1);
+  while (!bag.empty()) {
+    unsigned char num = (unsigned char) ch1 + bag.draw();
+    ref<Expr> eq = EqExpr::create(value, ConstantExpr::create(num, Expr::Int8));
+    if (solver->mayBeTrue(state, eq)) {
+      state.addConstraint(eq);
+      return true;
+    }
+  }
+  return false;
+}
+
+void Executor::tryStrPreference(ExecutionState &state, const MemoryObject *mo) {
+
+  // this might be a string if the last byte must be null terminator
+  if (const ObjectState *os = state.addressSpace.findObject(mo)) {
+    ref<Expr> is_null_term = EqExpr::createIsZero(os->read8(mo->size - 1));
+    if (solver->mustBeTrue(state, is_null_term)) {
+      for (unsigned idx = 0, end = mo->size - 1; idx < end; ++idx) {
+        ref<Expr> ch = os->read8(idx);
+        if (!isUnique(state, ch)) {
+          if (mustBeDigit(state, ch)) {
+            tryDigitValue(state, ch);
+          } else if (mustBeLowerLetter(state, ch)) {
+            tryLowerLetterValue(state, ch);
+          } else if (mustBeUpperLetter(state, ch)) {
+            tryUpperLetterValue(state, ch);
           }
         }
       }
@@ -3459,9 +3509,15 @@ bool Executor::getSymbolicSolution(ExecutionState &state, std::vector<SymbolicSo
   for (unsigned idx = 0, end = state.symbolics.size(); idx != end; ++idx) {
     const auto &pair = state.symbolics[idx];
     const MemoryObject *mo = pair.first;
-    if (SymArgsPrintable && boost::starts_with(mo->name, "argv_") && isdigit(mo->name[5])) {
-      tryPreference(state, mo);
+    if (SymArgsPrintable && mo->isParam() && boost::starts_with(mo->name, "argv_") && isdigit(mo->name[5])) {
+      tryCmdPreference(state, mo);
     }
+
+    // try to diversify results of lazy allocated strings i.e don't let solver always pick '0'
+    if (mo->isLazy() && mo->type->isArrayTy() && mo->type->getArrayElementType()->isIntegerTy(Expr::Int8)) {
+      tryStrPreference(state, mo);
+    }
+
     mos.push_back(pair.first);
     objects.push_back(pair.second);
   }
