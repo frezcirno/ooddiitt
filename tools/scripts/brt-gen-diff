@@ -46,6 +46,8 @@ def get_bc_diffs(dir, prev, post, orcl):
   if orcl is not None:
     args.append(os.path.join(dir, orcl))
   complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
+  sys.stderr.write(complete.stderr)
+  sys.stdout.write(complete.stdout)
   return complete.returncode == 0
 
 
