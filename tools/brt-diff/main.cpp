@@ -104,9 +104,9 @@ uint64_t calcFnHash(Function *fn) {
         // one of the args contains a source line number that is expected
         // to change without effecting behavior
         if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
-          if (Function *fn = ci->getCalledFunction()) {
-            if (fn->getName() == "__assert_fail") {
-              hash.add(fn->getName());
+          if (Function *called = ci->getCalledFunction()) {
+            if (called->getName() == "__assert_fail") {
+              hash.add(called->getName());
               continue;
             }
           }
@@ -254,7 +254,7 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
 }
 
 void calcDistanceMap(Module *mod,
-                     const map<Function*,set<Function*>> callee_graph,
+                     const map<Function*,set<Function*>> &callee_graph,
                      const set<string> &sources, const set<Function*> &sinks,
                      map<string,unsigned> &distance_map) {
 
@@ -289,7 +289,7 @@ void calcDistanceMap(Module *mod,
 }
 
 void reachesFns(KModule *kmod,
-                const map<Function*,set<Function*> > callee_graph,
+                const map<Function*,set<Function*>> &callee_graph,
                 const set<string> &sources,
                 const set<string> &changed,
                 map<string,unsigned> &map) {
@@ -562,6 +562,8 @@ int main(int argc, char *argv[]) {
       KModule *kmod3 = nullptr;
       if (!InputFile3.empty()) {
         kmod3 = PrepareModule(InputFile3);
+        if (kmod3->hasOracle()) outs() << kmod3->getModuleIdentifier() << " instrumented with oracle\n";
+        else errs() << kmod3->getModuleIdentifier() << " does not contain an oracle\n";
       }
 
       emitDiff(kmod1, kmod2, kmod3, Output);
