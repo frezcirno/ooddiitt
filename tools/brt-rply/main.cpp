@@ -354,7 +354,16 @@ int main(int argc, char *argv[]) {
 
       assert(state->status == StateStatus::Completed);
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) term_reason << ':' << state->reached_target << ':' << elapsed.count() << oendf;
+      outs() << (unsigned) term_reason << ':' << state->reached_target << ':' << elapsed.count();
+      if (kmod->hasOracle()) {
+        outs() << ':';
+        unsigned counter = 0;
+        for (const auto &pr : state->o_asserts) {
+          if (counter++ != 0) outs() << ',';
+          outs() << pr.first;
+        }
+      }
+      outs() << oendf;
 
       if (Verbose) {
         if (state->instFaulting != nullptr) {
