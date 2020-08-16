@@ -5,6 +5,7 @@ import os
 import json
 import subprocess
 import re
+import sys
 
 
 def append_extent(value, lst):
