@@ -2353,7 +2353,11 @@ void LocalExecutor::replayFnCall(ExecutionState &state, KInstruction *ki, llvm::
         bool isSExt = cs.paramHasAttr(0, llvm::Attribute::SExt);
         ret_value = isSExt ? SExtExpr::create(ret_value, w_type) : ZExtExpr::create(ret_value, w_type);
       }
+    } else {
+      Expr::Width w_type = kmodule->targetData->getTypeStoreSizeInBits(ret_type);
+      ret_value = ConstantExpr::create(0, w_type);
     }
+    assert(!ret_value.isNull());
   }
 
   if (fn->isVarArg()) return;

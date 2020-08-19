@@ -818,10 +818,24 @@ void StateComparator::comparePtrs(uint64_t addr1, KFunction *kf1, ExecutionState
             ObjectPair op2;
             if (state2->addressSpace.resolveOne(addr2, op2)) {
 
+              // RLR TODO: check memkind?
+
+              // if this is a heap allocation, then may be a sequence of objects
+              Type *pted_type = type->getPointerElementType();
+              if (op1.first->isHeap()) {
+                if (op1.second->visible_size != op2.second->visible_size) {
+                  diffs.emplace_back(DiffType::delta, name, "different dynamic allocation sizes");
+                  return;
+                }
+                unsigned size = datalayout->getTypeStoreSize(pted_type);
+                unsigned count = op1.second->visible_size / size;
+                pted_type = ArrayType::get(pted_type, count);
+              }
+
               uint64_t offset1 = addr1 - op1.first->address;
               uint64_t offset2 = addr2 - op2.first->address;
               string ptr_name = "*(" + name + ')';
-              compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, type->getPointerElementType());
+              compareObjectStates(op1.second, offset1, kf1, state1, op2.second, offset2, kf2, state2, ptr_name, pted_type);
 
             } else {
               diffs.emplace_back(DiffType::delta, name, "unable to find referenced object");
