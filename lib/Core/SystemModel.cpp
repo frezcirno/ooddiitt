@@ -381,7 +381,7 @@ static inline const fltSemantics *fpWidthToSemantics(unsigned width) {
 bool SystemModel::ExecuteFloor(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   if (args.size() == 1) {
-    ref<ConstantExpr> val = executor->toConstant(state, args[0], "floor()");
+    ref<ConstantExpr> val = executor->toConstantFP(state, args[0]);
     APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
     result.roundToIntegral(APFloat::rmTowardNegative);
     retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
@@ -393,7 +393,7 @@ bool SystemModel::ExecuteFloor(ExecutionState &state, std::vector<ref<Expr> >&ar
 bool SystemModel::ExecuteRint(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   if (args.size() == 1) {
-    ref<ConstantExpr> val = executor->toConstant(state, args[0], "rint()");
+    ref<ConstantExpr> val = executor->toConstantFP(state, args[0]);
     APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
     result.roundToIntegral(APFloat::rmNearestTiesToAway);
     retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
@@ -405,7 +405,7 @@ bool SystemModel::ExecuteRint(ExecutionState &state, std::vector<ref<Expr> >&arg
 bool SystemModel::ExecuteFabs(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   if (args.size() == 1) {
-    ref<ConstantExpr> val = executor->toConstant(state, args[0], "fabs()");
+    ref<ConstantExpr> val = executor->toConstantFP(state, args[0]);
     APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
     result.clearSign();
     retExpr = ConstantExpr::alloc(result.bitcastToAPInt());
@@ -417,8 +417,8 @@ bool SystemModel::ExecuteFabs(ExecutionState &state, std::vector<ref<Expr> >&arg
 bool SystemModel::ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 
   if (args.size() == 2) {
-    ref<ConstantExpr> val = executor->toConstant(state, args[0], "modf()");
-    ref<ConstantExpr> ptr = executor->toConstant(state, args[1], "modf()");
+    ref<ConstantExpr> val = executor->toConstantFP(state, args[0]);
+    ref<ConstantExpr> ptr = executor->toConstantFP(state, args[1]);
     APFloat result(*fpWidthToSemantics(val->getWidth()), val->getAPValue());
     APFloat integer = result;
     APFloat fraction = result;

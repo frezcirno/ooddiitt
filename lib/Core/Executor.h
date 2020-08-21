@@ -353,6 +353,7 @@ protected:
   ///
   /// \param purpose An identify string to printed in case of concretization.
   ref<klee::ConstantExpr> toConstant(ExecutionState &state, ref<Expr> e, const char *purpose);
+  ref<klee::ConstantExpr> toConstantFP(ExecutionState &state, ref<Expr> e);
 
   ref<klee::ConstantExpr> toExample(ExecutionState &state, ref<Expr> e);
 

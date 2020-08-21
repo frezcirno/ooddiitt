@@ -889,12 +889,12 @@ const Cell& Executor::eval(KInstruction *ki, unsigned index,
 
   // Determine if this is a constant or not.
   if (vnumber < 0) {
-    unsigned index = -vnumber - 2;
-    return kmodule->constantTable[index];
+    unsigned idx = -vnumber - 2;
+    return kmodule->constantTable[idx];
   } else {
-    unsigned index = vnumber;
+    unsigned idx = vnumber;
     StackFrame &sf = state.stack.back();
-    return sf.locals[index];
+    return sf.locals[idx];
   }
 }
 
@@ -947,6 +947,11 @@ ref<klee::ConstantExpr> Executor::toConstant(ExecutionState &state, ref<Expr> e,
     }
   }
   return result;
+}
+
+ref<klee::ConstantExpr> Executor::toConstantFP(ExecutionState &state, ref<Expr> e) {
+  // this is a placeholder for later more effective (ie diverse) concretization of fp values
+  return toConstant(state, e, "floating point");
 }
 
 ref<klee::ConstantExpr> Executor::toExample(ExecutionState &state, ref<Expr> e) {
@@ -1928,10 +1933,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     // Floating point instructions
 
   case Instruction::FAdd: {
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FAdd operation");
@@ -1948,10 +1951,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FSub: {
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FSub operation");
@@ -1967,10 +1968,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FMul: {
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FMul operation");
@@ -1987,10 +1986,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FDiv: {
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FDiv operation");
@@ -2007,10 +2004,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FRem: {
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FRem operation");
@@ -2029,8 +2024,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPTrunc: {
     FPTruncInst *fi = cast<FPTruncInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                       "floating point");
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > arg->getWidth())
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPTrunc operation");
 
@@ -2050,8 +2044,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPExt: {
     FPExtInst *fi = cast<FPExtInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
     if (!fpWidthToSemantics(arg->getWidth()) || arg->getWidth() > resultType)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPExt operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -2070,8 +2063,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPToUI: {
     FPToUIInst *fi = cast<FPToUIInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                       "floating point");
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToUI operation");
 
@@ -2091,8 +2083,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPToSI: {
     FPToSIInst *fi = cast<FPToSIInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                       "floating point");
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToSI operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -2112,8 +2103,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::UIToFP: {
     UIToFPInst *fi = cast<UIToFPInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                       "floating point");
+    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "UI2FP");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported UIToFP operation");
@@ -2128,8 +2118,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::SIToFP: {
     SIToFPInst *fi = cast<SIToFPInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value,
-                                       "floating point");
+    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "SI2FP");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported SIToFP operation");
@@ -2143,10 +2132,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
   case Instruction::FCmp: {
     FCmpInst *fi = cast<FCmpInst>(i);
-    ref<ConstantExpr> left = toConstant(state, eval(ki, 0, state).value,
-                                        "floating point");
-    ref<ConstantExpr> right = toConstant(state, eval(ki, 1, state).value,
-                                         "floating point");
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FCmp operation");
