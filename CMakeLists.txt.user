@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.12.4, 2020-08-20T18:13:27. -->
+<!-- Written by QtCreator 4.12.4, 2020-08-21T09:37:39. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -85,7 +85,7 @@
    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">{90d30de4-2306-40c8-830b-990ae6950699}</value>
    <value type="int" key="ProjectExplorer.Target.ActiveBuildConfiguration">0</value>
    <value type="int" key="ProjectExplorer.Target.ActiveDeployConfiguration">0</value>
-   <value type="int" key="ProjectExplorer.Target.ActiveRunConfiguration">2</value>
+   <value type="int" key="ProjectExplorer.Target.ActiveRunConfiguration">6</value>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.BuildConfiguration.0">
     <valuelist type="QVariantList" key="CMake.Configuration">
      <value type="QString">CMAKE_BUILD_TYPE:STRING=Debug</value>
@@ -723,7 +723,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-icmp</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-icmp</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-icmp</value>
-    <value type="QString" key="RunConfiguration.Arguments">-diff=brt-out/diff.json -output=brt-out test-00002-0000000860.json</value>
+    <value type="QString" key="RunConfiguration.Arguments">-diff=diff.json -output=brt-out-tmp test-0000000000.json</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
     <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
@@ -733,7 +733,7 @@
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseTerminal">false</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/cart/experiments/coreutils/regressions/04</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">%{sourceDir}/test/Local/fnptr</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-build-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.7">

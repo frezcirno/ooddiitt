@@ -565,7 +565,7 @@ Module *rewriteFunctionPointers(Module *m, const IndirectCallRewriteRecs &recs) 
                     replacements.emplace_back(make_pair(old_inst, new_inst));
                   }
                 } else {
-                  outs() << m->getModuleIdentifier() << ": Warning: unpatched function pointer (" << sig << ") in " << fn->getName() << '\n';
+                  outs() << m->getModuleIdentifier() << ": Info: function pointer (" << sig << ") in " << fn->getName() << '\n';
                 }
               }
             }
