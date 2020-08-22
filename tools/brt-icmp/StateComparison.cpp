@@ -624,30 +624,39 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
 
 void StateComparator::compareExternalCallLog(ExecutionState *state1, ExecutionState *state2) {
 
+  assert(!checkpoints.empty());
+  auto &diffs = checkpoints.back().diffs;
+
   // find set of external call in common
-  set<string> externs1, externs2;
-  map<string, Function *> fns1, fns2;
+  map<string, Function *> externs1, externs2;
   for (auto &call : state1->extern_call_log) {
     Function *fn = call.first;
-    string name = fn->getName();
-    fns1.insert(make_pair(name, fn));
-    externs1.insert(name);
+    externs1.insert(make_pair(fn->getName(), fn));
   }
   for (auto &call : state2->extern_call_log) {
     Function *fn = call.first;
-    string name = fn->getName();
-    fns2.insert(make_pair(name, fn));
-    externs2.insert(name);
+    externs2.insert(make_pair(fn->getName(), fn));
   }
 
-  set<string> common;
-  set_intersection(externs1.begin(), externs1.end(), externs2.begin(), externs2.end(), inserter(common, common.begin()));
-  for (auto &name : common) {
-    Function *fn1 = fns1[name];
-    Function *fn2 = fns2[name];
-    if (ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
-      compareExternalCallFn(fn1, state1, fn2, state2);
+  for (const auto &itr1 : externs1) {
+    const string &name = itr1.first;
+    const auto &itr2 = externs2.find(name);
+    if (itr2 == externs2.end()) {
+      // state2 did not call this function
+      diffs.emplace_back(DiffType::delta, itr1.first, "not called by state1");
+    } else {
+      Function *fn1 = itr1.second;
+      Function *fn2 = itr2->second;
+      if (ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
+        compareExternalCallFn(fn1, state1, fn2, state2);
+      }
+      externs2.erase(itr2);
     }
+  }
+
+  // anything left in externs2 was not called by state1
+  for (const auto &itr : externs2) {
+    diffs.emplace_back(DiffType::delta, itr.first, "not called by state2");
   }
 }
 
@@ -666,15 +675,21 @@ void StateComparator::compareExternalCallFn(llvm::Function *fn1, ExecutionState 
       args2.push_back(&call.second);
     }
   }
-
-  for (unsigned idx = 0, end = min(args1.size(), args2.size()); idx < end; ++idx) {
-    // fn1 and fn2 are type equivalent, so we can use either one
-    compareExternalCallArgs(fn1, *args1[idx], *args2[idx]);
+  if (args1.size() != args2.size()) {
+    assert(!checkpoints.empty());
+    auto &diffs = checkpoints.back().diffs;
+    diffs.emplace_back(DiffType::delta, fn1->getName(), "unmatched calls");
+  } else {
+    for (unsigned idx = 0, end = args1.size(); idx < end; ++idx) {
+      // fn1 and fn2 are type equivalent, so we can use either one
+      compareExternalCallArgs(fn1, *args1[idx], *args2[idx]);
+    }
   }
 }
 
 void StateComparator::compareExternalCallArgs(llvm::Function *fn, const vector<ref<Expr>> &args1, const vector<ref<Expr>> &args2) {
 
+  assert(!checkpoints.empty());
   auto &diffs = checkpoints.back().diffs;
 
   unsigned idx = 0;
