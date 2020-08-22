@@ -111,6 +111,9 @@ private:
                            const ObjectState *os2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,
                            const std::string &name, llvm::Type *type);
 
+  void compareExternalCallLog(ExecutionState *state1, ExecutionState *state2);
+  void compareExternalCallFn(llvm::Function *fn1, ExecutionState *state1, llvm::Function *fn2, ExecutionState *state2);
+  void compareExternalCallArgs(llvm::Function *fn, const std::vector<ref<Expr>> &args1, const std::vector<ref<Expr>> &args2);
 
   void compareMemoryObjects(const MemoryObject *mo1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,
                             const MemoryObject *mo2, uint64_t offset2, KFunction *kf2, ExecutionState *state2,

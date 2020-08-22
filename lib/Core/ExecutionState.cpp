@@ -162,8 +162,8 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
     linear_distance(state.linear_distance),
     reached_target(state.reached_target),
     o_asserts(state.o_asserts),
-    bound_fnptrs(state.bound_fnptrs)
-
+    bound_fnptrs(state.bound_fnptrs),
+    extern_call_log(state.extern_call_log)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;
@@ -236,7 +236,8 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     linear_distance(state.linear_distance),
     reached_target(state.reached_target),
     o_asserts(state.o_asserts),
-    bound_fnptrs(state.bound_fnptrs)
+    bound_fnptrs(state.bound_fnptrs),
+    extern_call_log(state.extern_call_log)
 {
   for (unsigned int i=0; i<symbolics.size(); i++) {
     symbolics[i].first->refCount++;

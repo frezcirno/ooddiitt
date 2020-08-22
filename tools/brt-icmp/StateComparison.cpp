@@ -425,6 +425,9 @@ bool StateComparator::compareExternalState() {
     replace(desc.begin(), desc.end(), '\n', ',');
     diffs.emplace_back(DiffType::delta, "@stderr", desc);
   }
+
+  compareExternalCallLog(ver1.finalState, ver2.finalState);
+
   return !diffs_found();
 }
 
@@ -580,49 +583,118 @@ void StateComparator::compareInternalState(KFunction *kf1, ExecutionState *state
     }
   }
 
-  // if we have not found any state differences, then check for output diffs
-  // output diffs tend to coincide with state differences, but reverse is not true.
-#if 0
-  if (diffs.empty()) {
-#endif
-    // check output devices
-    string stdout1 = to_data_string(state1->stdout_capture);
-    string stdout2 = to_data_string(state2->stdout_capture);
-    if (stdout1 != stdout2) {
+  // check output devices
+  string stdout1 = to_data_string(state1->stdout_capture);
+  string stdout2 = to_data_string(state2->stdout_capture);
+  if (stdout1 != stdout2) {
 
-      string out1 = to_char_string(state1->stdout_capture);
-      string out2 = to_char_string(state2->stdout_capture);
+    string out1 = to_char_string(state1->stdout_capture);
+    string out2 = to_char_string(state2->stdout_capture);
 
-      dtl::Diff<char, string> d(out1, out2);
-      d.compose();
-      ostringstream ss;
-      d.printSES(ss);
-      string desc = ss.str();
-      replace(desc.begin(), desc.end(), '\n', ',');
-      if (desc.size() > 80) {
-        desc = desc.substr(0, 80);
-      }
-      diffs.emplace_back(DiffType::delta, "@stdout", desc);
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    if (desc.size() > 80) {
+      desc = desc.substr(0, 80);
     }
-
-    string stderr1 = to_data_string(state1->stderr_capture);
-    string stderr2 = to_data_string(state2->stderr_capture);
-    if (stderr1 != stderr2) {
-
-      string out1 = to_char_string(state1->stderr_capture);
-      string out2 = to_char_string(state2->stderr_capture);
-
-      dtl::Diff<char, string> d(out1, out2);
-      d.compose();
-      ostringstream ss;
-      d.printSES(ss);
-      string desc = ss.str();
-      replace(desc.begin(), desc.end(), '\n', ',');
-      diffs.emplace_back(DiffType::delta, "@stderr", desc);
-    }
-#if 0
+    diffs.emplace_back(DiffType::delta, "@stdout", desc);
   }
-#endif
+
+  string stderr1 = to_data_string(state1->stderr_capture);
+  string stderr2 = to_data_string(state2->stderr_capture);
+  if (stderr1 != stderr2) {
+
+    string out1 = to_char_string(state1->stderr_capture);
+    string out2 = to_char_string(state2->stderr_capture);
+
+    dtl::Diff<char, string> d(out1, out2);
+    d.compose();
+    ostringstream ss;
+    d.printSES(ss);
+    string desc = ss.str();
+    replace(desc.begin(), desc.end(), '\n', ',');
+    diffs.emplace_back(DiffType::delta, "@stderr", desc);
+  }
+
+  compareExternalCallLog(state1, state2);
+}
+
+void StateComparator::compareExternalCallLog(ExecutionState *state1, ExecutionState *state2) {
+
+  // find set of external call in common
+  set<string> externs1, externs2;
+  map<string, Function *> fns1, fns2;
+  for (auto &call : state1->extern_call_log) {
+    Function *fn = call.first;
+    string name = fn->getName();
+    fns1.insert(make_pair(name, fn));
+    externs1.insert(name);
+  }
+  for (auto &call : state2->extern_call_log) {
+    Function *fn = call.first;
+    string name = fn->getName();
+    fns2.insert(make_pair(name, fn));
+    externs2.insert(name);
+  }
+
+  set<string> common;
+  set_intersection(externs1.begin(), externs1.end(), externs2.begin(), externs2.end(), inserter(common, common.begin()));
+  for (auto &name : common) {
+    Function *fn1 = fns1[name];
+    Function *fn2 = fns2[name];
+    if (ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
+      compareExternalCallFn(fn1, state1, fn2, state2);
+    }
+  }
+}
+
+void StateComparator::compareExternalCallFn(llvm::Function *fn1, ExecutionState *state1, llvm::Function *fn2,
+                                            ExecutionState *state2) {
+
+  vector<vector<ref<Expr>> *> args1, args2;
+  for (auto &call : state1->extern_call_log) {
+    if (call.first == fn1) {
+      args1.push_back(&call.second);
+    }
+  }
+
+  for (auto &call : state2->extern_call_log) {
+    if (call.first == fn2) {
+      args2.push_back(&call.second);
+    }
+  }
+
+  for (unsigned idx = 0, end = min(args1.size(), args2.size()); idx < end; ++idx) {
+    // fn1 and fn2 are type equivalent, so we can use either one
+    compareExternalCallArgs(fn1, *args1[idx], *args2[idx]);
+  }
+}
+
+void StateComparator::compareExternalCallArgs(llvm::Function *fn, const vector<ref<Expr>> &args1, const vector<ref<Expr>> &args2) {
+
+  auto &diffs = checkpoints.back().diffs;
+
+  unsigned idx = 0;
+  for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr) {
+    Type *type = itr->getType();
+    if (!type->isVoidTy() && (type->isPrimitiveType() || type->isIntegerTy())) {
+      ref<ConstantExpr> expr1 = dyn_cast<ConstantExpr>(args1[idx]);
+      ref<ConstantExpr> expr2 = dyn_cast<ConstantExpr>(args2[idx]);
+      if (!expr1.isNull() && !expr2.isNull()) {
+        if (expr1->getWidth() == expr2->getWidth()) {
+          if (expr1->getZExtValue() != expr2->getZExtValue()) {
+            diffs.emplace_back(DiffType::delta, fn->getName(), "different arg value");
+          }
+        } else {
+          diffs.emplace_back(DiffType::delta, fn->getName(), "different arg width");
+        }
+      }
+    }
+    ++idx;
+  }
 }
 
 void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offset1, KFunction *kf1, ExecutionState *state1,

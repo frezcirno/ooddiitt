@@ -287,6 +287,7 @@ public:
   bool reached_target;
   std::deque<std::pair<unsigned, KInstruction *>> o_asserts;
   std::map<const llvm::Function *, std::string> bound_fnptrs;
+  std::deque<std::pair<llvm::Function *, std::vector<ref<Expr>>>> extern_call_log;
 
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);

@@ -2040,6 +2040,19 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
           if (kf != nullptr) {
             replayGlobalValues(state, fn, counter);
           }
+
+          unsigned num_args = cs.arg_size();
+
+          // record specifics of this external call
+          state.extern_call_log.emplace_back();
+          auto &call = state.extern_call_log.back();
+          call.first = fn;
+          call.second.reserve(num_args);
+          for (unsigned idx = 0; idx < num_args; ++idx) {
+            ref<Expr> e = eval(ki, idx + 1, state).value;
+            call.second.push_back(toUnique(state, e));
+          }
+
           replayFnCall(state, ki, fn, counter, ret_value);
 
         } else {
