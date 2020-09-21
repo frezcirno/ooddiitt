@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+dst=$1
+
+if [[ -z "$dst" ]]; then
+  echo "Usage: cp-patches llvm-root"
+  exit 1
+fi
+
+for x1 in include/*; do
+  for x2 in "$x1"/*; do
+    for x3 in "$x2"/*; do
+      fname=$(basename "$x3")
+      if [[ -f "$dst/$x2/$fname" ]]; then
+        cp $x3 $dst/$x2/$fname
+      else
+        echo "destination file not found"
+      fi
+    done
+  done
+done
