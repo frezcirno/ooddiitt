@@ -50,9 +50,21 @@ bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-bui
 | clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
 
 copy patched include files from llvm-3.4-patches
-Fedora: clang is unable to find required gcc library installation. In directory /usr/lib/gcc/x86_64-redhat-linux, softlink 7 to 7.0.0
 
+```
+cd brt-klee/llvm-3.4-patches
+./cp-patches ../../llvm-3.4
+```
+
+llvm3.4 cannot find recent versions of required gcc header files.
+```
+cd /usr/lib/gcc/x86_64-linux-gnu/
+sudo ln -s x x.0.0
+```
+
+```
 export KLEE_BASE='/usr/local/stow'
+```
 
 ```
 cd llvm-3.4
@@ -70,12 +82,6 @@ ninja
 ninja install
 cd ..\..
 ```
-llvm3.4 cannot find recent versions of required gcc header files.  To correct:
-
-```
-cd /usr/lib/gcc/x86_64-linux-gnu/
-sudo ln -s 9 9.0.0
-```
 
 ### Step 3: Minisat
 
@@ -88,6 +94,7 @@ cd cmake-build-release
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
  -DSTATIC_BINARIES=ON \
+ -DBUILD_SHARED_LIBS=OFF \
  -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
  ..
 
@@ -128,7 +135,7 @@ sudo stow --dir=/usr/local/stow stp
 ```
 git clone https://github.com/Z3Prover/z3.git
 cd z3
-git checkout z3-4.7.1
+git checkout z3-4.8.9
 mkdir cmake-build-release
 cd cmake-build-release
 
