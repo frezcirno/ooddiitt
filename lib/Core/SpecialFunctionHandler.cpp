@@ -412,7 +412,7 @@ void SpecialFunctionHandler::handleNew(ExecutionState &state,
                          std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new");
-  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDelete(ExecutionState &state,
@@ -432,7 +432,7 @@ void SpecialFunctionHandler::handleNewArray(ExecutionState &state,
                               std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new[]");
-  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDeleteArray(ExecutionState &state,
@@ -449,7 +449,7 @@ void SpecialFunctionHandler::handleMalloc(ExecutionState &state,
                                   std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to malloc");
-  executor.executeAlloc(state, arguments[0], MemKind::heap, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleAssume(ExecutionState &state,
@@ -635,7 +635,7 @@ void SpecialFunctionHandler::handleCalloc(ExecutionState &state,
   assert(arguments.size()==2 && "invalid number of arguments to calloc");
 
   ref<Expr> size = MulExpr::create(arguments[0], arguments[1]);
-  executor.executeAlloc(state, size, MemKind::heap, target, true);
+  executor.executeDynamicAlloc(state, size, MemKind::heap, target, true);
 }
 
 void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
@@ -651,7 +651,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
 
   unsigned counter = 0;
   if (zeroPointer.first) { // address == 0
-    executor.executeAlloc(*zeroPointer.first, size, MemKind::heap, target);
+    executor.executeDynamicAlloc(*zeroPointer.first, size, MemKind::heap, target);
     counter += 1;
   }
   if (zeroPointer.second) {
@@ -660,7 +660,7 @@ void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
     ObjectPair op;
     LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, address, op);
     if (result == LocalExecutor::ResolveResult::OK) {
-      executor.executeAlloc(*zeroPointer.second, size, MemKind::heap, target, false, op.second);
+      executor.executeDynamicAlloc(*zeroPointer.second, size, MemKind::heap, target, false, op.second);
       counter += 1;
     } else {
       executor.terminateStateOnComplete(*zeroPointer.second, TerminateReason::MemFault, "cannot find object to realloc");

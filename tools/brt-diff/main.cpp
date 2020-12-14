@@ -80,84 +80,6 @@ static void parseArguments(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, " klee\n");
 }
 
-uint64_t calcFnHash(Function *fn) {
-
-  HashAccumulator hash;
-  vector<const BasicBlock*> worklist;
-  set<const BasicBlock *> visited;
-
-  if (!fn->empty()) {
-    const BasicBlock *entry = &fn->getEntryBlock();
-    worklist.push_back(entry);
-    visited.insert(entry);
-    while (!worklist.empty()) {
-      const BasicBlock *bb = worklist.back();
-      worklist.pop_back();
-
-      // add a block header
-      hash.add((uint64_t) 0x4df1d4db);
-      for (auto &inst : *bb) {
-        // add the instruction to the hash
-        hash.add((uint64_t) inst.getOpcode());
-
-        // call instruction to assert_fail needs special handling
-        // one of the args contains a source line number that is expected
-        // to change without effecting behavior
-        if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
-          if (Function *called = ci->getCalledFunction()) {
-            if (called->getName() == "__assert_fail") {
-              hash.add(called->getName());
-              continue;
-            }
-          }
-        }
-
-        for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {
-          Value *v = inst.getOperand(idx);
-          if (auto c = dyn_cast<Constant>(v)) {
-
-            if (auto ba = dyn_cast<BlockAddress>(c)) {
-              (void) ba;
-            } else if (auto ci = dyn_cast<ConstantInt>(c)) {
-              hash.add(ci->getValue().getZExtValue());
-            } else if (auto fp = dyn_cast<ConstantFP>(c)) {
-              hash.add(fp->getValueAPF().convertToDouble());
-            } else if (auto az = dyn_cast<ConstantAggregateZero>(c)) {
-              (void) az;
-            } else if (auto ca = dyn_cast<ConstantArray>(c)) {
-              (void) ca;
-            } else if (auto cs = dyn_cast<ConstantStruct>(c)) {
-              (void) cs;
-            } else if (auto cv = dyn_cast<ConstantVector>(c)) {
-              (void) cv;
-            } else if (auto pn = dyn_cast<ConstantPointerNull>(c)) {
-              (void) pn;
-            } else if (auto ds = dyn_cast<ConstantDataSequential>(c)) {
-              (void) ds;
-            } else if (auto cx = dyn_cast<llvm::ConstantExpr>(c)) {
-              (void) cx;
-            } else if (auto uv = dyn_cast<UndefValue>(c)) {
-              (void) uv;
-            } else if (auto gv = dyn_cast<GlobalValue>(c)) {
-              hash.add(gv->getName());
-            }
-          } else {
-          }
-        }
-      }
-
-      const TerminatorInst *term = bb->getTerminator();
-      for (unsigned idx = 0, end = term->getNumSuccessors(); idx != end; ++idx) {
-        const BasicBlock *next = term->getSuccessor(idx);
-        if (!(visited.insert(next).second))
-          continue;
-        worklist.push_back(next);
-      }
-    }
-  }
-  return hash.get();
-}
-
 void diffFns(KModule *kmod1,
              KModule *kmod2,
              Json::Value &added,
@@ -186,30 +108,80 @@ void diffFns(KModule *kmod1,
   set_ex<string> fns_both;
   set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_both, fns_both.end()));
 
-  Module *mod1 = kmod1->module;
-  Module *mod2 = kmod2->module;
-  assert(mod1 && mod2);
-  vector<pair<Function*,Function*> > fn_pairs;
+  vector<pair<KFunction*,KFunction*> > fn_pairs;
   fn_pairs.reserve(fns_both.size());
   for (auto fn : fns_both) {
-    fn_pairs.emplace_back(make_pair(mod1->getFunction(fn), mod2->getFunction(fn)));
+    fn_pairs.emplace_back(make_pair(kmod1->getKFunction(fn), kmod2->getKFunction(fn)));
   }
 
   // check function signatures
   for (const auto &pr : fn_pairs) {
     assert(pr.first && pr.second);
 
-    Function *fn1 = pr.first;
-    Function *fn2 = pr.second;
-    string fn_name = fn1->getName();
-    string fn_name2 = fn2->getName();
+    KFunction *kf1 = pr.first;
+    KFunction *kf2 = pr.second;
+    string fn_name = kf1->getName();
 
-    if (!ModuleTypes::isEquivalentType(fn1->getFunctionType(), fn2->getFunctionType())) {
+    if (!ModuleTypes::isEquivalentType(kf1->function->getFunctionType(), kf2->function->getFunctionType())) {
       sig.insert(fn_name);
-    } else if (calcFnHash(fn1) != calcFnHash(fn2)) {
+    } else if (kf1->getHash() != kf2->getHash()) {
       body.insert(fn_name);
     } else {
       commons.insert(fn_name);
+    }
+  }
+}
+
+
+void createInverseHashMap(KModule *kmod, KFunction *kf, map<uint64_t, vector<unsigned>> &inv_map) {
+
+  // for each bblock in kf, insert hash and block id
+  Function *fn = kf->function;
+  for (auto fn_itr = fn->begin(), fn_end = fn->end(); fn_itr != fn_end; ++fn_itr) {
+    BasicBlock *bb = fn_itr;
+    unsigned id = kmod->getBBlockID(bb);
+    if (id != 0) {
+      auto &lst = inv_map[kf->getHash(bb)];
+      lst.push_back(id);
+    }
+  }
+}
+
+void findModifiedBlocks(KModule *kmod1, KModule *kmod2, const string &name, set_ex<unsigned> &bb1, set_ex<unsigned> &bb2) {
+
+  KFunction *kf1 = kmod1->getKFunction(name);
+  KFunction *kf2 = kmod2->getKFunction(name);
+
+  map<uint64_t, vector<unsigned>> inv_map1, inv_map2;
+  createInverseHashMap(kmod1, kf1, inv_map1);
+  createInverseHashMap(kmod2, kf2, inv_map2);
+
+  // now remove the common entries and insert remaining blocks into bb lists
+  deque<uint64_t> common_hashes;
+  for (const auto &itr1 : inv_map1) {
+    uint64_t hash = itr1.first;
+    const auto &itr2 = inv_map2.find(hash);
+    if ((itr2 != inv_map2.end()) && (itr1.second.size() == itr2->second.size())) {
+      common_hashes.push_back(hash);
+    }
+  }
+
+  // remove the common hashes
+  for (auto hash : common_hashes) {
+    inv_map1.erase(hash);
+    inv_map2.erase(hash);
+  }
+
+  // remaining are unique blocks
+  for (const auto &itr : inv_map1) {
+    for (auto bb_id : itr.second) {
+      bb1.insert(bb_id);
+    }
+  }
+
+  for (const auto &itr : inv_map2) {
+    for (auto bb_id : itr.second) {
+      bb2.insert(bb_id);
     }
   }
 }
@@ -414,12 +386,26 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
     Json::Value &fns_added = functions["added"] = Json::arrayValue;
     Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
     Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
-    Json::Value &fns_changed_body = functions["body"] = Json::arrayValue;
+    Json::Value &fns_changed_body = functions["body"] = Json::objectValue;
 
     set_ex<string> sigs, bodies, commons;
     diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
     for (const auto &fn : sigs) fns_changed_sig.append(fn);
-    for (const auto &fn : bodies) fns_changed_body.append(fn);
+    for (const auto &fn : bodies) {
+      Json::Value &fns_changed_node = fns_changed_body[fn] = Json::objectValue;
+      Json::Value &fns_changed_prev = fns_changed_node["prev"] = Json::arrayValue;
+      Json::Value &fns_changed_post = fns_changed_node["post"] = Json::arrayValue;
+
+      set_ex<unsigned> prev_bblocks, post_bblocks;
+      findModifiedBlocks(kmod1, kmod2, fn, prev_bblocks, post_bblocks);
+
+      for (auto bb_id : prev_bblocks) {
+        fns_changed_prev.append(bb_id);
+      }
+      for (auto bb_id : post_bblocks) {
+        fns_changed_post.append(bb_id);
+      }
+    }
 
     // construct the json object representing the global variable differences
     Json::Value &globals = root["globals"] = Json::objectValue;
@@ -439,49 +425,44 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
       entry["distance"] = pr.second;
     }
 
+    set_ex<string> names;
+
+    // prev module
     Json::Value &prev_node = root["prev-module"] = Json::objectValue;
     prev_node["name"] = kmod1->getModuleIdentifier();
-    Json::Value &prev_ext = prev_node["external"] = Json::arrayValue;
-    set_ex<string> names;
+
+    Json::Value &prev_exts = prev_node["external"] = Json::arrayValue;
     kmod1->getExternalFunctions(names);
-    for (auto name : names) {
-      prev_ext.append(name);
-    }
+    for (auto name : names) { prev_exts.append(name); }
 
-    Json::Value &prev_srcs = prev_node["sources"] = Json::objectValue;
+    Json::Value &prev_srcs = prev_node["sources"] = Json::arrayValue;
     kmod1->getUserSources(names);
-    for (auto name : names) {
-      prev_srcs[name] = Json::objectValue;
-    }
+    for (auto name : names) { prev_srcs.append(name); }
 
+    // then post
     Json::Value &post_node = root["post-module"] = Json::objectValue;
     post_node["name"] = kmod2->getModuleIdentifier();
-    Json::Value &post_ext = post_node["external"] = Json::arrayValue;
+
+    Json::Value &post_exts = post_node["external"] = Json::arrayValue;
     kmod2->getExternalFunctions(names);
-    for (auto name : names) {
-      post_ext.append(name);
-    }
+    for (auto name : names) { post_exts.append(name); }
 
-    Json::Value &post_srcs = post_node["sources"] = Json::objectValue;
+    Json::Value &post_srcs = post_node["sources"] = Json::arrayValue;
     kmod2->getUserSources(names);
-    for (auto name : names) {
-      post_srcs[name] = Json::objectValue;
-    }
+    for (auto name : names) { post_srcs.append(name); }
 
+    // finally, the oracle module, if present
     if (kmod3 != nullptr) {
       Json::Value &orcl_node = root["orcl-module"] = Json::objectValue;
       orcl_node["name"] = kmod3->getModuleIdentifier();
-      Json::Value &orcl_ext = orcl_node["external"] = Json::arrayValue;
-      kmod3->getExternalFunctions(names);
-      for (auto name : names) {
-        orcl_ext.append(name);
-      }
 
-      Json::Value &orcl_srcs = orcl_node["sources"] = Json::objectValue;
+      Json::Value &orcl_exts = orcl_node["external"] = Json::arrayValue;
+      kmod3->getExternalFunctions(names);
+      for (auto name : names) { orcl_exts.append(name); }
+
+      Json::Value &orcl_srcs = orcl_node["sources"] = Json::arrayValue;
       kmod3->getUserSources(names);
-      for (auto name : names) {
-        orcl_srcs[name] = Json::objectValue;
-      }
+      for (auto name : names) { orcl_srcs.append(name); }
     }
 
     string indent;

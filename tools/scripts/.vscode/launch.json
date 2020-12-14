@@ -7,8 +7,8 @@
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "cwd": "/home/rrutledge/projects/arktos/cart/experiments/coreutils/regressions/22",
-      "args": [ "-d=brt-out", "brt-out/test2-0000000001.json", "brt-out/test2-0000000005.json" ]
+      "cwd": "/home/rrutledge/projects/arktos/odit/experiments/regressions/22/brt-out",
+      "args": [ "prev-expr.bc", "post-expr.bc" ]
     }
   ]
 }

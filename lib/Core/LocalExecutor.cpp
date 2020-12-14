@@ -162,7 +162,7 @@ bool LocalExecutor::addConstraintOrTerminate(ExecutionState &state, ref<Expr> e)
     return true;
   }
 
-  // WARNING: if this function returns false, state must not be accessed again
+  // NOTE: if this function returns false, state must not be accessed again
   terminateStateOnDispose(state, "added invalid constraint");
   return false;
 }
@@ -199,18 +199,13 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
   return result ? ResolveResult::OK : ResolveResult::NoObject;
 }
 
-void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
-                                         unsigned size,
-                                         unsigned count,
-                                         const llvm::Type *type,
-                                         MemKind kind,
-                                         KInstruction *target,
-                                         bool symbolic) {
+void LocalExecutor::executeAlloca(ExecutionState &state, unsigned size, unsigned count, const llvm::Type *type,
+                                  KInstruction *target) {
 
   size_t allocationAlignment = getAllocationAlignment(target->inst);
-  MemoryObject *mo = memory->allocate(size, type, kind, target->inst, allocationAlignment);
-  if (!mo) {
-    bindLocal(target, state, ConstantExpr::alloc(0, Context::get().getPointerWidth()));
+  MemoryObject *mo = memory->allocate(size * count, type, MemKind::alloca_l, target->inst, allocationAlignment);
+  if (mo == nullptr) {
+    bindLocal(target, state, ConstantExpr::createPointer(0));
   } else {
 
     string name;
@@ -228,11 +223,15 @@ void LocalExecutor::executeSymbolicAlloc(ExecutionState &state,
     mo->count = count;
     ObjectState *os = bindObjectInState(state, mo);
     os->initializeToRandom();
-    if (symbolic) {
-      makeSymbolic(state, mo);
-    }
     bindLocal(target, state, mo->getBaseExpr());
   }
+}
+
+void LocalExecutor::executeAlloca(ExecutionState &state, unsigned size, ref<Expr> count, const llvm::Type *type,
+                                  KInstruction *target) {
+
+  ref<ConstantExpr> min_count = toConstantMin(state, count, "alloca");
+  return executeAlloca(state, size, (unsigned) min_count->getZExtValue(), type, target);
 }
 
 void LocalExecutor::executeFree(ExecutionState &state,
@@ -1376,8 +1375,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   // Delay init till now so that ticks don't accrue during
   // optimization and such.
   initTimers();
-  const BasicBlock *fn_entry = &kf->function->getEntryBlock();
-  unsigned entry = kf->basicBlockEntry[const_cast<BasicBlock*>(fn_entry)];
+  BasicBlock *fn_entry = &kf->function->getEntryBlock();
+  bool is_entry_targeted = kmodule->isTargetedBBlock(fn_entry);
+  unsigned entry = kf->basicBlockEntry[fn_entry];
 
   // initialize the starting set of initial states
   assert(states.empty());
@@ -1400,6 +1400,9 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     }
 
     state->pc = &kf->instructions[entry];
+    if (is_entry_targeted) {
+      state->reached_target = true;
+    }
     addedStates.push_back(state);
   }
 
@@ -1468,10 +1471,6 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
 
       executeInstruction(*state, ki);
 
-      if (ki->is_targeted) {
-        state->reached_target = true;
-      }
-
     } catch (bad_expression &e) {
       terminateStateOnDispose(*state, "uninitialized expression");
     } catch (solver_failure &e) {
@@ -1506,7 +1505,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
   }
 
   if (!states.empty()) {
-    klee_warning("terminating %lu incomplete states", states.size());
+    klee_message("terminating %lu incomplete states", states.size());
     for (ExecutionState *s : states) {
       terminateStateOnDiscard(*s, "flushing states on halt");
     }
@@ -1609,22 +1608,6 @@ ExecutionState *LocalExecutor::runFnLibCInit(ExecutionState *_state) {
   return result;
 }
 
-ref<ConstantExpr> LocalExecutor::ensureUnique(ExecutionState &state, const ref<Expr> &e) {
-
-  ref<ConstantExpr> result;
-  if (isa<ConstantExpr>(e)) {
-    result = cast<ConstantExpr>(e);
-  } else {
-    if (solver->getValue(state, e, result)) {
-      ref<Expr> eq = EqExpr::create(e, result);
-      if (!solver->mustBeTrue(state, eq)) {
-        addConstraint(state, eq);
-      }
-    }
-  }
-  return result;
-}
-
 void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) {
 
   if ((!libc_initializing) && (dst->getParent() == src->getParent())) {
@@ -1710,6 +1693,9 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
         loopingStates[dst_loop].insert(&state);
       }
     }
+  }
+  if (kmodule->isTargetedBBlock(dst)) {
+    state.reached_target = true;
   }
   Executor::transferToBasicBlock(state, src, dst);
 }
@@ -2074,19 +2060,13 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
     case Instruction::Alloca: {
 
       AllocaInst *ai = cast<AllocaInst>(i);
-
       unsigned size = (unsigned) kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
-      unsigned count = 1;
       if (ai->isArrayAllocation()) {
-        ref<Expr> cnt = eval(ki, 0, state).value;
-        if (isa<ConstantExpr>(cnt)) {
-          count = cast<ConstantExpr>(cnt)->getZExtValue();
-        } else {
-          assert(false && "non-const lallocation size");
-        }
+        ref<Expr> count = eval(ki, 0, state).value;
+        executeAlloca(state, size, count, ai->getAllocatedType(), ki);
+      } else {
+        executeAlloca(state, size, 1, ai->getAllocatedType(), ki);
       }
-      bool to_symbolic = false /*!libc_initializing && unconstraintFlags.isUnconstrainLocals() && !ai->getName().empty() */;
-      executeSymbolicAlloc(state, size * count, count, ai->getAllocatedType(), MemKind::alloca_l, ki, to_symbolic);
       break;
     }
 
@@ -2325,7 +2305,7 @@ void LocalExecutor::unconstrainFnArg(ExecutionState &state, KInstruction *ki, Ty
       }
 
       // since we'll be writing to this ptr, need to concretize the written address
-      ref<ConstantExpr> addr = ensureUnique(state, ptr);
+      ref<ConstantExpr> addr = toConstant(state, ptr, "unconstrainFnArg");
       uint64_t offset = addr->getZExtValue() - mo->address;
       uint64_t size = kmodule->targetData->getTypeStoreSize(type);
       uint64_t count = (os->visible_size - offset) / size;

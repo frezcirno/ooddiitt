@@ -255,9 +255,10 @@ int main(int argc, char *argv[]) {
   getDiffInfo(DiffInfo, diff_root);
 
   string mod_name1 = PrevModule;
+  retrieveDiffInfo(diff_root, mod_name1);
+
   string mod_name2 = PostModule;
-  translateDifftoModule(diff_root, mod_name1);
-  translateDifftoModule(diff_root, mod_name2);
+  retrieveDiffInfo(diff_root, mod_name2);
 
   // Load the bytecode...
   // load the bytecode emitted in the generation step...
@@ -385,7 +386,7 @@ int main(int argc, char *argv[]) {
       delete interpreter2;
       delete handler2;
     } else {
-      errs() << fs::path(test_file).filename().string() << ": " << "version1 timeout" << oendf;
+      outs() << fs::path(test_file).filename().string() << ": " << "version1 timeout" << oendf;
     }
     delete interpreter1;
     delete handler1;

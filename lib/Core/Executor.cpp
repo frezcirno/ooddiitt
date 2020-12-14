@@ -912,9 +912,8 @@ ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
   if (!isa<ConstantExpr>(e)) {
     ref<ConstantExpr> value;
     if (solver->getValue(state, e, value)) {
-      bool answer;
       ref<Expr> eq = EqExpr::create(e, value);
-      if (solver->mustBeTrue(state, eq, answer) && answer) {
+      if (solver->mustBeTrue(state, eq)) {
         result = value;
       }
     }
@@ -927,14 +926,13 @@ ref<Expr> Executor::toUnique(const ExecutionState &state, ref<Expr> &e) {
 ref<klee::ConstantExpr> Executor::toConstant(ExecutionState &state, ref<Expr> e, const char *reason) {
 
   ref<ConstantExpr> result;
-  e = state.constraints.simplifyExpr(e);
   if (isa<ConstantExpr>(e)) {
     result = dyn_cast<ConstantExpr>(e);
   } else {
+    e = state.constraints.simplifyExpr(e);
     if (solver->getValue(state, e, result)) {
       ref<Expr> eq = EqExpr::create(e, result);
-      bool answer;
-      if (solver->mustBeTrue(state, eq, answer) && !answer) {
+      if (!solver->mustBeTrue(state, eq)) {
         addConstraint(state, eq);
 
         std::string str;
@@ -949,9 +947,54 @@ ref<klee::ConstantExpr> Executor::toConstant(ExecutionState &state, ref<Expr> e,
   return result;
 }
 
-ref<klee::ConstantExpr> Executor::toConstantFP(ExecutionState &state, ref<Expr> e) {
-  // this is a placeholder for later more effective (ie diverse) concretization of fp values
-  return toConstant(state, e, "floating point");
+ref<klee::ConstantExpr> Executor::toConstantMin(ExecutionState &state, ref<Expr> e, const char *reason) {
+
+  ref<ConstantExpr> result;
+  if (isa<ConstantExpr>(e)) {
+    result = dyn_cast<ConstantExpr>(e);
+  } else {
+
+    // find a reasonable ceiling for symbolic size
+    uint64_t ceiling = 0;
+    Expr::Width width = e->getWidth();
+    for (unsigned trial = 16; trial <= 4096 && ceiling == 0; trial <<= 1) {
+
+      if (solver->mayBeTrue(state, UleExpr::create(e, ConstantExpr::create(trial, width)))) {
+        ceiling = trial;
+      }
+    }
+
+    // if ceiling is still zero, then get the minimum size
+    // range call is expensive, so should not do this very often
+    if (ceiling == 0) {
+      auto range = solver->getRange(state, e);
+      if (isa<ConstantExpr>(range.first)) {
+        ceiling = cast<ConstantExpr>(range.first)->getZExtValue();
+      }
+    }
+
+    // if we found a ceiling, then insert constraint
+    if (ceiling != 0) {
+      addConstraint(state, UleExpr::create(e, ConstantExpr::create(ceiling, width)));
+    }
+
+    // now that value is constrained to a small value, just return standard toConstant
+    result = toConstant(state, e, reason);
+  }
+  return result;
+}
+
+ref<klee::ConstantExpr> Executor::toConstantFP(ExecutionState &state, ref<Expr> e, const char *purpose) {
+
+  ref<ConstantExpr> result;
+  if (isa<ConstantExpr>(e)) {
+    result = dyn_cast<ConstantExpr>(e);
+  } else {
+    // this is a placeholder for later more effective (ie diverse) concretization of fp values
+    std::string str = std::string("floating point: ") + purpose;
+    result = toConstant(state, e, str.c_str());
+  }
+  return result;
 }
 
 ref<klee::ConstantExpr> Executor::toExample(ExecutionState &state, ref<Expr> e) {
@@ -1840,16 +1883,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
     // Memory instructions...
   case Instruction::Alloca: {
-    AllocaInst *ai = cast<AllocaInst>(i);
-    unsigned elementSize =
-      kmodule->targetData->getTypeStoreSize(ai->getAllocatedType());
-    ref<Expr> size = Expr::createPointer(elementSize);
-    if (ai->isArrayAllocation()) {
-      ref<Expr> count = eval(ki, 0, state).value;
-      count = Expr::createZExtToPointerWidth(count);
-      size = MulExpr::create(size, count);
-    }
-    executeAlloc(state, size, MemKind::alloca_l, ki);
+    // relocated handler in localexecutor
+    assert(false);
     break;
   }
 
@@ -1933,8 +1968,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     // Floating point instructions
 
   case Instruction::FAdd: {
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FAdd::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FAdd::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FAdd operation");
@@ -1951,8 +1986,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FSub: {
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FSub::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FSub::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FSub operation");
@@ -1968,8 +2003,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FMul: {
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FMul::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FMul::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FMul operation");
@@ -1986,8 +2021,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FDiv: {
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FDiv::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FDiv::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FDiv operation");
@@ -2004,8 +2039,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
 
   case Instruction::FRem: {
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FRem::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FRem::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FRem operation");
@@ -2024,7 +2059,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPTrunc: {
     FPTruncInst *fi = cast<FPTruncInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value, "FPTrunc");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > arg->getWidth())
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPTrunc operation");
 
@@ -2044,7 +2079,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPExt: {
     FPExtInst *fi = cast<FPExtInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value, "FPExt");
     if (!fpWidthToSemantics(arg->getWidth()) || arg->getWidth() > resultType)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPExt operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -2063,7 +2098,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPToUI: {
     FPToUIInst *fi = cast<FPToUIInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value, "FPToUI");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToUI operation");
 
@@ -2083,7 +2118,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::FPToSI: {
     FPToSIInst *fi = cast<FPToSIInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value);
+    ref<ConstantExpr> arg = toConstantFP(state, eval(ki, 0, state).value, "FPToSI");
     if (!fpWidthToSemantics(arg->getWidth()) || resultType > 64)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FPToSI operation");
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
@@ -2103,7 +2138,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::UIToFP: {
     UIToFPInst *fi = cast<UIToFPInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "UI2FP");
+    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "UIToFP");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported UIToFP operation");
@@ -2118,7 +2153,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   case Instruction::SIToFP: {
     SIToFPInst *fi = cast<SIToFPInst>(i);
     Expr::Width resultType = getWidthForLLVMType(fi->getType());
-    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "SI2FP");
+    ref<ConstantExpr> arg = toConstant(state, eval(ki, 0, state).value, "SIToFP");
     const llvm::fltSemantics *semantics = fpWidthToSemantics(resultType);
     if (!semantics)
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported SIToFP operation");
@@ -2132,8 +2167,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
 
   case Instruction::FCmp: {
     FCmpInst *fi = cast<FCmpInst>(i);
-    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value);
-    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value);
+    ref<ConstantExpr> left = toConstantFP(state, eval(ki, 0, state).value, "FCmp::left");
+    ref<ConstantExpr> right = toConstantFP(state, eval(ki, 1, state).value, "FCmp::right");
     if (!fpWidthToSemantics(left->getWidth()) ||
         !fpWidthToSemantics(right->getWidth()))
       return terminateStateOnComplete(state, TerminateReason::UnhandledInst, "Unsupported FCmp operation");
@@ -2818,91 +2853,38 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
   return os;
 }
 
-void Executor::executeAlloc(ExecutionState &state,
-                            ref<Expr> size,
-                            MemKind kind,
-                            KInstruction *target,
-                            bool zeroMemory,
-                            const ObjectState *reallocFrom) {
+void Executor::executeDynamicAlloc(ExecutionState &state, ref<Expr> size, MemKind kind, KInstruction *target, bool zeroMemory,
+                                   const ObjectState *reallocFrom) {
 
-  Expr::Width W = size->getWidth();
-
-  // try to convert size to constant expression
-  size = toUnique(state, size);
-  if (!isa<ConstantExpr>(size)) {
-
-    // XXX For now we just pick a size. Ideally we would support
-    // symbolic sizes fully but even if we don't it would be better to
-    // "smartly" pick a value, for example we could fork and pick the
-    // min and max values and perhaps some intermediate (reasonable
-    // value).
-    //
-    // It would also be nice to recognize the case when size has
-    // exactly two values and just fork (but we need to get rid of
-    // return argument first). This shows up in pcre when llvm
-    // collapses the size expression with a select.
-
-    // find a reasonable ceiling for symbolic size
-    uint64_t ceiling = 0;
-    for (unsigned trial = 16; trial <= 4096 && ceiling == 0; trial <<= 1) {
-
-      bool result = false;
-      if (solver->mayBeTrue(state, UleExpr::create(size, ConstantExpr::create(trial, W)), result) && result) {
-        ceiling = trial;
-      }
-    }
-
-    // if ceiling is still zero, then get the minimum size
-    // range call is expensive, so should not do this very often
-    if (ceiling == 0) {
-      auto range = solver->getRange(state, size);
-      if (isa<ConstantExpr>(range.first)) {
-        ceiling = cast<ConstantExpr>(range.first)->getZExtValue(W);
-      }
-    }
-
-    // if we found a ceiling, then insert constraint
-    if (ceiling != 0) {
-      addConstraint(state, UleExpr::create(size, ConstantExpr::create(ceiling, W)));
-    }
-
-    ref<ConstantExpr> example;
-    solver->getValue(state, size, example);
-
-    // example is now the size of our allocation
-    // since example is constant, we can just alloc
-    addConstraint(state, EqExpr::create(example, size));
-    size = example;
-  }
+  ref<ConstantExpr> alloc_size = toConstantMin(state, size, "dynamic alloc");
 
   // size is now a constant
-  uint64_t allocSize = cast<ConstantExpr>(size)->getZExtValue(W);
   size_t allocAlignment = getAllocationAlignment(target->inst);
-  MemoryObject *mo = memory->allocate(allocSize, Type::getInt8PtrTy(kmodule->module->getContext()), kind, target->inst, allocAlignment);
+  Type *type = Type::getInt8PtrTy(kmodule->module->getContext());
+  MemoryObject *mo = memory->allocate(alloc_size->getZExtValue(), type, kind, target->inst, allocAlignment);
   if (mo == nullptr) {
     bindLocal(target, state, ConstantExpr::createPointer(0));
-    return;
-  }
-
-  // bind the new object into the success state
-  std::stringstream ss;
-  ss << "dynalloc@" << target->info->assemblyLine;
-  mo->name = ss.str();
-  ObjectState *os = bindObjectInState(state, mo);
-  if (zeroMemory) {
-    os->initializeToZero();
   } else {
-    os->initializeToRandom();
-  }
-  bindLocal(target, state, mo->getBaseExpr());
 
-  // only need to handle realloc in the success state
-  if (reallocFrom != nullptr) {
-    unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
-    for (unsigned i = 0; i < count; i++)
-      os->write(i, reallocFrom->read8(i));
-    const MemoryObject *mo = reallocFrom->getObject();
-    if (mo->isHeap()) state.addressSpace.unbindObject(mo);
+    // bind the new object into the success state
+    std::stringstream ss;
+    ss << "dynalloc@" << target->info->assemblyLine;
+    mo->name = ss.str();
+    ObjectState *os = bindObjectInState(state, mo);
+    if (zeroMemory) {
+      os->initializeToZero();
+    } else {
+      os->initializeToRandom();
+    }
+    bindLocal(target, state, mo->getBaseExpr());
+
+    // only need to handle realloc in the success state
+    if (reallocFrom != nullptr) {
+      unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
+      for (unsigned i = 0; i < count; i++) os->write(i, reallocFrom->read8(i));
+      const MemoryObject *mo = reallocFrom->getObject();
+      if (mo->isHeap()) state.addressSpace.unbindObject(mo);
+    }
   }
 }
 

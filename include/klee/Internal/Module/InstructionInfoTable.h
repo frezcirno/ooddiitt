@@ -14,6 +14,9 @@
 #include <string>
 #include <set>
 
+#include <boost/filesystem.hpp>
+namespace fs=boost::filesystem;
+
 namespace llvm {
   class Function;
   class Instruction;
@@ -60,8 +63,10 @@ class KFunction;
 
     bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Path, unsigned &Line);
 
+    fs::path relative_root;
+
   public:
-    InstructionInfoTable() = default;
+    InstructionInfoTable() { relative_root = fs::current_path(); };
     virtual ~InstructionInfoTable() = default;
 
     void LoadTable(llvm::Module *m);

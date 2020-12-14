@@ -49,11 +49,11 @@
 #include <map>
 #include <string>
 #include <klee/Internal/Support/ErrorHandling.h>
-#include <boost/filesystem.hpp>
+//#include <boost/filesystem.hpp>
 
 using namespace llvm;
 using namespace klee;
-namespace fs=boost::filesystem;
+//namespace fs=boost::filesystem;
 
 class InstructionToLineAnnotator : public llvm::AssemblyAnnotationWriter {
 public:
@@ -88,7 +88,7 @@ static void buildInstructionToLineMap(Module *m, std::map<const Instruction*, un
   }
 }
 
-static void getDSPIPath(DILocation Loc, std::string &file, std::string &path) {
+static void getDSPIPath(DILocation Loc, fs::path &file, fs::path &path) {
 
   fs::path pdir(Loc.getDirectory());
   fs::path pfile(Loc.getFilename());
@@ -101,7 +101,10 @@ bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, s
 
   if (MDNode *N = I->getMetadata("dbg")) {
     DILocation Loc(N);
-    getDSPIPath(Loc, File, Path);
+    fs::path f, p;
+    getDSPIPath(Loc, f, p);
+    File = f.string();
+    Path = fs::relative(p, relative_root).string();
     Line = Loc.getLineNumber();
     return true;
   }

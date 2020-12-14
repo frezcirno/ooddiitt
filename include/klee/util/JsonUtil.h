@@ -18,7 +18,7 @@ class TestCase;
 
 bool applyDiffInfo(Json::Value &root, KModule *kmod);
 bool loadTestCase(Json::Value &root, TestCase &test);
-bool translateDifftoModule(Json::Value &root, std::string &module_name);
-bool translateDifftoModule(Json::Value &root, std::string &module_name, std::string &entry_point);
+bool retrieveDiffInfo(Json::Value &root, std::string &module_name);
+bool retrieveDiffInfo(Json::Value &root, std::string &module_name, std::string &entry_point);
 
 } // end klee namespace

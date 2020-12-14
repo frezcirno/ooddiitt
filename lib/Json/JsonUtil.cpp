@@ -29,23 +29,39 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
     if (kmod->isPostModule()) {
       Json::Value &fns_added = fns["added"];
       for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
-        kmod->addDiffFnAdded(fns_added[idx].asString());
+        string fn_name = fns_added[idx].asString();
+        kmod->addDiffFnAdded(fn_name);
+        kmod->addTargetedBBlocks(fn_name);
       }
     } else {
       Json::Value &fns_removed = fns["removed"];
       for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
-        kmod->addDiffFnRemoved(fns_removed[idx].asString());
+        string fn_name = fns_removed[idx].asString();
+        kmod->addDiffFnRemoved(fn_name);
+        kmod->addTargetedBBlocks(fn_name);
       }
     }
+
     Json::Value &fns_body = fns["body"];
-    for (unsigned idx = 0, end = fns_body.size(); idx < end; ++idx) {
-      string str = fns_body[idx].asString();
-      kmod->addDiffFnChangedBody(str);
+    for (auto itr = fns_body.begin(), end = fns_body.end(); itr != end; ++itr) {
+      string fn_name = itr.key().asString();
+      kmod->addDiffFnChangedBody(fn_name);
+      string targeted_key = (kmod->isPrevModule() ? "prev" : "post");
+      Json::Value &bbs = fns_body[fn_name][targeted_key];
+      if (bbs.isArray()) {
+        set_ex<unsigned> bbIDs;
+        for (unsigned idx = 0, end = bbs.size(); idx < end; ++idx) {
+          bbIDs.insert(bbs[idx].asUInt());
+        }
+        kmod->addTargetedBBlocks(fn_name, bbIDs);
+      }
     }
+
     Json::Value &fns_sig = fns["signature"];
     for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
-      string str = fns_sig[idx].asString();
-      kmod->addDiffFnChangedSig(str);
+      string fn_name = fns_sig[idx].asString();
+      kmod->addDiffFnChangedSig(fn_name);
+      kmod->addTargetedBBlocks(fn_name);
     }
 
     Json::Value &gbs = root["globals"];
@@ -66,28 +82,6 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
       string str = gbs_type[idx].asString();
       kmod->addDiffGlobalChanged(str);
     }
-
-    // collect map of sets of targeted c-source statements
-    string targeted_key = (kmod->isPrevModule() ? "prev-module" : "post-module");
-    Json::Value &module = root[targeted_key];
-    Json::Value &srcs = module["sources"];
-
-    map<string, set_ex<unsigned>> targeted_stmts;
-    for (auto src_itr = srcs.begin(), src_end = srcs.end(); src_itr != src_end; ++src_itr) {
-      fs::path path(src_itr.key().asString());
-      string src_name = path.filename().string();
-      Json::Value &src_entry = *src_itr;
-      if (src_entry.isObject()) {
-        Json::Value &line_array = src_entry["lines"];
-        if (line_array.isArray()) {
-          set_ex<unsigned> &stmts = targeted_stmts[src_name];
-          for (unsigned idx = 0, end = line_array.size(); idx < end; ++idx) {
-            stmts.insert(line_array[idx].asUInt());
-          }
-        }
-      }
-    }
-    kmod->setTargetStmts(targeted_stmts);
     return true;
   }
   return false;
@@ -187,7 +181,7 @@ bool loadTestCase(Json::Value &root, TestCase &test) {
   return false;
 }
 
-bool translateDifftoModule(Json::Value &root, string &module_name) {
+bool retrieveDiffInfo(Json::Value &root, string &module_name) {
 
   if (!root.isNull() && (module_name.front() == '@')) {
 
@@ -205,12 +199,12 @@ bool translateDifftoModule(Json::Value &root, string &module_name) {
   return false;
 }
 
-bool translateDifftoModule(Json::Value &root, string &module_name, string &entry_point) {
+bool retrieveDiffInfo(Json::Value &root, string &module_name, string &entry_point) {
 
   vector<string> elements;
   boost::split(elements, module_name, boost::is_any_of(":"));
   if (elements.size() > 1) {
-    if (translateDifftoModule(root, elements[0])) {
+    if (retrieveDiffInfo(root, elements[0])) {
 
       module_name = elements[0];
       unsigned idx = std::stoul(elements[1]);

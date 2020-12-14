@@ -48,6 +48,7 @@
 #include <boost/filesystem.hpp>
 #include <llvm/IR/Intrinsics.h>
 #include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 
 #ifdef _DEBUG
 #include <gperftools/tcmalloc.h>
@@ -561,17 +562,24 @@ int main(int argc, char *argv[]) {
   }
 
   int exit_code = 0;
+
   for (const string &input_file : InputFiles) {
 
+    KModule *kmod = nullptr;
+
+    // if diff_root is empty, then emit the prepared module
     outs() << "preparing module: " << input_file << oendl;
-    if (KModule *kmod = PrepareModule(input_file, indirect_rewrites, clang_info, libDir, TraceT, MarkS)) {
+    if ((kmod = PrepareModule(input_file, indirect_rewrites, clang_info, libDir, TraceT, MarkS))) {
+
       if (!SaveModule(kmod, Output)) {
         exit_code = 1;
       }
-      LLVMContext *ctx = kmod->getContextPtr();
-      delete kmod;
-      delete ctx;
     }
+
+    LLVMContext *ctx = kmod->getContextPtr();
+    delete kmod;
+    delete ctx;
   }
+
   return exit_code;
 }

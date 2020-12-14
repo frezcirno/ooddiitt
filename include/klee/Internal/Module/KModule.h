@@ -78,6 +78,12 @@ namespace klee {
     bool diff_body;
     bool diff_sig;
 
+    // hashed values
+    uint64_t fn_hash;
+    std::map<const llvm::BasicBlock *, uint64_t> bb_hashes;
+    uint64_t calcFnHash(llvm::Function *);
+    uint64_t calcBBHash(const llvm::BasicBlock *bb);
+
     explicit KFunction(llvm::Function*, bool user_fn, KModule *);
     ~KFunction();
 
@@ -94,6 +100,14 @@ namespace klee {
     bool isDiffChangedBody() const  {return diff_body; }
     bool isDiffChangedSig() const   {return diff_sig; }
     const std::string &getName() const { return fn_name; }
+    uint64_t getHash() const { return fn_hash; }
+    uint64_t getHash(const llvm::BasicBlock *bb) const {
+      auto itr = bb_hashes.find(bb);
+      if (itr != bb_hashes.end())
+        return itr->second;
+      else
+        return 0;
+    }
   };
 
   class KConstant {
@@ -195,6 +209,8 @@ namespace klee {
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
 
+    unsigned getFnID(const llvm::Function *fn) const;
+    unsigned getBBlockID(const llvm::BasicBlock *bb) const;
     std::pair<unsigned,unsigned> getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb);
     void getMarkedFns(std::set_ex<const llvm::Function*> &fns) {
       fns.clear();
@@ -259,12 +275,6 @@ namespace klee {
       }
     }
 
-    unsigned getFunctionID(llvm::Function *fn) {
-      auto itr = mapFnMarkers.find(fn);
-      if (itr != mapFnMarkers.end()) return itr->second;
-      else return 0;
-    }
-
     llvm::GlobalVariable *getGlobalVariable(const std::string &name) const
       { auto itr = mapGlobalVars.find(name); if (itr != mapGlobalVars.end()) return itr->second; return nullptr; }
 
@@ -290,7 +300,27 @@ namespace klee {
       return false;
     }
 
-    void setTargetStmts(const std::map<std::string, std::set_ex<unsigned>> &stmts);
+    void addTargetedBBlocks(const KFunction *kf, const std::set_ex<unsigned> &bblocks);
+    void addTargetedBBlocks(const std::string &fn_name, const std::set_ex<unsigned> &bblocks) {
+      if (KFunction *kf = getKFunction(fn_name)) addTargetedBBlocks(kf, bblocks);
+    }
+    // to target an entire function, only need to target the entry block
+    void addTargetedBBlocks(const KFunction *kf) { targeted_bblocks.insert(&kf->function->getEntryBlock()); }
+    void addTargetedBBlocks(const std::string &fn_name) {
+      if (KFunction *kf = getKFunction(fn_name)) addTargetedBBlocks(kf);
+    }
+
+    void getTargetedFns(std::set_ex<KFunction *> &kfns) const;
+    void getTargetedFns(std::set_ex<std::string> &names) const {
+      std::set_ex<KFunction *> kfns;
+      getTargetedFns(kfns);
+      for (auto *kf : kfns) {
+        names.insert(kf->getName());
+      }
+    }
+
+    bool isTargetedBBlock(llvm::BasicBlock *bb) { return targeted_bblocks.contains(bb); }
+
     bool isPrevModule() const { return is_prev_module; }
     bool isPostModule() const { return !is_prev_module; }
 
@@ -307,8 +337,7 @@ namespace klee {
     std::set_ex<llvm::GlobalVariable*> diff_gbs_added;
     std::set_ex<llvm::GlobalVariable*> diff_gbs_removed;
     std::set_ex<llvm::GlobalVariable*> diff_gbs_changed;
-
-    std::map<std::string,std::set_ex<unsigned> > targeted_stmts;
+    std::set_ex<llvm::BasicBlock *> targeted_bblocks;
 
   public:
     std::string prev_module;

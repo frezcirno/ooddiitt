@@ -68,10 +68,9 @@ MemoryManager::~MemoryManager() {
 }
 
 MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
-  if (size > 10 * 1024 * 1024)
-    klee_warning_once(0, "Large alloc: %" PRIu64
-                         " bytes.  KLEE may run out of memory.",
-                      size);
+
+//  if (size > 10 * 1024 * 1024)
+//    klee_message(0, "Large alloc: %" PRIu64 " bytes.  KLEE may run out of memory.", size);
 
   // Return NULL if size is zero, this is equal to error during allocation
   if (NullOnZeroMalloc && size == 0)
@@ -89,13 +88,11 @@ MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, Mem
 
     // Handle the case of 0-sized allocations as 1-byte allocations.
     // This way, we make sure we have this allocation between its own red zones
-    size_t alloc_size = std::max(size, (uint64_t)1);
+    size_t alloc_size = std::max(size, (uint64_t) 1);
     if ((char *) address + alloc_size < deterministicEnd) {
       nextFreeSlot = (void*) ((char *) address + (alloc_size + RedZoneSpace));
     } else {
-      klee_warning_once(0, "Couldn't allocate %" PRIu64
-                           " bytes. Not enough deterministic space left.",
-                        size);
+      klee_message("%lu bytes deterministic memory allocation failed.", size);
       address = 0;
     }
   } else {

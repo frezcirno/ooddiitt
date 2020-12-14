@@ -293,7 +293,7 @@ int main(int argc, char *argv[]) {
     if (module_name.empty()) {
       module_name = test.file_name;
     } else {
-      translateDifftoModule(diff_root, module_name);
+      retrieveDiffInfo(diff_root, module_name);
     }
 
     KModule *kmod = PrepareModule(module_name, diff_root);

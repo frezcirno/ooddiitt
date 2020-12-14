@@ -263,12 +263,12 @@ protected:
   /// done (realloc semantics). The initialized bytes will be the
   /// minimum of the size of the old and new objects, with remaining
   /// bytes initialized as specified by zeroMemory.
-  void executeAlloc(ExecutionState &state,
-                    ref<Expr> size,
-                    MemKind kind,
-                    KInstruction *target,
-                    bool zeroMemory=false,
-                    const ObjectState *reallocFrom=0);
+  void executeDynamicAlloc(ExecutionState &state,
+                           ref<Expr> size,
+                           MemKind kind,
+                           KInstruction *target,
+                           bool zeroMemory=false,
+                           const ObjectState *reallocFrom=0);
 
   /// Free the given address with checking for errors. If target is
   /// given it will be bound to 0 in the resulting states (this is a
@@ -353,7 +353,8 @@ protected:
   ///
   /// \param purpose An identify string to printed in case of concretization.
   ref<klee::ConstantExpr> toConstant(ExecutionState &state, ref<Expr> e, const char *purpose);
-  ref<klee::ConstantExpr> toConstantFP(ExecutionState &state, ref<Expr> e);
+  ref<klee::ConstantExpr> toConstantMin(ExecutionState &state, ref<Expr> e, const char *purpose);
+  ref<klee::ConstantExpr> toConstantFP(ExecutionState &state, ref<Expr> e, const char *purpose);
 
   ref<klee::ConstantExpr> toExample(ExecutionState &state, ref<Expr> e);
 

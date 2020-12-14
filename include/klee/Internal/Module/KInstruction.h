@@ -33,7 +33,6 @@ namespace klee {
   struct KInstruction {
     llvm::Instruction *inst;
     const InstructionInfo *info;
-    bool is_targeted;
 
     /// Value numbers for each operand. -1 is an invalid value,
     /// otherwise negative numbers are indices (negated and offset by

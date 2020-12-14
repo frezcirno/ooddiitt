@@ -716,7 +716,7 @@ int main(int argc, char *argv[]) {
   // select the module file and entry point
   string module_file = InputFile;
   string entry_point = EntryPoint;
-  translateDifftoModule(diff_root, module_file, entry_point);
+  retrieveDiffInfo(diff_root, module_file, entry_point);
 
   // Load the bytecode and verify that its been prepped
   KModule *kmod = PrepareModule(module_file, diff_root);

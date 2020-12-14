@@ -90,14 +90,8 @@ protected:
 
   ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
 
-  void executeSymbolicAlloc(ExecutionState &state,
-                            unsigned size,
-                            unsigned count,
-                            const llvm::Type *type,
-                            MemKind kind,
-                            KInstruction *target,
-                            bool symbolic = false);
-
+  void executeAlloca(ExecutionState &state, unsigned size, unsigned count, const llvm::Type *type, KInstruction *target);
+  void executeAlloca(ExecutionState &state, unsigned size, ref<Expr> count, const llvm::Type *type, KInstruction *target);
   void executeFree(ExecutionState &state, ref<Expr> address, KInstruction *target) override;
 
   bool executeReadMemoryOperation(ExecutionState &state,
@@ -165,7 +159,6 @@ protected:
   bool isUnconstrainedPtr(const ExecutionState &state, ref<Expr> e) const;
   bool isReadExpr(ref<Expr> e) const;
   bool isLocallyAllocated(const ExecutionState &state, const MemoryObject *mo) const;
-  ref<ConstantExpr> ensureUnique(ExecutionState &state, const ref<Expr> &e);
 
   void terminateState(ExecutionState &state) override;
   void terminateStateOnMemFault(ExecutionState &state,

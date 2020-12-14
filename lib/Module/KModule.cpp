@@ -401,6 +401,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
     }
   }
 
+  // store analysis data as llvm metadata
   MDBuilder md_builder(ctx);
 
   if (!user_fns.empty()) {
@@ -615,21 +616,23 @@ void KModule::getUserSources(std::set_ex<std::string> &srcs) const {
   }
 }
 
-void KModule::setTargetStmts(const std::map<std::string, std::set_ex<unsigned>> &stmts) {
+void KModule::addTargetedBBlocks(const KFunction *kf, const std::set_ex<unsigned> &bblocks) {
 
-  for (auto itr = functions.begin(), end = functions.end(); itr != end; ++itr) {
-    KFunction *kf = *itr;
-    for (unsigned idx = 0, end = kf->numInstructions; idx < end; ++idx) {
-      KInstruction *ki = kf->instructions[idx];
-      bool is_targeted = false;
-      auto fnd = stmts.find(ki->info->file);
-      if (fnd != stmts.end()) {
-        const std::set_ex<unsigned> &lines = fnd->second;
-        if (lines.contains(ki->info->line)) {
-          is_targeted = true;
-        }
-      }
-      ki->is_targeted = is_targeted;
+  Function *fn = kf->function;
+  for (auto itr = fn->begin(), end = fn->end(); itr != end; ++itr) {
+    BasicBlock *bb = itr;
+    if (bblocks.contains(getBBlockID(bb))) {
+      targeted_bblocks.insert(bb);
+    }
+  }
+}
+
+void KModule::getTargetedFns(std::set_ex<KFunction *> &kfns) const {
+
+  for (BasicBlock *bb : targeted_bblocks) {
+    KFunction *kf = getKFunction(bb->getParent());
+    if (kf != nullptr) {
+      kfns.insert(kf);
     }
   }
 }
@@ -672,19 +675,27 @@ unsigned KModule::getConstantID(Constant *c, KInstruction* ki) {
   return id;
 }
 
-pair<unsigned,unsigned> KModule::getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb) {
+unsigned KModule::getFnID(const llvm::Function *fn) const {
 
-  unsigned fnID = 0;
-  unsigned bbID = 0;
   const auto itr_fn = mapFnMarkers.find(fn);
   if (itr_fn != mapFnMarkers.end()) {
-    fnID = itr_fn->second;
-    const auto itr_bb = mapBBMarkers.find(bb);
-    if (itr_bb != mapBBMarkers.end()) {
-      bbID = itr_bb->second;
-    }
+    return itr_fn->second;
   }
-  return make_pair(fnID, bbID);
+  return 0;
+}
+
+unsigned KModule::getBBlockID(const llvm::BasicBlock *bb) const {
+
+  const auto itr_bb = mapBBMarkers.find(bb);
+  if (itr_bb != mapBBMarkers.end()) {
+    return itr_bb->second;
+  }
+  return 0;
+}
+
+pair<unsigned,unsigned> KModule::getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb) {
+
+  return make_pair(getFnID(fn), getBBlockID(bb));
 }
 
 /***/
@@ -726,10 +737,11 @@ KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
     diff_added(false),
     diff_removed(false),
     diff_body(false),
-    diff_sig(false) {
+    diff_sig(false),
+    fn_hash(0) {
 
   is_user = user_fn;
-  fnID = km->getFunctionID(function);
+  fnID = km->getFnID(function);
 
   for (auto bbit = function->begin(), bbie = function->end(); bbit != bbie; ++bbit) {
     BasicBlock *bb = static_cast<BasicBlock *>(bbit);
@@ -766,7 +778,6 @@ KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
       Instruction *inst = static_cast<Instruction *>(it);
       ki->inst = inst;
       ki->dest = registerMap[inst];
-      ki->is_targeted = true;
 
       if (isa<CallInst>(it) || isa<InvokeInst>(it)) {
         CallSite cs(inst);
@@ -804,7 +815,97 @@ KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
       loops.insert(loop);
     }
   }
+
+  // calculate the fn hash while simutaneously calculating the bb hashes.
+  fn_hash = calcFnHash(function);
 }
+
+uint64_t KFunction::calcFnHash(Function *fn) {
+
+  HashAccumulator hash;
+  vector<const BasicBlock *> worklist;
+  set<const BasicBlock *> visited;
+
+  if (!fn->empty()) {
+    const BasicBlock *entry = &fn->getEntryBlock();
+    worklist.push_back(entry);
+    visited.insert(entry);
+    while (!worklist.empty()) {
+      const BasicBlock *bb = worklist.back();
+      worklist.pop_back();
+
+      // add a block header
+      hash.add((uint64_t) 0x4df1d4db);
+      uint64_t bb_value = calcBBHash(bb);
+      bb_hashes[bb] = bb_value;
+      hash.add(bb_value);
+
+      const TerminatorInst *term = bb->getTerminator();
+      for (unsigned idx = 0, end = term->getNumSuccessors(); idx != end; ++idx) {
+        const BasicBlock *next = term->getSuccessor(idx);
+        if (!(visited.insert(next).second)) continue;
+        worklist.push_back(next);
+      }
+    }
+  }
+  return hash.get();
+}
+
+uint64_t KFunction::calcBBHash(const llvm::BasicBlock *bb) {
+
+  HashAccumulator hash;
+  for (auto &inst : *bb) {
+    // add the instruction to the hash
+    hash.add((uint64_t) inst.getOpcode());
+
+    // call instruction to assert_fail needs special handling
+    // one of the args contains a source line number that is expected
+    // to change without effecting behavior
+    if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
+      if (Function *called = ci->getCalledFunction()) {
+        if (called->getName() == "__assert_fail") {
+          hash.add(called->getName());
+          continue;
+        }
+      }
+    }
+
+    for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {
+      Value *v = inst.getOperand(idx);
+      if (auto c = dyn_cast<Constant>(v)) {
+
+        if (auto ba = dyn_cast<BlockAddress>(c)) {
+          (void) ba;
+        } else if (auto ci = dyn_cast<ConstantInt>(c)) {
+          hash.add(ci->getValue().getZExtValue());
+        } else if (auto fp = dyn_cast<ConstantFP>(c)) {
+          hash.add(fp->getValueAPF().convertToDouble());
+        } else if (auto az = dyn_cast<ConstantAggregateZero>(c)) {
+          (void) az;
+        } else if (auto ca = dyn_cast<ConstantArray>(c)) {
+          (void) ca;
+        } else if (auto cs = dyn_cast<ConstantStruct>(c)) {
+          (void) cs;
+        } else if (auto cv = dyn_cast<ConstantVector>(c)) {
+          (void) cv;
+        } else if (auto pn = dyn_cast<ConstantPointerNull>(c)) {
+          (void) pn;
+        } else if (auto ds = dyn_cast<ConstantDataSequential>(c)) {
+          (void) ds;
+        } else if (auto cx = dyn_cast<llvm::ConstantExpr>(c)) {
+          (void) cx;
+        } else if (auto uv = dyn_cast<UndefValue>(c)) {
+          (void) uv;
+        } else if (auto gv = dyn_cast<GlobalValue>(c)) {
+          hash.add(gv->getName());
+        }
+      } else {
+      }
+    }
+  }
+  return hash.get();
+}
+
 
 KFunction::~KFunction() {
   for (unsigned i=0; i<numInstructions; ++i)
