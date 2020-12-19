@@ -44,6 +44,7 @@
 #include <gperftools/heap-profiler.h>
 #include <gperftools/heap-checker.h>
 #endif
+#include <gperftools/malloc_hook.h>
 
 
 #include "llvm/Support/system_error.h"
@@ -188,163 +189,168 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
 
   if (!NoOutput && (AllOutput || state.reached_target || term_reason == TerminateReason::Timeout)) {
 
-    // select the next test id for this function
-    unsigned testID = nextTestCaseID++;
-    const char *ext = nullptr;
-    if (term_reason == TerminateReason::Timeout) ext = "dump";
-
-    ofstream fout;
-    if (openTestCaseFile(fout, testID, ext)) {
-
-      auto stopped_at = sys_clock::now();
-
-      // construct the json object representing the test case
-      Json::Value root = Json::objectValue;
-      root["module"] = getModuleName();
-      root["file"] = getFileName();
-      root["entryFn"] = state.name;
-      root["testID"] = testID;
-      root["argC"] = args.size();
-      root["lazyAllocationCount"] = state.lazyAllocationCount;
-      root["lazyStringLength"] = state.lazyStringLength;
-      root["maxLazyDepth"] = state.maxLazyDepth;
-      root["maxStatesInLoop"] = state.maxStatesInLoop;
-      root["timeStarted"] = klee::to_string(started_at);
-      root["timeStopped"] = klee::to_string(stopped_at);
-      root["timeElapsed"] = chrono::duration_cast<chrono::milliseconds>(stopped_at - started_at).count();
-
-      const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
-      if (flags != nullptr) {
-        root["unconstraintFlags"] = flags->to_string();
-        root["unconstraintDescription"] = klee::to_string(*flags);
-      }
-      root["kleeRevision"] = KLEE_BUILD_REVISION;
-      root["termination"] = (unsigned) term_reason;
-      if (state.instFaulting != nullptr) {
-        root["instFaulting"] = state.instFaulting->info->assemblyLine;
-      }
-
-      Json::Value &msgs = root["messages"] = Json::arrayValue;
-      for (auto msg : state.messages) {
-        msgs.append(msg);
-      }
-
-      // store the path condition
-      string constraints;
-      i->getConstraintLog(state, constraints, LogType::SMTVARS);
-      root["pathConditionVars"] = constraints;
-
-      {
-        stringstream ss;
-        for (unsigned index = 0; index < args.size(); ++index) {
-          if (index > 0)
-            ss << ' ';
-          ss << '\'' << args[index] << '\'';
-        }
-        root["argV"] = ss.str();
-      }
-
-      vector<ExprSolution> args;
-      for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
-        args.emplace_back(make_pair(*itr, nullptr));
-      }
-
-      vector<SymbolicSolution> out;
-      if (!i->getSymbolicSolution(state, out, args)) {
-        klee_warning("unable to get symbolic solution, losing test case");
-      }
-      Json::Value &objects = root["objects"] = Json::arrayValue;
-      for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
-
-        auto &test = *itrObj;
-        const MemoryObject *mo = test.first;
-        vector<unsigned char> &data = test.second;
-
-        if (mo->name == "#stdin_buff") {
-          root["stdin"] = toDataString(data, state.stdin_offset);
-        } else {
-
-          Json::Value obj = Json::objectValue;
-
-          // the program arguments argv_d..d require truncating at null terminator
-          // otherwise, risk missing oob access
-          regex re("argv_[0-9]+");
-          if (regex_match(mo->name, re)) {
-            // set new count at null terminator
-            auto itr = find(data.begin(), data.end(), 0);
-            assert(itr != data.end());  // if not null-terminated, then we're not in kansas anymore
-            unsigned len = distance(data.begin(), itr) + 1;
-            obj["count"] = len;
-            assert(mo->type->isArrayTy()); // and your little dog too...
-            obj["type"] = klee::to_string(ArrayType::get(mo->type->getArrayElementType(), len));
-            obj["data"] = toDataString(data, len);
-          } else {
-            obj["count"] = mo->count;
-            obj["type"] = klee::to_string(mo->type);
-            obj["data"] = toDataString(data);
-          }
-          obj["name"] = mo->name;
-          obj["kind"] = (unsigned) mo->kind;
-
-          // scale to 32 or 64 bits
-          unsigned ptr_width = (Context::get().getPointerWidth() / 8);
-          vector<unsigned char> addr;
-          unsigned char *addrBytes = ((unsigned char *) &(test.first->address));
-          for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
-            addr.push_back(*addrBytes);
-          }
-          obj["addr"] = toDataString(addr);
-          obj["align"] = mo->align;
-
-          objects.append(obj);
-        }
-      }
-
-      Json::Value &arguments = root["arguments"] = Json::arrayValue;
-      for (auto itr = args.begin(), end = args.end(); itr != end; ++itr) {
-        klee::ref<klee::ConstantExpr> ce = itr->second;
-        if (ce.isNull()) {
-          arguments.append("");
-        } else {
-          uint64_t value = ce->getZExtValue();
-          unsigned width = ce->getWidth() / 8;
-          if (width == 0) width = 1;
-          unsigned char *byte = ((unsigned char *) &value);
-          vector<unsigned char> v;
-          for (unsigned idx = 0; idx < width; ++idx) {
-            v.push_back(*byte++);
-          }
-          arguments.append(toDataString(v));
-        }
-      }
-
-      TraceType trace_type = i->getTraceType();
-      if (trace_type != TraceType::invalid) {
-        root["traceType"] = (unsigned)trace_type;
-        Json::Value &trace = root["trace"] = Json::arrayValue;
-        for (const auto &entry : state.trace) {
-          trace.append(to_string(entry));
-        }
-      }
-
-      Json::Value &fn_ptrs = root["boundFnPtrs"] = Json::objectValue;
-      for (auto &itr : state.bound_fnptrs) {
-        fn_ptrs[itr.second] = (uint64_t) itr.first;
-      }
-
-      // write the constructed json object to file
-      Json::StreamWriterBuilder builder;
-      builder["commentStyle"] = "None";
-      builder["indentation"] = indentation;
-      unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-
-      writer.get()->write(root, &fout);
-      fout << endl;
-      state.isProcessed = true;
-      ++casesGenerated;
-    } else {
-      klee_warning("unable to write output test case, losing it");
+    // try to get a solution for the initial state
+    vector<ExprSolution> exprs;
+    for (auto itr = state.arguments.begin(), end = state.arguments.end(); itr != end; ++itr) {
+      exprs.emplace_back(make_pair(*itr, nullptr));
     }
+
+    vector<SymbolicSolution> out;
+    if (!i->getSymbolicSolution(state, out, exprs)) {
+      klee_warning("unable to get symbolic solution, losing test case");
+    } else {
+
+      // select the next test id for this function
+      unsigned testID = nextTestCaseID++;
+      const char *ext = nullptr;
+      if (term_reason == TerminateReason::Timeout)
+        ext = "dump";
+
+      ofstream fout;
+      if (openTestCaseFile(fout, testID, ext)) {
+
+        auto stopped_at = sys_clock::now();
+
+        // construct the json object representing the test case
+        Json::Value root = Json::objectValue;
+        root["module"] = getModuleName();
+        root["file"] = getFileName();
+        root["entryFn"] = state.name;
+        root["testID"] = testID;
+        root["argC"] = args.size();
+        root["lazyAllocationCount"] = state.lazyAllocationCount;
+        root["lazyStringLength"] = state.lazyStringLength;
+        root["maxLazyDepth"] = state.maxLazyDepth;
+        root["maxStatesInLoop"] = state.maxStatesInLoop;
+        root["timeStarted"] = klee::to_string(started_at);
+        root["timeStopped"] = klee::to_string(stopped_at);
+        root["timeElapsed"] = chrono::duration_cast<chrono::milliseconds>(stopped_at - started_at).count();
+
+        const UnconstraintFlagsT *flags = i->getUnconstraintFlags();
+        if (flags != nullptr) {
+          root["unconstraintFlags"] = flags->to_string();
+          root["unconstraintDescription"] = klee::to_string(*flags);
+        }
+        root["kleeRevision"] = KLEE_BUILD_REVISION;
+        root["termination"] = (unsigned)term_reason;
+        if (state.instFaulting != nullptr) {
+          root["instFaulting"] = state.instFaulting->info->assemblyLine;
+        }
+
+        Json::Value &msgs = root["messages"] = Json::arrayValue;
+        for (auto msg : state.messages) {
+          msgs.append(msg);
+        }
+
+        // store the path condition
+        string constraints;
+        i->getConstraintLog(state, constraints, LogType::SMTVARS);
+        root["pathConditionVars"] = constraints;
+
+        {
+          stringstream ss;
+          for (unsigned index = 0; index < args.size(); ++index) {
+            if (index > 0)
+              ss << ' ';
+            ss << '\'' << args[index] << '\'';
+          }
+          root["argV"] = ss.str();
+        }
+
+        Json::Value &objects = root["objects"] = Json::arrayValue;
+        for (auto itrObj = out.begin(), endObj = out.end(); itrObj != endObj; ++itrObj) {
+
+          auto &test = *itrObj;
+          const MemoryObject *mo = test.first;
+          vector<unsigned char> &data = test.second;
+
+          if (mo->name == "#stdin_buff") {
+            root["stdin"] = toDataString(data, state.stdin_offset);
+          } else {
+
+            Json::Value obj = Json::objectValue;
+
+            // the program arguments argv_d..d require truncating at null terminator
+            // otherwise, risk missing oob access
+            regex re("argv_[0-9]+");
+            if (regex_match(mo->name, re)) {
+              // set new count at null terminator
+              auto itr = find(data.begin(), data.end(), 0);
+              assert(itr != data.end()); // if not null-terminated, then we're not in kansas anymore
+              unsigned len = distance(data.begin(), itr) + 1;
+              obj["count"] = len;
+              assert(mo->type->isArrayTy()); // and your little dog too...
+              obj["type"] = klee::to_string(ArrayType::get(mo->type->getArrayElementType(), len));
+              obj["data"] = toDataString(data, len);
+            } else {
+              obj["count"] = mo->count;
+              obj["type"] = klee::to_string(mo->type);
+              obj["data"] = toDataString(data);
+            }
+            obj["name"] = mo->name;
+            obj["kind"] = (unsigned)mo->kind;
+
+            // scale to 32 or 64 bits
+            unsigned ptr_width = (Context::get().getPointerWidth() / 8);
+            vector<unsigned char> addr;
+            unsigned char *addrBytes = ((unsigned char *)&(test.first->address));
+            for (unsigned index = 0; index < ptr_width; ++index, ++addrBytes) {
+              addr.push_back(*addrBytes);
+            }
+            obj["addr"] = toDataString(addr);
+            obj["align"] = mo->align;
+
+            objects.append(obj);
+          }
+        }
+
+        Json::Value &arguments = root["arguments"] = Json::arrayValue;
+        for (auto itr = exprs.begin(), end = exprs.end(); itr != end; ++itr) {
+          klee::ref<klee::ConstantExpr> ce = itr->second;
+          if (ce.isNull()) {
+            arguments.append("");
+          } else {
+            uint64_t value = ce->getZExtValue();
+            unsigned width = ce->getWidth() / 8;
+            if (width == 0)
+              width = 1;
+            unsigned char *byte = ((unsigned char *)&value);
+            vector<unsigned char> v;
+            for (unsigned idx = 0; idx < width; ++idx) {
+              v.push_back(*byte++);
+            }
+            arguments.append(toDataString(v));
+          }
+        }
+
+        TraceType trace_type = i->getTraceType();
+        if (trace_type != TraceType::invalid) {
+          root["traceType"] = (unsigned)trace_type;
+          Json::Value &trace = root["trace"] = Json::arrayValue;
+          for (const auto &entry : state.trace) {
+            trace.append(to_string(entry));
+          }
+        }
+
+        Json::Value &fn_ptrs = root["boundFnPtrs"] = Json::objectValue;
+        for (auto &itr : state.bound_fnptrs) {
+          fn_ptrs[itr.second] = (uint64_t)itr.first;
+        }
+
+        // write the constructed json object to file
+        Json::StreamWriterBuilder builder;
+        builder["commentStyle"] = "None";
+        builder["indentation"] = indentation;
+        unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+
+        writer.get()->write(root, &fout);
+        fout << endl;
+        ++casesGenerated;
+      } else {
+        klee_warning("unable to write output test case, losing it");
+      }
+    }
+    state.isProcessed = true;
   }
 }
 
@@ -602,6 +608,14 @@ KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
   return nullptr;
 }
 
+#ifdef _DEBUG
+void DebugNewHook(const void *ptr, size_t size) {
+  if (size > 1000000000) {
+    errs() << "Large allocation of " << size << " bytes\n";
+  }
+}
+#endif
+
 int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
@@ -708,6 +722,7 @@ int main(int argc, char *argv[]) {
 
 #ifdef _DEBUG
   EnableMemDebuggingChecks();
+//  MallocHook_AddNewHook(DebugNewHook);
 #endif // _DEBUG
 
   Json::Value diff_root;
@@ -835,6 +850,10 @@ int main(int argc, char *argv[]) {
   delete handler;
   delete kmod;
   delete ctx;
+
+#ifdef _DEBUG
+//  MallocHook_RemoveNewHook(DebugNewHook);
+#endif
 
   return exit_code;
 }

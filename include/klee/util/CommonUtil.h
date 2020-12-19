@@ -102,7 +102,7 @@ std::string to_string(TerminateReason s);
 inline bool is_valid(TerminateReason s) { return (s < TerminateReason::Invalid); }
 
 enum class StateStatus {
-  Waiting,
+  Ready,
   Completed,
   Decimated,
   Discarded

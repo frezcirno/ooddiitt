@@ -272,6 +272,11 @@ namespace {
             cl::desc("Refuse to fork when above this amount of memory (in MB, default=2000)"),
             cl::init(2000));
 
+  cl::opt<unsigned>
+  MaxAlloc("max-alloc",
+           cl::desc("Fail dynamic allocations above this amount of memory (in MB, default=2, disable=0)"),
+           cl::init(2));
+
   cl::opt<bool>
   MaxMemoryInhibit("max-memory-inhibit",
             cl::desc("Inhibit forking at memory cap (vs. random terminate) (default=on)"),
@@ -300,7 +305,8 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
                             : std::max(MaxCoreSolverTime, MaxInstructionTime)),
       debugInstFile(0), debugLogBuffer(debugBufferString),
       maxStatesInLoop(MaxLoopStates),
-      maxMemInUse(0)
+      maxMemInUse(0),
+      maxMemAlloc(0)
 {
 
   if (coreSolverTimeout) UseForkedCoreSolver = true;
@@ -308,6 +314,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
   if (!coreSolver) {
     klee_error("Failed to create core solver\n");
   }
+  maxMemAlloc = ((uint64_t) MaxAlloc) * 1024 * 1024;
 
   Solver *solver = constructSolverChain(
       coreSolver,
@@ -2647,7 +2654,7 @@ void Executor::terminateStateOnComplete(ExecutionState &state, TerminateReason r
 
 void Executor::terminateStateOnDiscard(ExecutionState &state, const std::string &comment) {
   state.status = StateStatus::Discarded;
-  state.messages.push_front(comment);
+  state.messages.push_back(comment);
   if (DumpStatesOnHalt) {
     interpreterHandler->processTestCase(state, TerminateReason::Timeout);
   }
@@ -2656,7 +2663,7 @@ void Executor::terminateStateOnDiscard(ExecutionState &state, const std::string 
 
 void Executor::terminateStateOnDispose(ExecutionState &state, const std::string &comment) {
   state.status = StateStatus::Discarded;
-  state.messages.push_front(comment);
+  state.messages.push_back(comment);
   terminateState(state);
 }
 
@@ -2856,34 +2863,47 @@ ObjectState *Executor::bindObjectInState(ExecutionState &state,
 void Executor::executeDynamicAlloc(ExecutionState &state, ref<Expr> size, MemKind kind, KInstruction *target, bool zeroMemory,
                                    const ObjectState *reallocFrom) {
 
-  ref<ConstantExpr> alloc_size = toConstantMin(state, size, "dynamic alloc");
-
-  // size is now a constant
-  size_t allocAlignment = getAllocationAlignment(target->inst);
-  Type *type = Type::getInt8PtrTy(kmodule->module->getContext());
-  MemoryObject *mo = memory->allocate(alloc_size->getZExtValue(), type, kind, target->inst, allocAlignment);
-  if (mo == nullptr) {
+  // get a constant size for the allocation
+  uint64_t num_bytes = toConstantMin(state, size, "dynamic alloc")->getZExtValue();
+  if (maxMemAlloc != 0 && num_bytes > maxMemAlloc) {
+    // too big, fail the alloc
+    std::ostringstream ss;
+    ss << "Failing dynalloc@" << target->info->assemblyLine << ", requested size=" << num_bytes;
+    state.messages.push_back(ss.str());
     bindLocal(target, state, ConstantExpr::createPointer(0));
   } else {
 
-    // bind the new object into the success state
-    std::stringstream ss;
-    ss << "dynalloc@" << target->info->assemblyLine;
-    mo->name = ss.str();
-    ObjectState *os = bindObjectInState(state, mo);
-    if (zeroMemory) {
-      os->initializeToZero();
+    // size is now a constant
+    size_t allocAlignment = getAllocationAlignment(target->inst);
+    Type *type = Type::getInt8PtrTy(kmodule->module->getContext());
+    MemoryObject *mo = memory->allocate(num_bytes, type, kind, target->inst, allocAlignment);
+    if (mo == nullptr) {
+      bindLocal(target, state, ConstantExpr::createPointer(0));
     } else {
-      os->initializeToRandom();
-    }
-    bindLocal(target, state, mo->getBaseExpr());
 
-    // only need to handle realloc in the success state
-    if (reallocFrom != nullptr) {
-      unsigned count = std::min(reallocFrom->getPhysicalSize(), os->getPhysicalSize());
-      for (unsigned i = 0; i < count; i++) os->write(i, reallocFrom->read8(i));
-      const MemoryObject *mo = reallocFrom->getObject();
-      if (mo->isHeap()) state.addressSpace.unbindObject(mo);
+      // bind the new object into the success state
+      std::stringstream ss;
+      ss << "dynalloc@" << target->info->assemblyLine;
+      mo->name = ss.str();
+      ObjectState *os = bindObjectInState(state, mo);
+      if (zeroMemory) {
+        os->initializeToZero();
+      } else {
+        os->initializeToRandom();
+      }
+      bindLocal(target, state, mo->getBaseExpr());
+
+      // only need to handle realloc in the success state
+      if (reallocFrom != nullptr) {
+        unsigned end = std::min(reallocFrom->getVisibleSize(), os->getVisibleSize());
+        for (unsigned idx = 0; idx < end; ++idx) {
+          os->write(idx, reallocFrom->read8(idx));
+        }
+        const MemoryObject *mo = reallocFrom->getObject();
+        if (mo->isHeap()) {
+          state.addressSpace.unbindObject(mo);
+        }
+      }
     }
   }
 }

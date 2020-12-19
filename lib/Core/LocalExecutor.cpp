@@ -555,6 +555,7 @@ bool LocalExecutor::executeWriteMemoryOperation(ExecutionState &state,
 
   if (mo->isReadOnly()) {
     terminateStateOnMemFault(state, target, address, mo, "memory error: object read only");
+    return false;
   }
 
   Expr::Width width = value->getWidth();

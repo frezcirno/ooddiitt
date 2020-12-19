@@ -70,6 +70,7 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"strncpy", {&SystemModel::ExecuteStrcpy, CTX_STRNCPY}},
     {"strspn", {&SystemModel::ExecuteStrspn, CTX_STRSPN}},
     {"strcspn", {&SystemModel::ExecuteStrspn, CTX_STRCSPN}},
+    {"getpagesize", {&SystemModel::ExecuteGetPageSize, CTX_DEFAULT}},
     {"__o_assert_fail", {&SystemModel::ExecuteOAssertFail, CTX_DEFAULT}}
 };
 
@@ -513,6 +514,12 @@ bool SystemModel::ExecuteMemcpy(ExecutionState &state, std::vector<ref<Expr>> &a
             if (dst_offset + count <= dst_os->visible_size) {
 
               ObjectState *wos = state.addressSpace.getWriteable(dst_mo, dst_os);
+              // if the memcpy was within the same memory object, then the old object state may
+              // have been deleted.
+              if (src_os == dst_os) {
+                src_os = wos;
+              }
+
               for (uint64_t idx = 0; idx < count; ++idx) {
                 ref<Expr> value = src_os->read8(src_offset + idx);
                 wos->write8(dst_offset + idx, value);
@@ -742,6 +749,12 @@ bool SystemModel::ExecuteStrcpy(ExecutionState &state, std::vector<ref<Expr>> &a
           uint64_t dst_offset = dst - dst_mo->address;
 
           ObjectState *wos = state.addressSpace.getWriteable(dst_mo, dst_os);
+          // if the memcpy was within the same memory object, then the old object state may
+          // have been deleted.
+          if (src_os == dst_os) {
+            src_os = wos;
+          }
+
           for (uint64_t idx = 0; idx < count; ++idx) {
 
             // check of this operation is in-bounds of both strings
@@ -864,6 +877,15 @@ bool SystemModel::ExecuteStrspn(ExecutionState &state, std::vector<ref<Expr>> &a
   }
   return false;
 }
+
+bool SystemModel::ExecuteGetPageSize(ExecutionState &state, std::vector<ref<Expr>> &args, ref<Expr> &retExpr) {
+
+  UNUSED(state);
+  UNUSED(args);
+  retExpr = ConstantExpr::create(4096, Expr::Int32);
+  return true;
+}
+
 
 bool SystemModel::ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
 

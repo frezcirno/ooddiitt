@@ -294,6 +294,9 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
 
   // must rename iso99 version before linking, otherwise will not pull in new target
   replaceOrRenameFunction(mainModule, "__isoc99_fscanf", "fscanf");
+  replaceOrRenameFunction(mainModule, "__isoc99_sscanf", "sscanf");
+
+  replaceOrRenameFunction(mainModule, "__mempcpy", "mempcpy");
 
   set<string> retain_fns = { "setbuf" };
 

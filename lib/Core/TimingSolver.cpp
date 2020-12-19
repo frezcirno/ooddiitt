@@ -144,23 +144,20 @@ bool TimingSolver::getValue(const ExecutionState& state, ref<Expr> expr, ref<Con
   return true;
 }
 
-bool TimingSolver::getInitialValues(const ExecutionState& state,
-                                    const std::vector<const Array*> &objects,
-                                    std::vector< std::vector<unsigned char> > &result) {
-  if (objects.empty())
-    return true;
+bool TimingSolver::getInitialValues(const ExecutionState &state, const std::vector<const Array *> &objects,
+                                    std::vector<std::vector<unsigned char>> &result) {
 
-  sys::TimeValue now = util::getWallTimeVal();
+  bool have_solution = true;
 
-  if (!solver->getInitialValues(Query(state.constraints, ConstantExpr::alloc(0, Expr::Bool)), objects, result)) {
-    throw solver_failure();
+  if (!objects.empty()) {
+    sys::TimeValue now = util::getWallTimeVal();
+    have_solution = solver->getInitialValues(Query(state.constraints, ConstantExpr::alloc(0, Expr::Bool)), objects, result);
+    sys::TimeValue delta = util::getWallTimeVal();
+    delta -= now;
+    stats::solverTime += delta.usec();
+    state.queryCost += delta.usec() / 1000000.;
   }
-
-  sys::TimeValue delta = util::getWallTimeVal();
-  delta -= now;
-  stats::solverTime += delta.usec();
-  state.queryCost += delta.usec()/1000000.;
-  return true;
+  return have_solution;
 }
 
 std::pair< ref<Expr>, ref<Expr> > TimingSolver::getRange(const ExecutionState& state, ref<Expr> expr) {

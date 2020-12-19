@@ -59,6 +59,7 @@ private:
   bool ExecuteStrchr(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrspn(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteGetPageSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 
   bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 

@@ -160,6 +160,7 @@ ObjectState::ObjectState(const ObjectState &os)
 }
 
 ObjectState::~ObjectState() {
+
   if (concreteMask) { delete concreteMask; concreteMask = nullptr; }
   if (flushMask) { delete flushMask; flushMask = nullptr; }
   if (knownSymbolics) { delete[] knownSymbolics; knownSymbolics = nullptr; }
@@ -256,6 +257,7 @@ const UpdateList &ObjectState::getUpdates() const {
 }
 
 void ObjectState::makeConcrete() {
+
   if (concreteMask) { delete concreteMask; concreteMask = nullptr; }
   if (flushMask) { delete flushMask; flushMask = nullptr; }
   if (writtenMask) { delete writtenMask; writtenMask = nullptr; }

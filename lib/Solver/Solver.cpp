@@ -93,13 +93,11 @@ bool Solver::getValue(const Query& query, ref<ConstantExpr> &result) {
   return true;
 }
 
-bool 
-Solver::getInitialValues(const Query& query,
-                         const std::vector<const Array*> &objects,
-                         std::vector< std::vector<unsigned char> > &values) {
+bool Solver::getInitialValues(const Query& query,
+                              const std::vector<const Array*> &objects,
+                              std::vector< std::vector<unsigned char> > &values) {
   bool hasSolution;
-  bool success =
-    impl->computeInitialValues(query, objects, values, hasSolution);
+  bool success = impl->computeInitialValues(query, objects, values, hasSolution);
   // FIXME: Propogate this out.
   if (!hasSolution)
     return false;

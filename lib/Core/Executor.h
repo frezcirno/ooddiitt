@@ -198,6 +198,7 @@ protected:
   std::map<const llvm::Loop *,std::set_ex<const ExecutionState*>> loopingStates;
   unsigned maxStatesInLoop;
   unsigned maxMemInUse;
+  uint64_t maxMemAlloc;
 
   llvm::Function *getTargetFunction(llvm::Value *calledVal,
                                     ExecutionState &state);
@@ -376,7 +377,7 @@ protected:
   void terminateStateOnComplete(ExecutionState &state, TerminateReason reason);
 
   void terminateStateOnComplete(ExecutionState &state, TerminateReason reason, const std::string &comment)
-    { state.messages.push_front(comment); terminateStateOnComplete(state, reason); }
+    { state.messages.push_back(comment); terminateStateOnComplete(state, reason); }
 
   // Discarded states may still be persisted as test cases by dump-states-on-halt
   // Disposed states are gone, gone, gone

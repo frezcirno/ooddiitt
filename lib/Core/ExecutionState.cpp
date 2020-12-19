@@ -92,7 +92,7 @@ ExecutionState::ExecutionState() :
     maxLazyDepth(0),
     maxStatesInLoop(0),
 
-    status(StateStatus::Waiting),
+    status(StateStatus::Ready),
     instFaulting(nullptr),
     addrFaulting(0),
     moFaulting(nullptr),
