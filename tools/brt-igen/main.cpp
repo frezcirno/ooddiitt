@@ -609,11 +609,11 @@ KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
 }
 
 #ifdef _DEBUG
-void DebugNewHook(const void *ptr, size_t size) {
-  if (size > 1000000000) {
-    errs() << "Large allocation of " << size << " bytes\n";
-  }
-}
+//void DebugNewHook(const void *ptr, size_t size) {
+//  if (size > 1000000000) {
+//    errs() << "Large allocation of " << size << " bytes\n";
+//  }
+//}
 #endif
 
 int main(int argc, char *argv[]) {

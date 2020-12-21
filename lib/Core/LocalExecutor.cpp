@@ -2273,10 +2273,13 @@ void LocalExecutor::unconstrainFnCall(ExecutionState &state, KInstruction *ki, l
     Argument *arg = itr;
     if (arg->getType()->isPointerTy() && (!kmodule->isConstFnArg(fn, idx))) {
       const Value *v = cs.getArgument(idx);
-      Type *type = v->getType();
-      if (auto pt = dyn_cast<PointerType>(type)) {
-        ref<Expr> ptr = eval(ki, idx + 1, state).value;
-        unconstrainFnArg(state, ki, pt->getPointerElementType(), ptr, toSymbolName(fn_name, counter, idx + 1));
+      if (auto pt = dyn_cast<PointerType>(v->getType())) {
+        // some external types may be opaque. have to skip
+        Type *type = pt->getPointerElementType();
+        if (type->isSized()) {
+          ref<Expr> ptr = eval(ki, idx + 1, state).value;
+          unconstrainFnArg(state, ki, type, ptr, toSymbolName(fn_name, counter, idx + 1));
+        }
       }
     }
   }
