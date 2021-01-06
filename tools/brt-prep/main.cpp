@@ -7,27 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "klee/ExecutionState.h"
-#include "klee/Expr.h"
-#include "klee/Interpreter.h"
-#include "klee/Config/Version.h"
-#include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/TreeStream.h"
-#include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/Support/PrintVersion.h"
-#include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/Module/KModule.h"
-#include "klee/Internal/Module/ModuleTypes.h"
-#include "klee/Internal/Module/KInstruction.h"
-#include "klee/Internal/Module/ClangInfo.h"
+#include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/Instruction.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DataLayout.h"
+#include <llvm/IR/Intrinsics.h>
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
@@ -38,23 +25,10 @@
 #include "llvm/Support/Signals.h"
 #include "llvm/Analysis/CallGraph.h"
 
-#include <openssl/sha.h>
-
-#include "llvm/Support/system_error.h"
-#include "json/json.h"
-
-#include <string>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <llvm/IR/Intrinsics.h>
-#include "klee/util/CommonUtil.h"
-#include "klee/util/JsonUtil.h"
 
-#ifdef _DEBUG
-#include <gperftools/tcmalloc.h>
-#include <gperftools/heap-profiler.h>
-#include <gperftools/heap-checker.h>
-#endif
+#include <string>
 
 using namespace llvm;
 using namespace klee;
@@ -124,11 +98,6 @@ cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-
-static void parseArguments(int argc, char **argv) {
-  cl::SetVersionPrinter(klee::printVersion);
-  cl::ParseCommandLineOptions(argc, argv, " klee\n");
-}
 
 bool has_inline_asm(const Function *fn) {
 
@@ -538,11 +507,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
-
-  // write out command line info, for reference
-  if (ShowArgs) show_args(argc, argv);
+  parseCmdLineArgs(argc, argv, ShowArgs);
 
 #ifdef _DEBUG
   EnableMemDebuggingChecks();
@@ -572,6 +537,7 @@ int main(int argc, char *argv[]) {
 
     // if diff_root is empty, then emit the prepared module
     outs() << "preparing module: " << input_file << oendl;
+    SetStackTraceContext(input_file);
     if ((kmod = PrepareModule(input_file, indirect_rewrites, clang_info, libDir, TraceT, MarkS))) {
 
       if (!SaveModule(kmod, Output)) {

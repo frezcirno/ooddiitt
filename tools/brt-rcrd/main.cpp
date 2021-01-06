@@ -8,41 +8,25 @@
 //===----------------------------------------------------------------------===//
 
 #include "klee/ExecutionState.h"
-#include "klee/Interpreter.h"
-#include "klee/Config/Version.h"
 #include "klee/Config/CompileTimeInfo.h"
-#include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/ADT/TreeStream.h"
 #include "klee/Internal/Support/PrintVersion.h"
-#include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Support/Timer.h"
+#include "klee/TestCase.h"
+#include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-#include "llvm/Support/system_error.h"
-#endif
+#include <boost/filesystem.hpp>
 
 #include <string>
 #include <iomanip>
 #include <iterator>
-#include <boost/filesystem.hpp>
-#include <klee/Internal/Support/ModuleUtil.h>
-#include "json/json.h"
-#include "klee/TestCase.h"
-#include "klee/util/CommonUtil.h"
 
 using namespace llvm;
 using namespace klee;
@@ -275,11 +259,6 @@ void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason r
 // main Driver function
 //
 
-static void parseArguments(int argc, char **argv) {
-  cl::SetVersionPrinter(klee::printVersion);
-  cl::ParseCommandLineOptions(argc, argv, " klee\n");
-}
-
 static Interpreter *theInterpreter = nullptr;
 
 static bool interrupted = false;
@@ -360,12 +339,12 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
+  parseCmdLineArgs(argc, argv, ShowArgs);
   sys::SetInterruptFunction(interrupt_handle);
 
-  // write out command line info, for reference
-  if (ShowArgs) show_args(argc, argv);
+#ifdef _DEBUG
+  EnableMemDebuggingChecks();
+#endif // _DEBUG
 
   exit_code = 0;
 

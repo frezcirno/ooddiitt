@@ -8,47 +8,24 @@
 //===----------------------------------------------------------------------===//
 
 #include "klee/ExecutionState.h"
-#include "klee/Expr.h"
-#include "klee/Interpreter.h"
 #include "klee/Statistics.h"
-#include "klee/Config/Version.h"
-#include "klee/Internal/ADT/KTest.h"
-#include "klee/Internal/Support/ModuleUtil.h"
 #include "klee/Internal/Support/PrintVersion.h"
-#include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Config/CompileTimeInfo.h"
-#include "klee/Internal/Module/KModule.h"
-#include "klee/Internal/System/Memory.h"
 #include "klee/Internal/Support/Timer.h"
+#include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
-#include "klee/util/CommonUtil.h"
-#include "klee/util/JsonUtil.h"
 
-#include <openssl/sha.h>
+#include <boost/algorithm/string.hpp>
+#include <boost/filesystem.hpp>
 
-#ifdef _DEBUG
-#include <gperftools/tcmalloc.h>
-#include <gperftools/heap-profiler.h>
-#include <gperftools/heap-checker.h>
-#endif
-#include <gperftools/malloc_hook.h>
-
-
-#include "llvm/Support/system_error.h"
-#include "json/json.h"
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -57,8 +34,6 @@
 #include <string>
 #include <iomanip>
 #include <sstream>
-#include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
 #include <regex>
 
 using namespace llvm;
@@ -238,7 +213,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
         }
 
         Json::Value &msgs = root["messages"] = Json::arrayValue;
-        for (auto msg : state.messages) {
+        for (const auto &msg : state.messages) {
           msgs.append(msg);
         }
 
@@ -379,11 +354,6 @@ unsigned InputGenKleeHandler::getTerminationCount(TerminateReason reason) {
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-
-static void parseArguments(int argc, char **argv) {
-  cl::SetVersionPrinter(klee::printVersion);
-  cl::ParseCommandLineOptions(argc, argv, " klee\n");
-}
 
 #if 0 == 1
 static int initEnv(Module *mainModule) {
@@ -608,21 +578,12 @@ KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
   return nullptr;
 }
 
-#ifdef _DEBUG
-//void DebugNewHook(const void *ptr, size_t size) {
-//  if (size > 1000000000) {
-//    errs() << "Large allocation of " << size << " bytes\n";
-//  }
-//}
-#endif
-
 int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseArguments(argc, argv);
-  sys::PrintStackTraceOnErrorSignal();
+  parseCmdLineArgs(argc, argv, ShowArgs);
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
 
@@ -717,12 +678,8 @@ int main(int argc, char *argv[]) {
     pid_watchdog = getppid();
   }
 
-  // write out command line info, for reference
-  if (ShowArgs) show_args(argc, argv);
-
 #ifdef _DEBUG
   EnableMemDebuggingChecks();
-//  MallocHook_AddNewHook(DebugNewHook);
 #endif // _DEBUG
 
   Json::Value diff_root;
@@ -850,10 +807,6 @@ int main(int argc, char *argv[]) {
   delete handler;
   delete kmod;
   delete ctx;
-
-#ifdef _DEBUG
-//  MallocHook_RemoveNewHook(DebugNewHook);
-#endif
 
   return exit_code;
 }

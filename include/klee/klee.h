@@ -12,6 +12,8 @@
 
 #include "stdint.h"
 #include "stddef.h"
+#include "stdlib.h"
+#include "stdio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -98,9 +100,13 @@ extern "C" {
 #ifdef ORACLE_ASSERT
 
 static inline void __o_assert_fail(unsigned id) {                       \
-  FILE *fp = fopen("log-oassert.txt", "a");                             \
+  char *log_file = getenv("O_ASSERT_LOG");                              \
+  if (log_file == NULL) {                                               \
+    log_file = "/tmp/o_assert.txt";                                     \
+  }                                                                     \
+  FILE *fp = fopen(log_file, "a");                                      \
   if (fp != NULL) {                                                     \
-    fprintf(fp, "o_assert %u failed\n", id);                            \
+    fprintf(fp, "o_assert %02u\n", id);                                 \
     fclose(fp);                                                         \
   }                                                                     \
 }

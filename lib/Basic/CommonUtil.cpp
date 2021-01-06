@@ -16,14 +16,18 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 
-#include <llvm/IR/Function.h>
-#include <llvm/IR/GlobalVariable.h>
+#include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/Support/Signals.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "klee/util/CommonUtil.h"
-#include "../Core/SpecialFunctionHandler.h"
-#include "../Core/SystemModel.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 #include "klee/Internal/ADT/RNG.h"
+#include "klee/Internal/Support/PrintVersion.h"
+#include "../Core/SpecialFunctionHandler.h"
+#include "../Core/SystemModel.h"
+
 
 namespace llvm {
 RawOStreamOperator oflush = RawOStreamOperator::base_flush;
@@ -57,6 +61,46 @@ using namespace std;
 namespace fs=boost::filesystem;
 
 namespace klee {
+
+static string st_cmdline;
+static string st_err_context;
+
+void parseCmdLineArgs(int argc, char *argv[], bool show) {
+  llvm::cl::SetVersionPrinter(printVersion);
+  llvm::cl::ParseCommandLineOptions(argc, argv, " brt-klee\n");
+
+  SetupStackTraceSignalHandler(argc, argv);
+  if (show) {
+    llvm::outs() << '#' << st_cmdline << '\n';
+  }
+}
+
+void PrintStackTraceSignalHandler(void *) {
+  if (!st_cmdline.empty()) {
+    fprintf(stderr, "cmdline: %s\n", st_cmdline.c_str());
+  }
+  if (!st_err_context.empty()) {
+    fprintf(stderr, "context: %s\n", st_err_context.c_str());
+  }
+  llvm::sys::PrintStackTrace(stderr);
+}
+
+void SetupStackTraceSignalHandler(int argc, char *argv[]) {
+
+  st_cmdline.clear();
+  st_err_context.clear();
+  ostringstream ss;
+  for (int idx = 0; idx < argc; ++idx, ++argv) {
+    if (idx > 0) ss << ' ';
+    ss << *argv;
+  }
+  st_cmdline = ss.str();
+  llvm::sys::AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
+}
+
+void SetStackTraceContext(const string &str) {
+  st_err_context = str;
+}
 
 sys_clock::time_point to_time_point(const string &str) {
 
@@ -198,14 +242,6 @@ string to_string(const TraceEntryT &entry) {
   return ss.str();
 }
 
-void show_args(int argc, char *argv[]) {
-
-  llvm::outs() << '#';
-  for (int idx = 0; idx < argc; ++idx) {
-    llvm::outs() << argv[idx] << (idx + 1 < argc ? ' ' : '\n');
-  }
-}
-
 void HashAccumulator::add(const std::string &str) {
 
   if (str.empty()) {
@@ -326,7 +362,8 @@ void DisableMemDebuggingChecks() {
 bool EnableMemDebuggingChecks() {
 
 //  atexit(DisableMemDebuggingChecks);
-  return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
+//  return (MallocHook::AddNewHook(DebugNewHook) && MallocHook::AddDeleteHook(DebugDeleteHook));
+  return true;
 }
 
 void ShowMemStats() {

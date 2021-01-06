@@ -8,41 +8,25 @@
 //===----------------------------------------------------------------------===//
 
 #include "klee/ExecutionState.h"
-#include "klee/Interpreter.h"
-#include "klee/Config/Version.h"
-#include "klee/Internal/ADT/KTest.h"
 #include "klee/Internal/Support/PrintVersion.h"
-#include "klee/Internal/Support/ErrorHandling.h"
-#include "klee/Internal/Support/Timer.h"
+#include "klee/TestCase.h"
+#include "klee/util/CommonUtil.h"
+#include "klee/util/JsonUtil.h"
 
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Signals.h"
 
-#if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
-#include "llvm/Support/system_error.h"
-#endif
+#include <boost/algorithm/string.hpp>
+#include <boost/filesystem.hpp>
 
 #include <string>
 #include <iomanip>
 #include <iterator>
-#include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
-#include <klee/Internal/Support/ModuleUtil.h>
-#include "json/json.h"
-#include "klee/TestCase.h"
-#include "klee/util/CommonUtil.h"
-#include "klee/util/JsonUtil.h"
 
 //#define DO_HEAP_PROFILE 1
 
@@ -116,11 +100,6 @@ public:
 //===----------------------------------------------------------------------===//
 // main Driver function
 //
-
-static void parseArguments(int argc, char **argv) {
-  cl::SetVersionPrinter(klee::printVersion);
-  cl::ParseCommandLineOptions(argc, argv, " klee\n");
-}
 
 static Interpreter *theInterpreter = nullptr;
 static bool interrupted = false;
@@ -230,25 +209,13 @@ KModule *PrepareModule(const string &filename, Json::Value &diff_root) {
 #define EXIT_STATUS_CONFLICT  2
 #define EXIT_TRACE_CONFLICT   3
 
-static const char *err_context = nullptr;
-static void PrintStackTraceSignalHandler(void *) {
-  if (err_context != nullptr) {
-    fprintf(stderr, "context: %s\n", err_context);
-  }
-  sys::PrintStackTrace(stderr);
-}
-
 int main(int argc, char *argv[]) {
 
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseArguments(argc, argv);
-  sys::AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
+  parseCmdLineArgs(argc, argv, ShowArgs);
   sys::SetInterruptFunction(interrupt_handle);
-
-  // write out command line info, for reference
-  if (ShowArgs) show_args(argc, argv);
 
   exit_code = EXIT_OK;
 
@@ -267,7 +234,7 @@ int main(int argc, char *argv[]) {
   if (ReplayTests.empty()) {
     expandTestFiles(Output, Output, Prefix, test_files);
   } else {
-    for (auto file : ReplayTests) expandTestFiles(file, Output, Prefix, test_files);
+    for (const auto &file : ReplayTests) expandTestFiles(file, Output, Prefix, test_files);
   }
   sort(test_files.begin(), test_files.end());
 
@@ -287,7 +254,7 @@ int main(int argc, char *argv[]) {
     }
 
     outs() << fs::path(test_file).filename().string() << ':' << oflush;
-    err_context = test_file.c_str();
+    SetStackTraceContext(test_file);
 
     string module_name = ModuleName;
     if (module_name.empty()) {

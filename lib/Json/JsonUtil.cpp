@@ -187,7 +187,7 @@ bool retrieveDiffInfo(Json::Value &root, string &module_name) {
 
     vector<string> names;
     boost::split(names, module_name.substr(1), [](char c){return c == ',';});
-    for (auto str : names) {
+    for (const auto &str : names) {
       string name = str + "-module";
       if (root.isMember(name)) {
         module_name = root[name]["name"].asString();

@@ -78,6 +78,13 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &o
 
 namespace klee {
 
+void parseCmdLineArgs(int argc, char *argv[], bool show = false);
+
+// standardize stack error display
+void PrintStackTraceSignalHandler(void *);
+void SetupStackTraceSignalHandler(int argc, char *argv[]);
+void SetStackTraceContext(const std::string &str);
+
 enum class TerminateReason {
   Return,
   Exit,
@@ -178,7 +185,6 @@ void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
 sys_clock::time_point to_time_point(const std::string &str);
 std::string to_string(const sys_clock::time_point &tp);
 std::string currentISO8601TimeUTC();
-void show_args(int argc, char *argv[]);
 
 class BagOfNumbers {
   std::deque<unsigned> numbers;

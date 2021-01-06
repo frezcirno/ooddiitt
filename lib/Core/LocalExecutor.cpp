@@ -1505,7 +1505,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     if (mem_chk_freq_counter++ % 0xfff) checkMemoryUsage();
   }
 
-  if (!states.empty()) {
+  if (!states.empty() && !doConcreteInterpretation) {
     klee_message("terminating %lu incomplete states", states.size());
     for (ExecutionState *s : states) {
       terminateStateOnDiscard(*s, "flushing states on halt");
