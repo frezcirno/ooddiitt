@@ -1254,7 +1254,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
         auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
         if (pr.first == nullptr) {
           injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
-        } else if (pr.first->type_desc == obj.type)  {
+        } else if (obj.type == to_string(pr.first->type))  {
 
           // write the test case value
           const MemoryObject *mo = pr.first;
