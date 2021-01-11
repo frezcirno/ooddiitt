@@ -1254,7 +1254,7 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
         auto pr = baseState->addressSpace.findMemoryObjectByName(obj.name, kind);
         if (pr.first == nullptr) {
           injectMemory(*baseState, (void *) obj.addr, obj.data, obj.type, kind, obj.name, obj.count);
-        } else {
+        } else if (pr.first->type_desc == obj.type)  {
 
           // write the test case value
           const MemoryObject *mo = pr.first;
@@ -1264,7 +1264,10 @@ void LocalExecutor::runFunctionTestCase(const TestCase &test) {
           for (size_t idx = 0, end = obj.data.size(); idx < end; ++idx) {
             wos->write8(idx, obj.data[idx]);
           }
+        } else {
+          // RLR TODO: report failure
         }
+
         break;
       }
       default: {
@@ -1493,6 +1496,7 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
         halt = HaltReason::TimeOut;
 #endif
       } else {
+        // RLR TODO: this did not work as expected, disabling for now
         inhibitForking = true;
         timer.set(tid_timeout, 60);
         outs() << "Timeout reached, concretizing remaining states" << oendl;
@@ -1505,10 +1509,17 @@ void LocalExecutor::runFn(KFunction *kf, std::vector<ExecutionState*> &init_stat
     if (mem_chk_freq_counter++ % 0xfff) checkMemoryUsage();
   }
 
-  if (!states.empty() && !doConcreteInterpretation) {
-    klee_message("terminating %lu incomplete states", states.size());
-    for (ExecutionState *s : states) {
-      terminateStateOnDiscard(*s, "flushing states on halt");
+  if (!states.empty()) {
+    if (!doConcreteInterpretation) {
+      klee_message("terminating %lu incomplete states", states.size());
+      for (ExecutionState *s : states) {
+        terminateStateOnDiscard(*s, "flushing states on halt");
+      }
+    } else {
+      assert(states.size() == 1);
+      for (ExecutionState *s : states) {
+        terminateStateOnDispose(*s, "timed out on concrete replay");
+      }
     }
   }
   updateStates(nullptr);
