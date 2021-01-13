@@ -91,7 +91,6 @@ cl::opt<string> Output("output", cl::desc("directory for output files (created i
 cl::opt<unsigned> Watchdog("watchdog", cl::desc("Use a watchdog process to monitor se. (default = 0 secs. if activated, suggest 300"), cl::init(0), cl::cat(BrtCategory));
 cl::opt<string> Prefix("prefix", cl::desc("prefix for emitted test cases"), cl::init("test"), cl::cat(BrtCategory));
 cl::opt<unsigned> Job("job", cl::desc("appended to test case prefix"), cl::init(UINT_MAX), cl::cat(BrtCategory));
-cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 /***/
@@ -583,7 +582,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseCmdLineArgs(argc, argv, ShowArgs);
+  parseCmdLineArgs(argc, argv);
   sys::SetInterruptFunction(interrupt_handle);
   exit_code = 0;
 

@@ -78,7 +78,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const RawOStreamOperator &o
 
 namespace klee {
 
-void parseCmdLineArgs(int argc, char *argv[], bool show = false);
+void parseCmdLineArgs(int argc, char *argv[], bool show = true);
 
 // standardize stack error display
 void PrintStackTraceSignalHandler(void *);

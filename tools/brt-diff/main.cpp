@@ -39,7 +39,6 @@ cl::opt<string> InputFile3(cl::desc("<oracle bytecode>"), cl::Positional);
 cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
 cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
-cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 //===----------------------------------------------------------------------===//
@@ -399,11 +398,11 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
 
     Json::Value &prev_exts = prev_node["external"] = Json::arrayValue;
     kmod1->getExternalFunctions(names);
-    for (auto name : names) { prev_exts.append(name); }
+    for (auto &name : names) { prev_exts.append(name); }
 
     Json::Value &prev_srcs = prev_node["sources"] = Json::arrayValue;
     kmod1->getUserSources(names);
-    for (auto name : names) { prev_srcs.append(name); }
+    for (auto &name : names) { prev_srcs.append(name); }
 
     // then post
     Json::Value &post_node = root["post-module"] = Json::objectValue;
@@ -411,11 +410,11 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
 
     Json::Value &post_exts = post_node["external"] = Json::arrayValue;
     kmod2->getExternalFunctions(names);
-    for (auto name : names) { post_exts.append(name); }
+    for (auto &name : names) { post_exts.append(name); }
 
     Json::Value &post_srcs = post_node["sources"] = Json::arrayValue;
     kmod2->getUserSources(names);
-    for (auto name : names) { post_srcs.append(name); }
+    for (auto &name : names) { post_srcs.append(name); }
 
     // finally, the oracle module, if present
     if (kmod3 != nullptr) {
@@ -424,11 +423,11 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
 
       Json::Value &orcl_exts = orcl_node["external"] = Json::arrayValue;
       kmod3->getExternalFunctions(names);
-      for (auto name : names) { orcl_exts.append(name); }
+      for (auto &name : names) { orcl_exts.append(name); }
 
       Json::Value &orcl_srcs = orcl_node["sources"] = Json::arrayValue;
       kmod3->getUserSources(names);
-      for (auto name : names) { orcl_srcs.append(name); }
+      for (auto &name : names) { orcl_srcs.append(name); }
     }
 
     string indent;
@@ -489,7 +488,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseCmdLineArgs(argc, argv, ShowArgs);
+  parseCmdLineArgs(argc, argv);
 
 #ifdef _DEBUG
   EnableMemDebuggingChecks();

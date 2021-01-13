@@ -839,7 +839,8 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
-    if (kmodule->isUserGlobal(v) && !v->isConstant() && !v->hasHiddenVisibility()) {
+
+    if (!v->isConstant() && !v->hasHiddenVisibility() && kmodule->isUserGlobal(v) && !kmodule->isDiffGlobalModified(v)) {
 
       assert(v->hasName());
       string gv_name = v->getName().str();
@@ -868,7 +869,7 @@ void LocalExecutor::unconstrainGlobalValues(ExecutionState &state, Function *fn,
   string fn_name = fn->getName();
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
-    if (kmodule->isUserGlobal(v) && !v->isConstant() && !v->hasHiddenVisibility()) {
+    if (!v->isConstant() && !v->hasHiddenVisibility() && kmodule->isUserGlobal(v) && !kmodule->isDiffGlobalModified(v)) {
       assert(v->hasName());
       string gv_name = v->getName().str();
 

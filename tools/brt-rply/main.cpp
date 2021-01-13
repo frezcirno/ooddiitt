@@ -55,7 +55,6 @@ cl::opt<string> ModuleName("module", cl::desc("override module specified by test
 cl::opt<string> DiffInfo("diff", cl::desc("json formated diff file"), cl::cat(BrtCategory));
 cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
 cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10), cl::cat(BrtCategory));
-cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 cl::opt<TraceType> TraceT("trace",
   cl::desc("Choose the type of trace (default=marked basic blocks"),
   cl::values(clEnumValN(TraceType::none, "none", "do not trace execution"),
@@ -214,7 +213,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseCmdLineArgs(argc, argv, ShowArgs);
+  parseCmdLineArgs(argc, argv);
   sys::SetInterruptFunction(interrupt_handle);
 
   exit_code = EXIT_OK;

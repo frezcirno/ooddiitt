@@ -54,7 +54,6 @@ cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::
 cl::opt<unsigned> MaxFnSnapshots("max-fn-snapshots",
                                  cl::desc("maximum number of snapshots taken returning from any single function (default=500"),
                                  cl::init(500), cl::cat(BrtCategory));
-cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 /***/
@@ -208,7 +207,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseCmdLineArgs(argc, argv, ShowArgs);
+  parseCmdLineArgs(argc, argv);
   sys::SetInterruptFunction(interrupt_handle);
 
 #ifdef _DEBUG

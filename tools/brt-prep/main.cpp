@@ -91,7 +91,6 @@ cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for divisio
 cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::cat(BrtCategory));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
-cl::opt<bool> ShowArgs("show-args", cl::desc("show invocation command line args"), cl::cat(BrtCategory));
 }
 
 
@@ -124,7 +123,9 @@ void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &m
   }
 }
 
-void externalsAndGlobalsCheck(const Module *m) {
+void externalsAndGlobalsCheck(const KModule *km) {
+
+  const Module *m = km->module;
 
   // get a set of undefined symbols
   set<const Value*> undefined_fns;
@@ -174,14 +175,36 @@ void externalsAndGlobalsCheck(const Module *m) {
     }
   }
 
-  // the remaining undefined symbols may be handled by various either the SpecialFunctionHandler or SysModel
+  // the remaining undefined symbols may be handled by either the SpecialFunctionHandler or SysModel
   // these should be removed from the warning list.
   filterHandledFunctions(undefined_fns);
   filterHandledGlobals(undefined_gbs);
 
   // report anything found
-  if (!undefined_fns.empty())
-    emitGlobalValueWarning(undefined_fns, "undefined function");
+  for (auto &value : undefined_fns) {
+    auto *fn = dyn_cast<const llvm::Function>(value);
+    if (fn != nullptr) {
+      outs() << "undefined function" << ": " << fn->getName().str();
+      if (fn->isVarArg()) outs() << "-> vararg";
+      else {
+        ostringstream ss;
+        unsigned idx = 0;
+        for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr, ++idx) {
+          const Argument *arg = itr;
+          if (arg->getType()->isPointerTy() && (!km->isConstFnArg(const_cast<llvm::Function*>(fn), idx))) {
+            if (!ss.str().empty()) ss << ",";
+            ss << idx;
+          }
+        }
+        string output_args = ss.str();
+        if (!output_args.empty()) {
+          outs() << "-> output args: " << output_args;
+        }
+      }
+      outs() << oendl;
+    }
+  }
+
   if (!undefined_gbs.empty())
     emitGlobalValueWarning(undefined_gbs, "undefined global");
   if (!inline_assm_fns.empty())
@@ -474,7 +497,7 @@ KModule *PrepareModule(const string &filename,
           boost::split(MOpts.sources, Sources, [](char c){return c == ',';});
         }
         kmodule->transform(MOpts);
-        externalsAndGlobalsCheck(module);
+        externalsAndGlobalsCheck(kmodule);
         return kmodule;
       }
     }
@@ -507,7 +530,7 @@ int main(int argc, char *argv[]) {
   atexit(llvm_shutdown);  // Call llvm_shutdown() on exit.
   llvm::InitializeNativeTarget();
 
-  parseCmdLineArgs(argc, argv, ShowArgs);
+  parseCmdLineArgs(argc, argv);
 
 #ifdef _DEBUG
   EnableMemDebuggingChecks();

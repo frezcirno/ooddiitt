@@ -185,7 +185,7 @@ namespace klee {
     llvm::Function *getFunction(const std::string &fn) const
       { llvm::Function *result = nullptr; if (module) result = module->getFunction(fn); return result; }
 
-    bool isConstFnArg(llvm::Function *fn, unsigned idx) {
+    bool isConstFnArg(llvm::Function *fn, unsigned idx) const {
       auto itr = fn_const_params.find(fn);
       if (itr != fn_const_params.end()) {
         return itr->second.contains(idx);
@@ -193,7 +193,7 @@ namespace klee {
       return false;
     }
 
-    bool isConstFnArg(const std::string &fn_name, unsigned idx) {
+    bool isConstFnArg(const std::string &fn_name, unsigned idx) const {
       if (llvm::Function *fn = module->getFunction(fn_name)) {
         return isConstFnArg(fn, idx);
       }
@@ -204,7 +204,7 @@ namespace klee {
     //
     void prepare();
     void transform(const Interpreter::ModuleOptions &opts);
-    bool hasOracle() { return getKFunction("__o_assert_fail") != nullptr; }
+    bool hasOracle() const { return getKFunction("__o_assert_fail") != nullptr; }
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
@@ -217,7 +217,7 @@ namespace klee {
       for (auto itr = mapFnMarkers.begin(), end = mapFnMarkers.end(); itr != end; ++itr) fns.insert(itr->first);
     }
 
-    void getUserFnsOfType(const llvm::FunctionType *ft, std::vector<const llvm::Function *> &fns) {
+    void getUserFnsOfType(const llvm::FunctionType *ft, std::vector<const llvm::Function *> &fns) const {
       const auto &fnd = mapFnTypes.find(ft);
       if (fnd != mapFnTypes.end()) {
         auto &matching = fnd->second;
@@ -293,12 +293,24 @@ namespace klee {
     bool addDiffGlobalRemoved(const std::string &name)
       { if (auto *gv = getGlobalVariable(name)) { diff_gbs_removed.insert(gv); return true; } return false; }
     bool addDiffGlobalChanged(const std::string &name) {
-      if (auto *gv = getGlobalVariable(name)) {
-        diff_gbs_changed.insert(gv);
-        return true;
-      }
-      return false;
-    }
+      if (auto *gv = getGlobalVariable(name)) { diff_gbs_changed.insert(gv); return true; } return false; }
+
+    bool isDiffGlobalAdded(const std::string &name) const
+      { if (auto *gv = getGlobalVariable(name)) { return isDiffGlobalAdded(gv); } return false; }
+    bool isDiffGlobalAdded(llvm::GlobalVariable *gv) const { return diff_gbs_added.contains(gv); }
+
+    bool isDiffGlobalRemoved(const std::string &name) const
+      { if (auto *gv = getGlobalVariable(name)) { return isDiffGlobalRemoved(gv); } return false; }
+    bool isDiffGlobalRemoved(llvm::GlobalVariable *gv) const { return diff_gbs_removed.contains(gv); }
+
+    bool isDiffGlobalChanged(const std::string &name) const
+      { if (auto *gv = getGlobalVariable(name)) { return isDiffGlobalChanged(gv); } return false; }
+    bool isDiffGlobalChanged(llvm::GlobalVariable *gv) const { return diff_gbs_changed.contains(gv); }
+
+    bool isDiffGlobalModified(const std::string &name) const
+      { if (auto *gv = getGlobalVariable(name)) { return isDiffGlobalModified(gv); } return false; }
+    bool isDiffGlobalModified(const llvm::GlobalVariable *gv) const
+      { auto *v = const_cast<llvm::GlobalVariable*>(gv); return isDiffGlobalAdded(v) || isDiffGlobalRemoved(v) || isDiffGlobalChanged(v); }
 
     void addTargetedBBlocks(const KFunction *kf, const std::set_ex<unsigned> &bblocks);
     void addTargetedBBlocks(const std::string &fn_name, const std::set_ex<unsigned> &bblocks) {
