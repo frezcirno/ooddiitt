@@ -32,6 +32,7 @@ public:
 
   void GetModeledExternals(std::set<std::string> &names) const;
   bool Execute(ExecutionState &state, llvm::Function *fn, KInstruction *ki, const llvm::CallSite &cs, ref<Expr> &ret);
+  std::string readStringAt(ExecutionState &state, ref<ConstantExpr> addr);
 
   static void filterHandledFunctions(std::set<const llvm::Value*> &fns);
   static void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
@@ -60,6 +61,8 @@ private:
   bool ExecuteStrcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrspn(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteGetPageSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteGetEnv(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteMallocSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 
   bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 

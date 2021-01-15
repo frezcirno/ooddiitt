@@ -284,7 +284,7 @@ namespace {
 
   cl::opt<unsigned> MaxLoopStates("max-loop-states", cl::init(1000), cl::desc("Number of states within loop body (default=1000"));
   cl::opt<bool> SymArgsPrintable("sym-args-printable", cl::init(true), cl::desc("command line args restricted to printable characters (default=true)"));
-
+  cl::opt<unsigned>MaxSymbolicSize("max-sym-size", cl::init(UINT32_MAX));
 }
 
 
@@ -306,6 +306,7 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
       debugInstFile(0), debugLogBuffer(debugBufferString),
       maxStatesInLoop(MaxLoopStates),
       maxMemInUse(0),
+      maxSymbolicSize(MaxSymbolicSize),
       maxMemAlloc(0)
 {
 
@@ -355,7 +356,6 @@ Executor::Executor(LLVMContext &ctx, const InterpreterOptions &opts,
     }
   }
 }
-
 
 void Executor::bindModule(KModule *kmod) {
 

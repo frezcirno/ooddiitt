@@ -384,15 +384,9 @@ bool LocalExecutor::executeReadMemoryOperation(ExecutionState &state, ref<Expr> 
     }
   }
 
-  if (!doConcreteInterpretation) {
-    if (!currState->isSymbolic(mo)) {
-      if (!isLocallyAllocated(*currState, mo)) {
-        if (mo->isLazy()) {
-          outs() << "RLR: Does this ever actually happen?\n";
-          os = makeSymbolic(*currState, mo);
-        }
-      }
-    }
+  if (!doConcreteInterpretation && !currState->isSymbolic(mo) && !isLocallyAllocated(*currState, mo) && mo->isLazy()) {
+    outs() << "RLR: Does this ever actually happen?\n";
+    os = makeSymbolic(*currState, mo);
   }
 
   ref<Expr> e = os->read(offsetExpr, width);
@@ -853,12 +847,14 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
       MemoryObject *mo = globalObjects.find(v)->second;
       if (mo != nullptr) {
 
-        if (interpreterOpts.verbose) {
-          outs() << "unconstraining: " << gv_name << '\n';
-        }
+        if (mo->size > maxSymbolicSize) {
+          if (interpreterOpts.verbose) outs() << "too large unconstrain: " << gv_name << ": " << mo->size << '\n';
+        } else {
+          if (interpreterOpts.verbose) outs() << "unconstraining: " << gv_name << '\n';
 
-        // replace existing concrete value with symbolic one.
-        makeSymbolic(state, mo);
+          // replace existing concrete value with symbolic one.
+          makeSymbolic(state, mo);
+        }
       }
     }
   }
@@ -877,13 +873,15 @@ void LocalExecutor::unconstrainGlobalValues(ExecutionState &state, Function *fn,
       if (gv_name.find('.') == string::npos) {
         if (MemoryObject *mo = globalObjects.find(v)->second) {
 
-          const ObjectState *os = state.addressSpace.findObject(mo);
-          ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+          if (mo->size <= maxSymbolicSize) {
+            const ObjectState *os = state.addressSpace.findObject(mo);
+            ObjectState *wos = state.addressSpace.getWriteable(mo, os);
 
-          WObjectPair wop;
-          duplicateSymbolic(state, mo, v, toSymbolName(fn_name, counter, gv_name), wop);
-          for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
-            wos->write(idx, wop.second->read8(idx));
+            WObjectPair wop;
+            duplicateSymbolic(state, mo, v, toSymbolName(fn_name, counter, gv_name), wop);
+            for (unsigned idx = 0, edx = mo->size; idx < edx; ++idx) {
+              wos->write(idx, wop.second->read8(idx));
+            }
           }
         }
       }

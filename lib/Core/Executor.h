@@ -198,6 +198,7 @@ protected:
   std::map<const llvm::Loop *,std::set_ex<const ExecutionState*>> loopingStates;
   unsigned maxStatesInLoop;
   unsigned maxMemInUse;
+  unsigned maxSymbolicSize;
   uint64_t maxMemAlloc;
 
   llvm::Function *getTargetFunction(llvm::Value *calledVal,

@@ -51,7 +51,7 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"rint", {&SystemModel::ExecuteRint, CTX_DEFAULT}},
     {"fabs", {&SystemModel::ExecuteFabs, CTX_DEFAULT}},
     {"modf", {&SystemModel::ExecuteModf, CTX_DEFAULT}},
-    {"setlocale", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
+//    {"setlocale", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
     {"bindtextdomain", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
     {"textdomain", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
     {"__check_one_fd", {&SystemModel::ExecuteNoop, CTX_DEFAULT}},
@@ -71,6 +71,8 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"strspn", {&SystemModel::ExecuteStrspn, CTX_STRSPN}},
     {"strcspn", {&SystemModel::ExecuteStrspn, CTX_STRCSPN}},
     {"getpagesize", {&SystemModel::ExecuteGetPageSize, CTX_DEFAULT}},
+    {"getenv", {&SystemModel::ExecuteGetEnv, CTX_DEFAULT}},
+    {"malloc_usable_size", {&SystemModel::ExecuteMallocSize, CTX_DEFAULT}},
     {"__o_assert_fail", {&SystemModel::ExecuteOAssertFail, CTX_DEFAULT}}
 };
 
@@ -151,6 +153,65 @@ void SystemModel::GetModeledExternals(set<string> &names) const {
 
   names.insert(modeled_names.begin(), modeled_names.end());
 }
+
+// reads a concrete string from memory
+string SystemModel::readStringAt(ExecutionState &state, ref<ConstantExpr> addr) {
+
+  string result;
+
+  // lookup the memory object
+  ObjectPair op;
+  if (executor->resolveMO(state, addr, op) == LocalExecutor::ResolveResult::OK) {
+    const MemoryObject *mo = op.first;
+    const ObjectState *os = op.second;
+    uint64_t offset = addr->getZExtValue() - mo->address;
+    uint64_t end = mo->address + os->getVisibleSize();
+    while (offset < end) {
+      ref<ConstantExpr> ch = dyn_cast<ConstantExpr>(os->read8(offset));
+      if (!ch.isNull()) {
+        if (ch->isZero()) {
+          break;
+        }
+        result.push_back(ch->getZExtValue(Expr::Int8));
+      }
+      offset += 1;
+    }
+  }
+  return result;
+}
+
+/*
+  ObjectPair op;
+  addressExpr = executor.toUnique(state, addressExpr);
+  ref<ConstantExpr> address = cast<ConstantExpr>(addressExpr);
+  if (!state.addressSpace.resolveOne(address, op))
+    assert(0 && "XXX out of bounds / multiple resolution unhandled");
+  bool res __attribute__ ((unused));
+  assert(executor.solver->mustBeTrue(state,
+                                     EqExpr::create(address,
+                                                    op.first->getBaseExpr()),
+                                     res) &&
+         res &&
+         "XXX interior pointer unhandled");
+  const MemoryObject *mo = op.first;
+  const ObjectState *os = op.second;
+
+  char *buf = new char[mo->size];
+
+  unsigned i;
+  for (i = 0; i < mo->size - 1; i++) {
+    ref<Expr> cur = os->read8(i);
+    cur = executor.toUnique(state, cur);
+    assert(isa<ConstantExpr>(cur) &&
+           "hit symbolic char while reading concrete string");
+    buf[i] = cast<ConstantExpr>(cur)->getZExtValue(8);
+  }
+  buf[i] = 0;
+
+  std::string result(buf);
+  delete[] buf;
+*/
+
 
 bool SystemModel::Execute(ExecutionState &state, Function *_fn, KInstruction *_ki, const CallSite &cs, ref<Expr> &ret) {
 
@@ -884,6 +945,41 @@ bool SystemModel::ExecuteGetPageSize(ExecutionState &state, std::vector<ref<Expr
   UNUSED(args);
   retExpr = ConstantExpr::create(4096, Expr::Int32);
   return true;
+}
+
+bool SystemModel::ExecuteGetEnv(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 1) {
+    ref<ConstantExpr> estr = dyn_cast<ConstantExpr>(executor->toUnique(state, args[0]));
+    if (!estr.isNull()) {
+      string var = readStringAt(state, estr);
+      retExpr = ConstantExpr::create(0, Expr::Int64);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteMallocSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr) {
+
+  if (args.size() == 1) {
+    ref<ConstantExpr> eptr = dyn_cast<ConstantExpr>(executor->toUnique(state, args[0]));
+    if (!eptr.isNull()) {
+
+      if (eptr->isZero()) {
+        retExpr = ConstantExpr::create(0, Expr::Int64);
+        return true;
+      }
+
+      // lookup the memory object
+      ObjectPair op;
+      if (executor->resolveMO(state, eptr, op) == LocalExecutor::ResolveResult::OK) {
+        retExpr = ConstantExpr::create(op.second->getVisibleSize(), Expr::Int64);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 
