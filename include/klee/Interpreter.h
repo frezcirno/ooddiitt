@@ -126,6 +126,7 @@ public:
     TraceType ttype;
     MarkScope mscope;
     std::set_ex<std::string> sources;
+    std::string locale;
 
     ModuleOptions()
       : Optimize(false),

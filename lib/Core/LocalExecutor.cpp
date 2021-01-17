@@ -1013,7 +1013,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
   Type *str_type = Type::getInt8PtrTy(ctx);
   size_t str_align = kmodule->targetData->getPrefTypeAlignment(str_type);
 
-  unsigned ptr_width =  Context::get().getPointerWidth();
+  unsigned ptr_width = Context::get().getPointerWidth();
 
   WObjectPair wopStdIn;
   if (!allocSymbolic(*baseState, char_type, fn, MemKind::external, "#stdin_buff", wopStdIn, char_align, SymStdinSize + 1)) {

@@ -63,6 +63,7 @@ private:
   bool ExecuteGetPageSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteGetEnv(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteMallocSize(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteSetLocale(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 
   bool ExecuteOAssertFail(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
 

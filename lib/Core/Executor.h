@@ -223,6 +223,21 @@ protected:
                               unsigned offset);
   void initializeGlobals(ExecutionState &state);
   void reinitializeGlobals(ExecutionState &state);
+  MemoryObject *findGlobalObject(const std::string &name) const {
+    if (llvm::GlobalValue *gv = kmodule->getGlobalVariable(name)) {
+      return findGlobalObject(gv);
+    }
+    return nullptr;
+  }
+
+  MemoryObject *findGlobalObject(const llvm::GlobalValue *gv) const {
+    auto itr = globalObjects.find(gv);
+    if (itr != globalObjects.end()) {
+      return itr->second;
+    }
+    return nullptr;
+  }
+
 
   void stepInstruction(ExecutionState &state);
   virtual void updateStates(ExecutionState *current);

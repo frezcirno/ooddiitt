@@ -91,6 +91,7 @@ cl::opt<bool> CheckDivZero("check-div-zero", cl::desc("Inject checks for divisio
 cl::opt<bool> CheckOvershift("check-overshift", cl::desc("Inject checks for overshift"), cl::cat(BrtCategory));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::list<string> LinkLibraries("link-llvm-lib", cl::desc("Link the given libraries before execution"), cl::value_desc("library file"));
+cl::opt<string> Locale("locale", cl::desc("locale for execution (default = 'C'"), cl::cat(BrtCategory));
 }
 
 
@@ -496,6 +497,7 @@ KModule *PrepareModule(const string &filename,
         if (!Sources.empty()) {
           boost::split(MOpts.sources, Sources, [](char c){return c == ',';});
         }
+        MOpts.locale = Locale;
         kmodule->transform(MOpts);
         externalsAndGlobalsCheck(kmodule);
         return kmodule;

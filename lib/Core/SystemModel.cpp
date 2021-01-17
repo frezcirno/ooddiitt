@@ -51,7 +51,7 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"rint", {&SystemModel::ExecuteRint, CTX_DEFAULT}},
     {"fabs", {&SystemModel::ExecuteFabs, CTX_DEFAULT}},
     {"modf", {&SystemModel::ExecuteModf, CTX_DEFAULT}},
-//    {"setlocale", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
+    {"setlocale", {&SystemModel::ExecuteSetLocale, CTX_DEFAULT}},
     {"bindtextdomain", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
     {"textdomain", {&SystemModel::ExecuteReturnNull, CTX_DEFAULT}},
     {"__check_one_fd", {&SystemModel::ExecuteNoop, CTX_DEFAULT}},
@@ -956,6 +956,20 @@ bool SystemModel::ExecuteGetEnv(ExecutionState &state, std::vector<ref<Expr> >&a
       retExpr = ConstantExpr::create(0, Expr::Int64);
       return true;
     }
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteSetLocale(ExecutionState &state, std::vector<ref<Expr>> &args, ref<Expr> &retExpr) {
+  UNUSED(state);
+  UNUSED(args);
+  if (!executor->libc_initializing) {
+    uint64_t offset = 0;
+    if (MemoryObject *mo = executor->findGlobalObject("__brt_klee_setlocale_name")) {
+      offset = mo->address;
+    }
+    retExpr = ConstantExpr::createPointer(offset);
+    return true;
   }
   return false;
 }

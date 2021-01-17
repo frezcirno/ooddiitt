@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.14.0, 2021-01-14T18:26:40. -->
+<!-- Written by QtCreator 4.13.3, 2021-01-17T14:38:21. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -71,7 +71,6 @@
    <value type="bool" key="ClangCodeModel.UseGlobalConfig">true</value>
    <value type="QString" key="ClangCodeModel.WarningConfigId">Builtin.Questionable</value>
    <valuemap type="QVariantMap" key="ClangTools">
-    <value type="bool" key="ClangTools.AnalyzeOpenFiles">false</value>
     <value type="bool" key="ClangTools.BuildBeforeAnalysis">true</value>
     <value type="QString" key="ClangTools.DiagnosticConfig">Builtin.DefaultTidyAndClazy</value>
     <value type="int" key="ClangTools.ParallelJobs">12</value>
@@ -99,12 +98,15 @@
 -DCMAKE_PREFIX_PATH:STRING=%{Qt:QT_INSTALL_PREFIX}
 -DCMAKE_C_COMPILER:STRING=%{Compiler:Executable:C}
 -DCMAKE_CXX_COMPILER:STRING=%{Compiler:Executable:Cxx}</value>
+    <value type="int" key="EnableQmlDebugging">2</value>
     <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-debug</value>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.0">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">all</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">Build</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
@@ -116,9 +118,11 @@
     </valuemap>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.1">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">clean</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">Build</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
@@ -142,12 +146,15 @@
 -DCMAKE_PREFIX_PATH:STRING=%{Qt:QT_INSTALL_PREFIX}
 -DCMAKE_C_COMPILER:STRING=%{Compiler:Executable:C}
 -DCMAKE_CXX_COMPILER:STRING=%{Compiler:Executable:Cxx}</value>
+    <value type="int" key="EnableQmlDebugging">2</value>
     <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-release</value>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.0">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">all</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">Build</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
@@ -159,9 +166,11 @@
     </valuemap>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.1">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">clean</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">Build</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
@@ -185,12 +194,15 @@
 -DCMAKE_PREFIX_PATH:STRING=%{Qt:QT_INSTALL_PREFIX}
 -DCMAKE_C_COMPILER:STRING=%{Compiler:Executable:C}
 -DCMAKE_CXX_COMPILER:STRING=%{Compiler:Executable:Cxx}</value>
+    <value type="int" key="EnableQmlDebugging">2</value>
     <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-relwdbg</value>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.0">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">all</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
      </valuemap>
@@ -201,9 +213,11 @@
     </valuemap>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.1">
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
+      <value type="QString" key="CMakeProjectManager.MakeStep.AdditionalArguments"></value>
       <valuelist type="QVariantList" key="CMakeProjectManager.MakeStep.BuildTargets">
        <value type="QString">clean</value>
       </valuelist>
+      <value type="QString" key="CMakeProjectManager.MakeStep.CMakeArguments"></value>
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.MakeStep</value>
      </valuemap>
@@ -233,6 +247,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">ProjectExplorer.DefaultDeployConfiguration</value>
    </valuemap>
    <value type="int" key="ProjectExplorer.Target.DeployConfigurationCount">1</value>
+   <valuemap type="QVariantMap" key="ProjectExplorer.Target.PluginSettings"/>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.0">
     <value type="QString" key="Analyzer.Perf.CallgraphMode">dwarf</value>
     <valuelist type="QVariantList" key="Analyzer.Perf.Events">
@@ -298,9 +313,12 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-diff</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-diff</value>
     <value type="QString" key="RunConfiguration.Arguments">-output brt-out brt-out/prev-expr.bc brt-out/post-expr.bc brt-out/orcl-expr.bc</value>
+    <value type="bool" key="RunConfiguration.Arguments.multi">false</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/22</value>
@@ -372,9 +390,11 @@
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-icmp</value>
     <value type="QString" key="RunConfiguration.Arguments">-show-args -silent -diff=brt-out/diff.json -output=brt-out brt-out/test-00002-0000000016.json</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/33</value>
@@ -444,14 +464,16 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-igen</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-igen</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-igen</value>
-    <value type="QString" key="RunConfiguration.Arguments">-progression=e:60 -lazy-string-length=4  -diff=brt-out/diff.json -verbose -output=brt-out -job=22 @prev:1</value>
+    <value type="QString" key="RunConfiguration.Arguments">-progression=e:60 -lazy-string-length=4  -diff=brt-out/diff.json -verbose -output=brt-out -entry-point=foo1 brt-out/prev-setlocale.bc</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/38</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/test/Local/insert-setlocale</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.3">
@@ -518,14 +540,16 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-prep</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-prep</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-prep</value>
-    <value type="QString" key="RunConfiguration.Arguments">-clang-info=clang-info.json -output=brt-out prev-find.bc post-find.bc</value>
+    <value type="QString" key="RunConfiguration.Arguments">-locale=en_US.UTF-8 -output=brt-out insert-setlocale.bc</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/32</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/pse-tools/brt-klee/test/Local/insert-setlocale</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.4">
@@ -592,11 +616,16 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-rcrd</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-rcrd</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-rcrd</value>
+    <value type="QString" key="RunConfiguration.Arguments"></value>
+    <value type="bool" key="RunConfiguration.Arguments.multi">false</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory"></value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.5">
@@ -665,9 +694,11 @@
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-rply</value>
     <value type="QString" key="RunConfiguration.Arguments">-show-args -silent -diff=brt-out/diff.json -output=brt-out brt-out/test-00005-0000000560.dump</value>
     <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
+    <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
+    <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/trials/redis</value>

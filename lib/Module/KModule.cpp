@@ -27,6 +27,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/CallSite.h"
 
 #include "llvm/PassManager.h"
@@ -174,6 +175,8 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
 void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
   assert(module != nullptr);
+
+  insertSetlocaleIntoLibcInit(opts.locale);
 
   DebugInfoFinder finder;
   finder.processModule(*module);
@@ -435,6 +438,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
     MDNode *node = md_builder.create(externalFunctions);
     NMD->addOperand(node);
   }
+
 }
 
 void KModule::prepare() {
@@ -600,6 +604,48 @@ void KModule::prepare() {
       llvm::errs() << (*it)->getName() << ", ";
     }
     llvm::errs() << "]\n";
+  }
+}
+
+void KModule::insertSetlocaleIntoLibcInit(const string &name) {
+
+  // ensure that setlocale, _locale_init and __uClibc_init are defined in this module
+  Function *setlocale = module->getFunction("setlocale");
+  if (setlocale == nullptr) return;
+
+  Function *locale_init = module->getFunction("_locale_init");
+  if (locale_init == nullptr) return;
+
+  Function *uclibc_init = module->getFunction("__uClibc_init");
+  if (uclibc_init == nullptr) return;
+
+  // find the call to _locale_init()
+  for (BasicBlock &bb : *uclibc_init) {
+    for (Instruction &inst : bb) {
+      if (auto ci = dyn_cast<CallInst>(&inst)) {
+        if (ci->getCalledFunction() == locale_init) {
+
+          // insert a global variable and call to setlocale
+          // 2nd param pting to empty string causes an environment check for locale name
+          bool insert_call = true;
+          string locale_name = name;
+          if (locale_name.empty()) {
+            insert_call = false;
+            locale_name = "C";
+          }
+          IRBuilder<> irb(inst.getNextNode());
+          GlobalVariable *gv = dyn_cast<GlobalVariable>(irb.CreateGlobalString(locale_name, "__brt_klee_setlocale_name"));
+          gv->setConstant(true);
+          if (insert_call) {
+            SmallVector<Value *, 4> args;
+            args.push_back(irb.getInt32(6));
+            args.push_back(gv);
+            irb.CreateCall(setlocale, args);
+          }
+          return;
+        }
+      }
+    }
   }
 }
 

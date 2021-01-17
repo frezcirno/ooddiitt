@@ -205,6 +205,7 @@ namespace klee {
     void prepare();
     void transform(const Interpreter::ModuleOptions &opts);
     bool hasOracle() const { return getKFunction("__o_assert_fail") != nullptr; }
+    void insertSetlocaleIntoLibcInit(const std::string &name);
 
     /// Return an id for the given constant, creating a new one if necessary.
     unsigned getConstantID(llvm::Constant *c, KInstruction* ki);
