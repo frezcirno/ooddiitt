@@ -39,6 +39,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Metadata.h"
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Scalar.h>
 #include <llvm/Analysis/LoopPass.h>
 #include <llvm/DebugInfo.h>
 
@@ -330,6 +331,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
     default: klee_error("invalid --switch-type");
     }
 
+    pm.add(createLowerAtomicPass());
     pm.add(new IntrinsicCleanerPass(*targetData));
     pm.add(new PhiCleanerPass());
     pm.add(new InstructionOperandTypeCheckPass());

@@ -180,39 +180,6 @@ string SystemModel::readStringAt(ExecutionState &state, ref<ConstantExpr> addr) 
   return result;
 }
 
-/*
-  ObjectPair op;
-  addressExpr = executor.toUnique(state, addressExpr);
-  ref<ConstantExpr> address = cast<ConstantExpr>(addressExpr);
-  if (!state.addressSpace.resolveOne(address, op))
-    assert(0 && "XXX out of bounds / multiple resolution unhandled");
-  bool res __attribute__ ((unused));
-  assert(executor.solver->mustBeTrue(state,
-                                     EqExpr::create(address,
-                                                    op.first->getBaseExpr()),
-                                     res) &&
-         res &&
-         "XXX interior pointer unhandled");
-  const MemoryObject *mo = op.first;
-  const ObjectState *os = op.second;
-
-  char *buf = new char[mo->size];
-
-  unsigned i;
-  for (i = 0; i < mo->size - 1; i++) {
-    ref<Expr> cur = os->read8(i);
-    cur = executor.toUnique(state, cur);
-    assert(isa<ConstantExpr>(cur) &&
-           "hit symbolic char while reading concrete string");
-    buf[i] = cast<ConstantExpr>(cur)->getZExtValue(8);
-  }
-  buf[i] = 0;
-
-  std::string result(buf);
-  delete[] buf;
-*/
-
-
 bool SystemModel::Execute(ExecutionState &state, Function *_fn, KInstruction *_ki, const CallSite &cs, ref<Expr> &ret) {
 
   fn = _fn;

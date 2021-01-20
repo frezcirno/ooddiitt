@@ -58,10 +58,18 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
     }
 
     Json::Value &fns_sig = fns["signature"];
-    for (unsigned idx = 0, end = fns_sig.size(); idx < end; ++idx) {
-      string fn_name = fns_sig[idx].asString();
+    for (auto itr = fns_sig.begin(), end = fns_sig.end(); itr != end; ++itr) {
+      string fn_name = itr.key().asString();
       kmod->addDiffFnChangedSig(fn_name);
-      kmod->addTargetedBBlocks(fn_name);
+      string targeted_key = (kmod->isPrevModule() ? "prev" : "post");
+      Json::Value &bbs = fns_sig[fn_name][targeted_key];
+      if (bbs.isArray()) {
+        set_ex<unsigned> bbIDs;
+        for (unsigned idx = 0, end = bbs.size(); idx < end; ++idx) {
+          bbIDs.insert(bbs[idx].asUInt());
+        }
+        kmod->addTargetedBBlocks(fn_name, bbIDs);
+      }
     }
 
     Json::Value &gbs = root["globals"];

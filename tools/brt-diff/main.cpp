@@ -350,25 +350,32 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
     Json::Value &functions = root["functions"] = Json::objectValue;
     Json::Value &fns_added = functions["added"] = Json::arrayValue;
     Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
-    Json::Value &fns_changed_sig = functions["signature"] = Json::arrayValue;
-    Json::Value &fns_changed_body = functions["body"] = Json::objectValue;
+    functions["body"] = Json::objectValue;
+    functions["signature"] = Json::objectValue;
 
     set_ex<string> sigs, bodies, commons;
     diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
-    for (const auto &fn : sigs) fns_changed_sig.append(fn);
-    for (const auto &fn : bodies) {
-      Json::Value &fns_changed_node = fns_changed_body[fn] = Json::objectValue;
-      Json::Value &fns_changed_prev = fns_changed_node["prev"] = Json::arrayValue;
-      Json::Value &fns_changed_post = fns_changed_node["post"] = Json::arrayValue;
 
-      set_ex<unsigned> prev_bblocks, post_bblocks;
-      findModifiedBlocks(kmod1, kmod2, fn, prev_bblocks, post_bblocks);
+    vector<pair<set_ex<string> *, string>> worklist;
+    worklist.emplace_back(make_pair(&bodies, "body"));
+    worklist.emplace_back(make_pair(&sigs, "signature"));
 
-      for (auto bb_id : prev_bblocks) {
-        fns_changed_prev.append(bb_id);
-      }
-      for (auto bb_id : post_bblocks) {
-        fns_changed_post.append(bb_id);
+    for (const auto &item : worklist) {
+      const string &key = item.second;
+      for (const auto &fn : *item.first) {
+        Json::Value &fn_changed_node = functions[key][fn] = Json::objectValue;
+        Json::Value &fn_changed_prev = fn_changed_node["prev"] = Json::arrayValue;
+        Json::Value &fn_changed_post = fn_changed_node["post"] = Json::arrayValue;
+
+        set_ex<unsigned> prev_bblocks, post_bblocks;
+        findModifiedBlocks(kmod1, kmod2, fn, prev_bblocks, post_bblocks);
+
+        for (auto bb_id : prev_bblocks) {
+          fn_changed_prev.append(bb_id);
+        }
+        for (auto bb_id : post_bblocks) {
+          fn_changed_post.append(bb_id);
+        }
       }
     }
 
