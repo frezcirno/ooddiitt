@@ -180,6 +180,7 @@ protected:
 
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
+  unsigned argsStringLength;
   unsigned maxLazyDepth;
   ExecutionState *baseState;
   uint64_t timeout;

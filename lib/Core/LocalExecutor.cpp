@@ -77,6 +77,7 @@ cl::opt<unsigned> SymArgsMax("sym-args-max", cl::init(4), cl::desc("Maximum numb
 cl::opt<unsigned> SymStdinSize("sym-stdin-size", cl::init(32), cl::desc("Number of bytes for symbolic reads (default=32)"));
 cl::opt<unsigned> LazyAllocCount("lazy-alloc-count", cl::init(4), cl::desc("Number of items to lazy initialize pointer (default=4)"));
 cl::opt<unsigned> LazyStringLength("lazy-string-length", cl::init(4), cl::desc("Number of characters to lazy initialize i8 ptr (default=4)"));
+cl::opt<unsigned> ArgsStringLength("args-string-length", cl::init(0), cl::desc("Max characters in command line argument (default=0, lazy-string-length)"));
 cl::opt<unsigned> LazyAllocOffset("lazy-alloc-offset", cl::init(0), cl::desc("index into lazy allocation to return (default=0)"));
 cl::opt<unsigned> LazyAllocMinSize("lazy-alloc-minsize", cl::init(0), cl::desc("minimum size of a lazy allocation (default=0)"));
 cl::opt<unsigned> LazyAllocDepth("lazy-alloc-depth", cl::init(4), cl::desc("Depth of items to lazy initialize pointer (default=4)"));
@@ -88,6 +89,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
   Executor(ctx, opts, ih),
   lazyAllocationCount(LazyAllocCount),
   lazyStringLength(LazyStringLength),
+  argsStringLength(ArgsStringLength),
   maxLazyDepth(LazyAllocDepth),
   baseState(nullptr),
   timeout(0),
@@ -133,6 +135,7 @@ LocalExecutor::LocalExecutor(LLVMContext &ctx, const InterpreterOptions &opts, I
       klee_error("invalid execution mode");
   }
   optsModel.doModelStdOutput = doModelStdOutput;
+  if (argsStringLength == 0) argsStringLength = lazyStringLength;
 }
 
 LocalExecutor::~LocalExecutor() {
@@ -932,6 +935,7 @@ void LocalExecutor::bindModule(KModule *kmodule) {
   baseState = new ExecutionState();
   baseState->lazyAllocationCount = lazyAllocationCount;
   baseState->lazyStringLength = lazyStringLength;
+  baseState->argsStringLength = argsStringLength;
   baseState->maxLazyDepth = maxLazyDepth;
   baseState->maxStatesInLoop = maxStatesInLoop;
 
@@ -1135,7 +1139,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
 
         WObjectPair wopArgv_body;
         std::string argName = "argv_" + itostr(index);
-        if (!allocSymbolic(*curr, char_type, fn, MemKind::param, argName, wopArgv_body, char_align, lazyStringLength + 1)) {
+        if (!allocSymbolic(*curr, char_type, fn, MemKind::param, argName, wopArgv_body, char_align, argsStringLength + 1)) {
           klee_error("failed to allocate symbolic command line arg");
         }
 
@@ -1145,7 +1149,7 @@ void LocalExecutor::runFunctionUnconstrained(Function *fn) {
         value = wopArgv_body.second->read8(0);
         addConstraint(*curr, NeExpr::create(value, null));
 
-        value = wopArgv_body.second->read8(lazyStringLength);
+        value = wopArgv_body.second->read8(argsStringLength);
         addConstraint(*curr, EqExpr::create(value, null));
 
         // and constrain pointer in argv array to point to body

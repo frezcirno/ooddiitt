@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.13.3, 2021-01-20T19:36:27. -->
+<!-- Written by QtCreator 4.13.3, 2021-01-21T14:40:02. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -312,8 +312,8 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">brt-diff</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">CMakeProjectManager.CMakeRunConfiguration.brt-diff</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">brt-diff</value>
-    <value type="QString" key="RunConfiguration.Arguments">-output brt-out brt-out/prev-rm.bc brt-out/post-rm.bc brt-out/orcl-rm.bc</value>
-    <value type="bool" key="RunConfiguration.Arguments.multi">false</value>
+    <value type="QString" key="RunConfiguration.Arguments">-output brt-out brt-out/prev-redis-server.bc brt-out/post-redis-server.bc</value>
+    <value type="bool" key="RunConfiguration.Arguments.multi">true</value>
     <value type="QString" key="RunConfiguration.OverrideDebuggerStartup"></value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
@@ -321,7 +321,7 @@
     <value type="bool" key="RunConfiguration.UseMultiProcess">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>
-    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/01</value>
+    <value type="QString" key="RunConfiguration.WorkingDirectory">/home/rrutledge/projects/arktos/odit/experiments/regressions/79</value>
     <value type="QString" key="RunConfiguration.WorkingDirectory.default">/home/rrutledge/projects/arktos/pse-tools/brt-klee/cmake-debug/bin</value>
    </valuemap>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.RunConfiguration.1">

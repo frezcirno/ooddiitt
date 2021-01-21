@@ -110,6 +110,7 @@ bool loadTestCase(Json::Value &root, TestCase &test) {
     test.klee_version = root["kleeRevision"].asString();
     test.lazy_alloc_count = root["lazyAllocationCount"].asUInt();
     test.lazy_string_length = root["lazyStringLength"].asUInt();
+    test.args_string_length = root["argsStringLength"].asUInt();
     test.max_lazy_depth = root["maxLazyDepth"].asUInt();
     test.max_loop_forks = root["maxLoopForks"].asUInt();
     test.max_loop_iter = root["maxLoopIteration"].asUInt();

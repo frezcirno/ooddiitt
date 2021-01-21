@@ -130,6 +130,7 @@ void RecordKleeHandler::processTestCase(ExecutionState &state, TerminateReason r
       root["argC"] = args.size();
       root["lazyAllocationCount"] = state.lazyAllocationCount;
       root["lazyStringLength"] = state.lazyStringLength;
+      root["argsStringLength"] = state.argsStringLength;
       root["maxLazyDepth"] = state.maxLazyDepth;
       root["maxStatesInLoop"] = state.maxStatesInLoop;
       root["timeStarted"] = to_string(started_at);

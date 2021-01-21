@@ -89,7 +89,7 @@ void diffFns(KModule *kmod1,
 
     if (!ModuleTypes::isEquivalentType(kf1->function->getFunctionType(), kf2->function->getFunctionType())) {
       sig.insert(fn_name);
-    } else if (kf1->getHash() != kf2->getHash()) {
+    } else if (kf1->getHashValue() != kf2->getHashValue()) {
       body.insert(fn_name);
     } else {
       commons.insert(fn_name);
@@ -106,7 +106,7 @@ void createInverseHashMap(KModule *kmod, KFunction *kf, map<uint64_t, vector<uns
     BasicBlock *bb = fn_itr;
     unsigned id = kmod->getBBlockID(bb);
     if (id != 0) {
-      auto &lst = inv_map[kf->getHash(bb)];
+      auto &lst = inv_map[kf->getHashValue(bb)];
       lst.push_back(id);
     }
   }

@@ -259,6 +259,7 @@ public:
 
   unsigned lazyAllocationCount;
   unsigned lazyStringLength;
+  unsigned argsStringLength;
   unsigned maxLazyDepth;
   unsigned maxStatesInLoop;
 

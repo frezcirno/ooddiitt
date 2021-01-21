@@ -49,6 +49,7 @@ public:
   TestCase() : arg_c(0),
                lazy_alloc_count(0),
                lazy_string_length(0),
+               args_string_length(0),
                max_lazy_depth(0),
                max_loop_forks(0),
                max_loop_iter(0),
@@ -65,6 +66,7 @@ public:
   std::string klee_version;
   unsigned lazy_alloc_count;
   unsigned lazy_string_length;
+  unsigned args_string_length;
   unsigned max_lazy_depth;
   unsigned max_loop_forks;
   unsigned max_loop_iter;

@@ -863,19 +863,16 @@ KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
       loops.insert(loop);
     }
   }
-
-  // calculate the fn hash while simutaneously calculating the bb hashes.
-  fn_hash = calcFnHash(function);
 }
 
-uint64_t KFunction::calcFnHash(Function *fn) {
+void KFunction::calcFnHash() {
 
   HashAccumulator hash;
   vector<const BasicBlock *> worklist;
   set<const BasicBlock *> visited;
 
-  if (!fn->empty()) {
-    const BasicBlock *entry = &fn->getEntryBlock();
+  if (!function->empty()) {
+    const BasicBlock *entry = &(function->getEntryBlock());
     worklist.push_back(entry);
     visited.insert(entry);
     while (!worklist.empty()) {
@@ -896,7 +893,13 @@ uint64_t KFunction::calcFnHash(Function *fn) {
       }
     }
   }
-  return hash.get();
+  while (hash.get() == 0) hash.add((uint64_t) 0xd4db4df1);  // no zero hash values
+  fn_hash = hash.get();
+}
+
+uint64_t KFunction::getHashValue() {
+  if (fn_hash == 0) calcFnHash();
+  return fn_hash;
 }
 
 uint64_t KFunction::calcBBHash(const llvm::BasicBlock *bb) {

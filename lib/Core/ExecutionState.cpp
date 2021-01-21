@@ -89,6 +89,7 @@ ExecutionState::ExecutionState() :
 
     lazyAllocationCount(0),
     lazyStringLength(0),
+    argsStringLength(0),
     maxLazyDepth(0),
     maxStatesInLoop(0),
 
@@ -138,6 +139,7 @@ ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const
 
     lazyAllocationCount(state.lazyAllocationCount),
     lazyStringLength(state.lazyStringLength),
+    argsStringLength(state.argsStringLength),
     maxLazyDepth(state.maxLazyDepth),
     maxStatesInLoop(state.maxStatesInLoop),
 
@@ -212,6 +214,7 @@ ExecutionState::ExecutionState(const ExecutionState& state):
 
     lazyAllocationCount(state.lazyAllocationCount),
     lazyStringLength(state.lazyStringLength),
+    argsStringLength(state.argsStringLength),
     maxLazyDepth(state.maxLazyDepth),
     maxStatesInLoop(state.maxStatesInLoop),
 

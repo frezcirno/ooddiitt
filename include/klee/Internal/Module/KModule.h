@@ -81,8 +81,18 @@ namespace klee {
     // hashed values
     uint64_t fn_hash;
     std::map<const llvm::BasicBlock *, uint64_t> bb_hashes;
-    uint64_t calcFnHash(llvm::Function *);
+
+    uint64_t getHashValue();
+    void calcFnHash();
     uint64_t calcBBHash(const llvm::BasicBlock *bb);
+    uint64_t getHashValue(const llvm::BasicBlock *bb) const {
+      auto itr = bb_hashes.find(bb);
+      if (itr != bb_hashes.end())
+        return itr->second;
+      else
+        return 0;
+    }
+
 
     explicit KFunction(llvm::Function*, bool user_fn, KModule *);
     ~KFunction();
@@ -100,14 +110,6 @@ namespace klee {
     bool isDiffChangedBody() const  {return diff_body; }
     bool isDiffChangedSig() const   {return diff_sig; }
     const std::string &getName() const { return fn_name; }
-    uint64_t getHash() const { return fn_hash; }
-    uint64_t getHash(const llvm::BasicBlock *bb) const {
-      auto itr = bb_hashes.find(bb);
-      if (itr != bb_hashes.end())
-        return itr->second;
-      else
-        return 0;
-    }
   };
 
   class KConstant {
