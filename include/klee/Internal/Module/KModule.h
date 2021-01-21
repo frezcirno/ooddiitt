@@ -317,8 +317,13 @@ namespace klee {
     void addTargetedBBlocks(const std::string &fn_name, const std::set_ex<unsigned> &bblocks) {
       if (KFunction *kf = getKFunction(fn_name)) addTargetedBBlocks(kf, bblocks);
     }
-    // to target an entire function, only need to target the entry block
-    void addTargetedBBlocks(const KFunction *kf) { targeted_bblocks.insert(&kf->function->getEntryBlock()); }
+    // to target an entire function, add each of its blocks
+    void addTargetedBBlocks(const KFunction *kf) {
+      for (llvm::BasicBlock &bb : *(kf->function)) {
+        targeted_bblocks.insert(&bb);
+      }
+    }
+
     void addTargetedBBlocks(const std::string &fn_name) {
       if (KFunction *kf = getKFunction(fn_name)) addTargetedBBlocks(kf);
     }
@@ -332,7 +337,21 @@ namespace klee {
       }
     }
 
-    bool isTargetedBBlock(llvm::BasicBlock *bb) { return targeted_bblocks.contains(bb); }
+    bool isTargetedFn(const std::string &name) const {
+      if (llvm::Function *fn = getFunction(name)) {
+        return isTargetedFn(fn);
+      }
+      return false;
+    }
+    bool isTargetedFn(KFunction *kf) const { return isTargetedFn(kf->function); }
+    bool isTargetedFn(llvm::Function *fn) const {
+      for (llvm::BasicBlock &bb : *fn) {
+        if (targeted_bblocks.contains(&bb)) return true;
+      }
+      return false;
+    }
+
+    bool isTargetedBBlock(llvm::BasicBlock *bb) const { return targeted_bblocks.contains(bb); }
 
     bool isPrevModule() const { return is_prev_module; }
     bool isPostModule() const { return !is_prev_module; }

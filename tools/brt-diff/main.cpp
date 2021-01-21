@@ -311,9 +311,16 @@ void entryFns(KModule *kmod1,
               const set<string> &bodies,
               map<string, unsigned> &entry_points) {
 
+  // only targed functions containing targeted blocks
   set<string> changes;
-  changes.insert(bodies.begin(), bodies.end());
-  changes.insert(sigs.begin(), sigs.end());
+  vector<const set<string> *> worklist = {&bodies, &sigs};
+  for (const auto &item : worklist) {
+    for (const auto &fn : *item) {
+      if (kmod1->isTargetedFn(fn) || kmod2->isTargetedFn(fn)) {
+        changes.insert(fn);
+      }
+    }
+  }
 
   map<Function*,set<Function*>> caller_graph1;
   map<Function*,set<Function*>> callee_graph1;
@@ -369,6 +376,8 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
 
         set_ex<unsigned> prev_bblocks, post_bblocks;
         findModifiedBlocks(kmod1, kmod2, fn, prev_bblocks, post_bblocks);
+        kmod1->addTargetedBBlocks(fn, prev_bblocks);
+        kmod2->addTargetedBBlocks(fn, post_bblocks);
 
         for (auto bb_id : prev_bblocks) {
           fn_changed_prev.append(bb_id);
