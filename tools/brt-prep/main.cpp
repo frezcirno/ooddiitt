@@ -124,6 +124,22 @@ void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &m
   }
 }
 
+void globalNameCheck(const string &label, const string &name) {
+
+  static set_ex<string> white_list = {"fseeko64", "lseek64"};
+
+  if (!name.empty() && !white_list.contains(name)) {
+    if (!alg::starts_with(name, ".str")) {
+      auto idx = name.find_last_not_of("0123456789");
+      int num_digits = name.size() - idx - 1;
+      if (num_digits > 1) {
+        errs() << "possible " << label << " rename: " << name << oendl;
+      }
+    }
+  }
+}
+
+
 void externalsAndGlobalsCheck(const KModule *km) {
 
   const Module *m = km->module;
@@ -133,7 +149,17 @@ void externalsAndGlobalsCheck(const KModule *km) {
   set<const Value*> defined_fns;
   set<const Value*> undefined_gbs;
   set<const Value*> defined_gbs;
-  set<const Value*> inline_assm_fns;
+  set<const Value *> inline_assm_fns;
+
+  // scan through function and global variables to check for names that may have resulted
+  // from namespece collisions
+  for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {
+    globalNameCheck("fn", itr->getName().str());
+  }
+
+  for (auto itr = m->global_begin(), end = m->global_end(); itr != end; ++itr) {
+    globalNameCheck("gv", itr->getName().str());
+  }
 
   // get a list of functions declared, but not defined
   for (auto itr = m->begin(), end = m->end(); itr != end; ++itr) {

@@ -58,8 +58,8 @@ const vector<SystemModel::handler_descriptor_t> SystemModel::modeled_fns = {
     {"memset", {&SystemModel::ExecuteMemset, CTX_DEFAULT}},
     {"memcpy", {&SystemModel::ExecuteMemcpy, CTX_MEMCPY}},
     {"mempcpy", {&SystemModel::ExecuteMemcpy, CTX_MEMPCPY}},
-    {"strcmp", {&SystemModel::ExecuteStrcmp, CTX_STRCMP}},
-    {"strncmp", {&SystemModel::ExecuteStrcmp, CTX_STRNCMP}},
+    {"strcmp", {&SystemModel::ExecuteStrcmp2, CTX_STRCMP}},
+    {"strncmp", {&SystemModel::ExecuteStrcmp2, CTX_STRNCMP}},
     {"memcmp", {&SystemModel::ExecuteStrcmp, CTX_MEMCMP}},
     {"strlen", {&SystemModel::ExecuteStrlen, CTX_STRLEN}},
     {"strnlen", {&SystemModel::ExecuteStrlen, CTX_STRNLEN}},
@@ -227,7 +227,8 @@ bool SystemModel::ExecuteWrite(ExecutionState &state, std::vector<ref<Expr> >&ar
           size_t offset = addr - mo->address;
           CharacterOutput *bo = fd == 1 ? &state.stdout_capture : &state.stderr_capture;
           vector<unsigned char> write;
-          os->readConcrete(write, offset, count);
+          // RLR TODO: consider changing to readConcrete
+          os->readConcreteStore(write, offset, count);
           bo->emplace_back(write);
         }
       }
@@ -639,6 +640,137 @@ bool SystemModel::ExecuteStrcmp(ExecutionState &state, std::vector<ref<Expr>> &a
           return true;
         }
       }
+    }
+  }
+  return false;
+}
+
+bool SystemModel::ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr>> &args, ref<Expr> &retExpr) {
+
+  if (args.size() > 1) {
+
+    ref<ConstantExpr> ecount = ConstantExpr::create(numeric_limits<uint64_t>::max(), Expr::Int64);
+    if (args.size() > 2) {
+      ecount = dyn_cast<ConstantExpr>(executor->toUnique(state, args[2]));
+    }
+    if (!ecount.isNull()) {
+
+      ref<Expr> s1 = args[0];
+      ref<Expr> s2 = args[1];
+      uint64_t count = ecount->getZExtValue();
+      ObjectPair op1, op2;
+      uint64_t offset1, offset2;
+
+      LocalExecutor::ResolveResult res1 = executor->resolveUniqueMO(state, s1, op1, offset1);
+      LocalExecutor::ResolveResult res2 = executor->resolveUniqueMO(state, s2, op2, offset2);
+
+      if (res1 == LocalExecutor::ResolveResult::NoObject || res2 == LocalExecutor::ResolveResult::NoObject) {
+        // if either resolution found no object, then fall back to slow method
+        return false;
+      }
+      if (res1 == LocalExecutor::ResolveResult::NullAccess || res2 == LocalExecutor::ResolveResult::NullAccess) {
+        // if either was a null access, then we have a pointer violation
+        const MemoryObject *mo = (res1 == LocalExecutor::ResolveResult::NullAccess) ? op1.first : op2.first;
+        executor->terminateStateOnMemFault(state, this->ki, s1, mo, "null strcmp");
+        return true;
+      }
+
+      // both resolved to a unique memory object
+      assert(res1 == LocalExecutor::ResolveResult::OK && res2 == LocalExecutor::ResolveResult::OK);
+
+      // same object, same offset means they are equal
+      if (op1.first == op2.first && offset1 == offset2) {
+        retExpr = ConstantExpr::create(0, Expr::Int32);
+        return true;
+      }
+
+      // try to read the strings as concrete values
+      string str1, str2;
+      bool oob1, oob2;
+      bool read1 = executor->readConcreteStr(state, op1.second, offset1, count, str1, oob1);
+      bool read2 = executor->readConcreteStr(state, op2.second, offset2, count, str2, oob2);
+
+      // if either trips an out-of-bound error, then terminate the state
+      if (oob1 || oob2) {
+        const MemoryObject *mo = oob1 ? op1.first : op2.first;
+        executor->terminateStateOnMemFault(state, this->ki, s1, mo, "oob strcmp");
+        return true;
+      }
+
+      if (read1 && read2) {
+        // both read concretely, we can directly return the result
+        retExpr = ConstantExpr::create((unsigned) s1.compare(s2), Expr::Int32);
+        return true;
+      } else if (read1 || read2) {
+        // one was concrete the other contained a symbolic value
+        // treat comparison as a single entity
+        ref<Expr> byte0 = ConstantExpr::create(0, Expr::Int8);
+        ref<Expr> eq = ConstantExpr::create(1, Expr::Bool);
+        ref<Expr> lt = ConstantExpr::create(0, Expr::Bool);
+        ref<Expr> gt = ConstantExpr::create(0, Expr::Bool);
+
+        // select the appropriate symbolic and concrete values
+        if (read1) {
+          // construct three constraints describing the three possible results
+          // reading from constant to symbolic
+          unsigned idx = 0;
+          for (const char &ch : str1) {
+            ref<Expr> ch1 = ConstantExpr::create(ch, Expr::Int8);
+            ref<Expr> ch2 = op2.second->read8(offset2 + idx);
+            gt = OrExpr::create(gt, AndExpr::create(eq, UgtExpr::create(ch1, ch2)));
+            lt = OrExpr::create(lt, AndExpr::create(eq, UltExpr::create(ch1, ch2)));
+            eq = AndExpr::create(eq, EqExpr::create(ch1, ch2));
+            ++idx;
+          }
+          if (count > str1.size()) {
+            eq = AndExpr::create(eq, EqExpr::create(op2.second->read8(offset2 + idx), byte0));
+          }
+        } else {
+
+          // construct three constraints describing the three possible results
+          // reading from symbolic to constant
+          unsigned idx = 0;
+          for (const char &ch : str2) {
+            ref<Expr> ch1 = op1.second->read8(offset1 + idx);
+            ref<Expr> ch2 = ConstantExpr::create(ch, Expr::Int8);
+            gt = OrExpr::create(gt, AndExpr::create(eq, UgtExpr::create(ch1, ch2)));
+            lt = OrExpr::create(lt, AndExpr::create(eq, UltExpr::create(ch1, ch2)));
+            eq = AndExpr::create(eq, EqExpr::create(ch1, ch2));
+            ++idx;
+          }
+          if (count > str2.size()) {
+            eq = AndExpr::create(eq, EqExpr::create(op1.second->read8(offset1 + idx), byte0));
+          }
+        }
+
+        vector<pair<ref<Expr>, int>> constraints;
+        if (executor->solver->mayBeTrue(state, eq)) constraints.push_back(make_pair(eq, 0));
+        if (executor->solver->mayBeTrue(state, gt)) constraints.push_back(make_pair(gt, 1));
+        if (executor->solver->mayBeTrue(state, lt)) constraints.push_back(make_pair(lt, -1));
+        if (constraints.empty()) {
+          // odd. none were satisfyable...
+          errs() << "Don't think this should happen";
+          return false;
+        }
+
+        for (unsigned idx = 0, end = constraints.size(); idx < end; ++idx) {
+          auto &pr = constraints[idx];
+          if (idx < end - 1) {
+            ExecutionState *ns = executor->clone(&state);
+            ns->addConstraint(pr.first);
+            executor->bindLocal(ki, *ns, ConstantExpr::create((unsigned) pr.second, Expr::Int32));
+          } else {
+            state.addConstraint(pr.first);
+            retExpr = ConstantExpr::create((unsigned) pr.second, Expr::Int32);
+          }
+        }
+        return true;
+
+      } else {
+        // neither could be read concretely, fall back to slow method
+        return false;
+      }
+
     }
   }
   return false;

@@ -11,6 +11,7 @@ namespace klee {
 
 class LocalExecutor;
 class ExecutionState;
+class KInstruction;
 
 struct ModelOptions {
   bool doModelStdOutput;
@@ -56,6 +57,7 @@ private:
   bool ExecuteModf(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteMemcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrcmp(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
+  bool ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrlen(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrchr(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);
   bool ExecuteStrcpy(ExecutionState &state, std::vector<ref<Expr> >&args, ref<Expr> &retExpr);

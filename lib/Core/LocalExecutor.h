@@ -89,6 +89,7 @@ protected:
   void transferToBasicBlock(ExecutionState &state, llvm::BasicBlock *src, llvm::BasicBlock *dst) override;
 
   ResolveResult resolveMO(ExecutionState &state, ref<Expr> address, ObjectPair &op);
+  ResolveResult resolveUniqueMO(ExecutionState &state, ref<Expr> ptr, ObjectPair &op, uint64_t &offset);
 
   void executeAlloca(ExecutionState &state, unsigned size, unsigned count, const llvm::Type *type, KInstruction *target);
   void executeAlloca(ExecutionState &state, unsigned size, ref<Expr> count, const llvm::Type *type, KInstruction *target);
@@ -122,6 +123,13 @@ protected:
                              MemKind kind,
                              const std::string &name,
                              unsigned count);
+
+  bool readConcreteMem(ExecutionState &state, const ObjectState *os, uint64_t offset, uint64_t length,
+                       std::vector<unsigned char> &data, bool &oob);
+  bool readConcreteStr(ExecutionState &state, const ObjectState *os, uint64_t offset, uint64_t length, std::string &data, bool &oob);
+  bool readConcreteStr(ExecutionState &state, const ObjectState *os, uint64_t offset, std::string &data, bool &oob) {
+    return readConcreteStr(state, os, offset, UINT64_MAX, data, oob);
+  }
 
   void expandLazyAllocation(ExecutionState &state,
                             ref<Expr> addr,

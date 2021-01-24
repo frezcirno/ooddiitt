@@ -202,6 +202,26 @@ LocalExecutor::ResolveResult LocalExecutor::resolveMO(ExecutionState &state, ref
   return result ? ResolveResult::OK : ResolveResult::NoObject;
 }
 
+LocalExecutor::ResolveResult LocalExecutor::resolveUniqueMO(ExecutionState &state, ref<Expr> ptr, ObjectPair &op, uint64_t &offset) {
+
+  ref<ConstantExpr> cptr = dyn_cast<ConstantExpr>(toUnique(state, ptr));
+  if (!cptr.isNull()) {
+    uint64_t addr = cptr->getZExtValue();
+
+    if (addr < 1024) return ResolveResult::NullAccess;
+
+    // lookup the s1 object
+    if (resolveMO(state, cptr, op) == LocalExecutor::ResolveResult::OK) {
+      offset = addr - op.first->address;
+      return ResolveResult::OK;
+    }
+  }
+  op.first = nullptr;
+  op.second = nullptr;
+  offset = -1;
+  return ResolveResult::NoObject;
+}
+
 void LocalExecutor::executeAlloca(ExecutionState &state, unsigned size, unsigned count, const llvm::Type *type,
                                   KInstruction *target) {
 
@@ -2629,7 +2649,7 @@ bool LocalExecutor::getConcreteSolution(ExecutionState &state,
         const ObjectState *os = itr->second;
         result.emplace_back(make_pair(mo, vector<unsigned char>{}));
         vector<unsigned char> &value = result.back().second;
-        os->readConcrete(value);
+        os->readConcreteStore(value);
       }
     }
   }
@@ -2677,6 +2697,48 @@ Executor::StatePair LocalExecutor::fork(ExecutionState &current, ref<Expr> condi
     }
   }
   return pr;
+}
+
+bool LocalExecutor::readConcreteMem(ExecutionState &state, const ObjectState *os, uint64_t offset, uint64_t length,
+                                    std::vector<unsigned char> &data, bool &oob) {
+  data.clear();
+  if (offset + length > os->visible_size) {
+    oob = true;
+    return false;
+  }
+  oob = false;
+  data.reserve(length);
+  for (uint64_t idx = offset, end = offset + length; idx < end; ++idx) {
+    ref<Expr> read = os->read8(idx);
+    ref<ConstantExpr> ch = dyn_cast<ConstantExpr>(toUnique(state, read));
+    if (ch.isNull()) return false;
+    data.push_back(ch->getZExtValue(Expr::Int8));
+  }
+  return true;
+}
+
+bool LocalExecutor::readConcreteStr(ExecutionState &state, const ObjectState *os, uint64_t offset, uint64_t length,
+                                    std::string &data, bool &oob) {
+
+  data.clear();
+  oob = false;
+  for (uint64_t idx = offset, counter = 0; counter < length; ++idx, ++counter) {
+
+    if (idx >= os->visible_size) {
+      oob = true;
+      return false;
+    }
+    ref<Expr> read = os->read8(idx);
+    ref<ConstantExpr> ech = dyn_cast<ConstantExpr>(toUnique(state, read));
+    if (ech.isNull()) return false;
+    unsigned char ch = ech->getZExtValue(Expr::Int8);
+    if (ch == 0) {
+      break;
+    } else {
+      data.push_back(ch);
+    }
+  }
+  return true;
 }
 
 uint64_t LocalExecutor::getUsedMemory() const {

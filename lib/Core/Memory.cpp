@@ -184,11 +184,11 @@ ArrayCache *ObjectState::getArrayCache() const {
 }
 
 
-bool ObjectState::readConcrete(std::vector<unsigned char> &data, unsigned offset, unsigned length) const {
+bool ObjectState::readConcreteStore(std::vector<unsigned char> &data, uint64_t offset, uint64_t length) const {
 
   data.clear();
   if (concreteStore != nullptr && offset < visible_size) {
-    unsigned count = std::min(visible_size - offset, length);
+    uint64_t count = std::min(visible_size - offset, length);
     data.reserve(count);
     for (unsigned idx = offset, end = offset + count; idx < end; ++idx) {
       data.push_back(concreteStore[idx]);
@@ -198,10 +198,6 @@ bool ObjectState::readConcrete(std::vector<unsigned char> &data, unsigned offset
   return false;
 }
 
-uint8_t ObjectState::readConcrete(unsigned offset) const {
-  assert(isByteConcrete(offset));
-  return concreteStore[offset];
-}
 
 /***/
 

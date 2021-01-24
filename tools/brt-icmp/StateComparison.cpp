@@ -737,8 +737,8 @@ void StateComparator::compareObjectStates(const ObjectState *os1, uint64_t offse
         // primitive type. just do a raw comparison
         unsigned size = datalayout->getTypeStoreSize(type);
         vector<unsigned char> val1, val2;
-        os1->readConcrete(val1, offset1, size);
-        os2->readConcrete(val2, offset2, size);
+        os1->readConcreteStore(val1, offset1, size);
+        os2->readConcreteStore(val2, offset2, size);
         if (val1 != val2) {
           diffs.emplace_back(DiffType::delta, name, "different value");
         }
