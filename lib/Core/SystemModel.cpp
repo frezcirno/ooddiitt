@@ -749,7 +749,9 @@ bool SystemModel::ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr>> &
         if (executor->solver->mayBeTrue(state, lt)) constraints.push_back(make_pair(lt, -1));
         if (constraints.empty()) {
           // odd. none were satisfyable...
-          errs() << "Don't think this should happen";
+          // probably indicates that the above constraints are not exactly right
+          // let the hard way try.
+          errs() << "modeled strcmp: no solvable constraints" << oendl;
           return false;
         }
 
