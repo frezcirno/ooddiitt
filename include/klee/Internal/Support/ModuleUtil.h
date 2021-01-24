@@ -18,6 +18,7 @@ namespace llvm {
   class Instruction;
   class Module;
   class CallSite;
+  class GlobalVariable;
 }
 
 namespace klee {
@@ -49,7 +50,6 @@ namespace klee {
   /// terminates in a direct call).
   bool functionEscapes(const llvm::Function *f);
 
-  llvm::Module* dropUnusedFunctions(llvm::Module *module);
   void enumModuleFunctions(llvm::Module *m, std::set<llvm::Function*> &fns);
   void enumModuleGlobals(llvm::Module *m, std::set<llvm::GlobalVariable*> &gbs);
   void enumModuleVisibleDefines(llvm::Module *m, std::set<llvm::Function*> &fns, std::set<llvm::GlobalVariable*> &gbs);

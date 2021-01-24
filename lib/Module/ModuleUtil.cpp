@@ -592,32 +592,6 @@ bool isPrepared(Module *m) {
   return NMD != nullptr;
 }
 
-llvm::Module* dropUnusedFunctions(llvm::Module *module) {
-
-  // core utils provides its own version of these functions, use uclibc instead
-  set<string> drop_bodies = { "asprintf", "vfprintf", "fseeko" };
-  for (const string &name : drop_bodies) {
-    if (Function *fn = module->getFunction(name)) {
-      outs() << "deleting: " << fn->getName() << oendl;
-      fn->deleteBody();
-    }
-  }
-
-  unsigned num_fns = UINT32_MAX;
-  while (num_fns > module->size()) {
-    num_fns = module->size();
-    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
-      Function *fn = itr;
-      if (fn->hasName() && (fn->getName() != "main") && !fn->hasAddressTaken() && fn->use_empty()) {
-        outs() << "dropping: " << fn->getName() << oendl;
-        fn->dropAllReferences();
-      }
-    }
-  }
-  return module;
-}
-
-
 void modify_clib(llvm::Module *module) {
 
   // find stdio_init and disable buffering

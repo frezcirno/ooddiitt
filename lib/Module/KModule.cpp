@@ -250,7 +250,8 @@ Function *KModule::getOrPromoteFnDuplicate(const std::string &name) {
 
 void KModule::removeKnownFnDuplicates() {
 
-  static std::set_ex<std::string> known_dups = {"gnu_dev_makedev", "mbuiter_multi_next", "xmalloc", "xcalloc", "xrealloc"};
+  static std::set_ex<std::string> known_dups = {"gnu_dev_makedev", "mbuiter_multi_next", "xmalloc",
+                                                "xcalloc",         "xrealloc",           "bsd_signal"};
 
   for (const string &name : known_dups) {
     if (Function *fn = getOrPromoteFnDuplicate(name)) {
@@ -259,13 +260,46 @@ void KModule::removeKnownFnDuplicates() {
   }
 }
 
+void KModule::dropUnusedFunctions() {
+
+  unsigned num_fns = UINT32_MAX;
+  while (num_fns > module->size()) {
+    num_fns = module->size();
+    for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+      Function *fn = itr;
+      if (fn->hasName() && (fn->getName() != "main") && !fn->hasAddressTaken() && fn->use_empty()) {
+        outs() << "dropping fn: " << fn->getName() << oendl;
+        fn->dropAllReferences();
+      }
+    }
+  }
+}
+
+void KModule::dropUnusedGlobals() {
+
+  // RLR TODO: this does not work as expected.  result will not link
+  static std::set_ex<string> white_list = {"__stdin", "__stdout", "_obstack", "llvm.used"};
+
+  for (auto itr = module->global_begin(), end = module->global_end(); itr != end; ++itr) {
+    GlobalVariable *gv = itr;
+    if (gv->use_empty()) {
+      string name = gv->getName().str();
+      if (!white_list.contains(name)) {
+        outs() << "empty_use gv: " << gv->getName() << oendl;
+        gv->dropAllReferences();
+      }
+    }
+  }
+}
 
 void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
   assert(module != nullptr);
 
-  removeKnownFnDuplicates();
   insertSetlocaleIntoLibcInit(opts.locale);
+  removeKnownFnDuplicates();
+  dropUnusedFunctions();
+//  dropUnusedGlobals();
 
   DebugInfoFinder finder;
   finder.processModule(*module);

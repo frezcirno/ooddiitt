@@ -126,14 +126,18 @@ void emitGlobalValueWarning(const set<const llvm::Value*> &vals, const string &m
 
 void globalNameCheck(const string &label, const string &name) {
 
-  static set_ex<string> white_list = {"fseeko64", "lseek64"};
+  static set_ex<string> white_list = {};
+  static set_ex<string> popular_suffix = { "16", "32", "64" };
 
   if (!name.empty() && !white_list.contains(name)) {
     if (!alg::starts_with(name, ".str")) {
       auto idx = name.find_last_not_of("0123456789");
       int num_digits = name.size() - idx - 1;
       if (num_digits > 1) {
-        errs() << "possible " << label << " rename: " << name << oendl;
+        string suffix = name.substr(idx + 1);
+        if (!popular_suffix.contains(suffix)) {
+          errs() << "possible " << label << " rename: " << name << oendl;
+        }
       }
     }
   }
@@ -258,6 +262,12 @@ static void replaceOrRenameFunction(llvm::Module *module, const char *old_name, 
   }
 }
 
+static void dropFnBody(llvm::Module *module, const char *name) {
+  if (Function *fn = module->getFunction(name)) {
+    fn->deleteBody();
+  }
+}
+
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
 
   LLVMContext &ctx = mainModule->getContext();
@@ -310,6 +320,11 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
       }
     }
   }
+
+  // core utils provides its own version of these functions, use uclibc instead
+  dropFnBody(mainModule, "asprintf");
+  dropFnBody(mainModule, "vfprintf");
+  dropFnBody(mainModule, "fseeko");
 
   // must rename iso99 version before linking, otherwise will not pull in new target
   replaceOrRenameFunction(mainModule, "__isoc99_fscanf", "fscanf");
@@ -506,7 +521,6 @@ KModule *PrepareModule(const string &filename,
       errs() << "already prepared: " << module->getModuleIdentifier() << '\n';
     } else {
 
-      module = dropUnusedFunctions(module);
       module = rewriteFunctionPointers(module, rewrites);
       module = LinkModule(module, libDir);
 

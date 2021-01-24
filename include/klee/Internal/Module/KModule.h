@@ -363,6 +363,8 @@ namespace klee {
     void removeKnownFnDuplicates();
     bool removeFnDuplicates(llvm::Function *fn);
     llvm::Function *getOrPromoteFnDuplicate(const std::string &name);
+    void dropUnusedFunctions();
+    void dropUnusedGlobals();
 
   private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
