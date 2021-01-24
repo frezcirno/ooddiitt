@@ -47,8 +47,8 @@ cl::opt<string> Output("output", cl::desc("directory for output files (created i
 
 void diffFns(KModule *kmod1,
              KModule *kmod2,
-             Json::Value &added,
-             Json::Value &removed,
+             set_ex<string> &added,
+             set_ex<string> &removed,
              set_ex<string> &sig,
              set_ex<string> &body,
              set_ex<string> &commons) {
@@ -60,22 +60,18 @@ void diffFns(KModule *kmod1,
   kmod2->getUserFunctions(fn_names2);
 
   // find the functions that have been added (in 2 but not in 1)
-  set_ex<string> fns_added;
-  set_difference(fn_names2.begin(), fn_names2.end(), fn_names1.begin(), fn_names1.end(), inserter(fns_added, fns_added.end()));
-  for (auto fn : fns_added) added.append(fn);
+  set_difference(fn_names2.begin(), fn_names2.end(), fn_names1.begin(), fn_names1.end(), inserter(added, added.begin()));
 
   // find the functions that have been removed (in 1 but not in 2)
-  set_ex<string> fns_removed;
-  set_difference(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_removed, fns_removed.end()));
-  for (auto fn : fns_removed) removed.append(fn);
+  set_difference(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(removed, removed.begin()));
 
   // those that are in both will need further checks
-  set_ex<string> fns_both;
-  set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(fns_both, fns_both.end()));
+  set_ex<string> both;
+  set_intersection(fn_names1.begin(), fn_names1.end(), fn_names2.begin(), fn_names2.end(), inserter(both, both.begin()));
 
   vector<pair<KFunction*,KFunction*> > fn_pairs;
-  fn_pairs.reserve(fns_both.size());
-  for (auto fn : fns_both) {
+  fn_pairs.reserve(both.size());
+  for (auto fn : both) {
     fn_pairs.emplace_back(make_pair(kmod1->getKFunction(fn), kmod2->getKFunction(fn)));
   }
 
@@ -355,13 +351,23 @@ void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outD
     // construct the json object representing the function differences
     Json::Value root = Json::objectValue;
     Json::Value &functions = root["functions"] = Json::objectValue;
-    Json::Value &fns_added = functions["added"] = Json::arrayValue;
-    Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
     functions["body"] = Json::objectValue;
     functions["signature"] = Json::objectValue;
 
-    set_ex<string> sigs, bodies, commons;
-    diffFns(kmod1, kmod2, fns_added, fns_removed, sigs, bodies, commons);
+    set_ex<string> added, removed, sigs, bodies, commons;
+    diffFns(kmod1, kmod2, added, removed, sigs, bodies, commons);
+
+    Json::Value &fns_added = functions["added"] = Json::arrayValue;
+    for (const auto &fn : added) {
+      fns_added.append(fn);
+      kmod2->addTargetedBBlocks(fn);
+    }
+
+    Json::Value &fns_removed = functions["removed"] = Json::arrayValue;
+    for (const auto &fn : removed) {
+      fns_removed.append(fn);
+      kmod1->addTargetedBBlocks(fn);
+    }
 
     vector<pair<set_ex<string> *, string>> worklist;
     worklist.emplace_back(make_pair(&bodies, "body"));

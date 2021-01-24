@@ -31,15 +31,14 @@ bool applyDiffInfo(Json::Value &root, KModule *kmod) {
       for (unsigned idx = 0, end = fns_added.size(); idx < end; ++idx) {
         string fn_name = fns_added[idx].asString();
         kmod->addDiffFnAdded(fn_name);
-        // RLR TODO: evaluate the need for these.
-//        kmod->addTargetedBBlocks(fn_name);
+        kmod->addTargetedBBlocks(fn_name);
       }
     } else {
       Json::Value &fns_removed = fns["removed"];
       for (unsigned idx = 0, end = fns_removed.size(); idx < end; ++idx) {
         string fn_name = fns_removed[idx].asString();
         kmod->addDiffFnRemoved(fn_name);
-//        kmod->addTargetedBBlocks(fn_name);
+        kmod->addTargetedBBlocks(fn_name);
       }
     }
 

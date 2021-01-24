@@ -44,10 +44,12 @@
 #include <llvm/DebugInfo.h>
 
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/algorithm.hpp>
 
 using namespace llvm;
 using namespace klee;
 namespace fs=boost::filesystem;
+namespace alg=boost::algorithm;
 
 using std::vector;
 using std::map;
@@ -173,10 +175,96 @@ static void injectStaticConstructorsAndDestructors(Module *m) {
   }
 }
 
+bool KModule::replaceFunction(Function *old_fn, Function *new_fn) {
+
+  if (old_fn->getFunctionType() == new_fn->getFunctionType()) {
+    old_fn->replaceAllUsesWith(new_fn);
+    old_fn->eraseFromParent();
+    return true;
+  }
+  return false;
+}
+
+bool KModule::removeFnDuplicates(llvm::Function *base) {
+
+  vector<Function *> duplicates;
+
+  // look over all of the functions in module
+  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+    Function *fn = itr;
+
+    // find named functions with the same type as fn, other than fn itself
+    // collect in a list since cannot remove a function while iterating
+    if (fn != base && fn->hasName()) {
+
+      // if the target name is fn name with appended digits, then this is a duplicate.
+      // replace target with fn.
+      string base_name = base->getName().str();
+      string fn_name = fn->getName().str();
+
+      if (alg::starts_with(fn_name, base_name)) {
+        string suffix = fn_name.substr(base_name.size());
+        if (!suffix.empty()) {
+          if (suffix.find_first_not_of("0123456789") == string::npos) {
+            duplicates.push_back(fn);
+          }
+        }
+      }
+    }
+  }
+
+  for (Function *fn : duplicates) {
+    replaceFunction(fn, base);
+  }
+
+  return !duplicates.empty();
+}
+
+Function *KModule::getOrPromoteFnDuplicate(const std::string &name) {
+
+  if (Function *fn = module->getFunction(name)) {
+    return fn;
+  }
+
+  // look over all of the functions in module
+  for (auto itr = module->begin(), end = module->end(); itr != end; ++itr) {
+    Function *fn = itr;
+    if (fn->hasName()) {
+
+      // if the target name is fn name with appended digits, then this is a duplicate.
+      // replace target with fn.
+      string fn_name = fn->getName().str();
+      if (alg::starts_with(fn_name, name)) {
+        string suffix = fn_name.substr(name.size());
+        if (!suffix.empty()) {
+          if (suffix.find_first_not_of("0123456789") == string::npos) {
+            fn->setName(name);
+            return fn;
+          }
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
+void KModule::removeKnownFnDuplicates() {
+
+  static std::set_ex<std::string> known_dups = {"gnu_dev_makedev", "mbuiter_multi_next", "xmalloc", "xcalloc", "xrealloc"};
+
+  for (const string &name : known_dups) {
+    if (Function *fn = getOrPromoteFnDuplicate(name)) {
+      removeFnDuplicates(fn);
+    }
+  }
+}
+
+
 void KModule::transform(const Interpreter::ModuleOptions &opts) {
 
   assert(module != nullptr);
 
+  removeKnownFnDuplicates();
   insertSetlocaleIntoLibcInit(opts.locale);
 
   DebugInfoFinder finder;
@@ -213,7 +301,9 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
         if (!isPossibleLibrarySource(pathname, filename, vname)) {
           if (opts.sources.empty() || opts.sources.contains(filename)) {
             user_gbs.insert(gv);
-            outs() << "User global variable: " << vname << oendl;
+            outs() << "User global variable: " << vname;
+            if (gv->isConstant()) outs() << " [constant]";
+            outs() << oendl;
           }
         }
       }

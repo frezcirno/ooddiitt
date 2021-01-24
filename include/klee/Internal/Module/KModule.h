@@ -359,6 +359,12 @@ namespace klee {
     bool isPostModule() const { return !is_prev_module; }
 
   private:
+    bool replaceFunction(llvm::Function *old_fn, llvm::Function *new_fn);
+    void removeKnownFnDuplicates();
+    bool removeFnDuplicates(llvm::Function *fn);
+    llvm::Function *getOrPromoteFnDuplicate(const std::string &name);
+
+  private:
     std::map<const llvm::Function*,unsigned> mapFnMarkers;
     std::map<const llvm::BasicBlock*,unsigned> mapBBMarkers;
     std::map<const llvm::FunctionType*,std::set_ex<const llvm::Function*> >mapFnTypes;

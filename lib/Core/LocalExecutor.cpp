@@ -857,13 +857,6 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
   for (auto itr = kmodule->module->global_begin(), end = kmodule->module->global_end(); itr != end; ++itr) {
     GlobalVariable *v = itr;
 
-    // RLR TODO:DEBUG
-    string tmp = v->getName().str();
-    if (tmp.find("dfa") != string::npos) {
-      outs() << "here";
-    }
-
-
     if (!v->isConstant() && !v->hasHiddenVisibility() && kmodule->isUserGlobal(v) && !kmodule->isDiffGlobalModified(v)) {
 
       assert(v->hasName());
