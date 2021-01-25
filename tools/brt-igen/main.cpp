@@ -102,6 +102,7 @@ private:
   string indentation;
   unsigned m_pathsExplored; // number of paths explored so far
   pid_t pid_watchdog;
+  bool save_all;
 
   // used for writing .ktest files
   const vector<string> &args;
@@ -109,7 +110,7 @@ private:
   sys_clock::time_point started_at;
 
 public:
-  InputGenKleeHandler(const vector<string> &args, const string &_md_name, const string &_prefix);
+  InputGenKleeHandler(const vector<string> &args, const string &_md_name, const string &_prefix, bool save);
   ~InputGenKleeHandler() override = default;
 
   unsigned getNumTestCases() const override { return casesGenerated; }
@@ -124,13 +125,14 @@ public:
   unsigned getTerminationCount(TerminateReason reason) override;
 };
 
-InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix)
+InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const string &_md_name, const string &_prefix, bool save)
   : InterpreterHandler(Output, _md_name, _prefix),
     casesGenerated(0),
     nextTestCaseID(0),
     indentation(""),
     m_pathsExplored(0),
     pid_watchdog(0),
+    save_all(save),
     args(_args) {
 
   started_at = sys_clock::now();
@@ -161,7 +163,7 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
   assert(i != nullptr);
   assert(!state.isProcessed);
 
-  if (!NoOutput && (AllOutput || state.reached_target || term_reason == TerminateReason::Timeout)) {
+  if (!NoOutput && (save_all || state.reached_target || term_reason == TerminateReason::Timeout)) {
 
     // try to get a solution for the initial state
     vector<ExprSolution> exprs;
@@ -730,7 +732,7 @@ int main(int argc, char *argv[]) {
     ss << prefix << '-' << std::setfill('0') << std::setw(5) << Job;
     prefix = ss.str();
   }
-  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier(), prefix);
+  InputGenKleeHandler *handler = new InputGenKleeHandler(args, kmod->getModuleIdentifier(), prefix, DiffInfo.empty() || AllOutput);
   handler->setWatchDog(pid_watchdog);
 
   Interpreter::InterpreterOptions IOpts;
