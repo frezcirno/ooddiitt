@@ -706,8 +706,8 @@ bool SystemModel::ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr>> &
         // treat comparison as a single entity
         ref<Expr> byte0 = ConstantExpr::create(0, Expr::Int8);
         ref<Expr> eq = ConstantExpr::create(1, Expr::Bool);
-        ref<Expr> lt = ConstantExpr::create(0, Expr::Bool);
-        ref<Expr> gt = ConstantExpr::create(0, Expr::Bool);
+        ref<Expr> neg_a = ConstantExpr::create(1, Expr::Bool);
+        ref<Expr> neg_o = ConstantExpr::create(0, Expr::Bool);
 
         // select the appropriate symbolic and concrete values
         if (read1) {
@@ -717,13 +717,14 @@ bool SystemModel::ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr>> &
           for (const char &ch : str1) {
             ref<Expr> ch1 = ConstantExpr::create(ch, Expr::Int8);
             ref<Expr> ch2 = op2.second->read8(offset2 + idx);
-            gt = OrExpr::create(gt, AndExpr::create(eq, UgtExpr::create(ch1, ch2)));
-            lt = OrExpr::create(lt, AndExpr::create(eq, UltExpr::create(ch1, ch2)));
             eq = AndExpr::create(eq, EqExpr::create(ch1, ch2));
+            neg_a = AndExpr::create(neg_a, UleExpr::create(ch1, ch2));
+            neg_o = OrExpr::create(neg_o, UltExpr::create(ch1, ch2));
             ++idx;
           }
           if (count > str1.size()) {
             eq = AndExpr::create(eq, EqExpr::create(op2.second->read8(offset2 + idx), byte0));
+            neg_a = AndExpr::create(neg_a, NeExpr::create(op2.second->read8(offset2 + idx), byte0));
           }
         } else {
 
@@ -733,20 +734,23 @@ bool SystemModel::ExecuteStrcmp2(ExecutionState &state, std::vector<ref<Expr>> &
           for (const char &ch : str2) {
             ref<Expr> ch1 = op1.second->read8(offset1 + idx);
             ref<Expr> ch2 = ConstantExpr::create(ch, Expr::Int8);
-            gt = OrExpr::create(gt, AndExpr::create(eq, UgtExpr::create(ch1, ch2)));
-            lt = OrExpr::create(lt, AndExpr::create(eq, UltExpr::create(ch1, ch2)));
             eq = AndExpr::create(eq, EqExpr::create(ch1, ch2));
+            neg_a = AndExpr::create(neg_a, UleExpr::create(ch1, ch2));
+            neg_o = OrExpr::create(neg_o, UltExpr::create(ch1, ch2));
             ++idx;
           }
           if (count > str2.size()) {
             eq = AndExpr::create(eq, EqExpr::create(op1.second->read8(offset1 + idx), byte0));
+            neg_a = AndExpr::create(neg_a, NeExpr::create(op1.second->read8(offset1 + idx), byte0));
           }
         }
 
         vector<pair<ref<Expr>, int>> constraints;
+        ref<Expr> neg = AndExpr::create(neg_a, neg_o);
+        ref<Expr> pos = NotExpr::create(OrExpr::create(eq, neg));
         if (executor->solver->mayBeTrue(state, eq)) constraints.push_back(make_pair(eq, 0));
-        if (executor->solver->mayBeTrue(state, gt)) constraints.push_back(make_pair(gt, 1));
-        if (executor->solver->mayBeTrue(state, lt)) constraints.push_back(make_pair(lt, -1));
+        if (executor->solver->mayBeTrue(state, pos)) constraints.push_back(make_pair(pos, 1));
+        if (executor->solver->mayBeTrue(state, neg)) constraints.push_back(make_pair(neg, -1));
         if (constraints.empty()) {
           // odd. none were satisfyable...
           // probably indicates that the above constraints are not exactly right

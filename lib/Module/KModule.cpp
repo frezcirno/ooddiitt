@@ -809,6 +809,12 @@ void KModule::getTargetedFns(std::set_ex<KFunction *> &kfns) const {
   }
 }
 
+void KModule::getTargetedFns(std::set_ex<llvm::Function *> &fns) const {
+  for (BasicBlock *bb : targeted_bblocks) {
+    fns.insert(bb->getParent());
+  }
+}
+
 Function *KModule::getTargetFunction(Value *value) const {
 
   Constant *c = dyn_cast<Constant>(value);
@@ -863,6 +869,68 @@ unsigned KModule::getBBlockID(const llvm::BasicBlock *bb) const {
     return itr_bb->second;
   }
   return 0;
+}
+
+void KModule::constructCallGraphs(std::map<llvm::Function *, std::set_ex<llvm::Function *>> *caller_graph,
+                                  std::map<llvm::Function *, std::set_ex<llvm::Function *>> *callee_graph) const {
+
+  for (auto fn_itr = module->begin(), fn_end = module->end(); fn_itr != fn_end; ++fn_itr) {
+    Function *fn = &*fn_itr;
+    if (!fn->isDeclaration() && !fn->isIntrinsic()) {
+
+      for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
+        for (auto in_itr = bb_itr->begin(), in_end = bb_itr->end(); in_itr != in_end; ++in_itr) {
+          CallSite CS(cast<Value>(in_itr));
+          if (CS) {
+            Function *callee = CS.getCalledFunction();
+            if (callee != nullptr && !callee->isIntrinsic()) {
+              if (caller_graph != nullptr) (*caller_graph)[fn].insert(callee);
+              if (callee_graph != nullptr) (*callee_graph)[callee].insert(fn);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+bool KModule::getTargetDomain(llvm::Function *entry, std::set_ex<llvm::Function *> &dom) const {
+
+  dom.clear();
+  std::set_ex<Function *> targeted_fns;
+  getTargetedFns(targeted_fns);
+  if (targeted_fns.empty()) {
+    return false;
+  }
+
+  // get a call graph
+  std::map<Function *, std::set_ex<Function *>> call_graph;
+  constructCallGraph(&call_graph);
+
+  // do a dfs on call graph from entry node to find all simple paths to a targeted fn
+  std::vector<Function *> path;
+  getTargetDomainDFS(entry, path, call_graph, targeted_fns, dom);
+  return true;
+}
+
+void KModule::getTargetDomainDFS(Function *fn, std::vector<llvm::Function *> &path,
+                                 const std::map<llvm::Function *, std::set_ex<llvm::Function *>> &cg,
+                                 const std::set_ex<llvm::Function *> &targets, std::set_ex<llvm::Function *> &dom) const {
+
+  path.push_back(fn);
+  if (targets.contains(fn)) {
+    for (auto &item : path) dom.insert(item);
+  }
+  const auto &itr = cg.find(fn);
+  if (itr != cg.end()) {
+    const auto &children = itr->second;
+    for (auto &child : children) {
+      if (std::find(path.begin(), path.end(), child) == path.end()) {
+        getTargetDomainDFS(child, path, cg, targets, dom);
+      }
+    }
+  }
+  path.pop_back();
 }
 
 pair<unsigned,unsigned> KModule::getMarker(const llvm::Function *fn, const llvm::BasicBlock *bb) {

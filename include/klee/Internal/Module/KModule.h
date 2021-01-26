@@ -330,6 +330,7 @@ namespace klee {
       if (KFunction *kf = getKFunction(fn_name)) addTargetedBBlocks(kf);
     }
 
+    void getTargetedFns(std::set_ex<llvm::Function *> &fns) const;
     void getTargetedFns(std::set_ex<KFunction *> &kfns) const;
     void getTargetedFns(std::set_ex<std::string> &names) const {
       std::set_ex<KFunction *> kfns;
@@ -357,8 +358,20 @@ namespace klee {
 
     bool isPrevModule() const { return is_prev_module; }
     bool isPostModule() const { return !is_prev_module; }
+    void constructCallGraphs(std::map<llvm::Function *, std::set_ex<llvm::Function *>> *caller_graph,
+                             std::map<llvm::Function *, std::set_ex<llvm::Function *>> *callee_graph) const;
+    void constructCallGraph(std::map<llvm::Function *, std::set_ex<llvm::Function *>> *caller_graph) const {
+      constructCallGraphs(caller_graph, NULL);
+    }
+    bool getTargetDomain(llvm::Function *entry, std::set_ex<llvm::Function *> &dom) const;
 
   private:
+
+    void getTargetDomainDFS(llvm::Function *fn,
+                            std::vector<llvm::Function *> &path,
+                            const std::map<llvm::Function *, std::set_ex<llvm::Function *>> &cg,
+                            const std::set_ex<llvm::Function *> &targets,
+                            std::set_ex<llvm::Function *> &dom) const;
     bool replaceFunction(llvm::Function *old_fn, llvm::Function *new_fn);
     void removeKnownFnDuplicates();
     bool removeFnDuplicates(llvm::Function *fn);

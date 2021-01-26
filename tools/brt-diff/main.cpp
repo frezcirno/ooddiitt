@@ -187,11 +187,11 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
 }
 
 void calcDistanceMap(Module *mod,
-                     const map<Function*,set<Function*>> &callee_graph,
-                     const set<string> &sources, const set<Function*> &sinks,
+                     const map<Function*,set_ex<Function*>> &callee_graph,
+                     const set_ex<string> &sources, const set_ex<Function*> &sinks,
                      map<string,unsigned> &distance_map) {
 
-  set<Function*> srcs;
+  set_ex<Function*> srcs;
   for (const auto &str : sources) {
     if (Function *fn = mod->getFunction(str)) srcs.insert(fn);
   }
@@ -222,13 +222,13 @@ void calcDistanceMap(Module *mod,
 }
 
 void reachesFns(KModule *kmod,
-                const map<Function*,set<Function*>> &callee_graph,
-                const set<string> &sources,
-                const set<string> &changed,
+                const map<Function*,set_ex<Function*>> &callee_graph,
+                const set_ex<string> &sources,
+                const set_ex<string> &changed,
                 map<string,unsigned> &map) {
 
   // construct a target set of changed functions
-  set<Function*> sinks;
+  set_ex<Function*> sinks;
   for (const auto &fn_name : changed) {
     if (Function *fn = kmod->getFunction(fn_name)) {
       sinks.insert(fn);
@@ -238,7 +238,7 @@ void reachesFns(KModule *kmod,
   calcDistanceMap(kmod->module, callee_graph, sources, sinks, map);
 }
 
-void addReaching(Function *fn, const map<Function*,set<Function*>> &caller_graph, set<Function*> &reaching) {
+void addReaching(Function *fn, const map<Function*,set_ex<Function*>> &caller_graph, set_ex<Function*> &reaching) {
 
   deque<Function*> worklist;
   worklist.push_back(fn);
@@ -253,31 +253,6 @@ void addReaching(Function *fn, const map<Function*,set<Function*>> &caller_graph
       if (itr != caller_graph.end()) {
         for (auto &callee : itr->second) {
           worklist.push_back(callee);
-        }
-      }
-    }
-  }
-}
-
-void constructCallGraph(KModule *kmod,
-                        map<Function*,set<Function*>> &caller_graph,
-                        map<Function*,set<Function*>> &callee_graph) {
-
-  Module *mod = kmod->module;
-  for (auto fn_itr = mod->begin(), fn_end = mod->end(); fn_itr != fn_end; ++fn_itr) {
-    Function *fn = &*fn_itr;
-    if (!fn->isDeclaration() && !fn->isIntrinsic()) {
-
-      for (auto bb_itr = fn->begin(), bb_end = fn->end(); bb_itr != bb_end; ++bb_itr) {
-        for (auto in_itr = bb_itr->begin(), in_end = bb_itr->end(); in_itr != in_end; ++in_itr) {
-          CallSite CS(cast<Value>(in_itr));
-          if (CS) {
-            Function *callee = CS.getCalledFunction();
-            if (callee != nullptr && !callee->isIntrinsic()) {
-              caller_graph[fn].insert(callee);
-              callee_graph[callee].insert(fn);
-            }
-          }
         }
       }
     }
@@ -302,13 +277,13 @@ void collectEntryFns(const map<string, unsigned> &src, const set<string> &sigs, 
 
 void entryFns(KModule *kmod1,
               KModule *kmod2,
-              const set<string> &commons,
-              const set<string> &sigs,
-              const set<string> &bodies,
+              const set_ex<string> &commons,
+              const set_ex<string> &sigs,
+              const set_ex<string> &bodies,
               map<string, unsigned> &entry_points) {
 
   // only targed functions containing targeted blocks
-  set<string> changes;
+  set_ex<string> changes;
   vector<const set<string> *> worklist = {&bodies, &sigs};
   for (const auto &item : worklist) {
     for (const auto &fn : *item) {
@@ -318,12 +293,12 @@ void entryFns(KModule *kmod1,
     }
   }
 
-  map<Function*,set<Function*>> caller_graph1;
-  map<Function*,set<Function*>> callee_graph1;
-  constructCallGraph(kmod1, caller_graph1, callee_graph1);
-  map<Function*,set<Function*>> caller_graph2;
-  map<Function*,set<Function*>> callee_graph2;
-  constructCallGraph(kmod2, caller_graph2, callee_graph2);
+  map<Function*,set_ex<Function*>> caller_graph1;
+  map<Function*,set_ex<Function*>> callee_graph1;
+  kmod1->constructCallGraphs(&caller_graph1, &callee_graph1);
+  map<Function*,set_ex<Function*>> caller_graph2;
+  map<Function*,set_ex<Function*>> callee_graph2;
+  kmod2->constructCallGraphs(&caller_graph2, &callee_graph2);
 
   map<string,unsigned> map1;
   reachesFns(kmod1, callee_graph1, commons, changes, map1);
