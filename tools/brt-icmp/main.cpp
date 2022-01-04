@@ -43,14 +43,15 @@ namespace fs=boost::filesystem;
 namespace {
 cl::OptionCategory BrtCategory("specific brt options");
 cl::list<string> ReplayTests(cl::desc("<test case to replay>"), cl::Positional, cl::ZeroOrMore);
-cl::opt<string> PrevModule("prev", cl::desc("<prev-bytecode> (default=@prev)"), cl::init("@prev"), cl::cat(BrtCategory));
-cl::opt<string> PostModule("post", cl::desc("<post-bytecode> (default=@post)"), cl::init("@orcl,post"), cl::cat(BrtCategory));
+cl::opt<string> PrevModule("prev", cl::desc("<prev-bitcode> (default=@prev)"), cl::init("@prev"), cl::cat(BrtCategory));
+cl::opt<string> PostModule("post", cl::desc("<post-bitcode> (default=@post)"), cl::init("@orcl,post"), cl::cat(BrtCategory));
 cl::opt<string> Environ("environ", cl::desc("Parse environ from given file (in \"env\" format)"));
 cl::opt<bool> ExitOnError("exit-on-error", cl::desc("Exit if errors occur"));
 cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
 cl::opt<string> Prefix("prefix", cl::desc("prefix for loaded test cases"), cl::init("test"), cl::cat(BrtCategory));
 cl::opt<string> DiffInfo("diff", cl::desc("json formatted diff file"), cl::cat(BrtCategory));
 cl::opt<unsigned> Timeout("timeout", cl::desc("maximum seconds to replay"), cl::init(10), cl::cat(BrtCategory));
+cl::opt<bool> NoOracle("no-oracle", cl::desc("<post-bitcode> does not contain an oracle"));
 cl::opt<unsigned> MaxFnSnapshots("max-fn-snapshots",
                                  cl::desc("maximum number of snapshots taken returning from any single function (default=500"),
                                  cl::init(500), cl::cat(BrtCategory));
@@ -251,7 +252,7 @@ int main(int argc, char *argv[]) {
   }
   sort(test_files.begin(), test_files.end());
 
-  if (!kmod2->hasOracle()) {
+  if (!(NoOracle || kmod2->hasOracle())) {
     klee_warning("%s does not contain an oracle", kmod2->getModuleIdentifier().c_str());
   }
 
@@ -350,7 +351,7 @@ int main(int argc, char *argv[]) {
       delete interpreter2;
       delete handler2;
     } else {
-      outs() << fs::path(test_file).filename().string() << ": " << "version1 timeout" << oendf;
+      outs() << fs::path(test_file).filename().string() << ": " << "version1 did not complete" << oendf;
     }
     delete interpreter1;
     delete handler1;

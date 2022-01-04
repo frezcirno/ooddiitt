@@ -28,7 +28,7 @@ struct StateVersion {
   std::deque<std::pair<KFunction*, ExecutionState*> > fn_returns;
 
   explicit StateVersion(KModule *k) :
-      kmodule(k), initialState(nullptr), finalState(nullptr), term_reason(TerminateReason::Invalid), forked(false)  {}
+      kmodule(k), initialState(nullptr), finalState(nullptr), term_reason(TerminateReason::InternalFault), forked(false)  {}
   virtual ~StateVersion();
 };
 

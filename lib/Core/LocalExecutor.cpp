@@ -868,7 +868,7 @@ void LocalExecutor::unconstrainGlobalVariables(ExecutionState &state, Function *
       if (pos != string::npos && (fn_name != gv_name.substr(0, pos))) continue;
 
       MemoryObject *mo = globalObjects.find(v)->second;
-      if (mo != nullptr) {
+      if (mo != nullptr && !mo->isReadOnly()) {
 
         if (mo->size > maxSymbolicSize) {
           if (interpreterOpts.verbose) outs() << "too large unconstrain: " << gv_name << ": " << mo->size << '\n';
@@ -1653,7 +1653,9 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
     const llvm::Loop *src_loop = kf->kloop.getLoopFor(src);
     const llvm::Loop *dst_loop = kf->kloop.getLoopFor(dst);
 
-    assert(src_loop == nullptr || isInLoop(&state, kf, src_loop));
+    if (src_loop != nullptr && !isInLoop(&state, kf, src_loop)) {
+      log_warning("src loop not null, but not in loop state", state);
+    }
 
     if (src_loop == dst_loop) {
       // either source and destination are not in a loop,
@@ -1665,7 +1667,9 @@ void LocalExecutor::transferToBasicBlock(ExecutionState &state, llvm::BasicBlock
           LoopFrame &lf = sf.loopFrames.back();
           if (lf.loop == dst_loop) lf.counter += 1;
         }
-        assert(isOnlyInLoop(&state, kf, dst_loop));
+        if (!isOnlyInLoop(&state, kf, dst_loop)) {
+          log_warning("not in or not only in dest loop", state);
+        }
       }
     } else {
 

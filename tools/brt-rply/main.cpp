@@ -308,7 +308,7 @@ int main(int argc, char *argv[]) {
 
     if (ex_states.empty()) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) TerminateReason::Invalid << ':' << 0 << ':' << elapsed.count();
+      outs() << (unsigned) TerminateReason::InternalFault << ':' << 0 << ':' << elapsed.count();
       if (kmod->hasOracle()) {
         outs() << ":" << "did not complete";
       }
@@ -316,7 +316,7 @@ int main(int argc, char *argv[]) {
       exit_code = max(exit_code, EXIT_REPLAY_ERROR);
     } else if (ex_states.size() > 1) {
       outs() << fs::path(kmod->getModuleIdentifier()).stem().string() << ':';
-      outs() << (unsigned) TerminateReason::FailedLibcInit << ':' << 0 << ':' << elapsed.count();
+      outs() << (unsigned) TerminateReason::InternalFault << ':' << 0 << ':' << elapsed.count();
       if (kmod->hasOracle()) {
         outs() << ":" << "uclibc fault";
       }

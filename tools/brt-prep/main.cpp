@@ -553,7 +553,11 @@ bool SaveModule(KModule *kmod, const string &outDir) {
   bool result = false;
   assert(kmod->module != nullptr);
   fs::path path(outDir);
-  string pathname = (path /= kmod->getModuleIdentifier()).string();
+
+  fs::path pobj(kmod->getModuleIdentifier());
+  string filename = pobj.filename().string();
+  kmod->module->setModuleIdentifier(filename);
+  string pathname = (path /= filename).string();
 
   string fs_err;
   raw_fd_ostream outFile(pathname.c_str(), fs_err, sys::fs::F_Binary);

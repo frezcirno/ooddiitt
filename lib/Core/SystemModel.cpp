@@ -520,53 +520,60 @@ bool SystemModel::ExecuteMemcpy(ExecutionState &state, std::vector<ref<Expr>> &a
       uint64_t dst = edst->getZExtValue();
       uint64_t src = esrc->getZExtValue();
       uint64_t count = ecount->getZExtValue();
-      ObjectPair op;
+      if (count < UINT_MAX) {
+        ObjectPair op;
 
-      // lookup the src object
-      if (executor->resolveMO(state, esrc, op) == LocalExecutor::ResolveResult::OK) {
+        // lookup the src object
+        if (executor->resolveMO(state, esrc, op) == LocalExecutor::ResolveResult::OK) {
 
-        const MemoryObject *src_mo = op.first;
-        const ObjectState *src_os = op.second;
-        uint64_t src_offset = src - src_mo->address;
+          const MemoryObject *src_mo = op.first;
+          const ObjectState *src_os = op.second;
+          uint64_t src_offset = src - src_mo->address;
 
-        // make sure it is long enough
-        if (src_offset + count <= src_os->visible_size) {
+          // make sure it is long enough
+          if (src_offset + count <= src_os->visible_size) {
 
-          // lookup the dest object
-          if (executor->resolveMO(state, edst, op) == LocalExecutor::ResolveResult::OK) {
+            // lookup the dest object
+            if (executor->resolveMO(state, edst, op) == LocalExecutor::ResolveResult::OK) {
 
-            const MemoryObject *dst_mo = op.first;
-            const ObjectState *dst_os = op.second;
-            uint64_t dst_offset = dst - dst_mo->address;
+              const MemoryObject *dst_mo = op.first;
+              const ObjectState *dst_os = op.second;
+              uint64_t dst_offset = dst - dst_mo->address;
 
-            // make sure dest has enough room for the copy
-            if (dst_offset + count <= dst_os->visible_size) {
+              // make sure dest has enough room for the copy
+              if (dst_offset + count <= dst_os->visible_size) {
 
-              ObjectState *wos = state.addressSpace.getWriteable(dst_mo, dst_os);
-              // if the memcpy was within the same memory object, then the old object state may
-              // have been deleted.
-              if (src_os == dst_os) {
-                src_os = wos;
-              }
+                ObjectState *wos = state.addressSpace.getWriteable(dst_mo, dst_os);
+                if (wos != nullptr) {
+                  // if the memcpy was within the same memory object, then the old object state may
+                  // have been deleted.
+                  if (src_os == dst_os) {
+                    src_os = wos;
+                  }
 
-              for (uint64_t idx = 0; idx < count; ++idx) {
-                ref<Expr> value = src_os->read8(src_offset + idx);
-                wos->write8(dst_offset + idx, value);
-              }
-              if (ctx_id == CTX_MEMPCPY) {
-                retExpr = ConstantExpr::createPointer(dst + count);
+                  for (uint64_t idx = 0; idx < count; ++idx) {
+                    ref<Expr> value = src_os->read8(src_offset + idx);
+                    wos->write8(dst_offset + idx, value);
+                  }
+                  if (ctx_id == CTX_MEMPCPY) {
+                    retExpr = ConstantExpr::createPointer(dst + count);
+                  } else {
+                    retExpr = args[0];
+                  }
+                  return true;
+                } else {
+                  executor->terminateStateOnMemFault(state, this->ki, edst, dst_mo, "read-only memcpy dest");
+                  return true;
+                }
               } else {
-                retExpr = args[0];
+                executor->terminateStateOnMemFault(state, this->ki, edst, dst_mo, "out-of-bounds memcpy dest");
+                return true;
               }
-              return true;
-            } else {
-              executor->terminateStateOnMemFault(state, this->ki, edst, dst_mo, "out-of-bounds memcpy dest");
-              return true;
             }
+          } else {
+            executor->terminateStateOnMemFault(state, this->ki, esrc, src_mo, "out-of-bounds memcpy src");
+            return true;
           }
-        } else {
-          executor->terminateStateOnMemFault(state, this->ki, esrc, src_mo, "out-of-bounds memcpy src");
-          return true;
         }
       }
     }

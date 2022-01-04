@@ -38,7 +38,7 @@ cl::opt<string> InputFile2(cl::desc("<updated bytecode>"), cl::Positional, cl::R
 cl::opt<string> InputFile3(cl::desc("<oracle bytecode>"), cl::Positional);
 cl::opt<bool> IndentJson("indent-json", cl::desc("indent emitted json for readability"), cl::cat(BrtCategory));
 cl::opt<bool> Verbose("verbose", cl::init(false), cl::desc("Emit verbose output"), cl::cat(BrtCategory));
-cl::opt<string> Output("output", cl::desc("directory for output files (created if does not exist)"), cl::init("brt-out-tmp"), cl::cat(BrtCategory));
+cl::opt<string> Output("output", cl::desc("directory/filename for output diff file (created if does not exist)"), cl::init("diff.json"), cl::cat(BrtCategory));
 }
 
 //===----------------------------------------------------------------------===//
@@ -71,7 +71,7 @@ void diffFns(KModule *kmod1,
 
   vector<pair<KFunction*,KFunction*> > fn_pairs;
   fn_pairs.reserve(both.size());
-  for (auto fn : both) {
+  for (auto &fn : both) {
     fn_pairs.emplace_back(make_pair(kmod1->getKFunction(fn), kmod2->getKFunction(fn)));
   }
 
@@ -158,12 +158,12 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
   // find the globals that have been added (in 2 but not in 1)
   set_ex<string> gbs_added;
   set_difference(gb_names2.begin(), gb_names2.end(), gb_names1.begin(), gb_names1.end(), inserter(gbs_added, gbs_added.end()));
-  for (auto gb : gbs_added) added.append(gb);
+  for (auto &gb : gbs_added) added.append(gb);
 
   // find the globals that have been removed (in 1 but not in 2)
   set_ex<string> gbs_removed;
   set_difference(gb_names1.begin(), gb_names1.end(), gb_names2.begin(), gb_names2.end(), inserter(gbs_removed, gbs_removed.end()));
-  for (auto gb : gbs_removed) removed.append(gb);
+  for (auto &gb : gbs_removed) removed.append(gb);
 
   // those that are in both will need further checks
   set_ex<string> gbs_both;
@@ -174,7 +174,7 @@ void diffGbs(KModule *kmod1, KModule *kmod2, Json::Value &added, Json::Value &re
   assert(mod1 && mod2);
   vector<pair<GlobalVariable*,GlobalVariable*> > gb_pairs;
   gb_pairs.reserve(gbs_both.size());
-  for (auto gb : gbs_both) {
+  for (auto &gb : gbs_both) {
     gb_pairs.emplace_back(make_pair(mod1->getNamedGlobal(gb), mod2->getNamedGlobal(gb)));
   }
 
@@ -313,14 +313,17 @@ void entryFns(KModule *kmod1,
   collectEntryFns(map2, sigs, entry_points);
 }
 
-void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &outDir) {
+void emitDiff(KModule *kmod1, KModule *kmod2, KModule *kmod3, const string &output) {
 
   // kmod3 is optional
   assert(kmod1 && kmod2);
 
-  fs::path path(outDir);
-  string pathname = (path /= "diff.json").string();
-  ofstream out(pathname, ofstream::out);
+  fs::path path(output);
+  boost::system::error_code ec;
+  if (fs::is_directory(path, ec)) {
+    path /= "diff.json";
+  }
+  ofstream out(path.string(), ofstream::out);
   if (out.is_open()) {
 
     // construct the json object representing the function differences
