@@ -40,62 +40,27 @@ On fedora 27, some libs installed to lib64.  not found by ld. add to /etc/ld.so.
 Packages to install:
 bison cmake curl flex git libtcmalloc-minimal4 libgoogle-perftools-dev ninja-build libncurses5-dev stow
 
+
+INSTALL_BASE=/usr/local/stow
 ~~~
 
 ### Step 2: LLVM
 
-| Source      | URL                                                     | Directory                     |
-|-------------|---------------------------------------------------------|-------------------------------|
-| llvm        | http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz    | llvm-3.4                      |
-| clang       | http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz     | llvm-3.4/tools/clang          |
-
-copy patched include files from llvm-3.4-patches
-
-```
-cd brt-klee/llvm-3.4-patches
-./cp-patches ../../llvm-3.4
-```
-
-llvm3.4 cannot find recent versions of required gcc header files.
-```
-cd /usr/lib/gcc/x86_64-linux-gnu/
-sudo ln -s x x.0.0
-```
-
-```
-export KLEE_BASE='/usr/local/stow'
-```
-
-```
-cd llvm-3.4
-mkdir cmake-build-release
-cd cmake-build-release
-
-cmake -G "Ninja" \
- -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/llvm-3.4" \
- -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
- -DLLVM_TARGETS_TO_BUILD=host \
- ..
-
-ninja
-ninja install
-cd ..\..
-```
+Install as per `https://github.gatech.edu/arktos/llvm-3.4.git`
 
 ### Step 3: Minisat
 
 ```
 git clone https://github.com/stp/minisat.git
 cd minisat
-mkdir cmake-build-release
-cd cmake-build-release
+mkdir build-release
+cd build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
  -DSTATIC_BINARIES=ON \
  -DBUILD_SHARED_LIBS=OFF \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
+ -DCMAKE_INSTALL_PREFIX="$INSTALL_BASE/stp" \
  ..
 
 ninja
@@ -109,14 +74,14 @@ cd ..\..
 git clone https://github.com/stp/stp.git
 cd stp
 git checkout tags/2.1.2
-mkdir cmake-build-release
-cd cmake-build-release
+mkdir build-release
+cd build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/stp" \
- -DMINISAT_INCLUDE_DIRS="${KLEE_BASE}/stp/include" \
- -DMINISAT_LIBDIR="${KLEE_BASE}/stp/lib" \
+ -DCMAKE_INSTALL_PREFIX="$INSTALL_BASE/stp" \
+ -DMINISAT_INCLUDE_DIRS="$INSTALL_BASE/stp/include" \
+ -DMINISAT_LIBDIR="$INSTALL_BASE/stp/lib" \
  -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
  -DBUILD_SHARED_LIBS=OFF \
  -DTUNE_NATIVE:BOOL=ON \
@@ -135,13 +100,13 @@ sudo stow --dir=/usr/local/stow stp
 ```
 git clone https://github.com/Z3Prover/z3.git
 cd z3
-git checkout z3-4.8.9
-mkdir cmake-build-release
-cd cmake-build-release
+git checkout z3-4.8.12
+mkdir build-release
+cd build-release
 
 cmake -G Ninja \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/z3" \
+ -DCMAKE_INSTALL_PREFIX="$INSTALL_BASE/z3" \
  ..
 
 ninja
@@ -158,7 +123,10 @@ Installation places a new shared object library in /usr/local/lib. Need to run `
 ```
 git clone https://github.com/klee/klee-uclibc.git
 cd klee-uclibc
-./configure --make-llvm-lib --with-llvm-config="${KLEE_BASE}/llvm-3.4/bin/llvm-config"
+
+copy patches from brt-klee
+
+./configure --make-llvm-lib --with-llvm-config="${INSTALL_BASE}/llvm-3.4/bin/llvm-config"
 make KLEE_CFLAGS="-DKLEE_SYM_PRINTF" -j `nproc`
 cd ..
 ```
@@ -168,12 +136,12 @@ cd ..
 ```
 git clone https://github.com/klee/klee.git
 cd klee
-mkdir cmake-build-release
-cd cmake-build-release
+mkdir build-release
+cd build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/klee" \
+ -DCMAKE_INSTALL_PREFIX="$INSTALL_BASE/klee" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti" \
  -DENABLE_TCMALLOC=ON \
@@ -184,7 +152,7 @@ cmake -G "Ninja" \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DENABLE_UNIT_TESTS=OFF \
  -DENABLE_SYSTEM_TESTS=OFF \
- -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
+ -DLLVM_CONFIG_BINARY="$INSTALL_BASE/llvm-3.4/bin/llvm-config" \
  ..
 
 sudo stow --dir=/usr/local/stow klee
@@ -195,12 +163,12 @@ sudo stow --dir=/usr/local/stow klee
 ```
 git clone https://github.gatech.edu/arktos/brt-klee.git
 cd brt-klee
-mkdir cmake-build-release
-cd cmake-build-release
+mkdir build-release
+cd build-release
 
 cmake -G "Ninja" \
  -DCMAKE_BUILD_TYPE=Release \
- -DCMAKE_INSTALL_PREFIX="${KLEE_BASE}/pse-tools" \
+ -DCMAKE_INSTALL_PREFIX="$INSTALL_BASE/pse-tools" \
  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
  -DCMAKE_CXX_FLAGS="-fno-rtti -Wno-class-memaccess -Wno-deprecated-copy -Wno-unused-variable -Wno-unused-but-set-variable" \
  -DENABLE_TCMALLOC=ON \
@@ -213,7 +181,7 @@ cmake -G "Ninja" \
  -DENABLE_KLEE_UCLIBC=ON \
  -DKLEE_UCLIBC_PATH="../../klee-uclibc" \
  -DUSE_CXX11=ON \
- -DLLVM_CONFIG_BINARY="${KLEE_BASE}/llvm-3.4/bin/llvm-config" \
+ -DLLVM_CONFIG_BINARY="$INSTALL_BASE/llvm-3.4/bin/llvm-config" \
  ..
 
 ninja
