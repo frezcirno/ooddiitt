@@ -31,20 +31,20 @@ class KFunction;
   struct InstructionInfo {
     unsigned id;
     const char *file;
-    const char *path;
+    const char *dir;
     unsigned line;
     unsigned assemblyLine;
 
   public:
-    InstructionInfo() : id(0), file(nullptr), path(nullptr), line(0), assemblyLine(0) {};
+    InstructionInfo() : id(0), file(nullptr), dir(nullptr), line(0), assemblyLine(0) {};
     InstructionInfo(unsigned _id,
                     const char *_file,
-                    const char *_path,
+                    const char *_dir,
                     unsigned _line,
                     unsigned _assemblyLine)
       : id(_id),
         file(_file),
-        path(_path),
+        dir(_dir),
         line(_line),
         assemblyLine(_assemblyLine) { }
   };
@@ -61,7 +61,7 @@ class KFunction;
       return (*itr.first).c_str();
     }
 
-    bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Path, unsigned &Line);
+    bool getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Dir, unsigned &Line);
 
     fs::path relative_root;
 

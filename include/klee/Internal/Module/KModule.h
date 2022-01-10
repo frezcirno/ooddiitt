@@ -97,6 +97,9 @@ namespace klee {
     explicit KFunction(llvm::Function*, bool user_fn, KModule *);
     ~KFunction();
 
+    static std::set_ex<std::string> assertionFns;
+
+
     static unsigned getArgRegister(unsigned index) { return index; }
     bool isLoopHeader(const llvm::BasicBlock *bb) const
       { const auto *loop = kloop.getLoopFor(bb); return (loop && loop->getHeader() == bb); }

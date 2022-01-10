@@ -505,7 +505,7 @@ void KModule::transform(const Interpreter::ModuleOptions &opts) {
         KInstruction *ki = kf->instructions[i];
         ki->info = &infos->getInfo(ki->inst);
         if (i == 0) {
-          kf->src_location = ki->info->path;
+          kf->src_location = (fs::path(ki->info->dir) / fs::path(ki->info->file)).string();
         }
       }
       functions.push_back(kf);
@@ -697,7 +697,7 @@ void KModule::prepare() {
         KInstruction *ki = kf->instructions[i];
         ki->info = &infos->getInfo(ki->inst);
         if (i == 0) {
-          kf->src_location = ki->info->path;
+          kf->src_location = (fs::path(ki->info->dir) / fs::path(ki->info->file)).string();
         }
       }
 
@@ -966,6 +966,8 @@ static int getOperandNum(Value *v,
   }
 }
 
+std::set_ex<std::string> KFunction::assertionFns{ "__assert_fail", "_serverAssert", "_serverAssertWithInfo", "_serverPanic"};
+
 KFunction::KFunction(llvm::Function *_function, bool user_fn, KModule *km)
   : function(_function),
     numArgs((unsigned) function->arg_size()),
@@ -1106,11 +1108,16 @@ uint64_t KFunction::calcBBHash(const llvm::BasicBlock *bb) {
     // to change without effecting behavior
     if (const CallInst *ci = dyn_cast<CallInst>(&inst)) {
       if (Function *called = ci->getCalledFunction()) {
-        if (called->getName() == "__assert_fail") {
-          hash.add(called->getName());
+        string fn_name = ci->getName().str();
+        if (assertionFns.contains(fn_name)) {
+          hash.add(fn_name);
           continue;
         }
       }
+    }
+
+    if (const CmpInst *ci = dyn_cast<CmpInst>(&inst)) {
+      hash.add((uint64_t) ci->getPredicate());
     }
 
     for (unsigned idx = 0, end = inst.getNumOperands(); idx != end; ++idx) {

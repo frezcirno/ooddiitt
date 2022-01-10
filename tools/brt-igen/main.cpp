@@ -103,6 +103,7 @@ private:
   unsigned m_pathsExplored; // number of paths explored so far
   pid_t pid_watchdog;
   bool save_all;
+  TerminateReason max_reason;
 
   // used for writing .ktest files
   const vector<string> &args;
@@ -133,6 +134,7 @@ InputGenKleeHandler::InputGenKleeHandler(const vector<string> &_args, const stri
     m_pathsExplored(0),
     pid_watchdog(0),
     save_all(save),
+    max_reason(TerminateReason::Invalid),
     args(_args) {
 
   started_at = sys_clock::now();
@@ -163,7 +165,8 @@ void InputGenKleeHandler::processTestCase(ExecutionState &state, TerminateReason
   assert(i != nullptr);
   assert(!state.isProcessed);
 
-  if (!NoOutput && (save_all || state.reached_target || term_reason == TerminateReason::Timeout)) {
+  if (NoOutput) return;
+  if (term_reason == TerminateReason::Timeout || ((save_all || state.reached_target) && (term_reason <= max_reason))) {
 
     // try to get a solution for the initial state
     vector<ExprSolution> exprs;

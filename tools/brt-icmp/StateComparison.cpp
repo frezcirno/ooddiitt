@@ -629,6 +629,7 @@ void StateComparator::compareExternalCallLog(ExecutionState *state1, ExecutionSt
 
   // find set of external call in common
   map<string, Function *> externs1, externs2;
+
   for (auto &call : state1->extern_call_log) {
     Function *fn = call.first;
     externs1.insert(make_pair(fn->getName(), fn));
@@ -691,7 +692,6 @@ void StateComparator::compareExternalCallArgs(llvm::Function *fn, const vector<r
 
   assert(!checkpoints.empty());
   auto &diffs = checkpoints.back().diffs;
-
   unsigned idx = 0;
   for (auto itr = fn->arg_begin(), end = fn->arg_end(); itr != end; ++itr) {
     Type *type = itr->getType();
@@ -699,12 +699,8 @@ void StateComparator::compareExternalCallArgs(llvm::Function *fn, const vector<r
       ref<ConstantExpr> expr1 = dyn_cast<ConstantExpr>(args1[idx]);
       ref<ConstantExpr> expr2 = dyn_cast<ConstantExpr>(args2[idx]);
       if (!expr1.isNull() && !expr2.isNull()) {
-        if (expr1->getWidth() == expr2->getWidth()) {
-          if (expr1->getZExtValue() != expr2->getZExtValue()) {
-            diffs.emplace_back(DiffType::delta, fn->getName(), "different arg value");
-          }
-        } else {
-          diffs.emplace_back(DiffType::delta, fn->getName(), "different arg width");
+        if (expr1->getAPValue() != expr2->getAPValue()) {
+          diffs.emplace_back(DiffType::delta, fn->getName(), "different arg value");
         }
       }
     }

@@ -88,23 +88,24 @@ static void buildInstructionToLineMap(Module *m, std::map<const Instruction*, un
   }
 }
 
-static void getDSPIPath(DILocation Loc, fs::path &file, fs::path &path) {
+//static void getDSPIPath(DILocation Loc, fs::path &file, fs::path &dir) {
 
-  fs::path pdir(Loc.getDirectory());
-  fs::path pfile(Loc.getFilename());
-  fs::path pfull = pdir/pfile;
-  path = pfull.string();
-  file = pfull.filename().string();
-}
+  //  fs::path pdir(Loc.getDirectory());
+  //  fs::path pfile(Loc.getFilename());
+  //  fs::path pfull = pdir/pfile;
+//  dir = Loc.getDirectory();
+//  file = Loc.getFilename();
+//  file = pfull.filename().string();
+//}
 
-bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Path, unsigned &Line) {
+bool InstructionInfoTable::getInstructionDebugInfo(const llvm::Instruction *I, std::string &File, std::string &Dir, unsigned &Line) {
 
   if (MDNode *N = I->getMetadata("dbg")) {
     DILocation Loc(N);
-    fs::path f, p;
-    getDSPIPath(Loc, f, p);
-    File = f.string();
-    Path = fs::relative(p, relative_root).string();
+//    fs::path f, p;
+//    getDSPIPath(Loc, f, p);
+    File = Loc.getFilename();
+    Dir = fs::relative(fs::path(Loc.getDirectory()), relative_root).string();
     Line = Loc.getLineNumber();
     return true;
   }
@@ -129,14 +130,14 @@ void InstructionInfoTable::BuildTable(llvm::Module *m) {
     // so we first search forward to find the first instruction with debug info,
     // if any.
     const char *file = "na";
-    const char *path = "na";
+    const char *dir = "na";
     unsigned line = 0;
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
-      std::string tmp_file, tmp_path;
-      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+      std::string tmp_file, tmp_dir;
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_dir, line)) {
         file = internString(tmp_file);
-        path = internString(tmp_path);
+        dir = internString(tmp_dir);
         break;
       }
     }
@@ -145,17 +146,17 @@ void InstructionInfoTable::BuildTable(llvm::Module *m) {
     for (auto inst_it = inst_begin(fn_it), inst_ie = inst_end(fn_it); inst_it != inst_ie; ++inst_it) {
       Instruction *instr = &*inst_it;
       unsigned assemblyLine = lineTable[instr];
-      std::string tmp_file, tmp_path;
+      std::string tmp_file, tmp_dir;
 
       // Update our source level debug information.
-      if (getInstructionDebugInfo(instr, tmp_file, tmp_path, line)) {
+      if (getInstructionDebugInfo(instr, tmp_file, tmp_dir, line)) {
         file = internString(tmp_file);
-        path = internString(tmp_path);
+        dir = internString(tmp_dir);
       }
 
       MDNode *N = md_builder.create(assemblyLine);
       instr->setMetadata(mdkline, N);
-      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, path, line, assemblyLine)));
+      infos.insert(std::make_pair(instr, InstructionInfo(id++, file, dir, line, assemblyLine)));
     }
   }
 }

@@ -2049,6 +2049,7 @@ void LocalExecutor::executeInstruction(ExecutionState &state, KInstruction *ki) 
             ++idx;
           }
         }
+
         executeCall(state, ki, fn, arguments);
       } else if (fn->hasFnAttribute(Attribute::NoReturn)) {
         // no need to stub a noreturn fn.
