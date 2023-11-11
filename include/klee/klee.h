@@ -12,11 +12,13 @@
 
 #include "stdint.h"
 #include "stddef.h"
+#include "stdlib.h"
+#include "stdio.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-  
+
   /* Add an accesible memory object at a user specified location. It
    * is the users responsibility to make sure that these memory
    * objects do not overlap. These memory objects will also
@@ -80,7 +82,7 @@ extern "C" {
   
   /* print the tree associated w/ a given expression. */
   void klee_print_expr(const char *msg, ...);
-  
+
   /* NB: this *does not* fork n times and return [0,n) in children.
    * It makes n be symbolic and returns: caller must compare N times.
    */
@@ -95,6 +97,29 @@ extern "C" {
    ? (void) (0)                                                         \
    : __assert_fail (#expr, __FILE__, __LINE__, __PRETTY_FUNCTION__))    \
 
+#ifdef ORACLE_ASSERT
+
+static inline void __o_assert_fail(unsigned id) {                       \
+  char *log_file = getenv("O_ASSERT_LOG");                              \
+  if (log_file == NULL) {                                               \
+    log_file = "/tmp/o_assert.txt";                                     \
+  }                                                                     \
+  FILE *fp = fopen(log_file, "a");                                      \
+  if (fp != NULL) {                                                     \
+    fprintf(fp, "o_assert %02u\n", id);                                 \
+    fclose(fp);                                                         \
+  }                                                                     \
+}
+
+# define o_assert(id, expr)                                             \
+     ((expr)                                                            \
+   ? (void) (0)                                                         \
+   : __o_assert_fail (id))                                              \
+
+#else
+# define o_assert(id, expr)		((void) 0)
+#endif
+
   /* Return true if the given value is symbolic (represented by an
    * expression) in the current state. This is primarily for debugging
    * and writing tests but can also be used to enable prints in replay
@@ -107,6 +132,7 @@ extern "C" {
      and may have peculiar semantics. */
 
   void klee_assume(uintptr_t condition);
+  void klee_message(const char *message);
   void klee_warning(const char *message);
   void klee_warning_once(const char *message);
   void klee_prefer_cex(void *object, uintptr_t condition);

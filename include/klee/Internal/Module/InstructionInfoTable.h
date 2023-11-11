@@ -14,6 +14,9 @@
 #include <string>
 #include <set>
 
+#include <boost/filesystem.hpp>
+namespace fs=boost::filesystem;
+
 namespace llvm {
   class Function;
   class Instruction;
@@ -22,49 +25,59 @@ namespace llvm {
 
 namespace klee {
 
+class KFunction;
+
   /* Stores debug information for a KInstruction */
   struct InstructionInfo {
     unsigned id;
-    const std::string &file;
+    const char *file;
+    const char *dir;
     unsigned line;
     unsigned assemblyLine;
 
   public:
+    InstructionInfo() : id(0), file(nullptr), dir(nullptr), line(0), assemblyLine(0) {};
     InstructionInfo(unsigned _id,
-                    const std::string &_file,
+                    const char *_file,
+                    const char *_dir,
                     unsigned _line,
                     unsigned _assemblyLine)
       : id(_id), 
         file(_file),
+        dir(_dir),
         line(_line),
         assemblyLine(_assemblyLine) {
     }
   };
 
   class InstructionInfoTable {
-    struct ltstr { 
-      bool operator()(const std::string *a, const std::string *b) const {
-        return *a<*b;
-      }
-    };
-
-    std::string dummyString;
-    InstructionInfo dummyInfo;
+//    std::string dummyString;
+//    InstructionInfo dummyInfo;
     std::map<const llvm::Instruction*, InstructionInfo> infos;
-    std::set<const std::string *, ltstr> internedStrings;
+    std::set<std::string> internedStrings;
 
   private:
-    const std::string *internString(std::string s);
+    const char *internString(const std::string &s) {
+      auto itr = internedStrings.insert(s);
+      return (*itr.first).c_str();
+    }
+
     bool getInstructionDebugInfo(const llvm::Instruction *I,
-                                 const std::string *&File, unsigned &Line);
+                                 std::string &File, std::string &Dir, unsigned &Line);
+
+    fs::path relative_root;
 
   public:
-    InstructionInfoTable(llvm::Module *m);
-    ~InstructionInfoTable();
+    InstructionInfoTable() { relative_root = fs::current_path(); };
+    virtual ~InstructionInfoTable() = default;
+
+    void LoadTable(llvm::Module *m);
+    void BuildTable(llvm::Module *m);
 
     unsigned getMaxID() const;
     const InstructionInfo &getInfo(const llvm::Instruction*) const;
     const InstructionInfo &getFunctionInfo(const llvm::Function*) const;
+//    std::map<const llvm::Instruction *,InstructionInfo> &getInfos() { return infos; }
   };
 
 }

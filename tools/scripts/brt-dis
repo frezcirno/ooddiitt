@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+
+import argparse
+import subprocess
+import io
+import os
+import re
+
+
+def extract_metadata(txt, trans):
+
+    pattern = re.compile(r"^!(\d+)\s=\smetadata\s!{i32\s(\d+)}$")
+    lines = io.StringIO(txt)
+    for line in lines:
+      m = pattern.match(line)
+      if m:
+        trans[int(m.group(1))] = int(m.group(2))
+    return
+
+
+def rewrite_metadata(txt, trans, filename):
+
+  with open(filename, "w") as outfile:
+    pattern = re.compile(r"!brt-klee\.fnID\s!(\d+),\s!brt-klee\.bbID\s!(\d+)[\s,]*")
+    lines = io.StringIO(txt)
+    for line in lines:
+      m = pattern.search(line)
+      if m:
+        start, end = m.span()
+        fnID = int(m.group(1))
+        bbID = int(m.group(2))
+        if fnID in trans and bbID in trans:
+          line=line.rstrip()
+          line = line[0:start] + line[end:] + " ; fnID=" + str(trans[fnID]) + "," + "bbID=" + str(trans[bbID]) + "\n"
+      print(line, file=outfile, end='')
+
+
+def raw_disassemble(file):
+
+  result = ""
+  completed = subprocess.run(['llvm-dis-3.4', '-o=-', file], stdout=subprocess.PIPE, encoding='utf-8')
+  if completed.returncode == 0:
+    result = completed.stdout
+  return result
+
+
+def disassemble(file):
+
+  filename, ext = os.path.splitext(file)
+  if ext == ".bc":
+    txt = raw_disassemble(file)
+    if len(txt) > 0:
+      trans = {}
+      extract_metadata(txt, trans)
+      rewrite_metadata(txt, trans, filename + '.llm')
+      return True
+  return False
+
+
+def main(args):
+
+  for file in args.src:
+    if not disassemble(file):
+      print("Failed to disassemble:", file)
+      return 1
+
+  return 0
+
+
+if __name__ == "__main__":
+
+  parser = argparse.ArgumentParser(description='produces readable, marked assembly from bc file')
+  parser.add_argument('src', metavar='module.bc', nargs='+', type=str, help='llvm')
+
+  args = parser.parse_args()
+  exit(main(args))

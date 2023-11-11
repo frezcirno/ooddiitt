@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "SpecialFunctionHandler.h"
 #include "TimingSolver.h"
 
@@ -18,7 +18,7 @@
 #include "klee/Internal/Support/Debug.h"
 #include "klee/Internal/Support/ErrorHandling.h"
 
-#include "Executor.h"
+#include "LocalExecutor.h"
 #include "MemoryManager.h"
 
 #include "klee/CommandLine.h"
@@ -51,11 +51,10 @@ namespace {
                      "Note: option is expensive when creating lots of tests (default=false)"));
 
   cl::opt<bool>
-  SilentKleeAssume("silent-klee-assume",
-                   cl::init(false),
-                   cl::desc("Silently terminate paths with an infeasible "
-                            "condition given to klee_assume() rather than "
-                            "emitting an error (default=false)"));
+  StubMemAlloc("stub-mem-alloc",
+               cl::init(false),
+               cl::desc("stub memory allocation functions"));
+
 }
 
 
@@ -63,9 +62,6 @@ namespace {
 /// with terminateState calls.
 
 ///
-
-
-
 // FIXME: We are more or less committed to requiring an intrinsic
 // library these days. We can move some of this stuff there,
 // especially things like realloc which have complicated semantics
@@ -83,9 +79,9 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   addDNR("_assert", handleAssert),
   addDNR("abort", handleAbort),
   addDNR("_exit", handleExit),
-  { "exit", &SpecialFunctionHandler::handleExit, true, false, true },
+  addDNR("exit", handleExit),
   addDNR("klee_abort", handleAbort),
-  addDNR("klee_silent_exit", handleSilentExit),  
+  addDNR("klee_silent_exit", handleSilentExit),
   addDNR("klee_report_error", handleReportError),
 
   add("calloc", handleCalloc, true),
@@ -111,6 +107,7 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   add("klee_print_range", handlePrintRange, false),
   add("klee_set_forking", handleSetForking, false),
   add("klee_stack_trace", handleStackTrace, false),
+  add("klee_message", handleMessage, false),
   add("klee_warning", handleWarning, false),
   add("klee_warning_once", handleWarningOnce, false),
   add("klee_alias_function", handleAliasFunction, false),
@@ -141,8 +138,45 @@ static SpecialFunctionHandler::HandlerInfo handlerInfo[] = {
   add("__ubsan_handle_divrem_overflow", handleDivRemOverflow, false),
 
 #undef addDNR
-#undef add  
+#undef add
 };
+
+// static
+void SpecialFunctionHandler::filterHandledFunctions(std::set<const llvm::Value*> &fns) {
+
+  // gather a list of functions handled here
+  std::set<std::string> names;
+  for (unsigned idx = 0, end = sizeof(handlerInfo)/sizeof(handlerInfo[0]); idx != end; ++idx) {
+    names.insert(handlerInfo[idx].name);
+  }
+  // remove functions defined here
+  auto itr = fns.begin(), end = fns.end();
+  while (itr != end) {
+    const llvm::Value *val = *itr;
+    const auto *fn = dyn_cast<const llvm::Function>(val);
+    if (fn != nullptr && fn->hasName() && names.count(fn->getName().str())) {
+      itr = fns.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
+}
+
+// static
+void SpecialFunctionHandler::filterHandledGlobals(std::set<const llvm::Value*> &gbs) {
+
+  // remove __dso_handle, if present
+  auto itr = gbs.begin(), end = gbs.end();
+  while (itr != end) {
+    const Value *v = *itr;
+    if (v->getName().str() == "__dso_handle") {
+      itr = gbs.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
+}
+
 
 SpecialFunctionHandler::const_iterator SpecialFunctionHandler::begin() {
   return SpecialFunctionHandler::const_iterator(handlerInfo);
@@ -166,68 +200,69 @@ SpecialFunctionHandler::const_iterator& SpecialFunctionHandler::const_iterator::
 }
 
 int SpecialFunctionHandler::size() {
-	return sizeof(handlerInfo)/sizeof(handlerInfo[0]);
+        return sizeof(handlerInfo)/sizeof(handlerInfo[0]);
 }
 
-SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor) 
-  : executor(_executor) {}
+SpecialFunctionHandler::SpecialFunctionHandler(Executor &_executor)
+  : executor(_executor), lcl_exec(nullptr) {}
 
+
+static std::set<std::string> alloc_fns = {"calloc", "malloc", "realloc", "free"};
 
 void SpecialFunctionHandler::prepare() {
-  unsigned N = size();
 
+  unsigned N = size();
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
-    Function *f = executor.kmodule->module->getFunction(hi.name);
-    
-    // No need to create if the function doesn't exist, since it cannot
-    // be called in that case.
-  
-    if (f && (!hi.doNotOverride || f->isDeclaration())) {
-      // Make sure NoReturn attribute is set, for optimization and
-      // coverage counting.
-      if (hi.doesNotReturn)
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
-        f->addFnAttr(Attribute::NoReturn);
-#elif LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-        f->addFnAttr(Attributes::NoReturn);
-#else
-        f->addFnAttr(Attribute::NoReturn);
-#endif
+    if (!StubMemAlloc || alloc_fns.count(hi.name) == 0) {
 
-      // Change to a declaration since we handle internally (simplifies
-      // module and allows deleting dead code).
-      if (!f->isDeclaration())
-        f->deleteBody();
+      Function *f = executor.kmodule->module->getFunction(hi.name);
+      executor.kmodule->addInternalFunction(f);
+
+      // No need to create if the function doesn't exist, since it cannot
+      // be called in that case.
+
+      if (f && (!hi.doNotOverride || f->isDeclaration())) {
+        // Make sure NoReturn attribute is set, for optimization and
+        // coverage counting.
+        if (hi.doesNotReturn)
+          f->addFnAttr(Attribute::NoReturn);
+
+        // Change to a declaration since we handle internally (simplifies
+        // module and allows deleting dead code).
+        if (!f->isDeclaration())
+          f->deleteBody();
+      }
     }
   }
 }
 
 void SpecialFunctionHandler::bind() {
-  unsigned N = sizeof(handlerInfo)/sizeof(handlerInfo[0]);
 
+  unsigned N = sizeof(handlerInfo)/sizeof(handlerInfo[0]);
   for (unsigned i=0; i<N; ++i) {
     HandlerInfo &hi = handlerInfo[i];
-    Function *f = executor.kmodule->module->getFunction(hi.name);
-    
-    if (f && (!hi.doNotOverride || f->isDeclaration()))
-      handlers[f] = std::make_pair(hi.handler, hi.hasReturnValue);
+    if (!StubMemAlloc || alloc_fns.count(hi.name) == 0) {
+      Function *f = executor.kmodule->module->getFunction(hi.name);
+      if (f && (!hi.doNotOverride || f->isDeclaration())) {
+        handlers[f] = std::make_pair(hi.handler, hi.hasReturnValue);
+      }
+    }
   }
 }
 
 
-bool SpecialFunctionHandler::handle(ExecutionState &state, 
+bool SpecialFunctionHandler::handle(ExecutionState &state,
                                     Function *f,
                                     KInstruction *target,
                                     std::vector< ref<Expr> > &arguments) {
   handlers_ty::iterator it = handlers.find(f);
-  if (it != handlers.end()) {    
+  if (it != handlers.end()) {
     Handler h = it->second.first;
     bool hasReturnValue = it->second.second;
      // FIXME: Check this... add test?
     if (!hasReturnValue && !target->inst->use_empty()) {
-      executor.terminateStateOnExecError(state, 
-                                         "expected return value from void special function");
+      executor.terminateStateOnComplete(state, TerminateReason::InvalidCall, "expected return value from void special function");
     } else {
       (this->*h)(state, target, arguments);
     }
@@ -237,11 +272,18 @@ bool SpecialFunctionHandler::handle(ExecutionState &state,
   }
 }
 
+bool SpecialFunctionHandler::isSpecial(llvm::Function *f) const {
+
+  if (f == nullptr) return false;
+  const auto &itr = handlers.find(f);
+  return (itr != handlers.end());
+}
+
 /****/
 
 // reads a concrete string from memory
-std::string 
-SpecialFunctionHandler::readStringAtAddress(ExecutionState &state, 
+std::string
+SpecialFunctionHandler::readStringAtAddress(ExecutionState &state,
                                             ref<Expr> addressExpr) {
   ObjectPair op;
   addressExpr = executor.toUnique(state, addressExpr);
@@ -249,8 +291,8 @@ SpecialFunctionHandler::readStringAtAddress(ExecutionState &state,
   if (!state.addressSpace.resolveOne(address, op))
     assert(0 && "XXX out of bounds / multiple resolution unhandled");
   bool res __attribute__ ((unused));
-  assert(executor.solver->mustBeTrue(state, 
-                                     EqExpr::create(address, 
+  assert(executor.solver->mustBeTrue(state,
+                                     EqExpr::create(address,
                                                     op.first->getBaseExpr()),
                                      res) &&
          res &&
@@ -264,12 +306,12 @@ SpecialFunctionHandler::readStringAtAddress(ExecutionState &state,
   for (i = 0; i < mo->size - 1; i++) {
     ref<Expr> cur = os->read8(i);
     cur = executor.toUnique(state, cur);
-    assert(isa<ConstantExpr>(cur) && 
+    assert(isa<ConstantExpr>(cur) &&
            "hit symbolic char while reading concrete string");
     buf[i] = cast<ConstantExpr>(cur)->getZExtValue(8);
   }
   buf[i] = 0;
-  
+
   std::string result(buf);
   delete[] buf;
   return result;
@@ -280,28 +322,42 @@ SpecialFunctionHandler::readStringAtAddress(ExecutionState &state,
 void SpecialFunctionHandler::handleAbort(ExecutionState &state,
                            KInstruction *target,
                            std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==0 && "invalid number of arguments to abort");
-  executor.terminateStateOnError(state, "abort failure", Executor::Abort);
+
+  ObjectPair pr = state.addressSpace.findMemoryObjectByName("#program_name");
+  if (pr.first != nullptr) {
+    // if this memory object exists, then this executed from main.
+    // we need to return a exit code
+    state.last_ret_value = ConstantExpr::create(129, Expr::Int32);
+  }
+  executor.terminateStateOnComplete(state, TerminateReason::Abort);
 }
 
 void SpecialFunctionHandler::handleExit(ExecutionState &state,
                            KInstruction *target,
                            std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==1 && "invalid number of arguments to exit");
-  executor.terminateStateOnExit(state);
+
+  state.last_ret_value = arguments[0];
+  executor.terminateStateOnComplete(state, TerminateReason::Exit);
 }
 
 void SpecialFunctionHandler::handleSilentExit(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==1 && "invalid number of arguments to exit");
-  executor.terminateState(state);
+  state.last_ret_value = arguments[0];
+  executor.terminateStateOnComplete(state, TerminateReason::Exit, "silent exit");
 }
 
 void SpecialFunctionHandler::handleAliasFunction(ExecutionState &state,
-						 KInstruction *target,
-						 std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==2 && 
+                                                 KInstruction *target,
+                                                 std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
+  assert(arguments.size()==2 &&
          "invalid number of arguments to klee_alias_function");
   std::string old_fn = readStringAtAddress(state, arguments[0]);
   std::string new_fn = readStringAtAddress(state, arguments[1]);
@@ -315,36 +371,39 @@ void SpecialFunctionHandler::handleAliasFunction(ExecutionState &state,
 void SpecialFunctionHandler::handleAssert(ExecutionState &state,
                                           KInstruction *target,
                                           std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==3 && "invalid number of arguments to _assert");  
-  executor.terminateStateOnError(state,
-				 "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]),
-				 Executor::Assert);
+  UNUSED(target);
+  assert(arguments.size()==3 && "invalid number of arguments to _assert");
+  executor.terminateStateOnComplete(state, TerminateReason::Assert,  "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
 }
 
 void SpecialFunctionHandler::handleAssertFail(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==4 && "invalid number of arguments to __assert_fail");
-  executor.terminateStateOnError(state,
-				 "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]),
-				 Executor::Assert);
+  executor.terminateStateOnComplete(state, TerminateReason::Assert, "ASSERTION FAIL: " + readStringAtAddress(state, arguments[0]));
 }
 
 void SpecialFunctionHandler::handleReportError(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
+  UNUSED(state);
+  UNUSED(target);
   assert(arguments.size()==4 && "invalid number of arguments to klee_report_error");
-  
+
   // arguments[0], arguments[1] are file, line
-  executor.terminateStateOnError(state,
-				 readStringAtAddress(state, arguments[2]),
-				 Executor::ReportError,
-				 readStringAtAddress(state, arguments[3]).c_str());
+//  executor.terminateStateOnError(state,
+//                                 TerminateReason::ReportError,
+//                                 readStringAtAddress(state, arguments[2]) + ":" + readStringAtAddress(state, arguments[3]));
 }
 
 void SpecialFunctionHandler::handleMerge(ExecutionState &state,
                            KInstruction *target,
                            std::vector<ref<Expr> > &arguments) {
+  UNUSED(state);
+  UNUSED(target);
+  UNUSED(arguments);
+
   // nop
 }
 
@@ -353,13 +412,13 @@ void SpecialFunctionHandler::handleNew(ExecutionState &state,
                          std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new");
-
-  executor.executeAlloc(state, arguments[0], false, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDelete(ExecutionState &state,
                             KInstruction *target,
                             std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   // FIXME: Should check proper pairing with allocation type (malloc/free,
   // new/delete, new[]/delete[]).
 
@@ -373,12 +432,13 @@ void SpecialFunctionHandler::handleNewArray(ExecutionState &state,
                               std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to new[]");
-  executor.executeAlloc(state, arguments[0], false, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleDeleteArray(ExecutionState &state,
                                  KInstruction *target,
                                  std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to delete[]");
   executor.executeFree(state, arguments[0]);
@@ -389,30 +449,25 @@ void SpecialFunctionHandler::handleMalloc(ExecutionState &state,
                                   std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
   assert(arguments.size()==1 && "invalid number of arguments to malloc");
-  executor.executeAlloc(state, arguments[0], false, target);
+  executor.executeDynamicAlloc(state, arguments[0], MemKind::heap, target);
 }
 
 void SpecialFunctionHandler::handleAssume(ExecutionState &state,
                             KInstruction *target,
                             std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==1 && "invalid number of arguments to klee_assume");
-  
+
   ref<Expr> e = arguments[0];
-  
+
   if (e->getWidth() != Expr::Bool)
     e = NeExpr::create(e, ConstantExpr::create(0, e->getWidth()));
-  
+
   bool res;
   bool success __attribute__ ((unused)) = executor.solver->mustBeFalse(state, e, res);
   assert(success && "FIXME: Unhandled solver failure");
   if (res) {
-    if (SilentKleeAssume) {
-      executor.terminateState(state);
-    } else {
-      executor.terminateStateOnError(state,
-                                     "invalid klee_assume call (provably false)",
-                                     Executor::User);
-    }
+    executor.terminateStateOnComplete(state, TerminateReason::InvalidAssume, "invalid klee_assume call (provably false)");
   } else {
     executor.addConstraint(state, e);
   }
@@ -423,7 +478,7 @@ void SpecialFunctionHandler::handleIsSymbolic(ExecutionState &state,
                                 std::vector<ref<Expr> > &arguments) {
   assert(arguments.size()==1 && "invalid number of arguments to klee_is_symbolic");
 
-  executor.bindLocal(target, state, 
+  executor.bindLocal(target, state,
                      ConstantExpr::create(!isa<ConstantExpr>(arguments[0]),
                                           Expr::Int32));
 }
@@ -431,8 +486,8 @@ void SpecialFunctionHandler::handleIsSymbolic(ExecutionState &state,
 void SpecialFunctionHandler::handlePreferCex(ExecutionState &state,
                                              KInstruction *target,
                                              std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to klee_prefex_cex");
+  UNUSED(target);
+  assert(arguments.size()==2 && "invalid number of arguments to klee_prefex_cex");
 
   ref<Expr> cond = arguments[1];
   if (cond->getWidth() != Expr::Bool)
@@ -440,9 +495,8 @@ void SpecialFunctionHandler::handlePreferCex(ExecutionState &state,
 
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "prefex_cex");
-  
-  assert(rl.size() == 1 &&
-         "prefer_cex target must resolve to precisely one object");
+
+  assert(rl.size() == 1 && "prefer_cex target must resolve to precisely one object");
 
   rl[0].first.first->cexPreferences.push_back(cond);
 }
@@ -457,6 +511,7 @@ void SpecialFunctionHandler::handlePosixPreferCex(ExecutionState &state,
 void SpecialFunctionHandler::handlePrintExpr(ExecutionState &state,
                                   KInstruction *target,
                                   std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==2 &&
          "invalid number of arguments to klee_print_expr");
 
@@ -467,40 +522,51 @@ void SpecialFunctionHandler::handlePrintExpr(ExecutionState &state,
 void SpecialFunctionHandler::handleSetForking(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==1 &&
          "invalid number of arguments to klee_set_forking");
   ref<Expr> value = executor.toUnique(state, arguments[0]);
-  
+
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(value)) {
     state.forkDisabled = CE->isZero();
   } else {
-    executor.terminateStateOnError(state, 
-                                   "klee_set_forking requires a constant arg",
-                                   Executor::User);
+    executor.terminateStateOnComplete(state, TerminateReason::Invalid, "klee_set_forking requires a constant arg");
   }
 }
 
 void SpecialFunctionHandler::handleStackTrace(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
+  UNUSED(arguments);
   state.dumpStack(outs());
+}
+
+void SpecialFunctionHandler::handleMessage(ExecutionState &state,
+                                           KInstruction *target,
+                                           std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
+  assert(arguments.size()==1 && "invalid number of arguments to klee_warning");
+
+  std::string msg_str = readStringAtAddress(state, arguments[0]);
+  klee_message("%s: %s", state.stack.back().kf->function->getName().data(), msg_str.c_str());
 }
 
 void SpecialFunctionHandler::handleWarning(ExecutionState &state,
                                            KInstruction *target,
                                            std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==1 && "invalid number of arguments to klee_warning");
 
   std::string msg_str = readStringAtAddress(state, arguments[0]);
-  klee_warning("%s: %s", state.stack.back().kf->function->getName().data(), 
-               msg_str.c_str());
+  klee_warning("%s: %s", state.stack.back().kf->function->getName().data(), msg_str.c_str());
 }
 
 void SpecialFunctionHandler::handleWarningOnce(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_warning_once");
+  UNUSED(target);
+  assert(arguments.size()==1 && "invalid number of arguments to klee_warning_once");
 
   std::string msg_str = readStringAtAddress(state, arguments[0]);
   klee_warning_once(0, "%s: %s", state.stack.back().kf->function->getName().data(),
@@ -510,6 +576,7 @@ void SpecialFunctionHandler::handleWarningOnce(ExecutionState &state,
 void SpecialFunctionHandler::handlePrintRange(ExecutionState &state,
                                   KInstruction *target,
                                   std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   assert(arguments.size()==2 &&
          "invalid number of arguments to klee_print_range");
 
@@ -521,13 +588,13 @@ void SpecialFunctionHandler::handlePrintRange(ExecutionState &state,
     bool success __attribute__ ((unused)) = executor.solver->getValue(state, arguments[1], value);
     assert(success && "FIXME: Unhandled solver failure");
     bool res;
-    success = executor.solver->mustBeTrue(state, 
-                                          EqExpr::create(arguments[1], value), 
+    success = executor.solver->mustBeTrue(state,
+                                          EqExpr::create(arguments[1], value),
                                           res);
     assert(success && "FIXME: Unhandled solver failure");
     if (res) {
       llvm::errs() << " == " << value;
-    } else { 
+    } else {
       llvm::errs() << " ~= " << value;
       std::pair< ref<Expr>, ref<Expr> > res =
         executor.solver->getRange(state, arguments[1]);
@@ -541,17 +608,15 @@ void SpecialFunctionHandler::handleGetObjSize(ExecutionState &state,
                                   KInstruction *target,
                                   std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_get_obj_size");
+  assert(arguments.size()==1 && "invalid number of arguments to klee_get_obj_size");
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "klee_get_obj_size");
-  for (Executor::ExactResolutionList::iterator it = rl.begin(), 
-         ie = rl.end(); it != ie; ++it) {
-    executor.bindLocal(
-        target, *it->second,
-        ConstantExpr::create(it->first.first->size,
-                             executor.kmodule->targetData->getTypeSizeInBits(
-                                 target->inst->getType())));
+  for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
+    executor.bindLocal(target, *it->second,
+                        ConstantExpr::create(it->first.first->size, executor.kmodule->targetData->getTypeSizeInBits(target->inst->getType())));
+  }
+  if (target && rl.size() > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (rl.size() - 1);
   }
 }
 
@@ -559,100 +624,82 @@ void SpecialFunctionHandler::handleGetErrno(ExecutionState &state,
                                             KInstruction *target,
                                             std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
-  assert(arguments.size()==0 &&
-         "invalid number of arguments to klee_get_errno");
-  executor.bindLocal(target, state,
-                     ConstantExpr::create(errno, Expr::Int32));
+  assert(arguments.size()==0 && "invalid number of arguments to klee_get_errno");
+  executor.bindLocal(target, state, ConstantExpr::create(errno, Expr::Int32));
 }
 
 void SpecialFunctionHandler::handleCalloc(ExecutionState &state,
                             KInstruction *target,
                             std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to calloc");
+  assert(arguments.size()==2 && "invalid number of arguments to calloc");
 
-  ref<Expr> size = MulExpr::create(arguments[0],
-                                   arguments[1]);
-  executor.executeAlloc(state, size, false, target, true);
+  ref<Expr> size = MulExpr::create(arguments[0], arguments[1]);
+  executor.executeDynamicAlloc(state, size, MemKind::heap, target, true);
 }
 
 void SpecialFunctionHandler::handleRealloc(ExecutionState &state,
                             KInstruction *target,
                             std::vector<ref<Expr> > &arguments) {
   // XXX should type check args
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to realloc");
+  assert(arguments.size()==2 && "invalid number of arguments to realloc");
   ref<Expr> address = arguments[0];
   ref<Expr> size = arguments[1];
 
-  Executor::StatePair zeroSize = executor.fork(state, 
-                                               Expr::createIsZero(size), 
-                                               true);
-  
-  if (zeroSize.first) { // size == 0
-    executor.executeFree(*zeroSize.first, address, target);   
+  Executor::StatePair zeroPointer = executor.fork(state, Expr::createIsZero(address), true);
+  assert(zeroPointer.first == nullptr || zeroPointer.second == nullptr);
+
+  unsigned counter = 0;
+  if (zeroPointer.first) { // address == 0
+    executor.executeDynamicAlloc(*zeroPointer.first, size, MemKind::heap, target);
+    counter += 1;
   }
-  if (zeroSize.second) { // size != 0
-    Executor::StatePair zeroPointer = executor.fork(*zeroSize.second, 
-                                                    Expr::createIsZero(address), 
-                                                    true);
-    
-    if (zeroPointer.first) { // address == 0
-      executor.executeAlloc(*zeroPointer.first, size, false, target);
-    } 
-    if (zeroPointer.second) { // address != 0
-      Executor::ExactResolutionList rl;
-      executor.resolveExact(*zeroPointer.second, address, rl, "realloc");
-      
-      for (Executor::ExactResolutionList::iterator it = rl.begin(), 
-             ie = rl.end(); it != ie; ++it) {
-        executor.executeAlloc(*it->second, size, false, target, false, 
-                              it->first.second);
-      }
+  if (zeroPointer.second) {
+
+    // address != 0
+    ObjectPair op;
+    LocalExecutor::ResolveResult result = lcl_exec->resolveMO(state, address, op);
+    if (result == LocalExecutor::ResolveResult::OK) {
+      executor.executeDynamicAlloc(*zeroPointer.second, size, MemKind::heap, target, false, op.second);
+      counter += 1;
+    } else {
+      executor.terminateStateOnComplete(*zeroPointer.second, TerminateReason::MemFault, "cannot find object to realloc");
     }
+  }
+  if (target && counter > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 
 void SpecialFunctionHandler::handleFree(ExecutionState &state,
                           KInstruction *target,
                           std::vector<ref<Expr> > &arguments) {
+  UNUSED(target);
   // XXX should type check args
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to free");
+  assert(arguments.size()==1 && "invalid number of arguments to free");
   executor.executeFree(state, arguments[0]);
 }
 
 void SpecialFunctionHandler::handleCheckMemoryAccess(ExecutionState &state,
                                                      KInstruction *target,
-                                                     std::vector<ref<Expr> > 
+                                                     std::vector<ref<Expr> >
                                                        &arguments) {
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to klee_check_memory_access");
+  UNUSED(target);
+  assert(arguments.size()==2 && "invalid number of arguments to klee_check_memory_access");
 
   ref<Expr> address = executor.toUnique(state, arguments[0]);
   ref<Expr> size = executor.toUnique(state, arguments[1]);
   if (!isa<ConstantExpr>(address) || !isa<ConstantExpr>(size)) {
-    executor.terminateStateOnError(state, 
-                                   "check_memory_access requires constant args",
-				   Executor::User);
+    executor.terminateStateOnComplete(state, TerminateReason::Invalid, "check_memory_access requires constant args");
   } else {
     ObjectPair op;
 
     if (!state.addressSpace.resolveOne(cast<ConstantExpr>(address), op)) {
-      executor.terminateStateOnError(state,
-                                     "check_memory_access: memory error",
-				     Executor::Ptr, NULL,
-                                     executor.getAddressInfo(state, address));
+      executor.terminateStateOnComplete(state, TerminateReason::MemFault, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
     } else {
-      ref<Expr> chk = 
-        op.first->getBoundsCheckPointer(address, 
-                                        cast<ConstantExpr>(size)->getZExtValue());
+      ref<Expr> chk = op.second->getBoundsCheckPointer(address, cast<ConstantExpr>(size)->getZExtValue());
       if (!chk->isTrue()) {
-        executor.terminateStateOnError(state,
-                                       "check_memory_access: memory error",
-				       Executor::Ptr, NULL,
-                                       executor.getAddressInfo(state, address));
+        executor.terminateStateOnComplete(state, TerminateReason::MemFault, "check_memory_access: memory error" + executor.getAddressInfo(state, address));
       }
     }
   }
@@ -661,27 +708,29 @@ void SpecialFunctionHandler::handleCheckMemoryAccess(ExecutionState &state,
 void SpecialFunctionHandler::handleGetValue(ExecutionState &state,
                                             KInstruction *target,
                                             std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_get_value");
+  assert(arguments.size()==1 && "invalid number of arguments to klee_get_value");
 
   executor.executeGetValue(state, arguments[0], target);
 }
 
+
 void SpecialFunctionHandler::handleDefineFixedObject(ExecutionState &state,
                                                      KInstruction *target,
                                                      std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==2 &&
-         "invalid number of arguments to klee_define_fixed_object");
-  assert(isa<ConstantExpr>(arguments[0]) &&
-         "expect constant address argument to klee_define_fixed_object");
-  assert(isa<ConstantExpr>(arguments[1]) &&
-         "expect constant size argument to klee_define_fixed_object");
-  
+  UNUSED(state);
+  UNUSED(target);
+  assert(arguments.size()==2 &&  "invalid number of arguments to klee_define_fixed_object");
+  assert(isa<ConstantExpr>(arguments[0]) && "expect constant address argument to klee_define_fixed_object");
+  assert(isa<ConstantExpr>(arguments[1]) && "expect constant size argument to klee_define_fixed_object");
+
+  assert(false && "Deprecated");
+#if 0 == 1
   uint64_t address = cast<ConstantExpr>(arguments[0])->getZExtValue();
   uint64_t size = cast<ConstantExpr>(arguments[1])->getZExtValue();
   MemoryObject *mo = executor.memory->allocateFixed(address, size, state.prevPC->inst);
-  executor.bindObjectInState(state, mo, false);
+  executor.bindObjectInState(state, mo);
   mo->isUserSpecified = true; // XXX hack;
+#endif
 }
 
 void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
@@ -692,92 +741,92 @@ void SpecialFunctionHandler::handleMakeSymbolic(ExecutionState &state,
   // FIXME: For backwards compatibility, we should eventually enforce the
   // correct arguments.
   if (arguments.size() == 2) {
-    name = "unnamed";
+    name = "#unnamed";
   } else {
     // FIXME: Should be a user.err, not an assert.
-    assert(arguments.size()==3 &&
-           "invalid number of arguments to klee_make_symbolic");  
+    assert(arguments.size()==3 && "invalid number of arguments to klee_make_symbolic");
     name = readStringAtAddress(state, arguments[2]);
   }
 
   Executor::ExactResolutionList rl;
   executor.resolveExact(state, arguments[0], rl, "make_symbolic");
-  
-  for (Executor::ExactResolutionList::iterator it = rl.begin(), 
-         ie = rl.end(); it != ie; ++it) {
+
+  unsigned counter = 0;
+  for (auto it = rl.begin(), ie = rl.end(); it != ie; ++it) {
     const MemoryObject *mo = it->first.first;
-    mo->setName(name);
-    
-    const ObjectState *old = it->first.second;
     ExecutionState *s = it->second;
-    
-    if (old->readOnly) {
-      executor.terminateStateOnError(*s, "cannot make readonly object symbolic",
-                                     Executor::User);
+
+    if (mo->isReadOnly()) {
+      executor.terminateStateOnComplete(*s, TerminateReason::MemFault, "cannot make readonly object symbolic");
       return;
-    } 
+    }
+
+    const ObjectState *os = it->first.second;
+    mo->name = name;
+
+//    const ObjectState *old = it->first.second;
 
     // FIXME: Type coercion should be done consistently somewhere.
     bool res;
     bool success __attribute__ ((unused)) =
-      executor.solver->mustBeTrue(*s, 
+      executor.solver->mustBeTrue(*s,
                                   EqExpr::create(ZExtExpr::create(arguments[1],
                                                                   Context::get().getPointerWidth()),
-                                                 mo->getSizeExpr()),
+                                                 os->getSizeExpr()),
                                   res);
     assert(success && "FIXME: Unhandled solver failure");
-    
+
     if (res) {
       executor.executeMakeSymbolic(*s, mo, name);
-    } else {      
-      executor.terminateStateOnError(*s, 
-                                     "wrong size given to klee_make_symbolic[_name]", 
-                                     Executor::User);
+      counter += 1;
+    } else {
+      executor.terminateStateOnComplete(*s, TerminateReason::MemFault, "wrong size given to klee_make_symbolic[_name]");
     }
+  }
+  if (target && counter > 1) {
+    executor.frequent_forkers[target->info->assemblyLine] += (counter - 1);
   }
 }
 
 void SpecialFunctionHandler::handleMarkGlobal(ExecutionState &state,
                                               KInstruction *target,
                                               std::vector<ref<Expr> > &arguments) {
-  assert(arguments.size()==1 &&
-         "invalid number of arguments to klee_mark_global");  
-
-  Executor::ExactResolutionList rl;
-  executor.resolveExact(state, arguments[0], rl, "mark_global");
-  
-  for (Executor::ExactResolutionList::iterator it = rl.begin(), 
-         ie = rl.end(); it != ie; ++it) {
-    const MemoryObject *mo = it->first.first;
-    assert(!mo->isLocal);
-    mo->isGlobal = true;
-  }
+  UNUSED(state);
+  UNUSED(target);
+  UNUSED(arguments);
+  // RLR TODO: what should this do?
+//  assert(false && "klee_mark_global not supported");
 }
 
 void SpecialFunctionHandler::handleAddOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, "overflow on unsigned addition",
-                                 Executor::Overflow);
+  UNUSED(target);
+  UNUSED(arguments);
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned addition");
 }
 
 void SpecialFunctionHandler::handleSubOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, "overflow on unsigned subtraction",
-                                 Executor::Overflow);
+  UNUSED(target);
+  UNUSED(arguments);
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned subtraction");
 }
 
 void SpecialFunctionHandler::handleMulOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, "overflow on unsigned multiplication",
-                                 Executor::Overflow);
+  UNUSED(target);
+  UNUSED(arguments);
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on unsigned multiplication");
 }
 
 void SpecialFunctionHandler::handleDivRemOverflow(ExecutionState &state,
                                                KInstruction *target,
                                                std::vector<ref<Expr> > &arguments) {
-  executor.terminateStateOnError(state, "overflow on division or remainder",
-                                 Executor::Overflow);
+  UNUSED(target);
+  UNUSED(arguments);
+  executor.terminateStateOnComplete(state, TerminateReason::Overflow, "overflow on division or remainder");
 }
+

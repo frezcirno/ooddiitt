@@ -16,27 +16,30 @@
 #include <string>
 
 namespace llvm {
+  class Value;
   class Function;
 }
 
 namespace klee {
   class Executor;
+  class LocalExecutor;
   class Expr;
   class ExecutionState;
   struct KInstruction;
   template<typename T> class ref;
-  
+
   class SpecialFunctionHandler {
   public:
     typedef void (SpecialFunctionHandler::*Handler)(ExecutionState &state,
-                                                    KInstruction *target, 
-                                                    std::vector<ref<Expr> > 
+                                                    KInstruction *target,
+                                                    std::vector<ref<Expr> >
                                                       &arguments);
-    typedef std::map<const llvm::Function*, 
+    typedef std::map<const llvm::Function*,
                      std::pair<Handler,bool> > handlers_ty;
 
     handlers_ty handlers;
     class Executor &executor;
+    class LocalExecutor *lcl_exec;
 
     struct HandlerInfo {
       const char *name;
@@ -72,6 +75,7 @@ namespace klee {
 
   public:
     SpecialFunctionHandler(Executor &_executor);
+    void setLocalExecutor(LocalExecutor *lcl) { lcl_exec = lcl; }
 
     /// Perform any modifications on the LLVM module before it is
     /// prepared for execution. At the moment this involves deleting
@@ -83,15 +87,19 @@ namespace klee {
     /// prepared for execution.
     void bind();
 
-    bool handle(ExecutionState &state, 
+    bool handle(ExecutionState &state,
                 llvm::Function *f,
                 KInstruction *target,
                 std::vector< ref<Expr> > &arguments);
 
+    bool isSpecial(llvm::Function *f) const;
+    static void filterHandledFunctions(std::set<const llvm::Value*> &fns);
+    static void filterHandledGlobals(std::set<const llvm::Value*> &gbs);
+
     /* Convenience routines */
 
     std::string readStringAtAddress(ExecutionState &state, ref<Expr> address);
-    
+
     /* Handlers */
 
 #define HANDLER(name) void name(ExecutionState &state, \
@@ -104,7 +112,7 @@ namespace klee {
     HANDLER(handleCalloc);
     HANDLER(handleCheckMemoryAccess);
     HANDLER(handleDefineFixedObject);
-    HANDLER(handleDelete);    
+    HANDLER(handleDelete);
     HANDLER(handleDeleteArray);
     HANDLER(handleExit);
     HANDLER(handleAliasFunction);
@@ -115,6 +123,7 @@ namespace klee {
     HANDLER(handleIsSymbolic);
     HANDLER(handleMakeSymbolic);
     HANDLER(handleMalloc);
+//    HANDLER(handleMemset);
     HANDLER(handleMarkGlobal);
     HANDLER(handleMerge);
     HANDLER(handleNew);
@@ -131,12 +140,23 @@ namespace klee {
     HANDLER(handleSilentExit);
     HANDLER(handleStackTrace);
     HANDLER(handleUnderConstrained);
+    HANDLER(handleMessage);
     HANDLER(handleWarning);
     HANDLER(handleWarningOnce);
     HANDLER(handleAddOverflow);
     HANDLER(handleMulOverflow);
     HANDLER(handleSubOverflow);
     HANDLER(handleDivRemOverflow);
+
+    HANDLER(handleHardAssume);
+    HANDLER(handleSoftAssume);
+    HANDLER(handleImplication);
+    HANDLER(handleExprHolds);
+    HANDLER(handleExprMayHold);
+    HANDLER(handleValidPointer);
+    HANDLER(handleObjectSize);
+
+
 #undef HANDLER
   };
 } // End klee namespace

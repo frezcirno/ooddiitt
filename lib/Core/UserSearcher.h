@@ -10,6 +10,8 @@
 #ifndef KLEE_USERSEARCHER_H
 #define KLEE_USERSEARCHER_H
 
+#include "Searcher.h"
+
 namespace klee {
   class Executor;
   class Searcher;
@@ -18,6 +20,8 @@ namespace klee {
   bool userSearcherRequiresMD2U();
 
   Searcher *constructUserSearcher(Executor &executor);
+  Searcher *constructUserSearcher(Executor &executor, const std::vector<Searcher::CoreSearchType> &lst);
+  Searcher *constructUserSearcher(Executor &executor, Searcher::CoreSearchType type);
 }
 
 #endif

@@ -163,7 +163,7 @@ static void AddStandardCompilePasses(PassManager &PM) {
 /// Optimize - Perform link time optimizations. This will run the scalar
 /// optimizations, any loaded plugin-optimization modules, and then the
 /// inter-procedural optimizations if applicable.
-void Optimize(Module *M, const std::string &EntryPoint) {
+void Optimize(Module *M) {
 
   // Instantiate the pass manager to organize the passes.
   PassManager Passes;
@@ -187,18 +187,6 @@ void Optimize(Module *M, const std::string &EntryPoint) {
   AddStandardCompilePasses(Passes);
 
   if (!DisableOptimizations) {
-    // Now that composite has been compiled, scan through the module, looking
-    // for a main function.  If main is defined, mark all other functions
-    // internal.
-    if (!DisableInternalize) {
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 2)
-      ModulePass *pass = createInternalizePass(
-          std::vector<const char *>(1, EntryPoint.c_str()));
-#else
-      ModulePass *pass = createInternalizePass(true);
-#endif
-      addPass(Passes, pass);
-    }
 
     // Propagate constants at call sites into the functions they call.  This
     // opens opportunities for globalopt (and inlining) by substituting function

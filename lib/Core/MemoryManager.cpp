@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CoreStats.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "MemoryManager.h"
 
 #include "klee/Expr.h"
@@ -26,13 +26,7 @@ namespace {
 llvm::cl::opt<bool> DeterministicAllocation(
     "allocate-determ",
     llvm::cl::desc("Allocate memory deterministically(default=off)"),
-    llvm::cl::init(false));
-
-llvm::cl::opt<unsigned> DeterministicAllocationSize(
-    "allocate-determ-size",
-    llvm::cl::desc(
-        "Preallocated memory for deterministic allocation in MB (default=100)"),
-    llvm::cl::init(100));
+    llvm::cl::init(true));
 
 llvm::cl::opt<bool>
     NullOnZeroMalloc("return-null-on-zero-malloc",
@@ -45,60 +39,38 @@ llvm::cl::opt<unsigned> RedZoneSpace(
     llvm::cl::desc("Set the amount of free space between allocations. This is "
                    "important to detect out-of-bound accesses (default=10)."),
     llvm::cl::init(10));
-
-llvm::cl::opt<unsigned long long> DeterministicStartAddress(
-    "allocate-determ-start-address",
-    llvm::cl::desc("Start address for deterministic allocation. Has to be page "
-                   "aligned (default=0x7ff30000000)."),
-    llvm::cl::init(0x7ff30000000));
 }
 
 /***/
-MemoryManager::MemoryManager(ArrayCache *_arrayCache)
-    : arrayCache(_arrayCache), deterministicSpace(0), nextFreeSlot(0),
-      spaceSize(DeterministicAllocationSize.getValue() * 1024 * 1024) {
+MemoryManager::MemoryManager(ArrayCache *_arrayCache, void *user_base, size_t user_size)
+    : arrayCache(_arrayCache), deterministicStart(nullptr), deterministicEnd(nullptr), nextFreeSlot(nullptr) {
+
   if (DeterministicAllocation) {
-    // Page boundary
-    void *expectedAddress = (void *)DeterministicStartAddress.getValue();
-
-    char *newSpace =
-        (char *)mmap(expectedAddress, spaceSize, PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-
-    if (newSpace == MAP_FAILED) {
-      klee_error("Couldn't mmap() memory for deterministic allocations");
-    }
-    if (expectedAddress != newSpace && expectedAddress != 0) {
-      klee_error("Could not allocate memory deterministically");
-    }
-
-    klee_message("Deterministic memory allocation starting from %p", newSpace);
-    deterministicSpace = newSpace;
-    nextFreeSlot = newSpace;
+    if (user_base != nullptr) deterministicStart = (char*) user_base;
+    else deterministicStart = (char*) 0x7ff30000000;
+    nextFreeSlot = deterministicStart;
+    if (user_size == 0) user_size = 1024 * 1024 * 1024;
+    deterministicEnd = (void*) ((char*) deterministicStart + user_size);
   }
 }
 
 MemoryManager::~MemoryManager() {
-  while (!objects.empty()) {
-    MemoryObject *mo = *objects.begin();
-    if (!mo->isFixed && !DeterministicAllocation)
-      free((void *)mo->address);
-    objects.erase(mo);
-    delete mo;
-  }
 
-  if (DeterministicAllocation)
-    munmap(deterministicSpace, spaceSize);
+  // deleting an mo automagically removes it from the memory manager
+  // therefore, cannot iterate over the objects.  just delete them until objects is empty
+//  while (!objects.empty()) {
+//    const MemoryObject *mo = *objects.begin();
+//    if (!DeterministicAllocation) {
+//      free((void*) mo->address);
+//    }
+//    delete mo;
+//  }
 }
 
-MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
-                                      bool isGlobal,
-                                      const llvm::Value *allocSite,
-                                      size_t alignment) {
-  if (size > 10 * 1024 * 1024)
-    klee_warning_once(0, "Large alloc: %" PRIu64
-                         " bytes.  KLEE may run out of memory.",
-                      size);
+MemoryObject *MemoryManager::allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment) {
+
+//  if (size > 10 * 1024 * 1024)
+//    klee_message(0, "Large alloc: %" PRIu64 " bytes.  KLEE may run out of memory.", size);
 
   // Return NULL if size is zero, this is equal to error during allocation
   if (NullOnZeroMalloc && size == 0)
@@ -112,24 +84,21 @@ MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
   uint64_t address = 0;
   if (DeterministicAllocation) {
 
-    address = llvm::RoundUpToAlignment((uint64_t)nextFreeSlot + alignment - 1,
-                                       alignment);
+    address = llvm::RoundUpToAlignment((uint64_t) nextFreeSlot + alignment - 1, alignment);
 
     // Handle the case of 0-sized allocations as 1-byte allocations.
     // This way, we make sure we have this allocation between its own red zones
-    size_t alloc_size = std::max(size, (uint64_t)1);
-    if ((char *)address + alloc_size < deterministicSpace + spaceSize) {
-      nextFreeSlot = (char *)address + alloc_size + RedZoneSpace;
+    size_t alloc_size = std::max(size, (uint64_t) 1);
+    if ((char *) address + alloc_size < deterministicEnd) {
+      nextFreeSlot = (void*) ((char *) address + (alloc_size + RedZoneSpace));
     } else {
-      klee_warning_once(0, "Couldn't allocate %" PRIu64
-                           " bytes. Not enough deterministic space left.",
-                        size);
+      klee_message("%lu bytes deterministic memory allocation failed.", size);
       address = 0;
     }
   } else {
     // Use malloc for the standard case
     if (alignment <= 8)
-      address = (uint64_t)malloc(size);
+      address = (uint64_t) malloc(size);
     else {
       int res = posix_memalign((void **)&address, alignment, size);
       if (res < 0) {
@@ -140,43 +109,61 @@ MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
   }
 
   if (!address)
-    return 0;
+    return nullptr;
 
-  ++stats::allocations;
-  MemoryObject *res = new MemoryObject(address, size, isLocal, isGlobal, false,
-                                       allocSite, this);
-  objects.insert(res);
-  return res;
-}
-
-MemoryObject *MemoryManager::allocateFixed(uint64_t address, uint64_t size,
-                                           const llvm::Value *allocSite) {
-#ifndef NDEBUG
-  for (objects_ty::iterator it = objects.begin(), ie = objects.end(); it != ie;
-       ++it) {
-    MemoryObject *mo = *it;
-    if (address + size > mo->address && address < mo->address + mo->size)
-      klee_error("Trying to allocate an overlapping object");
+  if ((Context::get().getPointerWidth() == Expr::Int32) && (address > UINT32_MAX)) {
+    klee_error("32-bit memory allocation requires 64 bit value");
   }
-#endif
 
   ++stats::allocations;
-  MemoryObject *res =
-      new MemoryObject(address, size, false, true, true, allocSite, this);
-  objects.insert(res);
+  MemoryObject *res = new MemoryObject(address, size, alignment, type, kind, allocSite, this);
+  res->count = 1;
   return res;
 }
 
-void MemoryManager::deallocate(const MemoryObject *mo) { assert(0); }
+bool MemoryManager::reserve(size_t size) {
+
+  if (DeterministicAllocation) {
+    void *addr = ((char *) nextFreeSlot) + size;
+    if (addr < deterministicEnd) {
+      nextFreeSlot = addr;
+      return true;
+    }
+  }
+  return false;
+}
+
+MemoryObject *MemoryManager::inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment) {
+
+  MemoryObject *result = nullptr;
+  if (DeterministicAllocation) {
+
+    // RLR TODO: should we insure this does not overlap an existing injection or allocation?
+    result = new MemoryObject((uint64_t) addr, size, alignment, type, kind, nullptr, this);
+  }
+  return result;
+}
 
 void MemoryManager::markFreed(MemoryObject *mo) {
-  if (objects.find(mo) != objects.end()) {
-    if (!mo->isFixed && !DeterministicAllocation)
-      free((void *)mo->address);
-    objects.erase(mo);
-  }
+  if (!DeterministicAllocation)
+    free((void *) (mo->address));
 }
 
-size_t MemoryManager::getUsedDeterministicSize() {
-  return nextFreeSlot - deterministicSpace;
+size_t MemoryManager::getUsedDeterministicSize() const {
+  return ((char*) nextFreeSlot) - ((char*) deterministicStart);
+}
+
+size_t MemoryManager::getAvailable() const {
+  return ((char*) deterministicEnd) - ((char*) nextFreeSlot);
+}
+
+
+void MemoryManager::dump() const {
+
+//  llvm::outs() << objects.size() << "\n";
+//
+//  for (auto itr = objects.begin(), end = objects.end(); itr != end; ++itr ) {
+//    auto obj = *itr;
+//    llvm::outs() << obj->name << " " << (unsigned) obj->kind << "\n";
+//  }
 }

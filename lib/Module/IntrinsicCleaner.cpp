@@ -60,10 +60,19 @@ bool IntrinsicCleanerPass::runOnModule(Module &M) {
     for (Function::iterator b = f->begin(), be = f->end(); b != be; ++b)
       dirty |= runOnBasicBlock(*b, M);
 
-  if (Function *Declare = M.getFunction("llvm.trap")) {
-    Declare->eraseFromParent();
+  // look for unused intrinsic declarations
+  // cannot remove while iterating
+  std::vector<Function *> unused_intrinsics;
+  for (auto fn = M.begin(), fe = M.end(); fn != fe; ++fn) {
+    if (fn->isIntrinsic() && fn->isDeclaration() && fn->getNumUses() == 0) {
+      unused_intrinsics.push_back(fn);
+    }
+  }
+  for (auto fn : unused_intrinsics) {
+    fn->eraseFromParent();
     dirty = true;
   }
+
   return dirty;
 }
 
@@ -260,6 +269,17 @@ bool IntrinsicCleanerPass::runOnBasicBlock(BasicBlock &b, Module &M) {
         dirty = true;
         break;
       }
+
+      case Intrinsic::stacksave:
+      case Intrinsic::stackrestore: {
+        if (ii->getIntrinsicID() == Intrinsic::stacksave) {
+          ii->replaceAllUsesWith(Constant::getNullValue(ii->getType()));
+        }
+        ii->eraseFromParent();
+        dirty = true;
+        break;
+      }
+
       default:
         if (LowerIntrinsics)
           IL->LowerIntrinsicCall(ii);

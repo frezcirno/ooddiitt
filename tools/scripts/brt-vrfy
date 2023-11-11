@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import json
+import re
+import sys
+import subprocess
+
+
+def exec_replays(dir, tests):
+  args = ['brt-rply', '-show-args', '-silent', '-show-trace', '-output=' + dir]
+  args.extend(tests)
+  complete = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8')
+  if len(complete.stderr) != 0:
+    sys.stderr.write(complete.stderr)
+  lines = complete.stdout.split('\n')
+  return lines
+
+
+def extract_replay_traces(log):
+  traces = {}
+
+  pat_test = re.compile(r"^([^:]+):[^:]+:[^:]+:[^:]+:[^:]+$")
+  pat_trace_tag = re.compile(r"^#trace:$")
+  pat_trace = re.compile(r"^([^:]+:[^:]+)$")
+
+  test = None
+  trace = []
+  tracing = False
+  for line in log:
+    m = pat_test.match(line)
+    if m:
+      if test is not None:
+        traces[test] = trace
+        trace = []
+      test = m[1]
+      tracing = False
+    m = pat_trace_tag.match(line)
+    if m:
+      tracing = True
+    elif tracing:
+      m = pat_trace.match(line)
+      if m:
+        trace.append(m[1])
+  traces[test] = trace
+  return traces
+
+
+def compare_trace(term_code, trace1, trace2):
+
+  # length test trace should always be <= length of replayed trace
+  if len(trace1) > len(trace2):
+    return False
+
+  # term_code > 2 indicates an abnormal exit, so test trace (1) may be truncated
+  if term_code <= 2 and len(trace1) != len(trace2):
+    return False
+
+  for pt1, pt2 in zip(trace1, trace2):
+    if pt1 != pt2:
+      return False
+  
+  return True
+
+
+def main(args):
+
+  ret_code = 2
+  test_traces = {}
+  for test in args.tests:
+    with open(test) as infile:
+      obj = json.load(infile)
+      if obj["traceType"] < 2:
+        print("missing test trace:", test, file=sys.stderr)
+      else:
+        test_traces[os.path.basename(test)] = ( obj["trace"], obj["termination"] )
+
+  log = exec_replays(args.dir, test_traces.keys())  
+  rply_traces = extract_replay_traces(log)
+
+  ret_code = 0
+  for test, (test_trace, term_code) in test_traces.items():
+    if test in rply_traces:
+      if compare_trace(term_code, test_trace, rply_traces[test]):
+        print("ok: ", end='')
+      else:
+        print("differ: ", end='')
+        ret_code = max(ret_code, 1)
+      print(test)
+    else:
+      print("missing replayed trace:", test, file=sys.stderr)
+      ret_code = max(ret_code, 2)
+
+  return ret_code
+
+
+if __name__ == "__main__":
+
+  parser = argparse.ArgumentParser(description='validate replayed trace against original test case')
+  parser.add_argument('-d', '--dir', required=True, help='directory containing test files')
+  parser.add_argument('tests', metavar='test.json', nargs='+', help='test case to verify')
+
+  args = parser.parse_args()
+  exit(main(args))

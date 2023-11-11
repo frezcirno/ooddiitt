@@ -1,4 +1,9 @@
----
-BasedOnStyle:  LLVM
-Standard: Cpp03
+﻿---
+BasedOnStyle: LLVM
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: 'true'
+SortIncludes: 'false'
+SpaceAfterCStyleCast: 'true'
+UseTab: Never
+ColumnLimit: 132
 ...

@@ -17,6 +17,8 @@ klee_add_component(kleeCore
   ExecutorUtil.cpp
   ExternalDispatcher.cpp
   ImpliedValue.cpp
+  Interpreter.cpp
+  LocalExecutor.cpp
   Memory.cpp
   MemoryManager.cpp
   PTree.cpp
@@ -24,6 +26,7 @@ klee_add_component(kleeCore
   SeedInfo.cpp
   SpecialFunctionHandler.cpp
   StatsTracker.cpp
+  SystemModel.cpp
   TimingSolver.cpp
   UserSearcher.cpp
 )

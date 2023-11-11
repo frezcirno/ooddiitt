@@ -13,7 +13,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#define KTEST_VERSION 3
+#define KTEST_VERSION 4
 #define KTEST_MAGIC_SIZE 5
 #define KTEST_MAGIC "KTEST"
 
@@ -112,6 +112,11 @@ KTest *kTest_fromFile(const char *path) {
     goto error;
 
   res->version = version;
+  
+  if (version >= 4) {
+    if (!read_string(f, &res->entryFn))
+      goto error;
+  }
 
   if (!read_uint32(f, &res->numArgs)) 
     goto error;
@@ -185,6 +190,9 @@ int kTest_toFile(KTest *bo, const char *path) {
     goto error;
   if (!write_uint32(f, KTEST_VERSION))
     goto error;
+
+  if (!write_string(f, bo->entryFn))
+    goto error;
       
   if (!write_uint32(f, bo->numArgs))
     goto error;
@@ -236,5 +244,6 @@ void kTest_free(KTest *bo) {
     free(bo->objects[i].bytes);
   }
   free(bo->objects);
+  free(bo->entryFn);
   free(bo);
 }

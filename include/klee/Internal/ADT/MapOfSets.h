@@ -92,7 +92,7 @@ namespace klee {
   public:
     typedef std::map<K, Node> children_ty;
 
-    V value;
+    V value {};
 
   private:
     bool isEndOfSet;
@@ -186,12 +186,15 @@ namespace klee {
 
   template<class K, class V>
   void MapOfSets<K,V>::insert(const std::set<K> &set, const V &value) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
     Node *n = &root;
     for (typename std::set<K>::const_iterator it = set.begin(), ie = set.end();
          it != ie; ++it)
       n = &n->children.insert(std::make_pair(*it, Node())).first->second;
     n->isEndOfSet = true;
     n->value = value;
+#pragma GCC diagnostic pop
   }
 
   template<class K, class V>

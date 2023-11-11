@@ -6,7 +6,7 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_subdirectory(Runtest)
+# add_subdirectory(Runtest)
 
 if ("${KLEE_RUNTIME_BUILD_TYPE}" MATCHES "Release")
   set(RUNTIME_IS_RELEASE 1)
@@ -55,9 +55,9 @@ configure_file("Makefile.cmake.bitcode.rules" "Makefile.cmake.bitcode.rules" COP
 
 # Makefile for root runtime directory
 # Copy over makefiles for libraries
-set(BITCODE_LIBRARIES "Intrinsic" "klee-libc")
+set(BITCODE_LIBRARIES "Intrinsic-64")
 if (ENABLE_POSIX_RUNTIME)
-  list(APPEND BITCODE_LIBRARIES "POSIX")
+  list(APPEND BITCODE_LIBRARIES "POSIX-64")
 endif()
 foreach (bl ${BITCODE_LIBRARIES})
   configure_file("${bl}/Makefile.cmake.bitcode"
@@ -131,20 +131,12 @@ set(RUNTIME_FILES_TO_INSTALL)
 # This is quite fragile and depends on knowledge in the bitcode
 # build system. Hopefully it won't change very often though.
 
-# FIXME: This hack needs to die!
-if (USE_RUNTIME_BINARY_TYPE_HACK)
-  list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic.bc"
-    "${KLEE_RUNTIME_DIRECTORY}/klee-libc.bc")
-else()
-  list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimeIntrinsic.bca"
-    "${KLEE_RUNTIME_DIRECTORY}/libklee-libc.bca")
-endif()
+list(APPEND RUNTIME_FILES_TO_INSTALL
+    "${KLEE_RUNTIME_DIRECTORY}/kleeRuntimeIntrinsic-64.bc")
 
 if (ENABLE_POSIX_RUNTIME)
   list(APPEND RUNTIME_FILES_TO_INSTALL
-    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX.bca")
+    "${KLEE_RUNTIME_DIRECTORY}/libkleeRuntimePOSIX-64.bca")
 endif()
 
 install(FILES

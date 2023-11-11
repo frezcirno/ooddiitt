@@ -37,14 +37,15 @@ bool TimingSolver::evaluate(const ExecutionState& state, ref<Expr> expr,
   if (simplifyExprs)
     expr = state.constraints.simplifyExpr(expr);
 
-  bool success = solver->evaluate(Query(state.constraints, expr), result);
+  if (!solver->evaluate(Query(state.constraints, expr), result)) {
+    throw solver_failure();
+  }
 
   sys::TimeValue delta = util::getWallTimeVal();
   delta -= now;
   stats::solverTime += delta.usec();
   state.queryCost += delta.usec()/1000000.;
-
-  return success;
+  return true;
 }
 
 bool TimingSolver::mustBeTrue(const ExecutionState& state, ref<Expr> expr, 
@@ -60,23 +61,37 @@ bool TimingSolver::mustBeTrue(const ExecutionState& state, ref<Expr> expr,
   if (simplifyExprs)
     expr = state.constraints.simplifyExpr(expr);
 
-  bool success = solver->mustBeTrue(Query(state.constraints, expr), result);
+  if (!solver->mustBeTrue(Query(state.constraints, expr), result)) {
+    throw solver_failure();
+  }
 
   sys::TimeValue delta = util::getWallTimeVal();
   delta -= now;
   stats::solverTime += delta.usec();
   state.queryCost += delta.usec()/1000000.;
-
-  return success;
+  return true;
 }
 
-bool TimingSolver::mustBeFalse(const ExecutionState& state, ref<Expr> expr,
-                               bool &result) {
+bool TimingSolver::mustBeTrue(const ExecutionState& state, ref<Expr> expr) {
+
+  bool result = false;
+  mustBeTrue(state, expr, result);
+  return result;
+}
+
+bool TimingSolver::mustBeFalse(const ExecutionState& state, ref<Expr> expr, bool &result) {
   return mustBeTrue(state, Expr::createIsZero(expr), result);
 }
 
-bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr, 
-                             bool &result) {
+bool TimingSolver::mustBeFalse(const ExecutionState& state, ref<Expr> expr) {
+
+  bool result = false;
+  mustBeFalse(state, expr, result);
+  return result;
+}
+
+bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr, bool &result) {
+
   bool res;
   if (!mustBeFalse(state, expr, res))
     return false;
@@ -84,8 +99,15 @@ bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr,
   return true;
 }
 
-bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr, 
-                              bool &result) {
+bool TimingSolver::mayBeTrue(const ExecutionState& state, ref<Expr> expr) {
+
+  bool result = false;
+  mayBeTrue(state, expr, result);
+  return result;
+}
+
+bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr, bool &result) {
+
   bool res;
   if (!mustBeTrue(state, expr, res))
     return false;
@@ -93,8 +115,15 @@ bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr,
   return true;
 }
 
-bool TimingSolver::getValue(const ExecutionState& state, ref<Expr> expr, 
-                            ref<ConstantExpr> &result) {
+bool TimingSolver::mayBeFalse(const ExecutionState& state, ref<Expr> expr) {
+
+  bool result = false;
+  mayBeFalse(state, expr, result);
+  return result;
+}
+
+
+bool TimingSolver::getValue(const ExecutionState& state, ref<Expr> expr, ref<ConstantExpr> &result) {
   // Fast path, to avoid timer and OS overhead.
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(expr)) {
     result = CE;
@@ -106,40 +135,33 @@ bool TimingSolver::getValue(const ExecutionState& state, ref<Expr> expr,
   if (simplifyExprs)
     expr = state.constraints.simplifyExpr(expr);
 
-  bool success = solver->getValue(Query(state.constraints, expr), result);
+  if (!solver->getValue(Query(state.constraints, expr), result)) {
+    throw solver_failure();
+  }
 
   sys::TimeValue delta = util::getWallTimeVal();
   delta -= now;
   stats::solverTime += delta.usec();
   state.queryCost += delta.usec()/1000000.;
-
-  return success;
+  return true;
 }
 
-bool 
-TimingSolver::getInitialValues(const ExecutionState& state, 
-                               const std::vector<const Array*>
-                                 &objects,
-                               std::vector< std::vector<unsigned char> >
-                                 &result) {
-  if (objects.empty())
-    return true;
+bool TimingSolver::getInitialValues(const ExecutionState &state, const std::vector<const Array *> &objects,
+                                    std::vector<std::vector<unsigned char>> &result) {
 
-  sys::TimeValue now = util::getWallTimeVal();
+  bool have_solution = true;
 
-  bool success = solver->getInitialValues(Query(state.constraints,
-                                                ConstantExpr::alloc(0, Expr::Bool)), 
-                                          objects, result);
-  
-  sys::TimeValue delta = util::getWallTimeVal();
-  delta -= now;
-  stats::solverTime += delta.usec();
-  state.queryCost += delta.usec()/1000000.;
-  
-  return success;
+  if (!objects.empty()) {
+    sys::TimeValue now = util::getWallTimeVal();
+    have_solution = solver->getInitialValues(Query(state.constraints, ConstantExpr::alloc(0, Expr::Bool)), objects, result);
+    sys::TimeValue delta = util::getWallTimeVal();
+    delta -= now;
+    stats::solverTime += delta.usec();
+    state.queryCost += delta.usec() / 1000000.;
+  }
+  return have_solution;
 }
 
-std::pair< ref<Expr>, ref<Expr> >
-TimingSolver::getRange(const ExecutionState& state, ref<Expr> expr) {
+std::pair< ref<Expr>, ref<Expr> > TimingSolver::getRange(const ExecutionState& state, ref<Expr> expr) {
   return solver->getRange(Query(state.constraints, expr));
 }

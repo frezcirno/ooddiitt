@@ -65,53 +65,53 @@ using namespace llvm;
 
 ///
 
-namespace {  
+namespace {
   cl::opt<bool>
   TrackInstructionTime("track-instruction-time",
                        cl::init(false),
-		       cl::desc("Enable tracking of time for individual instructions (default=off)"));
+		               cl::desc("Enable tracking of time for individual instructions (default=off)"));
 
   cl::opt<bool>
   OutputStats("output-stats",
               cl::init(true),
-	      cl::desc("Write running stats trace file (default=on)"));
+	          cl::desc("Write running stats trace file (default=on)"));
 
   cl::opt<bool>
   OutputIStats("output-istats",
-	       cl::init(true),
+	           cl::init(true),
                cl::desc("Write instruction level statistics in callgrind format (default=on)"));
 
   cl::opt<double>
   StatsWriteInterval("stats-write-interval",
                      cl::init(1.),
-		     cl::desc("Approximate number of seconds between stats writes (default=1.0s)"));
+		             cl::desc("Approximate number of seconds between stats writes (default=1.0s)"));
 
-  cl::opt<unsigned> StatsWriteAfterInstructions(
-      "stats-write-after-instructions", cl::init(0),
-      cl::desc("Write statistics after each n instructions, 0 to disable "
-               "(default=0)"));
+  cl::opt<unsigned>
+  StatsWriteAfterInstructions("stats-write-after-instructions",
+                              cl::init(0),
+                              cl::desc("Write statistics after each n instructions, 0 to disable (default=0)"));
 
   cl::opt<double>
   IStatsWriteInterval("istats-write-interval",
-		      cl::init(10.),
+		              cl::init(10.),
                       cl::desc("Approximate number of seconds between istats writes (default: 10.0s)"));
 
-  cl::opt<unsigned> IStatsWriteAfterInstructions(
-      "istats-write-after-instructions", cl::init(0),
-      cl::desc("Write istats after each n instructions, 0 to disable "
-               "(default=0)"));
+  cl::opt<unsigned>
+  IStatsWriteAfterInstructions("istats-write-after-instructions",
+                               cl::init(0),
+                               cl::desc("Write istats after each n instructions, 0 to disable (default=0)"));
 
   // XXX I really would like to have dynamic rate control for something like this.
   cl::opt<double>
   UncoveredUpdateInterval("uncovered-update-interval",
                           cl::init(30.),
-			  cl::desc("(default=30.0s)"));
-  
+			              cl::desc("(default=30.0s)"));
+
   cl::opt<bool>
   UseCallPaths("use-call-paths",
-	       cl::init(true),
+	           cl::init(true),
                cl::desc("Enable calltree tracking for instruction level statistics (default=on)"));
-  
+
 }
 
 ///
@@ -123,33 +123,33 @@ bool StatsTracker::useStatistics() {
 namespace klee {
   class WriteIStatsTimer : public Executor::Timer {
     StatsTracker *statsTracker;
-    
+
   public:
     WriteIStatsTimer(StatsTracker *_statsTracker) : statsTracker(_statsTracker) {}
     ~WriteIStatsTimer() {}
-    
+
     void run() { statsTracker->writeIStats(); }
   };
-  
+
   class WriteStatsTimer : public Executor::Timer {
     StatsTracker *statsTracker;
-    
+
   public:
     WriteStatsTimer(StatsTracker *_statsTracker) : statsTracker(_statsTracker) {}
     ~WriteStatsTimer() {}
-    
+
     void run() { statsTracker->writeStatsLine(); }
   };
 
   class UpdateReachableTimer : public Executor::Timer {
     StatsTracker *statsTracker;
-    
+
   public:
     UpdateReachableTimer(StatsTracker *_statsTracker) : statsTracker(_statsTracker) {}
-    
+
     void run() { statsTracker->computeReachableUncovered(); }
   };
- 
+
 }
 
 //
@@ -222,7 +222,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
   if (OutputIStats)
     theStatisticManager->useIndexedStats(km->infos->getMaxID());
 
-  for (std::vector<KFunction*>::iterator it = km->functions.begin(), 
+  for (std::vector<KFunction*>::iterator it = km->functions.begin(),
          ie = km->functions.end(); it != ie; ++it) {
     KFunction *kf = *it;
     kf->trackCoverage = 1;
@@ -236,7 +236,7 @@ StatsTracker::StatsTracker(Executor &_executor, std::string _objectFilename,
         if (kf->trackCoverage && instructionIsCoverable(ki->inst))
           ++stats::uncoveredInstructions;
       }
-      
+
       if (kf->trackCoverage) {
         if (BranchInst *bi = dyn_cast<BranchInst>(ki->inst))
           if (!bi->isUnconditional())
@@ -325,7 +325,7 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
         //
         // FIXME: This trick no longer works, we should fix this in the line
         // number propogation.
-          es.coveredLines[&ii.file].insert(ii.line);
+          es.coveredLines[ii.file].insert(ii.line);
 	es.coveredNew = true;
         es.instsSinceCovNew = 1;
 	++stats::coveredInstructions;
@@ -347,28 +347,31 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
 
 /* Should be called _after_ the es->pushFrame() */
 void StatsTracker::framePushed(ExecutionState &es, StackFrame *parentFrame) {
-  if (OutputIStats) {
-    StackFrame &sf = es.stack.back();
 
-    if (UseCallPaths) {
-      CallPathNode *parent = parentFrame ? parentFrame->callPathNode : 0;
-      CallPathNode *cp = callPathManager.getCallPath(parent, 
-                                                     sf.caller ? sf.caller->inst : 0, 
-                                                     sf.kf->function);
-      sf.callPathNode = cp;
-      cp->count++;
+  if (es.stack.size() > 0) {
+    if (OutputIStats) {
+      StackFrame &sf = es.stack.back();
+
+      if (UseCallPaths) {
+        CallPathNode *parent = parentFrame ? parentFrame->callPathNode : 0;
+        CallPathNode *cp = callPathManager.getCallPath(parent,
+                                                       sf.caller ? sf.caller->inst : 0,
+                                                       sf.kf->function);
+        sf.callPathNode = cp;
+        cp->count++;
+      }
     }
-  }
 
-  if (updateMinDistToUncovered) {
-    StackFrame &sf = es.stack.back();
+    if (updateMinDistToUncovered) {
+      StackFrame &sf = es.stack.back();
 
-    uint64_t minDistAtRA = 0;
-    if (parentFrame)
-      minDistAtRA = parentFrame->minDistToUncoveredOnReturn;
+      uint64_t minDistAtRA = 0;
+      if (parentFrame)
+        minDistAtRA = parentFrame->minDistToUncoveredOnReturn;
 
-    sf.minDistToUncoveredOnReturn =
-        sf.caller ? computeMinDistToUncovered(sf.caller, minDistAtRA) : 0;
+      sf.minDistToUncoveredOnReturn =
+          sf.caller ? computeMinDistToUncovered(sf.caller, minDistAtRA) : 0;
+    }
   }
 }
 
@@ -378,7 +381,7 @@ void StatsTracker::framePopped(ExecutionState &es) {
 }
 
 
-void StatsTracker::markBranchVisited(ExecutionState *visitedTrue, 
+void StatsTracker::markBranchVisited(ExecutionState *visitedTrue,
                                      ExecutionState *visitedFalse) {
   if (OutputIStats) {
     unsigned id = theStatisticManager->getIndex();
@@ -473,7 +476,7 @@ void StatsTracker::writeIStats() {
   Module *m = executor.kmodule->module;
   uint64_t istatsMask = 0;
   llvm::raw_fd_ostream &of = *istatsFile;
-  
+
   // We assume that we didn't move the file pointer
   unsigned istatsSize = of.tell();
 
@@ -484,7 +487,7 @@ void StatsTracker::writeIStats() {
   of << "pid: " << getpid() << "\n";
   of << "cmd: " << m->getModuleIdentifier() << "\n\n";
   of << "\n";
-  
+
   StatisticManager &sm = *theStatisticManager;
   unsigned nStats = sm.getNumStatistics();
 
@@ -508,7 +511,7 @@ void StatsTracker::writeIStats() {
   for (unsigned i=0; i<nStats; i++) {
     if (istatsMask & (1<<i)) {
       Statistic &s = sm.getStatistic(i);
-      of << "event: " << s.getShortName() << " : " 
+      of << "event: " << s.getShortName() << " : "
          << s.getName() << "\n";
     }
   }
@@ -519,13 +522,13 @@ void StatsTracker::writeIStats() {
       of << sm.getStatistic(i).getShortName() << " ";
   }
   of << "\n";
-  
+
   // set state counts, decremented after we process so that we don't
   // have to zero all records each time.
   if (istatsMask & (1<<stats::states.getID()))
     updateStateStatistics(1);
 
-  std::string sourceFile = "";
+  const char *sourceFile = nullptr;
 
   CallSiteSummaryTable callSiteStats;
   if (UseCallPaths)
@@ -533,7 +536,7 @@ void StatsTracker::writeIStats() {
 
   of << "ob=" << objectFilename << "\n";
 
-  for (Module::iterator fnIt = m->begin(), fn_ie = m->end(); 
+  for (Module::iterator fnIt = m->begin(), fn_ie = m->end();
        fnIt != fn_ie; ++fnIt) {
     if (!fnIt->isDeclaration()) {
       // Always try to write the filename before the function name, as otherwise
@@ -545,16 +548,16 @@ void StatsTracker::writeIStats() {
         of << "fl=" << ii.file << "\n";
         sourceFile = ii.file;
       }
-      
+
       of << "fn=" << fnIt->getName().str() << "\n";
-      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); 
+      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end();
            bbIt != bb_ie; ++bbIt) {
-        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end(); 
+        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end();
              it != ie; ++it) {
           Instruction *instr = &*it;
           const InstructionInfo &ii = executor.kmodule->infos->getInfo(instr);
           unsigned index = ii.id;
-          if (ii.file!=sourceFile) {
+          if (ii.file != sourceFile) {
             of << "fl=" << ii.file << "\n";
             sourceFile = ii.file;
           }
@@ -565,19 +568,19 @@ void StatsTracker::writeIStats() {
               of << sm.getIndexedValue(sm.getStatistic(i), index) << " ";
           of << "\n";
 
-          if (UseCallPaths && 
+          if (UseCallPaths &&
               (isa<CallInst>(instr) || isa<InvokeInst>(instr))) {
             CallSiteSummaryTable::iterator it = callSiteStats.find(instr);
             if (it!=callSiteStats.end()) {
               for (std::map<llvm::Function*, CallSiteInfo>::iterator
-                     fit = it->second.begin(), fie = it->second.end(); 
+                     fit = it->second.begin(), fie = it->second.end();
                    fit != fie; ++fit) {
                 Function *f = fit->first;
                 CallSiteInfo &csi = fit->second;
-                const InstructionInfo &fii = 
+                const InstructionInfo &fii =
                   executor.kmodule->infos->getFunctionInfo(f);
-  
-                if (fii.file!="" && fii.file!=sourceFile)
+
+                if (fii.file != nullptr && fii.file != sourceFile)
                   of << "cfl=" << fii.file << "\n";
                 of << "cfn=" << f->getName().str() << "\n";
                 of << "calls=" << csi.count << " ";
@@ -613,12 +616,12 @@ void StatsTracker::writeIStats() {
 
   if (istatsMask & (1<<stats::states.getID()))
     updateStateStatistics((uint64_t)-1);
-  
+
   // Clear then end of the file if necessary (no truncate op?).
   unsigned pos = of.tell();
   for (unsigned i=pos; i<istatsSize; ++i)
     of << '\n';
-  
+
   of.flush();
 }
 
@@ -672,18 +675,18 @@ void StatsTracker::computeReachableUncovered() {
   static bool init = true;
   const InstructionInfoTable &infos = *km->infos;
   StatisticManager &sm = *theStatisticManager;
-  
+
   if (init) {
     init = false;
 
     // Compute call targets. It would be nice to use alias information
     // instead of assuming all indirect calls hit all escaping
     // functions, eh?
-    for (Module::iterator fnIt = m->begin(), fn_ie = m->end(); 
+    for (Module::iterator fnIt = m->begin(), fn_ie = m->end();
          fnIt != fn_ie; ++fnIt) {
-      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); 
+      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end();
            bbIt != bb_ie; ++bbIt) {
-        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end(); 
+        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end();
              it != ie; ++it) {
           Instruction *inst = static_cast<Instruction *>(it);
           if (isa<CallInst>(inst) || isa<InvokeInst>(inst)) {
@@ -707,16 +710,16 @@ void StatsTracker::computeReachableUncovered() {
     }
 
     // Compute function callers as reflexion of callTargets.
-    for (calltargets_ty::iterator it = callTargets.begin(), 
+    for (calltargets_ty::iterator it = callTargets.begin(),
            ie = callTargets.end(); it != ie; ++it)
-      for (std::vector<Function*>::iterator fit = it->second.begin(), 
-             fie = it->second.end(); fit != fie; ++fit) 
+      for (std::vector<Function*>::iterator fit = it->second.begin(),
+             fie = it->second.end(); fit != fie; ++fit)
         functionCallers[*fit].push_back(it->first);
 
     // Initialize minDistToReturn to shortest paths through
     // functions. 0 is unreachable.
     std::vector<Instruction *> instructions;
-    for (Module::iterator fnIt = m->begin(), fn_ie = m->end(); 
+    for (Module::iterator fnIt = m->begin(), fn_ie = m->end();
          fnIt != fn_ie; ++fnIt) {
       Function *fn = static_cast<Function *>(fnIt);
       if (fnIt->isDeclaration()) {
@@ -730,15 +733,15 @@ void StatsTracker::computeReachableUncovered() {
       }
 
       // Not sure if I should bother to preorder here. XXX I should.
-      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); 
+      for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end();
            bbIt != bb_ie; ++bbIt) {
-        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end(); 
+        for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end();
              it != ie; ++it) {
           Instruction *inst = static_cast<Instruction *>(it);
           instructions.push_back(inst);
           unsigned id = infos.getInfo(inst).id;
-          sm.setIndexedValue(stats::minDistToReturn, 
-                             id, 
+          sm.setIndexedValue(stats::minDistToReturn,
+                             id,
                              isa<ReturnInst>(inst)
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 1)
                              || isa<UnwindInst>(inst)
@@ -747,9 +750,9 @@ void StatsTracker::computeReachableUncovered() {
         }
       }
     }
-  
+
     std::reverse(instructions.begin(), instructions.end());
-    
+
     // I'm so lazy it's not even worklisted.
     bool changed;
     do {
@@ -773,7 +776,7 @@ void StatsTracker::computeReachableUncovered() {
         } else {
           bestThrough = 1;
         }
-       
+
         if (bestThrough) {
           unsigned id = infos.getInfo(*it).id;
           uint64_t best, cur = best = sm.getIndexedValue(stats::minDistToReturn, id);
@@ -810,25 +813,25 @@ void StatsTracker::computeReachableUncovered() {
 
   // compute minDistToUncovered, 0 is unreachable
   std::vector<Instruction *> instructions;
-  for (Module::iterator fnIt = m->begin(), fn_ie = m->end(); 
+  for (Module::iterator fnIt = m->begin(), fn_ie = m->end();
        fnIt != fn_ie; ++fnIt) {
     // Not sure if I should bother to preorder here.
-    for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end(); 
+    for (Function::iterator bbIt = fnIt->begin(), bb_ie = fnIt->end();
          bbIt != bb_ie; ++bbIt) {
-      for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end(); 
+      for (BasicBlock::iterator it = bbIt->begin(), ie = bbIt->end();
            it != ie; ++it) {
         Instruction *inst = static_cast<Instruction *>(it);
         unsigned id = infos.getInfo(inst).id;
         instructions.push_back(inst);
-        sm.setIndexedValue(stats::minDistToUncovered, 
-                           id, 
+        sm.setIndexedValue(stats::minDistToUncovered,
+                           id,
                            sm.getIndexedValue(stats::uncoveredInstructions, id));
       }
     }
   }
-  
+
   std::reverse(instructions.begin(), instructions.end());
-  
+
   // I'm so lazy it's not even worklisted.
   bool changed;
   do {
@@ -836,10 +839,10 @@ void StatsTracker::computeReachableUncovered() {
     for (std::vector<Instruction*>::iterator it = instructions.begin(),
            ie = instructions.end(); it != ie; ++it) {
       Instruction *inst = *it;
-      uint64_t best, cur = best = sm.getIndexedValue(stats::minDistToUncovered, 
+      uint64_t best, cur = best = sm.getIndexedValue(stats::minDistToUncovered,
                                                      infos.getInfo(inst).id);
       unsigned bestThrough = 0;
-      
+
       if (isa<CallInst>(inst) || isa<InvokeInst>(inst)) {
         std::vector<Function*> &targets = callTargets[inst];
         for (std::vector<Function*>::iterator fnIt = targets.begin(),
@@ -864,7 +867,7 @@ void StatsTracker::computeReachableUncovered() {
       } else {
         bestThrough = 1;
       }
-      
+
       if (bestThrough) {
         std::vector<Instruction*> succs = getSuccs(inst);
         for (std::vector<Instruction*>::iterator it2 = succs.begin(),
@@ -880,8 +883,8 @@ void StatsTracker::computeReachableUncovered() {
       }
 
       if (best != cur) {
-        sm.setIndexedValue(stats::minDistToUncovered, 
-                           infos.getInfo(inst).id, 
+        sm.setIndexedValue(stats::minDistToUncovered,
+                           infos.getInfo(inst).id,
                            best);
         changed = true;
       }
@@ -903,9 +906,9 @@ void StatsTracker::computeReachableUncovered() {
         kii = next->caller;
         ++kii;
       }
-      
+
       sfIt->minDistToUncoveredOnReturn = currentFrameMinDist;
-      
+
       currentFrameMinDist = computeMinDistToUncovered(kii, currentFrameMinDist);
     }
   }

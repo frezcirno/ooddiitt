@@ -160,6 +160,7 @@ public:
   /// then the setSMTLIBboolOption()
   /// call will be ineffective.
   void generateOutput();
+  void generateVarOutput();
 
   /// Set which SMTLIBv2 logic to use.
   /// This only affects what logic is used in the (set-logic <logic>) command.

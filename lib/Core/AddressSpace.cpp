@@ -9,11 +9,12 @@
 
 #include "AddressSpace.h"
 #include "CoreStats.h"
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #include "TimingSolver.h"
 
 #include "klee/Expr.h"
 #include "klee/TimerStatIncrementer.h"
+#include "klee/Internal/Support/ErrorHandling.h"
 
 using namespace klee;
 
@@ -31,15 +32,15 @@ void AddressSpace::unbindObject(const MemoryObject *mo) {
 
 const ObjectState *AddressSpace::findObject(const MemoryObject *mo) const {
   const MemoryMap::value_type *res = objects.lookup(mo);
-  
+
   return res ? res->second : 0;
 }
 
 ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
                                         const ObjectState *os) {
-  assert(!os->readOnly);
-
-  if (cowKey==os->copyOnWriteOwner) {
+  if (mo->isReadOnly()) {
+    return nullptr;
+  } else if (cowKey==os->copyOnWriteOwner) {
     return const_cast<ObjectState*>(os);
   } else {
     ObjectState *n = new ObjectState(*os);
@@ -51,28 +52,27 @@ ObjectState *AddressSpace::getWriteable(const MemoryObject *mo,
 
 /// 
 
-bool AddressSpace::resolveOne(const ref<ConstantExpr> &addr, 
-                              ObjectPair &result) {
-  uint64_t address = addr->getZExtValue();
-  MemoryObject hack(address);
+bool AddressSpace::resolveOne(uint64_t address, ObjectPair &result) {
 
+  MemoryObject hack(address);
+  result.first = nullptr;
+  result.second = nullptr;
   if (const MemoryMap::value_type *res = objects.lookup_previous(&hack)) {
     const MemoryObject *mo = res->first;
     // Check if the provided address is between start and end of the object
     // [mo->address, mo->address + mo->size) or the object is a 0-sized object.
-    if ((mo->size==0 && address==mo->address) ||
-        (address - mo->address < mo->size)) {
-      result = *res;
+    result = *res;
+    if ((mo->size==0 && address==mo->address) || (address - mo->address < mo->size)) {
       return true;
     }
   }
-
   return false;
 }
 
 bool AddressSpace::resolveOne(ExecutionState &state,
                               TimingSolver *solver,
                               ref<Expr> address,
+                              bool optimistic,
                               ObjectPair &result,
                               bool &success) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(address)) {
@@ -89,7 +89,7 @@ bool AddressSpace::resolveOne(ExecutionState &state,
     uint64_t example = cex->getZExtValue();
     MemoryObject hack(example);
     const MemoryMap::value_type *res = objects.lookup_previous(&hack);
-    
+
     if (res) {
       const MemoryObject *mo = res->first;
       if (example - mo->address < mo->size) {
@@ -97,6 +97,11 @@ bool AddressSpace::resolveOne(ExecutionState &state,
         success = true;
         return true;
       }
+    }
+
+    if (optimistic) {
+      return false;
+//      klee_warning("optimistic memory resolution failed");
     }
 
     // didn't work, now we have to search
@@ -109,10 +114,10 @@ bool AddressSpace::resolveOne(ExecutionState &state,
     while (oi!=begin) {
       --oi;
       const MemoryObject *mo = oi->first;
-        
+      const ObjectState *os = oi->second;
+
       bool mayBeTrue;
-      if (!solver->mayBeTrue(state, 
-                             mo->getBoundsCheckPointer(address), mayBeTrue))
+      if (!solver->mayBeTrue(state, os->getBoundsCheckPointer(address), mayBeTrue))
         return false;
       if (mayBeTrue) {
         result = *oi;
@@ -132,6 +137,7 @@ bool AddressSpace::resolveOne(ExecutionState &state,
     // search forwards
     for (oi=start; oi!=end; ++oi) {
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
 
       bool mustBeTrue;
       if (!solver->mustBeTrue(state, 
@@ -143,9 +149,7 @@ bool AddressSpace::resolveOne(ExecutionState &state,
       } else {
         bool mayBeTrue;
 
-        if (!solver->mayBeTrue(state, 
-                               mo->getBoundsCheckPointer(address),
-                               mayBeTrue))
+        if (!solver->mayBeTrue(state, os->getBoundsCheckPointer(address), mayBeTrue))
           return false;
         if (mayBeTrue) {
           result = *oi;
@@ -213,11 +217,12 @@ bool AddressSpace::resolve(ExecutionState &state,
     while (oi!=begin) {
       --oi;
       const MemoryObject *mo = oi->first;
+      const ObjectState *os = oi->second;
       if (timeout_us && timeout_us < timer.check())
         return true;
 
       // XXX I think there is some query wasteage here?
-      ref<Expr> inBounds = mo->getBoundsCheckPointer(p);
+      ref<Expr> inBounds = os->getBoundsCheckPointer(p);
       bool mayBeTrue;
       if (!solver->mayBeTrue(state, inBounds, mayBeTrue))
         return true;
@@ -260,7 +265,7 @@ bool AddressSpace::resolve(ExecutionState &state,
         break;
       
       // XXX I think there is some query wasteage here?
-      ref<Expr> inBounds = mo->getBoundsCheckPointer(p);
+      ref<Expr> inBounds = os->getBoundsCheckPointer(p);
       bool mayBeTrue;
       if (!solver->mayBeTrue(state, inBounds, mayBeTrue))
         return true;
@@ -285,6 +290,7 @@ bool AddressSpace::resolve(ExecutionState &state,
   return false;
 }
 
+#if 0 == 1
 // These two are pretty big hack so we can sort of pass memory back
 // and forth to externals. They work by abusing the concrete cache
 // store inside of the object states, which allows them to
@@ -297,8 +303,8 @@ void AddressSpace::copyOutConcretes() {
     const MemoryObject *mo = it->first;
 
     if (!mo->isUserSpecified) {
-      ObjectState *os = it->second;
-      uint8_t *address = (uint8_t*) (unsigned long) mo->address;
+      const ObjectState *os = it->second;
+      uint8_t *address = (uint8_t*) (mo->address);
 
       if (!os->readOnly)
         memcpy(address, os->concreteStore, mo->size);
@@ -313,7 +319,7 @@ bool AddressSpace::copyInConcretes() {
 
     if (!mo->isUserSpecified) {
       const ObjectState *os = it->second;
-      uint8_t *address = (uint8_t*) (unsigned long) mo->address;
+      uint8_t *address = (uint8_t *) (mo->address);
 
       if (memcmp(address, os->concreteStore, mo->size)!=0) {
         if (os->readOnly) {
@@ -328,6 +334,61 @@ bool AddressSpace::copyInConcretes() {
 
   return true;
 }
+#endif
+
+void AddressSpace::getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type) const {
+
+  listOPs.clear();
+
+  listOPs.reserve(objects.size());
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    const ObjectState *os = it->second;
+    // RLR TODO: disable type cast consideration.
+    if (type == nullptr || mo->type == type) {
+//    if (type == nullptr || os->referencedAs(type)) {
+      listOPs.push_back(std::make_pair(mo, os));
+    }
+  }
+}
+
+ObjectPair AddressSpace::findMemoryObjectByName(const std::string &name, MemKind kind) const {
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    if ((mo->name == name) && ((kind == MemKind::invalid) || (kind == mo->kind))) {
+      return std::make_pair(mo, it->second);
+    }
+  }
+  return std::make_pair(nullptr,nullptr);
+}
+
+bool AddressSpace::getNamedWrittenMemObjs(std::map<std::string,ObjectPair> &objs, const std::set<MemKind> &kinds) const {
+
+  for (MemoryMap::iterator itr = objects.begin(), end = objects.end(); itr != end; ++itr) {
+    const MemoryObject *mo = itr->first;
+    const ObjectState *os = itr->second;
+    std::string name = mo->name;
+    if (!name.empty() && kinds.find(mo->kind) != kinds.end() && !mo->isReadOnly() && os->isWritten()) {
+      objs[name] = *itr;
+    }
+  }
+  return !objs.empty();
+}
+
+void AddressSpace::clearWritten() {
+
+  for (MemoryMap::iterator it = objects.begin(), ie = objects.end(); it != ie; ++it) {
+    const MemoryObject *mo = it->first;
+    const ObjectState *os = it->second;
+    if (!mo->isReadOnly() && os->isWritten()) {
+      if (ObjectState *wos = getWriteable(mo, os)) {
+        wos->clearWritten();
+      }
+    }
+  }
+}
+
 
 /***/
 

@@ -12,28 +12,23 @@
 
 #include "klee/Config/Version.h"
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
-#else
-#include "llvm/Constants.h"
-#include "llvm/Instructions.h"
-#include "llvm/Module.h"
-#endif
 #include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/Pass.h"
+
+#include <klee/Internal/Module/KModule.h>
+
+#include <set>
+#include <llvm/Support/CallSite.h>
 
 namespace llvm {
   class Function;
   class Instruction;
   class Module;
-#if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
-  class TargetData;
-#else
   class DataLayout;
-#endif
   class TargetLowering;
   class Type;
 }
@@ -178,6 +173,58 @@ private:
                      llvm::Value *value,
                      llvm::BasicBlock *origBlock,
                      llvm::BasicBlock *defaultBlock);
+};
+
+/// InstructionOperandTypeCheckPass - Type checks the types of instruction
+/// operands to check that they conform to invariants expected by the Executor.
+///
+/// This is a ModulePass because other pass types are not meant to maintain
+/// state between calls.
+class InstructionOperandTypeCheckPass : public llvm::ModulePass {
+private:
+  bool instructionOperandsConform;
+
+public:
+  static char ID;
+  InstructionOperandTypeCheckPass()
+      : llvm::ModulePass(ID), instructionOperandsConform(true) {}
+  bool runOnModule(llvm::Module &M) override;
+  bool checkPassed() const { return instructionOperandsConform; }
+};
+
+class FnMarkerPass : public llvm::FunctionPass {
+  static char ID;
+
+public:
+  FnMarkerPass(std::map<const llvm::Function*,unsigned> &_mapFn,
+               std::map<const llvm::BasicBlock*, unsigned> &_mapBB,
+               const std::set<llvm::Function*> &_fns) :
+        llvm::FunctionPass(ID),
+        mdkind_fnID(0),
+        mdkind_bbID(0),
+        next_fnID(1),
+        mapFn(_mapFn),
+        mapBB(_mapBB),
+        fns(_fns) {}
+  bool runOnFunction(llvm::Function &f) override;
+  bool doInitialization(llvm::Module &module) override;
+  bool doFinalization(llvm::Module &module) override;
+private:
+  unsigned mdkind_fnID;
+  unsigned mdkind_bbID;
+  unsigned next_fnID;
+  std::map<const llvm::Function*,unsigned> &mapFn;
+  std::map<const llvm::BasicBlock*, unsigned> &mapBB;
+  const std::set<llvm::Function*> &fns;
+};
+
+class StructFoldPass : public llvm::ModulePass {
+  static char ID;
+public:
+  StructFoldPass(): ModulePass(ID) {}
+  virtual bool runOnModule(llvm::Module &M);
+private:
+  bool areAllEquivalent(const std::set<llvm::StructType*> &types) const;
 };
 
 }

@@ -313,6 +313,10 @@ ref<Expr> Expr::createIsZero(ref<Expr> e) {
   return EqExpr::create(e, ConstantExpr::create(0, e->getWidth()));
 }
 
+ref<Expr> Expr::createIsNonZero(ref<Expr> e) {
+  return NeExpr::create(e, ConstantExpr::create(0, e->getWidth()));
+}
+
 void Expr::print(llvm::raw_ostream &os) const {
   ExprPPrinter::printSingleExpr(os, const_cast<Expr*>(this));
 }

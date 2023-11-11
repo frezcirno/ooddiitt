@@ -91,6 +91,22 @@ Searcher *getNewSearcher(Searcher::CoreSearchType type, Executor &executor) {
   return searcher;
 }
 
+Searcher *klee::constructUserSearcher(Executor &executor, Searcher::CoreSearchType type) {
+
+  CoreSearch.clear();
+  CoreSearch.push_back(type);
+  return constructUserSearcher(executor);
+}
+
+Searcher *klee::constructUserSearcher(Executor &executor, const std::vector<Searcher::CoreSearchType> &lst) {
+
+  CoreSearch.clear();
+  for (auto itr = lst.begin(), end = lst.end(); itr != end; ++itr) {
+    CoreSearch.push_back(*itr);
+  }
+  return constructUserSearcher(executor);
+}
+
 Searcher *klee::constructUserSearcher(Executor &executor) {
 
   // default values
@@ -132,11 +148,12 @@ Searcher *klee::constructUserSearcher(Executor &executor) {
     searcher = new IterativeDeepeningTimeSearcher(searcher);
   }
 
+#if 0 == 1
   llvm::raw_ostream &os = executor.getHandler().getInfoStream();
 
   os << "BEGIN searcher description\n";
   searcher->printName(os);
   os << "END searcher description\n";
-
+#endif
   return searcher;
 }

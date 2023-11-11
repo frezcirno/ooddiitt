@@ -273,8 +273,21 @@ bool CexCachingSolver::computeValidity(const Query& query,
     return false;
   assert(a && "computeValidity() must have assignment");
   ref<Expr> q = a->evaluate(query.expr);
-  assert(isa<ConstantExpr>(q) && 
-         "assignment evaluation did not result in constant");
+  if (!isa<ConstantExpr>(q)) {
+    errs().flush();
+    errs() << "\nquery:\n";
+    errs().flush();
+    query.withFalse().dump();
+    errs().flush();
+    errs() << "\nassignment:\n";
+    errs().flush();
+    a->dump();
+    errs().flush();
+    errs() << "q:\n";
+    errs().flush();
+    q->dump();
+    assert(false && "assignment evaluation did not result in constant");
+  }
 
   if (cast<ConstantExpr>(q)->isTrue()) {
     if (!getAssignment(query, a))
@@ -321,7 +334,7 @@ bool CexCachingSolver::computeValue(const Query& query,
   TimerStatIncrementer t(stats::cexCacheTime);
 
   Assignment *a;
-  if (!getAssignment(query.withFalse(), a))
+  if (!getAssignment(query.withFalse(), a) || a == nullptr)
     return false;
   assert(a && "computeValue() must have assignment");
   result = a->evaluate(query.expr);  

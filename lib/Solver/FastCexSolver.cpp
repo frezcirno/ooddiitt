@@ -111,6 +111,8 @@ public:
   ValueRange(uint64_t _min, uint64_t _max) : m_min(_min), m_max(_max) {}
   ValueRange(const ValueRange &b) : m_min(b.m_min), m_max(b.m_max) {}
 
+  ValueRange &operator=(const ValueRange &other) { m_min = other.m_min; m_max = other.m_max; return *this; }
+
   void print(llvm::raw_ostream &os) const {
     if (isFixed()) {
       os << m_min;

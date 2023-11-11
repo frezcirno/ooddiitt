@@ -16,11 +16,18 @@
 
 // FIXME: We do not want to be exposing these? :(
 #include "../../lib/Core/AddressSpace.h"
+#include "klee/Internal/Module/KInstruction.h"
 #include "klee/Internal/Module/KInstIterator.h"
+#include "klee/Internal/Module/KModule.h"
+#include "klee/util/CommonUtil.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Module.h"
 
 #include <map>
 #include <set>
 #include <vector>
+
+#define INVALID_BB_INDEX  ((unsigned) -1)
 
 namespace klee {
 class Array;
@@ -34,13 +41,93 @@ struct InstructionInfo;
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const MemoryMap &mm);
 
+class ProgramTracer {
+
+public:
+  ProgramTracer() = default;
+  virtual ~ProgramTracer() = default;
+  void append(TraceDequeT &trace, const char *str, unsigned entry, bool force=false) {
+      if (
+          (entry != 0) &&
+          (force || trace.empty() || (trace.back().first != str) || (trace.back().second != entry))
+         ) trace.emplace_back(str, entry); }
+  void append(TraceDequeT &trace, unsigned entry, bool force=false) {
+    if (
+        (entry != 0) &&
+        (force || trace.empty() || (trace.back().second != entry))
+       ) trace.emplace_back(nullptr, entry); }
+  virtual void append_instr(TraceDequeT &trace, KInstruction *ki) {}
+  virtual void append_call(TraceDequeT &trace, const KFunction *kf) {}
+  virtual void append_return(TraceDequeT &trace, const KFunction *kf) {}
+};
+
+class AssemblyTracer : public ProgramTracer {
+public:
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
+    append(trace, ki->info->assemblyLine);
+  }
+};
+
+class StatementTracer : public ProgramTracer {
+public:
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
+    append(trace, ki->info->file, ki->info->line);
+  }
+};
+
+class BBlocksTracer : public ProgramTracer {
+public:
+  explicit BBlocksTracer(KModule *k) : kmodule(k)  { }
+
+  void append_instr(TraceDequeT &trace, KInstruction *ki) override  {
+    llvm::BasicBlock *bb = ki->inst->getParent();
+    llvm::Function *fn = bb->getParent();
+    auto pr = kmodule->getMarker(fn, bb);
+    if (pr.second != 0) {
+      KFunction *kf = kmodule->getKFunction(fn);
+      append(trace, kf->getName().c_str(), pr.second);
+    }
+  }
+private:
+  KModule *kmodule;
+};
+
+class CallTracer : public ProgramTracer {
+public:
+  explicit CallTracer(KModule *k) : kmodule(k)  {}
+  void append_call(TraceDequeT &trace, const KFunction *kf) override {
+    append(trace, kf->getName().c_str(), 1, true);
+  }
+
+  void append_return(TraceDequeT &trace, const KFunction *kf) override {
+    append(trace, kf->getName().c_str(), 2, true);
+  }
+
+private:
+  KModule *kmodule;
+};
+
+struct LoopFrame {
+  const llvm::Loop *loop;
+  unsigned counter;
+
+  explicit LoopFrame(const llvm::Loop *l) : loop(l), counter(0) {};
+  LoopFrame(const LoopFrame &s) : loop(s.loop), counter(s.counter) {};
+  ~LoopFrame() = default;
+};
+
 struct StackFrame {
   KInstIterator caller;
   KFunction *kf;
+#ifdef _DEBUG
+  std::string fn_name;
+#endif  // _DEBUG
   CallPathNode *callPathNode;
-
-  std::vector<const MemoryObject *> allocas;
+  std::set<const MemoryObject *> allocas;
+  size_t numRegs;
   Cell *locals;
+
+  std::vector<LoopFrame> loopFrames;
 
   /// Minimum distance to an uncovered instruction once the function
   /// returns. This is not a good place for this but is used to
@@ -61,6 +148,28 @@ struct StackFrame {
   ~StackFrame();
 };
 
+class CharacterOutput : public std::deque<std::vector<unsigned char> > {
+public:
+
+  size_t accum_size() const {
+    size_t size = 0;
+    for (const auto &v : *this) {
+      size += v.size();
+    }
+    return size;
+  }
+
+  void get_data(std::vector<unsigned char> &data) const {
+    data.clear();
+    // two iterations, one just collect size, the other to insert data
+    data.reserve(accum_size());
+    for (const auto &v : *this) {
+      data.insert(data.end(), v.begin(), v.end());
+    }
+  }
+
+};
+
 /// @brief ExecutionState representing a path under exploration
 class ExecutionState {
 public:
@@ -69,10 +178,12 @@ public:
 private:
   // unsupported, use copy constructor
   ExecutionState &operator=(const ExecutionState &);
-
   std::map<std::string, std::string> fnAliases;
 
 public:
+
+  void restartInstruction() { pc = prevPC; }
+
   // Execution - Control Flow specific
 
   /// @brief Pointer to instruction to be executed after the current
@@ -128,7 +239,7 @@ public:
   bool forkDisabled;
 
   /// @brief Set containing which lines in which files are covered by this state
-  std::map<const std::string *, std::set<unsigned> > coveredLines;
+  std::map<const char*, std::set<unsigned> > coveredLines;
 
   /// @brief Pointer to the process tree of the current state
   PTreeNode *ptreeNode;
@@ -141,19 +252,54 @@ public:
   /// @brief Set of used array names for this state.  Used to avoid collisions.
   std::set<std::string> arrayNames;
 
+  std::map<llvm::Function*,unsigned> callTargetCounter;
+
+  std::string name;
+  bool isProcessed;
+
+  unsigned lazyAllocationCount;
+  unsigned lazyStringLength;
+  unsigned argsStringLength;
+  unsigned maxLazyDepth;
+  unsigned maxStatesInLoop;
+
+  StateStatus status;
+  std::deque<std::string> messages;
+  const KInstruction *instFaulting;
+  uint64_t addrFaulting;
+  const MemoryObject *moFaulting;
+  std::deque<std::pair<const char *,unsigned>> trace;
+  std::vector<ref<Expr> > arguments;
+  unsigned allBranchCounter;
+  unsigned unconBranchCounter;
+  const KInstruction* branched_at;
+
+  CharacterOutput stdout_capture;
+  CharacterOutput stderr_capture;
+  unsigned stdin_offset;
+  bool stdin_closed;
+  std::vector<unsigned char> stdin_buffer;
+  unsigned eof_counter;
+
+  ref<Expr> last_ret_value;
+  unsigned min_distance;
+  unsigned linear_distance;
+
+  bool reached_target;
+  std::deque<std::pair<unsigned, KInstruction *>> o_asserts;
+  std::map<const llvm::Function *, std::string> bound_fnptrs;
+  std::deque<std::pair<llvm::Function *, std::vector<ref<Expr>>>> extern_call_log;
+
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
 
-private:
-  ExecutionState() : ptreeNode(0) {}
-
-public:
-  ExecutionState(KFunction *kf);
+  ExecutionState(); // : ptreeNode(0) {}
+  ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &name);
 
   // XXX total hack, just used to make a state so solver can
   // use on structure
-  ExecutionState(const std::vector<ref<Expr> > &assumptions);
+  ExecutionState(const ExecutionState &state, const std::vector<ref<Expr> > &assumptions);
 
   ExecutionState(const ExecutionState &state);
 
@@ -163,9 +309,21 @@ public:
 
   void pushFrame(KInstIterator caller, KFunction *kf);
   void popFrame();
+  const llvm::Loop *getTopMostLoop() const;
+  bool getAllLoops(std::set<const llvm::Loop *> &loops) const;
 
   void addSymbolic(const MemoryObject *mo, const Array *array);
-  void addConstraint(ref<Expr> e) { constraints.addConstraint(e); }
+  bool isSymbolic(const MemoryObject *mo) const { return findSymbolic(mo) != nullptr; }
+  const Array *findSymbolic(const MemoryObject *mo) const {
+    for (auto &pr : symbolics) {
+      if (pr.first==mo) {
+        return pr.second;
+      }
+    }
+    return nullptr;
+  }
+  bool isConcrete(const MemoryObject *mo);
+  void addConstraint(ref<Expr> e)   { constraints.addConstraint(e); }
 
   bool merge(const ExecutionState &b);
   void dumpStack(llvm::raw_ostream &out) const;

@@ -15,12 +15,12 @@ LEVEL=..
 #
 # List all of the subdirectories that we will compile.
 #
-PARALLEL_DIRS=Intrinsic klee-libc Runtest
+PARALLEL_DIRS=Intrinsic-64
 
 include $(LEVEL)/Makefile.config
 
 ifeq ($(ENABLE_POSIX_RUNTIME),1)
-PARALLEL_DIRS += POSIX
+PARALLEL_DIRS += POSIX-64
 endif
 
 ifeq ($(ENABLE_UCLIBC),1)

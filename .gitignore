@@ -1,34 +1,54 @@
-Release/
-Release+Asserts/
-Debug/
-Debug+Asserts/
-Output/
-build_*/
+# C++ objects and libs
+*.slo
+*.lo
+*.o
+*.a
+*.la
+*.lai
+*.so
+*.so.*
+*.dll
+*.dylib
 
-cscope.*
-*~
+# Qt-es
+object_script.*.Release
+object_script.*.Debug
+*_plugin_import.cpp
+/.qmake.cache
+/.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-*
+*.qm
+*.prl
 
-*.log
-*.sum
-*.out
-*.status
+# Qt unit tests
+target_wrapper.*
 
-# In source build files
-docs/doxygen.cfg
-include/klee/Config/CompileTimeInfo.h
-*.config
+# QtCreator
+*.autosave
 
-config.h
-site.exp
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
 
-# Site file for llvm-lit
-lit.site.cfg
+# QtCreator 4.8< compilation database 
+compile_commands.json
 
-# Autoconf files
-autoconf/aclocal.m4
-autoconf/autom4te.cache/
-autom4te.cache/
+# QtCreator local machine specific files for imported projects
+*creator.user*
 
-# coati files
-*.coatidb
-*.coatiproject
+*_qmlcache.qrc
+
+# build directories
+cmake-*/

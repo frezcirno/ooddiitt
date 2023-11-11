@@ -51,7 +51,7 @@ MinQueryTimeToLog("min-query-time-to-log",
 llvm::cl::opt<double>
 MaxCoreSolverTime("max-solver-time",
            llvm::cl::desc("Maximum amount of time for a single SMT query (default=0s (off)). Enables --use-forked-solver"),
-           llvm::cl::init(0.0),
+           llvm::cl::init(60.0),
            llvm::cl::value_desc("seconds"));
 
 llvm::cl::opt<bool>

@@ -13,6 +13,8 @@
 #include <set>
 #include <stdint.h>
 
+#include "klee/Internal/System/Memory.h"
+
 namespace llvm {
 class Value;
 }
@@ -23,34 +25,40 @@ class ArrayCache;
 
 class MemoryManager {
 private:
-  typedef std::set<MemoryObject *> objects_ty;
-  objects_ty objects;
+  // RLR TODO: evaluate continuing need
+//  typedef std::set<const MemoryObject *> objects_ty;
+//  objects_ty objects;
   ArrayCache *const arrayCache;
 
-  char *deterministicSpace;
-  char *nextFreeSlot;
-  size_t spaceSize;
+  void *deterministicStart;
+  void *deterministicEnd;
+  void *nextFreeSlot;
+
+//  size_t spaceSize;
 
 public:
-  MemoryManager(ArrayCache *arrayCache);
+  MemoryManager(ArrayCache *arrayCache, void *user_baseaddress, size_t size);
   ~MemoryManager();
 
   /**
    * Returns memory object which contains a handle to real virtual process
    * memory.
    */
-  MemoryObject *allocate(uint64_t size, bool isLocal, bool isGlobal,
-                         const llvm::Value *allocSite, size_t alignment);
-  MemoryObject *allocateFixed(uint64_t address, uint64_t size,
-                              const llvm::Value *allocSite);
-  void deallocate(const MemoryObject *mo);
+  MemoryObject *allocate(uint64_t size, const llvm::Type *type, MemKind kind, const llvm::Value *allocSite, size_t alignment);
+//  MemoryObject *allocateFixed(uint64_t address, uint64_t size, const llvm::Value *allocSite);
+  MemoryObject *inject(void *addr, uint64_t size, const llvm::Type *type, MemKind kind, size_t alignment);
   void markFreed(MemoryObject *mo);
+//  bool isAllocated(const MemoryObject *mo) const { return objects.find(mo) != objects.end(); }
+//  bool isFreed(const MemoryObject *mo) const { return !isAllocated(mo); }
   ArrayCache *getArrayCache() const { return arrayCache; }
+  bool reserve(size_t size);
+  void dump() const;
 
   /*
    * Returns the size used by deterministic allocation in bytes
    */
-  size_t getUsedDeterministicSize();
+  size_t getUsedDeterministicSize() const;
+  size_t getAvailable() const;
 };
 
 } // End klee namespace

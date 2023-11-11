@@ -6,9 +6,12 @@
 # License. See LICENSE.TXT for details.
 #
 #===------------------------------------------------------------------------===#
-add_subdirectory(gen-random-bout)
-add_subdirectory(kleaver)
-add_subdirectory(klee)
-add_subdirectory(klee-replay)
-add_subdirectory(klee-stats)
-add_subdirectory(ktest-tool)
+add_subdirectory(brt-prep)
+add_subdirectory(brt-diff)
+add_subdirectory(brt-icmp)
+add_subdirectory(brt-igen)
+add_subdirectory(brt-rply)
+add_subdirectory(brt-rcrd)
+
+install(PROGRAMS scripts/brt-dis DESTINATION bin)
+install(PROGRAMS scripts/brt-vrfy DESTINATION bin)

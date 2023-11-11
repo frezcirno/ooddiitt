@@ -18,7 +18,10 @@ void Assignment::dump() {
        ++i) {
     llvm::errs() << (*i).first->name << "\n[";
     for (int j = 0, k = (*i).second.size(); j < k; ++j)
-      llvm::errs() << (int)(*i).second[j] << ",";
+    {
+      if (j > 0) llvm::errs() << ',';
+      llvm::errs() << (int)(*i).second[j];
+    }
     llvm::errs() << "]\n";
   }
 }

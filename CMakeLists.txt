@@ -40,18 +40,18 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE_C
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flags_override.cmake")
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_flags_override.cmake")
-project(KLEE CXX C)
+project(brt-klee CXX C)
 
 ###############################################################################
 # Project version
 ###############################################################################
 set(KLEE_VERSION_MAJOR 1)
 set(KLEE_VERSION_MINOR 3)
-set(KLEE_VERSION_PATCH 0)
+set(KLEE_VERSION_PATCH 1)
 set(KLEE_VERSION_TWEAK 0)
 set(KLEE_VERSION "${KLEE_VERSION_MAJOR}.${KLEE_VERSION_MINOR}.${KLEE_VERSION_PATCH}.${KLEE_VERSION_TWEAK}")
-message(STATUS "KLEE version ${KLEE_VERSION}")
-set(PACKAGE_STRING "\"KLEE ${KLEE_VERSION}\"")
+message(STATUS "BRT-KLEE version ${KLEE_VERSION}")
+set(PACKAGE_STRING "\"BRT-KLEE ${KLEE_VERSION}\"")
 set(PACKAGE_URL "\"https://klee.github.io\"")
 
 ################################################################################
@@ -141,6 +141,9 @@ else()
     message(FATAL_ERROR "\"${CMAKE_BUILD_TYPE}\" is an invalid build type.\n"
       "Use one of the following build types ${available_build_types}")
   endif()
+
+  add_compile_options("$<$<CONFIG:DEBUG>:-D_DEBUG>")
+  add_compile_options("$<$<CONFIG:DEBUG>:-D_GLIBCXX_DEBUG>")
 endif()
 
 
@@ -159,6 +162,7 @@ if (ENABLE_KLEE_ASSERTS)
 else()
   message(STATUS "KLEE assertions disabled")
   list(APPEND KLEE_COMPONENT_CXX_DEFINES "NDEBUG")
+  add_definitions(-DNDEBUG)
 endif()
 
 ################################################################################
@@ -189,6 +193,16 @@ set(KLEE_COMPONENT_CXX_DEFINES "")
 set(KLEE_COMPONENT_CXX_FLAGS "")
 set(KLEE_SOLVER_LIBRARIES "")
 set(KLEE_COMPONENT_EXTRA_LIBRARIES "")
+
+
+################################################################################
+# Find Boost
+################################################################################
+set(Boost_USE_STATIC_LIBS ON)
+find_package(Boost REQUIRED COMPONENTS regex system filesystem)
+if (Boost_FOUND)
+  include_directories(SYSTEM ${Boost_INCLUDE_DIR})
+endif ()
 
 ################################################################################
 # Find LLVM
@@ -424,6 +438,7 @@ endif()
 OPTION(ENABLE_TCMALLOC "Enable TCMalloc support" OFF)
 if (ENABLE_TCMALLOC)
   message(STATUS "TCMalloc support enabled")
+  set (CMAKE_REQUIRED_INCLUDES "/usr/local/include")
   set(TCMALLOC_HEADER "gperftools/malloc_extension.h")
   check_include_file_cxx("${TCMALLOC_HEADER}" HAVE_GPERFTOOLS_MALLOC_EXTENSION_H)
   if (${HAVE_GPERFTOOLS_MALLOC_EXTENSION_H})
@@ -549,7 +564,7 @@ set(available_klee_runtime_build_types
 if (NOT KLEE_RUNTIME_BUILD_TYPE)
   message(STATUS "KLEE_RUNTIME_BUILD_TYPE is not set. Setting default")
   message(STATUS "The available runtime build types are: ${available_klee_runtime_build_types}")
-  set(KLEE_RUNTIME_BUILD_TYPE "Release+Debug+Asserts" CACHE String
+  set(KLEE_RUNTIME_BUILD_TYPE "Release+Debug+Asserts" CACHE STRING
     "Options are ${available_klee_runtime_build_types}"
     FORCE)
 endif()
@@ -595,7 +610,7 @@ if (ENABLE_KLEE_UCLIBC)
   endif()
 
   # Find the C library bitcode archive
-  set(KLEE_UCLIBC_BCA_NAME "klee-uclibc.bca")
+  set(KLEE_UCLIBC_BCA_NAME "klee-uclibc-64.bca")
   set(KLEE_UCLIBC_C_BCA "${KLEE_UCLIBC_PATH}/lib/libc.a")
   if (NOT EXISTS "${KLEE_UCLIBC_C_BCA}")
     message(FATAL_ERROR
@@ -643,8 +658,11 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
   include(${CMAKE_SOURCE_DIR}/cmake/GetGitRevisionDescription.cmake)
   get_git_head_revision(_NOT_USED_KLEE_GIT_REFSPEC KLEE_GIT_SHA1HASH)
   message(STATUS "KLEE_GIT_SHA1HASH: ${KLEE_GIT_SHA1HASH}")
+  git_describe(KLEE_GIT_TAG --all)
+  message(STATUS "KLEE_GIT_TAG: ${KLEE_GIT_TAG}")
 else()
   set(KLEE_GIT_SHA1HASH "unknown")
+  set(KLEE_GIT_TAG "unknown")
 endif()
 set(AUTO_GEN_MSG "AUTOMATICALLY GENERATED. DO NOT EDIT!")
 configure_file(${CMAKE_SOURCE_DIR}/include/klee/Config/CompileTimeInfo.h.cmin
@@ -760,4 +778,4 @@ endif()
 ################################################################################
 # Miscellaneous install
 ################################################################################
-install(FILES include/klee/klee.h DESTINATION include/klee)
+install(FILES include/klee/klee.h DESTINATION include/klee RENAME brt-klee.h)

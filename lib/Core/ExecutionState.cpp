@@ -16,7 +16,7 @@
 
 #include "klee/Expr.h"
 
-#include "Memory.h"
+#include "klee/Internal/System/Memory.h"
 #if LLVM_VERSION_CODE >= LLVM_VERSION(3, 3)
 #include "llvm/IR/Function.h"
 #else
@@ -43,16 +43,22 @@ namespace {
 /***/
 
 StackFrame::StackFrame(KInstIterator _caller, KFunction *_kf)
-  : caller(_caller), kf(_kf), callPathNode(0), 
-    minDistToUncoveredOnReturn(0), varargs(0) {
-  locals = new Cell[kf->numRegisters];
+  : caller(_caller), kf(_kf), callPathNode(nullptr),
+    numRegs(kf->numRegisters),
+    minDistToUncoveredOnReturn(0), varargs(nullptr) {
+  locals = new Cell[numRegs];
 }
 
 StackFrame::StackFrame(const StackFrame &s) 
   : caller(s.caller),
     kf(s.kf),
+#ifdef _DEBUG
+    fn_name(kf->fn_name),
+#endif // _DEBUG
     callPathNode(s.callPathNode),
     allocas(s.allocas),
+    numRegs(s.numRegs),
+    loopFrames(s.loopFrames),
     minDistToUncoveredOnReturn(s.minDistToUncoveredOnReturn),
     varargs(s.varargs) {
   locals = new Cell[s.kf->numRegisters];
@@ -66,9 +72,9 @@ StackFrame::~StackFrame() {
 
 /***/
 
-ExecutionState::ExecutionState(KFunction *kf) :
-    pc(kf->instructions),
+ExecutionState::ExecutionState() :
     prevPC(pc),
+    incomingBBIndex(INVALID_BB_INDEX),
 
     queryCost(0.), 
     weight(1),
@@ -77,22 +83,103 @@ ExecutionState::ExecutionState(KFunction *kf) :
     instsSinceCovNew(0),
     coveredNew(false),
     forkDisabled(false),
-    ptreeNode(0) {
+    ptreeNode(0),
+    name("_germinal_"),
+    isProcessed(false),
+
+    lazyAllocationCount(0),
+    lazyStringLength(0),
+    argsStringLength(0),
+    maxLazyDepth(0),
+    maxStatesInLoop(0),
+
+    status(StateStatus::Ready),
+    instFaulting(nullptr),
+    addrFaulting(0),
+    moFaulting(nullptr),
+    allBranchCounter(0),
+    unconBranchCounter(0),
+    branched_at(nullptr),
+    stdin_offset(0),
+    stdin_closed(false),
+    eof_counter(0),
+    min_distance(UINT32_MAX),
+    linear_distance(0),
+    reached_target(false)
+{ }
+
+ExecutionState::ExecutionState(const ExecutionState &state, KFunction *kf, const std::string &_name) :
+
+    fnAliases(state.fnAliases),
+
+//    pc(state.pc),
+//    prevPC(state.prevPC),
+    stack(state.stack),
+    incomingBBIndex(state.incomingBBIndex),
+
+    addressSpace(state.addressSpace),
+    constraints(state.constraints),
+
+    queryCost(state.queryCost),
+    weight(state.weight),
+    depth(state.depth),
+
+    pathOS(state.pathOS),
+    symPathOS(state.symPathOS),
+
+    instsSinceCovNew(state.instsSinceCovNew),
+    coveredNew(state.coveredNew),
+    forkDisabled(state.forkDisabled),
+    coveredLines(state.coveredLines),
+    ptreeNode(state.ptreeNode),
+    symbolics(state.symbolics),
+    arrayNames(state.arrayNames),
+    callTargetCounter(state.callTargetCounter),
+    isProcessed(state.isProcessed),
+
+    lazyAllocationCount(state.lazyAllocationCount),
+    lazyStringLength(state.lazyStringLength),
+    argsStringLength(state.argsStringLength),
+    maxLazyDepth(state.maxLazyDepth),
+    maxStatesInLoop(state.maxStatesInLoop),
+
+    status(state.status),
+    messages(state.messages),
+    instFaulting(state.instFaulting),
+    addrFaulting(state.addrFaulting),
+    moFaulting(state.moFaulting),
+    trace(state.trace),
+    arguments(state.arguments),
+    allBranchCounter(state.allBranchCounter),
+    unconBranchCounter(state.unconBranchCounter),
+    branched_at(state.branched_at),
+    stdout_capture(state.stdout_capture),
+    stderr_capture(state.stderr_capture),
+    stdin_offset(state.stdin_offset),
+    stdin_closed(state.stdin_closed),
+    stdin_buffer(state.stdin_buffer),
+    eof_counter(state.eof_counter),
+    last_ret_value(state.last_ret_value),
+    min_distance(state.min_distance),
+    linear_distance(state.linear_distance),
+    reached_target(state.reached_target),
+    o_asserts(state.o_asserts),
+    bound_fnptrs(state.bound_fnptrs),
+    extern_call_log(state.extern_call_log)
+{
+  for (unsigned int i=0; i<symbolics.size(); i++) {
+    symbolics[i].first->refCount++;
+  }
+  pc = kf->instructions;
+  prevPC = pc;
+  name = _name;
   pushFrame(0, kf);
 }
 
-ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
-    : constraints(assumptions), queryCost(0.), ptreeNode(0) {}
+ExecutionState::ExecutionState(const ExecutionState &state, const std::vector<ref<Expr> > &assumptions)
+    : addressSpace(state.addressSpace), constraints(assumptions), queryCost(0.), ptreeNode(0) {}
 
 ExecutionState::~ExecutionState() {
-  for (unsigned int i=0; i<symbolics.size(); i++)
-  {
-    const MemoryObject *mo = symbolics[i].first;
-    assert(mo->refCount > 0);
-    mo->refCount--;
-    if (mo->refCount == 0)
-      delete mo;
-  }
 
   while (!stack.empty()) popFrame();
 }
@@ -120,7 +207,40 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     coveredLines(state.coveredLines),
     ptreeNode(state.ptreeNode),
     symbolics(state.symbolics),
-    arrayNames(state.arrayNames)
+    arrayNames(state.arrayNames),
+    callTargetCounter(state.callTargetCounter),
+    name(state.name),
+    isProcessed(state.isProcessed),
+
+    lazyAllocationCount(state.lazyAllocationCount),
+    lazyStringLength(state.lazyStringLength),
+    argsStringLength(state.argsStringLength),
+    maxLazyDepth(state.maxLazyDepth),
+    maxStatesInLoop(state.maxStatesInLoop),
+
+    status(state.status),
+    messages(state.messages),
+    instFaulting(state.instFaulting),
+    addrFaulting(state.addrFaulting),
+    moFaulting(state.moFaulting),
+    trace(state.trace),
+    arguments(state.arguments),
+    allBranchCounter(state.allBranchCounter),
+    unconBranchCounter(state.unconBranchCounter),
+    branched_at(state.branched_at),
+    stdout_capture(state.stdout_capture),
+    stderr_capture(state.stderr_capture),
+    stdin_offset(state.stdin_offset),
+    stdin_closed(state.stdin_closed),
+    stdin_buffer(state.stdin_buffer),
+    eof_counter(state.eof_counter),
+    last_ret_value(state.last_ret_value),
+    min_distance(state.min_distance),
+    linear_distance(state.linear_distance),
+    reached_target(state.reached_target),
+    o_asserts(state.o_asserts),
+    bound_fnptrs(state.bound_fnptrs),
+    extern_call_log(state.extern_call_log)
 {
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
@@ -130,6 +250,7 @@ ExecutionState *ExecutionState::branch() {
   depth++;
 
   ExecutionState *falseState = new ExecutionState(*this);
+  falseState->branched_at = pc;
   falseState->coveredNew = false;
   falseState->coveredLines.clear();
 
@@ -139,8 +260,33 @@ ExecutionState *ExecutionState::branch() {
   return falseState;
 }
 
+const llvm::Loop *ExecutionState::getTopMostLoop() const {
+
+  const llvm::Loop *result = nullptr;
+  if (!stack.empty()) {
+    const StackFrame &sf = stack.back();
+    if (!sf.loopFrames.empty()) {
+      const LoopFrame &lf = sf.loopFrames.back();
+      result = lf.loop;
+    }
+  }
+  return result;
+}
+
+bool ExecutionState::getAllLoops(std::set<const llvm::Loop *> &loops) const {
+
+  for (auto itr = stack.begin(), end = stack.end(); itr != end; ++itr) {
+    const StackFrame &sf = *itr;
+    if (!sf.loopFrames.empty()) {
+      const LoopFrame &lf = sf.loopFrames.back();
+      loops.insert(lf.loop);
+    }
+  }
+  return !loops.empty();
+}
+
 void ExecutionState::pushFrame(KInstIterator caller, KFunction *kf) {
-  stack.push_back(StackFrame(caller,kf));
+  stack.emplace_back(StackFrame(caller,kf));
 }
 
 void ExecutionState::popFrame() {
@@ -153,8 +299,13 @@ void ExecutionState::popFrame() {
 
 void ExecutionState::addSymbolic(const MemoryObject *mo, const Array *array) { 
   mo->refCount++;
-  symbolics.push_back(std::make_pair(mo, array));
+  symbolics.emplace_back(std::make_pair(mo, array));
 }
+
+bool ExecutionState::isConcrete(const MemoryObject *mo) {
+  return !isSymbolic(mo);
+}
+
 ///
 
 std::string ExecutionState::getFnAlias(std::string fn) {
@@ -188,6 +339,7 @@ llvm::raw_ostream &klee::operator<<(llvm::raw_ostream &os, const MemoryMap &mm) 
 }
 
 bool ExecutionState::merge(const ExecutionState &b) {
+  assert(false && "attempt to merge states");
   if (DebugLogStateMerge)
     llvm::errs() << "-- attempting merge of A:" << this << " with B:" << &b
                  << "--\n";
@@ -327,8 +479,7 @@ bool ExecutionState::merge(const ExecutionState &b) {
     const MemoryObject *mo = *it;
     const ObjectState *os = addressSpace.findObject(mo);
     const ObjectState *otherOS = b.addressSpace.findObject(mo);
-    assert(os && !os->readOnly && 
-           "objects mutated but not writable in merging state");
+    assert(os && !mo->isReadOnly() && "objects mutated but not writable in merging state");
     assert(otherOS);
 
     ObjectState *wos = addressSpace.getWriteable(mo, os);
@@ -375,7 +526,7 @@ void ExecutionState::dumpStack(llvm::raw_ostream &out) const {
         out << "=" << value;
     }
     out << ")";
-    if (ii.file != "")
+    if (ii.file != nullptr)
       out << " at " << ii.file << ":" << ii.line;
     out << "\n";
     target = sf.caller;

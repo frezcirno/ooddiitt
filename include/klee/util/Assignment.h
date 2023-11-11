@@ -37,6 +37,7 @@ namespace klee {
         values.begin();
       for (std::vector<const Array*>::const_iterator it = objects.begin(),
              ie = objects.end(); it != ie; ++it) {
+        assert(valIt != values.end());
         const Array *os = *it;
         std::vector<unsigned char> &arr = *valIt;
         bindings.insert(std::make_pair(os, arr));

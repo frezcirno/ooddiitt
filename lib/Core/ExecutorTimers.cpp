@@ -185,7 +185,7 @@ void Executor::processTimers(ExecutionState *current,
       if (timerTicks*kSecondsPerTick > maxInstTime) {
         klee_warning("max-instruction-time exceeded: %.2fs",
                      timerTicks*kSecondsPerTick);
-        terminateStateEarly(*current, "max-instruction-time exceeded");
+        terminateStateOnDispose(*current, "max-instruction-time exceeded");
       }
     }
 

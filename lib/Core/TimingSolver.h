@@ -15,6 +15,13 @@
 
 #include <vector>
 
+class solver_failure : public std::runtime_error
+{
+public:
+  solver_failure()                : std::runtime_error("solver failure") {}
+  solver_failure(const char *msg) : std::runtime_error(msg) {}
+};
+
 namespace klee {
   class ExecutionState;
   class Solver;  
@@ -32,16 +39,14 @@ namespace klee {
     /// \param _simplifyExprs - Whether expressions should be
     /// simplified (via the constraint manager interface) prior to
     /// querying.
-    TimingSolver(Solver *_solver, bool _simplifyExprs = true) 
-      : solver(_solver), simplifyExprs(_simplifyExprs) {}
+    TimingSolver(Solver *_solver, double to, bool _simplifyExprs = true) 
+      : solver(_solver), simplifyExprs(_simplifyExprs) {
+      solver->setCoreSolverTimeout(to);
+    }
     ~TimingSolver() {
       delete solver;
     }
 
-    void setTimeout(double t) {
-      solver->setCoreSolverTimeout(t);
-    }
-    
     char *getConstraintLog(const Query& query) {
       return solver->getConstraintLog(query);
     }
@@ -50,11 +55,19 @@ namespace klee {
 
     bool mustBeTrue(const ExecutionState&, ref<Expr>, bool &result);
 
+    bool mustBeTrue(const ExecutionState&, ref<Expr>);
+
     bool mustBeFalse(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool mustBeFalse(const ExecutionState&, ref<Expr>);
 
     bool mayBeTrue(const ExecutionState&, ref<Expr>, bool &result);
 
+    bool mayBeTrue(const ExecutionState&, ref<Expr>);
+
     bool mayBeFalse(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool mayBeFalse(const ExecutionState&, ref<Expr>);
 
     bool getValue(const ExecutionState &, ref<Expr> expr, 
                   ref<ConstantExpr> &result);

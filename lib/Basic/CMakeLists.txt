@@ -11,6 +11,7 @@ klee_add_component(kleeBasic
   ConstructSolverChain.cpp
   KTest.cpp
   Statistics.cpp
+  CommonUtil.cpp
 )
 set(LLVM_COMPONENTS
   support

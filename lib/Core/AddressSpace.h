@@ -10,6 +10,7 @@
 #ifndef KLEE_ADDRESSSPACE_H
 #define KLEE_ADDRESSSPACE_H
 
+#include <klee/Internal/System/Memory.h>
 #include "ObjectHolder.h"
 
 #include "klee/Expr.h"
@@ -54,12 +55,14 @@ namespace klee {
   public:
     AddressSpace() : cowKey(1) {}
     AddressSpace(const AddressSpace &b) : cowKey(++b.cowKey), objects(b.objects) { }
-    ~AddressSpace() {}
+    ~AddressSpace() { for (auto &itr : objects) { unbindObject(itr.first); } }
 
     /// Resolve address to an ObjectPair in result.
     /// \return true iff an object was found.
+    bool resolveOne(uint64_t address, ObjectPair &result);
     bool resolveOne(const ref<ConstantExpr> &address, 
-                    ObjectPair &result);
+                    ObjectPair &result)
+      { return resolveOne(address->getZExtValue(), result); }
 
     /// Resolve address to an ObjectPair in result.
     ///
@@ -125,6 +128,10 @@ namespace klee {
     /// \retval true The copy succeeded. 
     /// \retval false The copy failed because a read-only object was modified.
     bool copyInConcretes();
+    void getMemoryObjects(std::vector<ObjectPair> &listOPs, const llvm::Type *type = nullptr) const;
+    bool getNamedWrittenMemObjs(std::map<std::string,ObjectPair> &objs, const std::set<MemKind> &kinds) const;
+    void clearWritten();
+    ObjectPair findMemoryObjectByName(const std::string &name, MemKind kind = MemKind::invalid) const;
   };
 } // End klee namespace
 

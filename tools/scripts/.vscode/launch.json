@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "/home/rrutledge/projects/arktos/odit/experiments/regressions/22/brt-out",
+      "args": [ "prev-expr.bc", "post-expr.bc" ]
+    }
+  ]
+}

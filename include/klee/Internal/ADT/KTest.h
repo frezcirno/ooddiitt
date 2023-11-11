@@ -27,6 +27,8 @@ extern "C" {
     /* file format version */
     unsigned version; 
     
+    char *entryFn;
+    
     unsigned numArgs;
     char **args;
 
